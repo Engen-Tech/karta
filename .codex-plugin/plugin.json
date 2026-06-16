@@ -1,0 +1,42 @@
+{
+  "name": "karta",
+  "version": "0.2.0",
+  "description": "Stack-agnostic, ad-hoc orchestration framework. karta synthesizes a binder of work items (karta-plan) and delivers it in parallel waves onto a per-binder integration branch (karta-deliver), building each item in an isolated git worktree (karta-build) and verifying it against its own acceptance check — behavioral (karta-verify) or visual (karta-validate). Works across stacks (frontend, backend, CLI, data, IaC, …) while keeping deep frontend support: component/icon/token mapping, DTCG conformance, and a design-validation loop.",
+  "author": {
+    "name": "Tej Gandham",
+    "email": "tej@engen.tech"
+  },
+  "homepage": "https://github.com/TejGandham/karta",
+  "repository": "https://github.com/TejGandham/karta",
+  "license": "MIT",
+  "keywords": [
+    "orchestration",
+    "binder",
+    "parallel",
+    "worktree",
+    "agents",
+    "frontend",
+    "design",
+    "design-validation",
+    "dtcg",
+    "stack-agnostic"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "karta",
+    "shortDescription": "Synthesize a binder and deliver it in parallel waves, gated by acceptance checks.",
+    "longDescription": "karta packages five stack-agnostic orchestration skills and two read-only gate agents. karta-plan synthesizes a validated binder of work items; karta-deliver builds them in parallel waves onto a per-binder integration branch; karta-build implements one item in an isolated worktree; karta-verify (behavioral) and karta-validate (visual) are the acceptance gates. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation).",
+    "developerName": "Tej Gandham",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/TejGandham/karta",
+    "defaultPrompt": [
+      "Synthesize a karta binder for this work.",
+      "Deliver this binder in parallel waves.",
+      "Validate this running view against the design."
+    ]
+  }
+}

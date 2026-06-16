@@ -1,0 +1,20 @@
+{
+  "name": "karta-local",
+  "interface": {
+    "displayName": "karta local"
+  },
+  "plugins": [
+    {
+      "name": "karta",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

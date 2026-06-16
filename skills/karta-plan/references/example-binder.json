@@ -1,0 +1,47 @@
+{
+  "slug": "notifications-redesign",
+  "motivation": "Replace the legacy alerts panel with the new notifications center from the design prototype.",
+  "scope": {
+    "included": ["notifications list view", "notification detail pane", "mark-all-read action"],
+    "excluded": ["push delivery backend", "email digests"]
+  },
+  "design_facts": {
+    "source": "design-export/notifications.html",
+    "stack": "Next.js app router + internal component library + DTCG tokens + GraphQL"
+  },
+  "token_manifest": null,
+  "env_contract": {
+    "command": "npm run dev",
+    "supports_isolation": true,
+    "isolation_params": ["PORT"]
+  },
+  "work_items": [
+    {
+      "id": "shell",
+      "title": "Notifications center shell + routing",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": "exports <NotificationsCenter/> mount point at /notifications",
+      "oracle": { "type": "smoke", "assertions": ["/notifications route renders without error"], "command": "npm run lint && npm test" }
+    },
+    {
+      "id": "list-view",
+      "title": "Notifications list view",
+      "estimate": "L",
+      "depends_on": ["shell"],
+      "design_reference": "notifications-list",
+      "oracle": { "type": "visual", "assertions": ["matches notifications-list view at 1440x900, zero critical/major discrepancies"] }
+    },
+    {
+      "id": "schema-migration",
+      "title": "Add read_at column to notifications table",
+      "estimate": "S",
+      "depends_on": [],
+      "serialize": true,
+      "shared_resources": ["db/migrations"],
+      "contract": "adds nullable read_at timestamptz to notifications",
+      "oracle": { "opt_out": true, "reason": "migration verified by the team's existing migration test suite in CI, not re-run here" }
+    }
+  ]
+}
