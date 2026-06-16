@@ -1,7 +1,5 @@
 # karta
 
-> **करघा** — *a loom.* Load the work, weave it into built, verified code, many threads at once.
-
 ## What it is
 
 karta is a **stack-agnostic, ad-hoc orchestration framework** — narrow, unopinionated, repo-directed. You hand it a problem; it synthesizes a **binder** of work items, then delivers that binder in **parallel waves** onto a per-binder integration branch, building each item in its own isolated git worktree and gating each one against its own acceptance check. There is no project setup, no registry, no invariants file, no stored state — karta reads the binder and the repo at runtime and nothing else.
