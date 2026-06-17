@@ -104,6 +104,7 @@ Tear the wave env down once at the end of the wave, after the post-wave check (S
 
 - Items that passed merge normally.
 - The failing item halts with a call to action naming the cause. An acceptance-gate halt (a capped DEVIATION or a SPEC-SUSPECT) leaves a uniform anchor: a committed item branch plus a `failed` ref at that tip (see [references/integration-branch.md](references/integration-branch.md)).
+- A **BLOCKED-empty** halt is a different shape and is **not** one of the four choices below. An item whose diff is empty produced nothing to judge — a whiff, or a change already present on the tip — so there is no diff to merge and no named assertion to waive: accept and defer do not apply. Its ways forward are **re-dispatch** (a whiff) or **drop/amend the item via karta-plan** (already present). A whiff caught at build time leaves no `failed` ref at all (the `build:acceptance` precondition writes no `built` and halts); an already-present item is caught at merge-time re-validation and halts that item's merge. See [references/verification-gate.md](references/verification-gate.md).
 - Only the failing item's dependents wait; the rest of the frontier continues.
 
 **The four-way human choice (offered by the orchestrator, through the host's user-input facility).** At the halt, prompt the human — inside this orchestrator session — for one of four choices per halted item:

@@ -17,6 +17,16 @@ You are dispatched with three things; read them, do not re-derive them:
 
 The work item's `oracle` has one of two shapes. A **check oracle** carries `type` (one of `unit`, `integration`, `e2e`, `smoke`, `visual`), an optional `assertions` array, and an optional `command`. An **opt-out oracle** carries `opt_out: true` and a `reason`. If the oracle is opt-out, you have nothing to disposition — return `verdict: pass` with a summary naming the recorded reason; the opt-out is the decision. Visual oracles (`type: visual`) are not yours — `karta-validate` owns those; if you are handed one, return `verdict: pass` with a note that the visual check is `karta-validate`'s.
 
+## Precondition — the diff must be non-empty
+
+Before you disposition any assertion, run `git diff <range>` and classify what it returns:
+
+- It errors or is unreadable (for example a bad ref, exit 128) → **BLOCKED**: there is no readable diff.
+- It is readable but **empty** — exit 0, zero hunks → **BLOCKED**: the item produced zero changes in range, so there is nothing to disposition.
+- It is readable and has changes → go on to the per-assertion disposition below.
+
+karta has no no-op work item, so an empty diff is never CONFORMANT. It means one of two things: the work was not delivered (a whiff), or its change is already present on the integration tip (a sibling or earlier work landed it). Do **not** disposition assertions against an empty diff and do **not** guess a verdict — return BLOCKED, and in the reason say which of the two it looks like. The build-time guard catches the whiff before the gate runs; you are the catch for the already-present case, which surfaces when the orchestrator re-validates the item against the moved integration tip.
+
 ## Per-assertion evidence disposition (the core mechanism)
 
 For **each** entry in `oracle.assertions[]`, first classify it by the kind of evidence its truth requires, then judge it:
@@ -47,7 +57,7 @@ If the contract is declared but no external artifact confirms it → that is a `
 
 - **CONFORMANT** (`verdict: pass`) — alignment with the oracle and contract: inspection-verifiable assertions hold, execution-required assertions are test-covered or declared as debt, and any declared contract is confirmed by an external artifact. State in your report that this is **not a runtime-correctness guarantee** — the project's check command is the runtime truth.
 - **DEVIATION** (`verdict: concerns`) — one or more CRITICAL or MAJOR findings. Burns a loop attempt; kicks back to the implementer.
-- **BLOCKED** (`verdict: blocked`) — a required input is missing or unreadable (no binder at the path, no work item with that id, no readable diff).
+- **BLOCKED** (`verdict: blocked`) — the gate has no work product to judge: a required input is missing (no binder at the path, no work item with that id), the diff is unreadable (a bad ref, exit 128), **or the diff is readable but empty — the item produced zero changes** (a whiff, or a change already present on the tip). See the precondition above.
 - **SPEC-SUSPECT** (`verdict: blocked`) — the code diverges from the binder, but the divergence looks **intentional and correct** and the binder appears stale or wrong. This halts for human adjudication; it does **not** burn a loop attempt or kick back. See below.
 
 MINOR-only items never trigger a loop; list them in the report's notes.
@@ -99,6 +109,9 @@ Emit this report (snapshot — overwrite whole each attempt; no timeline):
 
 **Spec-suspect (only when Verdict is SPEC-SUSPECT):**
 - [file:line] — code does [X]; binder says [Y]; the code looks intentional and correct. Adjudicate: amend the binder via karta-plan, or confirm the code is wrong and kick back.
+
+**Blocked (only when Verdict is BLOCKED):**
+- [what is missing or unjudgeable]. For an empty diff, say which it looks like — a whiff (re-dispatch the worker) or a change already present on the tip (drop or amend the item via karta-plan). The gate has nothing to disposition; this is not an accept/defer candidate — there is no diff to merge and no named assertion to waive.
 
 **Notes (CONFORMANT with minor items):**
 - [MINOR] [item] — not blocking

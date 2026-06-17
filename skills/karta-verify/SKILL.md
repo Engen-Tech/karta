@@ -35,14 +35,14 @@ The agent reads the binder on disk, dispositions each `oracle.assertions[i]` as 
 
 - `CONFORMANT` — all assertions disposed, contract confirmed or absent.
 - `DEVIATION` — one or more unresolved assertions or a missing contract artifact.
-- `BLOCKED` — a required input is unreadable.
+- `BLOCKED` — a required input is unreadable, **or the diff is readable but empty** (the item produced zero changes — nothing to disposition).
 - `SPEC-SUSPECT` — the code diverges intentionally and the binder looks stale; halts for human adjudication.
 
 **On DEVIATION:** kick the findings back to karta-build for bounded self-correction and re-dispatch the agent on the corrected diff. Cap: **max 2 attempts total**. On the second attempt still returning DEVIATION, halt with a call to action — no human escalation at this gate, and **no self-clear**: the implementer may **not** make the capped failure pass by declaring debt. The capped item takes the halt path — in a wave the worker commits its item branch and writes a `failed` ref at that tip ("halted at the gate, not cleanly done"), not done. The ways forward are fix-and-rerun, re-plan the unmet assertion as an explicit oracle `opt_out` via karta-plan and re-run (the binder is read-only to build; karta has no backlog), or — at the delivery orchestrator's Phase-4 halt — a **human accept-waiver** or **defer** (the orchestrator asks the human directly; this gate never records the accept). See `references/verification-gate.md`.
 
 **On SPEC-SUSPECT:** halt for human adjudication immediately. Do not loop; do not kick back. In a wave the worker leaves the same `failed` anchor — a committed item branch + a `failed` ref carrying the spec-suspect reason (it means "halted at the gate," not "the code is bad"). The binder is amended through karta-plan; alternatively the human may accept the divergence at the Phase-4 halt (the orchestrator records the waiver against the halted tip), never by this gate.
 
-**On BLOCKED:** halt with the blocking reason; do not proceed to the boundary scan (`verify:boundary`).
+**On BLOCKED:** halt with the blocking reason; do not proceed to the boundary scan (`verify:boundary`). For an empty diff, the reason names which it looks like — a whiff (re-dispatch the worker) or a change already present on the tip (drop or amend the item via karta-plan). An empty-diff BLOCKED is not an accept/defer candidate: there is no diff to merge and no named assertion to waive.
 
 ## Phase 2 — Boundary scan  `verify:boundary`
 

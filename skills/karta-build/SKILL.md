@@ -317,6 +317,14 @@ When fixing issues between rounds:
 
 Once the floor is clean, run the item's acceptance check through the verification gate. The gate is **read-only** — it reports, it never edits — and it runs in a fresh, thin context (only the worktree, the binder, and the item's `oracle`/`contract`). See [references/verification-gate.md](references/verification-gate.md).
 
+**Precondition — did this item change anything?** Before you run the gate, confirm the item branch actually changed something versus the integration tip it branched from:
+
+```
+git diff --quiet "$integration"...HEAD   # exit 0 = no change; exit 1 = change present
+```
+
+If there is no change, this item is **not delivered** — karta has no no-op work item. Do **not** run the gate and do **not** write any completion ref. Halt and report the cause "produced no changes." This is the build-time catch for a whiff. It leaves **no** ref at all — the branch equals its base, so there is no distinct tip to anchor a `failed`/`built`/`done` ref to, and there is nothing to merge or mark. In an orchestrated wave this is just another halted worker the orchestrator skips when it re-derives the frontier (`deliver:waveloop` Step 3); invoked directly (single-item mode) you stop here, before Phase 9 ever merges. The precondition applies **even to an opt-out item**: opt-out skips *verification*, not *delivery*. If the item genuinely needs no change, that is a planning error — surface it for a re-plan via karta-plan, never a silent pass. (The gate enforces this again on its side: an empty diff handed to the acceptance reviewer returns BLOCKED, the catch for a change that is already present on the moved tip at merge-time re-validation — see [references/verification-gate.md](references/verification-gate.md).)
+
 **Opt-out items skip the loop.** When `ITEM_ORACLE.opt_out` is true, record the `reason` and skip acceptance (the floor still applies). Report the opt-out in the final summary — opt-outs are explicit and surfaced, never silent (see [references/definition-of-done.md](references/definition-of-done.md)).
 
 **Choose the gate by oracle type:**
