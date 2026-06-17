@@ -25,9 +25,19 @@ The marker is a snapshot: it states what *is* deferred and why, not a history of
 A `KARTA-DEFER` marker arises in two very different situations, held to two different bars:
 
 1. **Inline build-time deferral — the implementer's call.** While implementing, the worker may legitimately skip a test, stub a dependency, or defer an edge case, placing the marker at the site. This is a normal, surfaced engineering decision; the item can still complete, carrying the noted debt.
-2. **A *capped acceptance-gate failure* is never cleared by a debt marker.** When the read-only acceptance gate caps out (two attempts, still failing), the item halts to a `failed` ref — letting the implementer place a marker to proceed would be grading its own escape. A `KARTA-DEFER` marker does **not** make the capped assertion pass. The only way to accept an unmet acceptance assertion is to **re-plan it as an explicit oracle `opt_out` (with a reason) via karta-plan** and re-run — a deliberate plan-time decision (the binder is read-only to build), recorded and validated like any opt-out. (See the verification-gate reference.)
+2. **A *capped acceptance-gate failure* is never cleared by a debt marker.** When the read-only acceptance gate caps out (two attempts, still failing), the item halts to a `failed` ref — letting the implementer place a marker to proceed would be grading its own escape. A `KARTA-DEFER` marker does **not** make the capped assertion pass. The two ways to accept an unmet acceptance assertion both live outside the worker: **re-plan it as an explicit oracle `opt_out` (with a reason) via karta-plan** (a plan-time decision; the binder is read-only to build), or **a human accept-waiver** at the delivery halt (a build-time decision the orchestrator records in git). (See the verification-gate and integration-branch references.)
 
 The distinction is the guardrail: a worker may *note* debt as it builds, but it may never *escape an acceptance cap* by declaring debt.
+
+## Inline marker vs the human decisions at a halt
+
+The inline `KARTA-DEFER` marker is a different thing from the two **human** choices the delivery orchestrator offers when an item halts at the acceptance gate. Keep them visibly separate — a worker must not be able to read its own marker as a self-accept path:
+
+- **Inline `KARTA-DEFER`** — the implementer's note for an untestable-here assertion or a deferred edge case. It is build-time, worker-authored, and **never clears a gate**.
+- **The human accept-waiver** — the orchestrator, from a live human decision (never from worker text), waives the named unmet assertion and merges the halted item as-is, recording the waiver in git (merge-commit trailers + the `accepted` ref). It is the only build-time path to merge an unmet assertion.
+- **The human defer choice** — the human leaves the item unfinished (its `failed` ref stands, no `done`); the run continues and merges the independent rest, and hands off incomplete.
+
+The backlog sink (an optional destination the user passes to karta-deliver at run time — a file path or an append-command, **not** a binder field) is where the orchestrator appends an accept or defer record: the item id, the unmet assertion(s)/divergence, the decision, the human's reason, and — for accept — the merge commit. karta appends to it and never reads, schedules, or revisits it; absent a sink, the decision is still surfaced once in the run report. An inline `KARTA-DEFER` marker is **not** routed to this sink — its follow-up field already records where that work lives.
 
 ## Surfacing
 
