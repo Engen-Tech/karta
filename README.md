@@ -111,4 +111,4 @@ karta ships as a self-contained Claude Code plugin + marketplace (the `.claude-p
 /plugin install karta@karta
 ```
 
-This registers all six skills, namespaced under the plugin — the five pipeline skills (`karta:karta-plan`, `karta:karta-deliver`, `karta:karta-build`, `karta:karta-verify`, `karta:karta-validate`) plus `karta:karta-plainlanguage` — and the two gate agents. (Pre-1.0: the names keep the `karta-` prefix; they may shorten at a stable release.)
+This registers all six skills, namespaced under the plugin — the five pipeline skills (`karta:karta-plan`, `karta:karta-deliver`, `karta:karta-build`, `karta:karta-verify`, `karta:karta-validate`) plus `karta:karta-plainlanguage` — and the two gate agents. (The plugin and skill names are stable at 1.0 with the `karta-` prefix.)
