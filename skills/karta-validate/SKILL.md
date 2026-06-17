@@ -5,6 +5,8 @@ description: Compare a running frontend implementation against design HTML files
 
 Compare a single frontend view against its design prototype exported from Claude Design OR a runtime-JSX design source. This skill is karta's **visual acceptance gate** — the gate invoked for oracle `type: visual` items. It is read-only: it reports discrepancies as kickback input for `karta-build` to self-correct and never fixes anything itself. The caller decides what to act on.
 
+Write everything you show a person — the report, the stop messages, the summaries — in plain language. See [references/user-facing-prose.md](references/user-facing-prose.md).
+
 See [references/verification-gate.md](references/verification-gate.md) for how the gate fits the broader build/verify loop, and [references/definition-of-done.md](references/definition-of-done.md) for the acceptance floor.
 
 The skill uses bundled PEP 723 Python scripts to avoid Bash/WSL/POSIX assumptions:
@@ -118,7 +120,7 @@ If `compare_ready` is `false` because `APP_HEALTH` is `DEGRADED_AUTH`, return:
 ```text
 STATUS: blocked_auth
 
-SUMMARY: The app route rendered an authentication screen instead of the target view. Design fidelity was not evaluated.
+SUMMARY: The app route showed an authentication screen, not the target view, so design fidelity was not checked. Set up an authenticated session and re-run.
 
 APP_HEALTH: DEGRADED_AUTH
 

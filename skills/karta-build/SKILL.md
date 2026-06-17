@@ -410,7 +410,7 @@ Either form satisfies the requirement: the bracket marker in the subject (canoni
 
 ### Phase 10 — Report back  `build:report`
 
-Brief summary to the user (~8 lines):
+Write everything you show a person in plain language — see [references/user-facing-prose.md](references/user-facing-prose.md). Give the user a short summary (~8 lines):
 
 - **Item id** and the binder slug
 - **Worktree path** — so the user knows where the checkout lives
@@ -418,9 +418,9 @@ Brief summary to the user (~8 lines):
 - **Runtime** — the active runtime version(s) the floor ran under, against the `runtime_contract` (or detected pin files); note a clean match or the mismatch that halted
 - **Generated-but-unused files** (greenfield/scaffold items only) — anything the framework generator emitted that fell outside the item's `scope`/`contract`, noted here rather than written to the read-only binder
 - **Acceptance result** — which gate ran (`karta-verify` / `karta-validate` / opted out), final disposition, rounds used, any residual finding
-- **Declared-debt summary** — every `KARTA-DEFER` marker placed (what, why, external follow-up), per [references/declared-debt.md](references/declared-debt.md); markers are inline deferrals only — an item carrying inline debt is never reported as done without its deferral list shown, and a capped acceptance failure is never turned into a marker (it halts to a `failed` ref; accepting the unmet assertion is a re-plan opt-out via karta-plan or a human accept-waiver the orchestrator records, never a worker-placed marker). karta surfaces the debt register once and never tracks it (no backlog)
+- **Declared-debt summary** — every `KARTA-DEFER` marker you placed (what, why, external follow-up), per [references/declared-debt.md](references/declared-debt.md). Markers are inline deferrals only. An item carrying inline debt is never reported as done without its deferral list shown. A capped acceptance failure is never turned into a marker: it halts to a `failed` ref. Accepting the unmet assertion is a re-plan opt-out via karta-plan or a human accept-waiver the orchestrator records, never a worker-placed marker. karta surfaces the debt register once and never tracks it (no backlog)
 - **Secret-scan status** — clean, or blocked-with-finding
-- A self-assessment from the automated gates, explicitly flagging anything nothing checked (e.g. accessibility) as needing manual review rather than implying it passed
+- A self-assessment from the automated gates. Flag anything no gate checked (e.g. accessibility) as needing manual review — do not imply it passed
 
 **On a halt, preserve the failing item's worktree and print its path.** Leave the worktree in place on success too — re-runs and review iterations frequently need it back.
 

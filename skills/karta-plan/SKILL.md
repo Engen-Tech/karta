@@ -167,21 +167,23 @@ Fix gaps in the main thread before proceeding.
 
 Per [references/smart-surfaced-review.md](references/smart-surfaced-review.md): compute the seven boundary signals for each work item and write `surface { flagged, signals }` into the binder. When a signal cannot be computed yet (no diff, no path conventions), record `not-computed:<signal-name>` in `surface.signals` rather than giving a clean pass.
 
-Present the results. Tell the user which items are flagged and why. Offer three options:
+Write everything you show a person in plain language — see [references/user-facing-prose.md](references/user-facing-prose.md).
+
+Show the user which items are flagged and why. Then give them three ways to go:
 
 - **Review all** — walk every work item.
-- **Review flagged only** — walk only surfaced items.
-- **Accept as-is** — proceed without a walk.
+- **Review flagged only** — walk only the flagged items.
+- **Accept as-is** — skip the walk and move on.
 
-Do not surface oracle details for routine, unflagged items — keep the list short. Front-load any decisions here so the deliver and build steps can run hands-off.
+Keep the list short: don't show oracle details for routine, unflagged items. Settle any decisions here so the deliver and build steps can run hands-off.
 
 ---
 
 ### Phase 4 — Cost education  `plan:cost`
 
-When the binder contains many work items or several large (`L`) estimates, tell the user plainly: this scope will take time and real money before anything tangible lands. Suggest a smaller first slice — the items with no `depends_on` that form the first wave — as a lower-risk starting point.
+When the binder has many work items or several large (`L`) estimates, tell the user plainly: this scope will cost time and real money before anything lands. Suggest a smaller first slice — the items with no `depends_on` that form the first wave — as a lower-risk start.
 
-Educate; do not forbid. If the user wants to proceed with the full scope, move on.
+Educate; don't forbid. If the user wants the full scope, move on.
 
 ---
 
@@ -197,22 +199,20 @@ uv run skills/karta-plan/scripts/validate_binder.py --binder <path>
 
 Do not proceed on a validation failure. Fix the binder and re-validate until it passes.
 
-**Single-work-item hatch.** A binder with exactly one work item is eligible to skip the deliver phase and go straight to build. Tell the user this option exists; do not make the choice for them.
+**Single-work-item hatch.** A binder with exactly one work item can skip the deliver phase and go straight to build. Tell the user this option exists; let them make the call.
 
-**Commit on the `commit` verb.** Present the binder as an editable card. Commit only when the user says "commit." The binder is read-only to all subsequent build steps once committed.
+**Commit on the `commit` verb.** Show the binder as an editable card. Commit only when the user says "commit." Once committed, the binder is read-only to every later build step.
 
 ---
 
 ### Phase 6 — Report back  `plan:report`
 
-Tell the user:
+Lead with the binder path and the total work-item count, then give the user:
 
-- Binder path and the total work-item count.
-- Work item IDs in dependency order (topological sort).
-- The dependency chain.
-- Surfaced items: IDs and the signals that triggered review.
-- Opted-out items: IDs and recorded reasons (from the validator's opt-out summary).
-- The eligible first wave: items with no `depends_on` (these can start immediately).
+- **Work order** — the item IDs in dependency order (topological sort), and the dependency chain.
+- **Flagged for review** — the IDs and the signals that flagged each one.
+- **Opted-out items** — the IDs and their recorded reasons (from the validator's opt-out summary).
+- **First wave** — the items with no `depends_on`. These can start right away.
 
 ---
 

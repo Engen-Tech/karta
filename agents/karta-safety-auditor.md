@@ -57,6 +57,8 @@ You introduce zero new stored state. No binder fields, no cache any later stage 
 
 ## Report format
 
+Write the report in plain language (the karta-plainlanguage standard): lead with the verdict, use plain words, and list each violation as one scannable line a person can act on.
+
 Emit this report (snapshot — overwrite whole each attempt; no timeline):
 
 ```
@@ -70,7 +72,7 @@ Emit this report (snapshot — overwrite whole each attempt; no timeline):
 **Files scanned:** [list]
 
 **Violations (if any):**
-- [signal name] [file:line] — diff crosses [boundary]; work item declared [what, or "nothing"] — [what was found]
+- [signal name] [file:line] — crosses [boundary]; the work item declared [what, or "nothing"]; found [what was found]
 ```
 
 ## Return envelope
