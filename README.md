@@ -81,19 +81,23 @@ It ships the **`karta-plainlanguage`** skill in the plugin, so karta reads the s
 karta/
   .claude-plugin/     plugin.json + marketplace.json   (Claude Code packaging)
   .codex-plugin/      plugin.json                      (Codex packaging)
+  .codex/agents/      *.toml                           (Codex gate subagents — generated)
   .agents/plugins/    marketplace.json                 (repo-local Codex marketplace)
+  .agents/skills/     <skill>/…                        (repo-local Codex skill mirror — generated)
+  AGENTS.md           contributor orientation (both runtimes)
   README.md
-  agents/             karta-acceptance-reviewer.md  +  karta-safety-auditor.md
+  agents/             karta-acceptance-reviewer.md  +  karta-safety-auditor.md   (canonical)
   skills/
-    karta-plan/      SKILL.md  +  references/{binder-reference.md, …}
-    karta-deliver/   SKILL.md  +  references/{integration-branch.md, parallelism-gates.md, …}
-    karta-build/     SKILL.md  +  references/…
-    karta-verify/    SKILL.md  +  references/verification-gate.md
+    karta-plan/      SKILL.md  +  agents/openai.yaml  +  references/{binder-reference.md, …}
+    karta-deliver/   SKILL.md  +  agents/openai.yaml  +  references/{integration-branch.md, …}
+    karta-build/     SKILL.md  +  agents/openai.yaml  +  references/…
+    karta-verify/    SKILL.md  +  references/{verification-gate.md, *.agent.md}  (bundled gate instructions)
     karta-validate/  SKILL.md  +  scripts/{serve_design.py, capture_view.py}
     karta-plainlanguage/  SKILL.md                 (bundled writing standard)
+  scripts/            validate_plugin.py + sync_codex_skills.py + sync_codex_agents.py + …
 ```
 
-Each skill is a directory whose `SKILL.md` carries the frontmatter and workflow (with heavy material in `references/` loaded on demand); each agent is a markdown file under `agents/` with `name`/`description` frontmatter. Agents are auto-discovered from `agents/`. Skills are listed explicitly in the Claude marketplace manifest (`.claude-plugin/marketplace.json`, a `strict` plugin entry) and discovered from the `skills/` directory by the Codex manifest — so when you add a skill directory, add it to the marketplace manifest too. `validate_plugin.py` checks that the two stay in sync.
+Each skill is a directory whose `SKILL.md` carries the frontmatter and workflow (with heavy material in `references/` loaded on demand); each agent is a markdown file under `agents/` with `name`/`description` frontmatter. Skills are listed explicitly in the Claude marketplace manifest (`.claude-plugin/marketplace.json`, a `strict` plugin entry) and bundled from `skills/` by the Codex manifest. The `skills/` and `agents/` trees are **canonical**; the Codex projections — `.agents/skills/` (a real-directory mirror, since Codex can't follow symlinked skills on Windows) and `.codex/agents/*.toml` plus the bundled `*.agent.md` gate instructions — are **generated** by `sync_codex_skills.py` / `sync_codex_agents.py` and kept byte-identical to their source. `validate_plugin.py` checks every manifest, mirror file, and projection in one pass, so nothing drifts. See `AGENTS.md` for the edit-then-generate workflow.
 
 ## Requirements
 
@@ -112,3 +116,12 @@ karta ships as a self-contained Claude Code plugin + marketplace (the `.claude-p
 ```
 
 This registers all six skills, namespaced under the plugin — the five pipeline skills (`karta:karta-plan`, `karta:karta-deliver`, `karta:karta-build`, `karta:karta-verify`, `karta:karta-validate`) plus `karta:karta-plainlanguage` — and the two gate agents. (The plugin and skill names are stable at 1.0 with the `karta-` prefix.)
+
+## Use with Codex CLI
+
+karta ships the same skills to Codex two ways:
+
+- **Plugin** — install from the repo marketplace (`.codex-plugin/plugin.json` + `.agents/plugins/marketplace.json`). Open `/plugins` in Codex, add this repo as a marketplace source, and install karta. All six skills come along; invoke one explicitly with `$karta-plan` (or `@karta`), or let Codex pick it implicitly from your prompt.
+- **Clone and run** — run `codex` inside a karta checkout. Codex auto-discovers the skills from the committed `.agents/skills/` mirror (real directories, no symlink, so it works on macOS, Linux, and Windows).
+
+**The gate runs automatically — no setup.** Codex plugins can't register subagents, so on a plugin install `karta-verify` spawns a read-only subagent using the gate instructions bundled inside the skill (`references/*.agent.md`). In a karta checkout, or any project carrying `.codex/agents/*.toml`, the same agents run as registered read-only subagents with sandbox-enforced read-only. Either way you copy nothing. Full details and the one read-only-enforcement nuance are in [docs/how-to/codex.md](docs/how-to/codex.md).

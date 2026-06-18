@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/TejGandham/karta/binder-schema.json",
+  "title": "karta binder",
+  "type": "object",
+  "required": ["slug", "motivation", "scope", "work_items"],
+  "additionalProperties": false,
+  "properties": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "kebab-case; names the integration branch karta/<slug>/integration and the wave tags"
+    },
+    "motivation": { "type": "string", "minLength": 1 },
+    "scope": {
+      "type": "object",
+      "required": ["included"],
+      "additionalProperties": false,
+      "properties": {
+        "included": { "type": "array", "items": { "type": "string" } },
+        "excluded": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "design_facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": ["string", "null"], "description": "path to the source design/prototype, or null" },
+        "stack": { "type": "string", "description": "resolved stack, recorded once" }
+      }
+    },
+    "token_manifest": {
+      "type": ["object", "null"],
+      "description": "shared design-token map; present only when a token system exists"
+    },
+    "env_contract": {
+      "type": "object",
+      "required": ["command", "supports_isolation"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "description": "the project's own test/dev env command" },
+        "supports_isolation": { "type": "boolean", "description": "whether the command accepts injectable isolation params" },
+        "isolation_params": { "type": "array", "items": { "type": "string" }, "description": "e.g. PORT, COMPOSE_PROJECT_NAME" },
+        "cwd": { "type": "string", "description": "worktree-relative directory the command runs in; default is the worktree root" }
+      }
+    },
+    "runtime_contract": {
+      "type": "object",
+      "required": ["runtimes", "on_unavailable"],
+      "additionalProperties": false,
+      "description": "required language/toolchain runtimes the project's commands need; present only when a runtime floor exists",
+      "properties": {
+        "runtimes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "version"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "runtime/toolchain, e.g. node, python, go, ruby, rust" },
+              "version": { "type": "string", "description": "required version or range, e.g. '>=24.15.0', '3.12.x'" },
+              "manager": { "type": "string", "description": "version manager that pins it, e.g. nvm, mise, asdf, volta, pyenv" }
+            }
+          }
+        },
+        "on_unavailable": {
+          "enum": ["halt"],
+          "description": "policy when a required runtime is absent: halt and report. karta does not provision runtimes on its own."
+        }
+      }
+    },
+    "work_items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/workItem" }
+    }
+  },
+  "$defs": {
+    "workItem": {
+      "type": "object",
+      "required": ["id", "title", "oracle"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "estimate": { "enum": ["S", "M", "L"] },
+        "depends_on": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "design_reference": { "type": "string", "description": "view/route id, or the literal 'none'" },
+        "component_map": { "type": "array" },
+        "icon_map": { "type": "array" },
+        "token_changes": { "type": "array" },
+        "contract": {
+          "type": ["object", "string", "null"],
+          "description": "the open-shape interface this item exposes/consumes"
+        },
+        "serialize": { "type": "boolean", "default": false },
+        "shared_resources": { "type": "array", "items": { "type": "string" } },
+        "touches": { "type": "array", "items": { "type": "string" }, "description": "files/paths this item creates or modifies (concrete paths, directory prefixes, or globs all match); drives the parallelism file-collision + shared-resource gates and the validator's same-wave overlap check" },
+        "surface": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "flagged": { "type": "boolean" },
+            "signals": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "oracle": { "$ref": "#/$defs/oracle" }
+      }
+    },
+    "oracle": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["unit", "integration", "e2e", "smoke", "visual"] },
+            "assertions": { "type": "array", "items": { "type": "string" } },
+            "command": { "type": "string", "description": "the CI-facing check karta runs; floor is compile/type-check/lint" },
+            "cwd": { "type": "string", "description": "worktree-relative directory the command runs in; default is the worktree root" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["opt_out", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "opt_out": { "const": true },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  }
+}

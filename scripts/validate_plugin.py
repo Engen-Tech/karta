@@ -8,13 +8,19 @@ Usage:
   uv run scripts/validate_plugin.py --self-test   # check this repo, exit 0/1
 """
 from __future__ import annotations
-import argparse, json, re, sys
+import argparse, json, re, sys, tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
 LINK_RE = re.compile(r"\(([^\s)]+\.(?:md|json|py))\)")        # markdown links (no spaces)
 PATH_RE = re.compile(r"`(references/[^`]+|scripts/[^`]+)`")    # backticked paths
+
+# Reuse the generators' projection logic so the validator and the writers can never
+# disagree about what "in sync" means. (Importing is side-effect-free: argparse runs
+# only under each script's __main__.)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sync_codex_skills, sync_codex_agents  # noqa: E402
 
 
 def _frontmatter(text: str) -> dict[str, str]:
@@ -78,7 +84,101 @@ def check() -> list[str]:
                 errors.append(f"marketplace.json: skill '{name}' exists under skills/ but plugin '{pname}' does not list it")
             for name in sorted(listed - present):
                 errors.append(f"marketplace.json: plugin '{pname}' lists '{name}' but skills/{name}/SKILL.md is missing")
+    _check_codex(errors, present)
     return errors
+
+
+def _load_json(path: Path, errors: list[str]) -> dict:
+    if not path.exists():
+        errors.append(f"{path.relative_to(ROOT)}: missing")
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        errors.append(f"{path.relative_to(ROOT)}: invalid JSON ({e})")
+        return {}
+
+
+def _check_codex(errors: list[str], skill_names: set[str]) -> None:
+    """Guard the Codex artifacts and every generated projection against drift."""
+    # 1. Codex plugin manifest — present, well-formed, and consistent with Claude's.
+    claude = _load_json(ROOT / ".claude-plugin" / "plugin.json", errors)
+    codex = _load_json(ROOT / ".codex-plugin" / "plugin.json", errors)
+    if codex:
+        for field in ("name", "version", "description"):
+            if not codex.get(field):
+                errors.append(f".codex-plugin/plugin.json: missing '{field}'")
+        if claude:
+            for field in ("name", "version"):
+                if codex.get(field) != claude.get(field):
+                    errors.append(
+                        f".codex-plugin/plugin.json: '{field}' ({codex.get(field)!r}) "
+                        f"!= .claude-plugin/plugin.json ({claude.get(field)!r})")
+        skills_ptr = codex.get("skills")
+        if isinstance(skills_ptr, str) and not (ROOT / skills_ptr).is_dir():
+            errors.append(f".codex-plugin/plugin.json: skills path '{skills_ptr}' is not a directory")
+        iface = codex.get("interface", {})
+        for field in ("displayName", "shortDescription", "category"):
+            if not iface.get(field):
+                errors.append(f".codex-plugin/plugin.json: interface missing '{field}'")
+
+    # 2. Codex repo marketplace — shape + plugin entry policy/category.
+    market = _load_json(ROOT / ".agents" / "plugins" / "marketplace.json", errors)
+    if market:
+        if not market.get("name"):
+            errors.append(".agents/plugins/marketplace.json: missing top-level 'name'")
+        if not market.get("interface", {}).get("displayName"):
+            errors.append(".agents/plugins/marketplace.json: missing interface.displayName")
+        for entry in market.get("plugins", []):
+            pn = entry.get("name", "?")
+            src = entry.get("source", {})
+            if not (src.get("source") and src.get("path")):
+                errors.append(f".agents/plugins/marketplace.json: plugin '{pn}' missing source.source/source.path")
+            pol = entry.get("policy", {})
+            if not (pol.get("installation") and pol.get("authentication")):
+                errors.append(f".agents/plugins/marketplace.json: plugin '{pn}' missing policy.installation/authentication")
+            if not entry.get("category"):
+                errors.append(f".agents/plugins/marketplace.json: plugin '{pn}' missing 'category'")
+            if codex and pn != codex.get("name"):
+                errors.append(f".agents/plugins/marketplace.json: plugin '{pn}' != plugin.json name '{codex.get('name')}'")
+
+    # 3. Repo-local skill mirror — byte-parity with skills/, no orphans.
+    want, names = sync_codex_skills.expected()
+    for p, content in sorted(want.items()):
+        if not p.exists():
+            errors.append(f"{p.relative_to(ROOT)}: missing from .agents/skills mirror (run sync_codex_skills.py)")
+        elif p.read_bytes() != content:
+            errors.append(f"{p.relative_to(ROOT)}: differs from canonical skill (run sync_codex_skills.py)")
+    for p in sorted(set(sync_codex_skills.mirror_files()) - set(want)):
+        errors.append(f"{p.relative_to(ROOT)}: orphaned in mirror (no canonical source)")
+    for name in sorted(sync_codex_skills.mirror_skill_names() - names):
+        errors.append(f".agents/skills/{name}: orphaned (no skills/{name})")
+
+    # 4. Codex agent projections — TOML + bundled instructions match agents/*.md.
+    for p, content in sorted(sync_codex_agents.projections().items()):
+        if not p.exists():
+            errors.append(f"{p.relative_to(ROOT)}: missing (run sync_codex_agents.py)")
+        elif p.read_text() != content:
+            errors.append(f"{p.relative_to(ROOT)}: differs from agents/*.md (run sync_codex_agents.py)")
+    for toml_path in sorted((ROOT / ".codex" / "agents").glob("*.toml")):
+        try:
+            data = tomllib.loads(toml_path.read_text())
+        except tomllib.TOMLDecodeError as e:
+            errors.append(f".codex/agents/{toml_path.name}: invalid TOML ({e})")
+            continue
+        if data.get("sandbox_mode") != "read-only":
+            errors.append(f".codex/agents/{toml_path.name}: sandbox_mode must be 'read-only'")
+        for field in ("name", "description", "developer_instructions"):
+            if not data.get(field):
+                errors.append(f".codex/agents/{toml_path.name}: missing '{field}'")
+
+    # 5. Per-skill Codex metadata — present and declares a display name.
+    for name in sorted(skill_names):
+        yml = SKILLS / name / "agents" / "openai.yaml"
+        if not yml.exists():
+            errors.append(f"{name}: missing agents/openai.yaml")
+        elif "display_name:" not in yml.read_text():
+            errors.append(f"{name}: agents/openai.yaml missing interface.display_name")
 
 
 def main() -> int:
