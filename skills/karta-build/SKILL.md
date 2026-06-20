@@ -1,6 +1,7 @@
 ---
 name: karta-build
-description: Use when implementing one work item from a karta binder in an isolated git worktree — stack-agnostic (frontend, backend, CLI, data, IaC, …) — running the project's lint/test/build plus the item's acceptance check, tagging commits, and completing the item on its branch (in a wave the orchestrator merges; invoked directly the worker merges into the per-binder integration branch). No PR. Trigger phrases: "build this binder item", "implement work item `<id>`", "karta-build `<binder> <id>`".
+description: >-
+  Use when implementing one work item from a karta binder in an isolated git worktree — stack-agnostic (frontend, backend, CLI, data, IaC, …) — running the project's lint/test/build plus the item's acceptance check, tagging commits, and completing the item on its branch (in a wave the orchestrator merges; invoked directly the worker merges into the per-binder integration branch). No PR. Trigger phrases: "build this binder item", "implement work item `<id>`", "karta-build `<binder> <id>`".
 ---
 
 karta-build takes **one work item from a validated binder** and carries it from pickup to a tagged set of commits that complete the item on its own branch — all inside an isolated git worktree. How the item finishes depends on how the skill was invoked: invoked directly on one item, the worker merges its commits into the binder's **integration branch**; dispatched inside a wave, the worker stops at its committed branch and the orchestrator merges. It is stack-agnostic: the same flow implements a frontend view, a backend endpoint, a CLI command, a data migration, or an IaC change. It does **not** open a PR. The user reviews and merges the integration branch.

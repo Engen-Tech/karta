@@ -1,6 +1,7 @@
 ---
 name: karta-doc-gardner
-description: Automatically correct documentation drift after a delivery (or on demand). Opt-in via .karta/doc-gardner.json; when on, it rewrites prose docs (README, docs/, AGENTS.md, ARCHITECTURE) to match the current code and commits the fix to the integration branch — no report-only mode, no severity tiers, no human waive. Trigger phrases: "gardner the docs", "fix doc drift", "run doc-gardner".
+description: >-
+  Automatically correct documentation drift after a delivery (or on demand). Opt-in via .karta/doc-gardner.json; when on, it rewrites prose docs (README, docs/, AGENTS.md, ARCHITECTURE) to match the current code and commits the fix to the integration branch — no report-only mode, no severity tiers, no human waive. Trigger phrases: "gardner the docs", "fix doc drift", "run doc-gardner".
 triggers:
   - "gardner the docs"
   - "fix doc drift"

@@ -1,6 +1,7 @@
 ---
 name: karta-deliver
-description: Deliver a karta binder by building its work items in parallel waves onto a per-binder integration branch, serializing only where correctness or collision demands it; resume is git-native; ends at the assembled integration branch (no PR). Trigger phrases: "deliver this binder", "run the binder", "karta-deliver `<binder>`".
+description: >-
+  Deliver a karta binder by building its work items in parallel waves onto a per-binder integration branch, serializing only where correctness or collision demands it; resume is git-native; ends at the assembled integration branch (no PR). Trigger phrases: "deliver this binder", "run the binder", "karta-deliver `<binder>`".
 ---
 
 karta-deliver takes a **validated binder** and builds all its work items onto the per-binder integration branch in **parallel waves**. Default is parallel; it drops to serial only when running two items together would produce a wrong or broken result. The output is a single assembled integration branch the user reviews and merges — no PR, no push, nothing else.
