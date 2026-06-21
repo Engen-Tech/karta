@@ -1,0 +1,5 @@
+interface:
+  display_name: "karta-debt"
+  short_description: "Harvest every KARTA-DEFER and KARTA-SME-OVERRIDE marker into a one-shot, read-only ledger."
+policy:
+  allow_implicit_invocation: true
