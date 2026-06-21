@@ -29,12 +29,12 @@ Before dispatching either agent:
 
 ## Resolving the gate agents (any runtime)  `verify:resolve`
 
-Each gate runs as a **fresh, read-only subagent** that receives only the four inputs (worktree path, binder path, work item id, diff range) and reads the binder and diff itself. karta ships each agent so the gate runs automatically wherever it is installed — resolve the agent the way the current runtime supports:
+Each gate runs as a **fresh, read-only subagent** that receives only the four inputs (worktree path, binder path, work item id, diff range) — plus, for the safety-auditor when the binder pins `sme[]`, the resolved SME Review checklists (see `verify:boundary`) — and reads the binder and diff itself. karta ships each agent so the gate runs automatically wherever it is installed — resolve the agent the way the current runtime supports:
 
 1. **A registered subagent by that name exists** — dispatch it by name (`karta-acceptance-reviewer` / `karta-safety-auditor`). This is the path on Claude Code (the plugin bundles the agents) and on Codex when the project carries `.codex/agents/*.toml` (a repo checkout, or a project that installed them); there the agent's `sandbox_mode = "read-only"` is sandbox-enforced.
 2. **No registered agent by that name** (for example a Codex plugin install, which cannot register subagents) — spawn a fresh read-only subagent (a read-only explorer-style worker) and give it, as its complete instructions, the agent file bundled with this skill: [references/karta-acceptance-reviewer.agent.md](references/karta-acceptance-reviewer.agent.md) for acceptance, [references/karta-safety-auditor.agent.md](references/karta-safety-auditor.agent.md) for the boundary scan. Those files are the agents' own instructions and are self-contained.
 
-Either way the agent is read-only and receives only the four inputs; no build-session state travels with it. The dispatch steps below say "dispatch the `<agent>` gate" — resolve it by this rule each time.
+Either way the agent is read-only and receives only the four inputs (plus the safety-auditor's resolved SME checklists when `sme[]` is non-empty); no build-session state travels with it. The dispatch steps below say "dispatch the `<agent>` gate" — resolve it by this rule each time.
 
 ## Phase 1 — Acceptance + contract conformance  `verify:acceptance`
 
