@@ -25,6 +25,28 @@ Five skills do the work, but the flow is simple: you describe the job, karta pla
 | ![Many pieces built side by side, each in its own space, then combined into one finished layout](docs/images/web/parallel-build.png) | ![Every piece earns its place — checked for behavior and appearance before it ships](docs/images/web/quality-gate.png) |
 | **Many pieces, built side by side** — each item gets its own git worktree, so parallel work never collides. The finished pieces merge at the end. | **Every piece earns its place** — each item must clear its own gate (does it *work*, does it *look right*) before it lands. |
 
+## Install
+
+karta is a plugin for **both** Claude Code and Codex CLI — both first-class. The GitHub repo is public, so installing needs no auth, but the code is proprietary, not open source; use is governed by the [License](#license). Plugin and skill names are stable since 1.0.
+
+### Claude Code
+
+```bash
+/plugin marketplace add https://github.com/TejGandham/karta.git
+/plugin install karta@karta
+```
+
+This registers all seven skills under the `karta:` namespace — the five pipeline skills plus `karta-plainlanguage` and the opt-in `karta-doc-gardner` — and three agents (two gates, one doc writer). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
+
+### Codex CLI
+
+Two ways in:
+
+- **Plugin** — add this repo as a marketplace source in `/plugins`, then install karta. Invoke a skill with `$karta-plan` (or `@karta`), or let Codex pick one from your prompt.
+- **Clone and run** — run `codex` in a karta checkout. Codex auto-discovers the skills from the committed `.agents/skills/` mirror (real directories, no symlinks, so macOS, Linux, and Windows all work).
+
+The gate runs automatically — no setup. On a plugin install (Codex can't register subagents) `karta-verify` spawns a read-only subagent from the gate instructions bundled in the skill; in a checkout, the same agents run as registered, sandbox-enforced read-only subagents. Full guide: [docs/how-to/codex.md](docs/how-to/codex.md).
+
 ## The pipeline
 
 `plan → deliver → build`, gated by `verify` (behavioral) and `validate` (visual). Both gates are read-only.
@@ -88,60 +110,12 @@ It's all or nothing: on, drift is fixed automatically; off, it never runs. Scope
 - **Git-native resume.** The integration branch is the record; a re-run continues or clears a partial one.
 - **No PR.** karta stops at the assembled branch. You review and merge — it never opens a PR or pushes.
 
-## Layout
-
-```
-karta/
-  .claude-plugin/     plugin.json + marketplace.json   (Claude Code packaging)
-  .codex-plugin/      plugin.json                      (Codex packaging)
-  .codex/agents/      *.toml                           (Codex gate subagents — generated)
-  .agents/plugins/    marketplace.json                 (repo-local Codex marketplace)
-  .agents/skills/     <skill>/…                        (repo-local Codex skill mirror — generated)
-  plugins/karta/      Codex marketplace install projection — generated real files
-  AGENTS.md           contributor orientation (both runtimes)
-  README.md
-  agents/             karta-acceptance-reviewer.md  +  karta-safety-auditor.md  +  karta-doc-gardner.md   (canonical)
-  skills/
-    karta-plan/      SKILL.md  +  agents/openai.yaml  +  references/{binder-reference.md, …}
-    karta-deliver/   SKILL.md  +  agents/openai.yaml  +  references/{integration-branch.md, …}
-    karta-build/     SKILL.md  +  agents/openai.yaml  +  references/…
-    karta-verify/    SKILL.md  +  references/{verification-gate.md, *.agent.md}  (bundled gate instructions)
-    karta-validate/  SKILL.md  +  scripts/{serve_design.py, capture_view.py}
-    karta-plainlanguage/  SKILL.md                 (bundled writing standard)
-    karta-doc-gardner/    SKILL.md  +  references/{karta-doc-gardner.agent.md, doc-gardner-schema.json}  (opt-in doc correction)
-  scripts/            validate_plugin.py + sync_codex_skills.py + sync_codex_agents.py + …
-```
-
-Each skill is a directory; its `SKILL.md` holds the frontmatter and workflow, with heavy material in `references/` loaded on demand. Each agent is a markdown file under `agents/`. Skills are listed in the Claude marketplace manifest (`.claude-plugin/marketplace.json`) and bundled from `skills/` by the Codex manifest.
-
-`skills/` and `agents/` are canonical. The Codex projections — `.agents/skills/`, `plugins/karta/`, and `.codex/agents/*.toml` plus the bundled `*.agent.md` gates — are generated from them by `sync_codex_skills.py` / `sync_codex_agents.py` and kept byte-identical. They're real files, not symlinks, so Codex sees them on Windows, macOS, and Linux. `validate_plugin.py` checks every manifest, mirror, and projection in one pass. See `AGENTS.md` for the edit-then-generate workflow.
-
 ## Requirements
 
 - **`karta-plan`** — read access to the work description/design and the repo. Writes only the binder.
 - **`karta-deliver` and `karta-build`** — `git` (per-item worktrees), your package manager + toolchain (lint/test/build/dev), and the binder on disk.
 - **`karta-verify`** — the diff and the binder. Read-only.
 - **`karta-validate`** — [`uv`](https://docs.astral.sh/uv/), [`playwright-cli`](https://playwright.dev) (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`), and Chromium. The app must already be running — you own the dev server.
-
-## Install
-
-karta is a self-contained Claude Code plugin (the `.claude-plugin/` manifests). The GitHub repo is public, so install needs no auth — but the code is proprietary, not open source; use is governed by the [License](#license).
-
-```bash
-/plugin marketplace add https://github.com/TejGandham/karta.git
-/plugin install karta@karta
-```
-
-This registers all seven skills under the `karta:` namespace — the five pipeline skills plus `karta-plainlanguage` and the opt-in `karta-doc-gardner` — and three agents (two gates, one doc writer). Names are stable since 1.0.
-
-## Use with Codex CLI
-
-karta ships the same skills to Codex two ways:
-
-- **Plugin** — add this repo as a marketplace source in `/plugins`, then install karta. Invoke a skill with `$karta-plan` (or `@karta`), or let Codex pick one from your prompt.
-- **Clone and run** — run `codex` in a karta checkout. Codex auto-discovers the skills from the committed `.agents/skills/` mirror (real directories, no symlinks, so macOS, Linux, and Windows all work).
-
-**The gate runs automatically — no setup.** Codex plugins can't register subagents, so on a plugin install `karta-verify` spawns a read-only subagent from the gate instructions bundled in the skill (`references/*.agent.md`). In a checkout — or any repo with `.codex/agents/*.toml` — the same agents run as registered, sandbox-enforced read-only subagents. Either way you copy nothing. Details: [docs/how-to/codex.md](docs/how-to/codex.md).
 
 ## License
 
