@@ -16,12 +16,18 @@ SHARED = ROOT / "skills" / "_shared"
 
 def check() -> list[str]:
     errors: list[str] = []
-    shared = {p.name: p.read_text() for p in SHARED.glob("*.md")}
-    for ref in (ROOT / "skills").glob("*/references/*.md"):
-        if ref.parent.parent.name == "_shared":
+    shared = {p.relative_to(SHARED).as_posix(): p.read_text()
+              for p in SHARED.rglob("*.md")}
+    for skill_dir in sorted(p for p in (ROOT / "skills").iterdir() if p.is_dir()):
+        if skill_dir.name == "_shared":
             continue
-        if ref.name in shared and ref.read_text() != shared[ref.name]:
-            errors.append(f"{ref.relative_to(ROOT)} drifted from skills/_shared/{ref.name}")
+        refs = skill_dir / "references"
+        if not refs.is_dir():
+            continue
+        for ref in refs.rglob("*.md"):
+            rel = ref.relative_to(refs).as_posix()
+            if rel in shared and ref.read_text() != shared[rel]:
+                errors.append(f"{ref.relative_to(ROOT)} drifted from skills/_shared/{rel}")
     return errors
 
 
