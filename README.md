@@ -102,9 +102,9 @@ Docs rot. Turn on **doc-gardner** and karta keeps your prose in sync with your c
 
 It's all or nothing: on, drift is fixed automatically; off, it never runs. Scope is recomputed each run, so a file added later is never missed. The fix lands as a labeled, revertible commit on the branch you already review. It ships the **`karta-doc-gardner`** skill and a writer agent — the only karta agent that edits, and only docs. Full guide: [`docs/how-to/doc-gardner.md`](docs/how-to/doc-gardner.md).
 
-## Domain experts
+## Stack packs
 
-karta brings the right expert to every plan and build. It detects your stack and applies curated do's-and-don'ts so planned and generated code follows each stack's norms — built-ins for `angular`, `python-fastapi`, and `vue`, plus an always-on `minimalism` pack. Add or override any expert by dropping a file in `.karta/sme/`.
+Curated **stack packs** make karta plan and build the way each stack expects. karta detects your stack and applies the experts that fit — built-ins for `angular`, `python-fastapi`, and `vue` — plus an always-on `minimalism` pack that keeps every project from over-building. Add or override one by dropping a file in `.karta/sme/`.
 
 ## Cross-cutting
 
