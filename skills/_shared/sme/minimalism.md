@@ -4,7 +4,6 @@ description: Write the least code that works; don't over-build (ponytail "full")
 always: true
 see_also: ["platform-native"]
 ---
-<!-- Adapted from ponytail (https://github.com/DietrichGebert/ponytail), MIT. -->
 ## The ladder (advisory — shapes how you write, never gates)
 Stop at the first rung that holds:
 1. Does this need to exist at all? Speculative need = skip it, say so in one line (YAGNI).

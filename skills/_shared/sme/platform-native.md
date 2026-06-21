@@ -1,7 +1,5 @@
 # Platform-native solutions
 
-<!-- Adapted from ponytail (https://github.com/DietrichGebert/ponytail), MIT. -->
-
 The lazy senior dev's first question: does the platform already do this? Before adding a dependency, scan here.
 
 ## HTML elements
