@@ -1,7 +1,7 @@
 # karta
 
 <p align="center">
-  <img src="docs/images/mascot.png" alt="karta mascot — a friendly folded map holding a checklist and a compass" width="220">
+  <img src="docs/images/mascot.png" alt="karta mascot — a paper plane folded from a map, charting a route to a star" width="220">
 </p>
 
 > **karta** — a play on *carta* (map / chart): you hand it the territory, it charts the route and delivers you there.
