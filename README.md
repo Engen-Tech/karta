@@ -36,7 +36,7 @@ karta is a plugin for **both** Claude Code and Codex CLI — both first-class. T
 /plugin install karta@karta
 ```
 
-This registers all seven skills under the `karta:` namespace — the five pipeline skills plus `karta-plainlanguage` and the opt-in `karta-doc-gardner` — and three agents (two gates, one doc writer). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
+This registers all karta skills under the `karta:` namespace, plus three agents (two gates, one doc writer). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
 
 ### Codex CLI
 
@@ -102,18 +102,9 @@ Docs rot. Turn on **doc-gardner** and karta keeps your prose in sync with your c
 
 It's all or nothing: on, drift is fixed automatically; off, it never runs. Scope is recomputed each run, so a file added later is never missed. The fix lands as a labeled, revertible commit on the branch you already review. It ships the **`karta-doc-gardner`** skill and a writer agent — the only karta agent that edits, and only docs. Full guide: [`docs/how-to/doc-gardner.md`](docs/how-to/doc-gardner.md).
 
-## Domain experts (SME packs)
+## Domain experts
 
-karta carries curated **SME packs** so planning and implementation follow good norms. There are two kinds:
-
-- **Stack packs** switch on when your project uses that tech — built-ins ship for `angular` and `python-fastapi`.
-- **Rule packs** apply to every project — the built-in `minimalism` pack encodes a "write the least code that works" ladder (reach for the stdlib and the platform before a dependency).
-
-At plan time karta applies the rule packs plus any stack packs that match the repo, and pins their ids in the binder's `sme` field; karta-build loads them to write against. A `platform-native` reference of native/stdlib substitutions ships as a shared reference the packs link to. A project adds or overrides any pack — stack or rule — by dropping `.karta/sme/<id>.md` in its repo (project-local wins on a name clash); a no-op file silences a built-in rule pack.
-
-Each pack's **Review checklist** is the enforceable part (checklist items are diff-checkable; the advisory do's/don'ts and the ladder never block). Before commit the build implementer self-checks its diff; a deliberate deviation is declared inline with a `KARTA-SME-OVERRIDE(<pack>: <rule>): <reason>` marker, optionally naming where the shortcut breaks and what forces a revisit. The existing `karta-safety-auditor` then flags any **undeclared** checklist violation as a boundary crossing the item never justified — a kickback, escalating to you at its cap. A declared override passes and is surfaced in the run report. The acceptance gate stays SME-unaware: exactly one acceptance authority.
-
-Two companions: **`/karta-debt`** harvests every deferral and override marker across the repo into a one-shot, read-only ledger (it flags any shortcut with no upgrade trigger, and writes nothing — karta keeps no backlog), and **`benchmarks/sme/`** is an A/B method to check a pack actually helps (same task with and without the pack: less code, gate still green), reporting only benchmark deltas, never an invented per-repo savings figure.
+karta brings the right expert to every plan and build. It detects your stack and applies curated do's-and-don'ts so planned and generated code follows each stack's norms — built-ins for `angular`, `python-fastapi`, and `vue`, plus an always-on `minimalism` pack. Add or override any expert by dropping a file in `.karta/sme/`.
 
 ## Cross-cutting
 

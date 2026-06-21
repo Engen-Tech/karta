@@ -1,6 +1,6 @@
 # Use karta with Claude Code
 
-karta is a Claude Code plugin: seven skills and three agents, installed from the repo marketplace. This guide covers installing it, what you get, and how the acceptance gate runs.
+karta is a Claude Code plugin: its skills and three agents, installed from the repo marketplace. This guide covers installing it, what you get, and how the acceptance gate runs.
 
 ## Install
 
@@ -11,11 +11,12 @@ karta is packaged as a Claude Code plugin (the `.claude-plugin/` manifests). The
 /plugin install karta@karta
 ```
 
-This registers all seven skills under the `karta:` namespace:
+This registers all karta skills under the `karta:` namespace:
 
-- the five pipeline skills — `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`;
+- the pipeline skills — `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`;
 - `karta-plainlanguage`, the bundled writing standard;
-- the opt-in `karta-doc-gardner`.
+- the opt-in `karta-doc-gardner`;
+- `karta-debt`, on-demand debt-marker harvest.
 
 It also registers three agents: the two read-only gates (`karta-acceptance-reviewer`, `karta-safety-auditor`) and the `karta-doc-gardner` writer. Plugin and skill names are stable since 1.0 with the `karta-` prefix.
 

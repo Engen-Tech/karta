@@ -10,7 +10,7 @@ karta is packaged as a Codex plugin published through the repo marketplace (`.ag
 
 1. In Codex, open the plugin browser: `/plugins`.
 2. Add this repository as a marketplace source and install **karta**.
-3. The seven skills are available immediately — `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`, `karta-plainlanguage`, and `karta-doc-gardner`.
+3. The skills are available immediately — `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`, `karta-plainlanguage`, `karta-doc-gardner`, and `karta-debt`.
 
 From the CLI, the equivalent commands are:
 
@@ -23,7 +23,7 @@ Invoke a skill explicitly with `$karta-plan` (type `$` to mention a skill, or `@
 
 ### Clone and run (repo-local)
 
-Run `codex` from inside a karta checkout. Codex scans `.agents/skills/` from your working directory up to the repo root and discovers all seven skills with no install step. The mirror is committed real directories, so this works the same on macOS, Linux, and Windows.
+Run `codex` from inside a karta checkout. Codex scans `.agents/skills/` from your working directory up to the repo root and discovers all the skills with no install step. The mirror is committed real directories, so this works the same on macOS, Linux, and Windows.
 
 ## The acceptance gate runs automatically
 
