@@ -12,7 +12,7 @@ karta turns a problem into a plan — a **binder** of work items — then builds
 
 It works on any stack — frontend, backend, CLI, data, IaC — and needs no setup: no config, no registry, no stored state. karta reads two things at runtime: the binder and your repo.
 
-It began as a frontend tool and keeps deep frontend support — component, icon, and design-token mapping, DTCG conformance, and a screenshot-based design check. Those steps fire on UI work and stay quiet on everything else.
+It has deep frontend support — component, icon, and design-token mapping, DTCG conformance, and a screenshot-based design check. Those steps fire on UI work and stay quiet on everything else.
 
 ## How it works
 

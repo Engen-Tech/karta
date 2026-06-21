@@ -30,6 +30,15 @@ The gardner is liberal and current-state focused. It fixes three kinds of drift:
 
 It leaves accurate prose, design rationale, and dated archival docs (`docs/specs/YYYY-MM-DD-*`, `docs/design-docs/YYYY-MM-DD-*`) alone. It edits **only** prose docs — never code, tests, the binder, or refs.
 
+## Plain language on user-facing copy
+
+The gardner writes everything a person reads to one standard — karta's bundled `karta-plainlanguage` skill. It applies this in two ways, split by what it is allowed to edit:
+
+- **Docs** — the prose it corrects is written plainly: bottom line first, plain words, one name per thing.
+- **Client-side code** — user-facing strings in the changed UI files (button labels, headings, empty/error/toast/validation messages, placeholder text) are checked against the same standard. The gardner never edits code, so it does not rewrite them; instead it returns a **suggested replacement** — the file, the current string, and the plain rewrite — for you to apply. In a delivery these suggestions ride along in the `docs: gardner <slug>` commit body and the run report.
+
+This pass is bounded to the delivery's blast radius, and for code it is suggestions only — it never edits code and never halts the delivery.
+
 ## Scope is recomputed live (new files are never missed)
 
 Nothing about *what* to garden is stored — the switch is the only static element. Every run, the gardner re-globs the live doc surface (`README*`, `docs/**`, `AGENTS.md`, `CLAUDE.md`, `ARCHITECTURE*`, other top-level markdown) and re-derives the change blast radius from `git`. So:

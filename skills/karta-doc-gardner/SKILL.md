@@ -35,7 +35,7 @@ The gardner runs as a fresh subagent that re-derives its scope by reading the re
 1. **A registered `karta-doc-gardner` subagent exists** — dispatch it by name. This is the path on Claude Code (the plugin bundles it) and on Codex when the project carries `.codex/agents/karta-doc-gardner.toml` (there `sandbox_mode = "workspace-write"` is set).
 2. **No registered agent by that name** (a Codex plugin install, which cannot register subagents) — spawn a fresh write-capable subagent (a normal worker, not the read-only explorer) and give it, as its complete instructions, the bundled agent file: [references/karta-doc-gardner.agent.md](references/karta-doc-gardner.agent.md). That file is the agent's own instructions and is self-contained.
 
-Pass the agent the repo root, the diff range (or "full tree" in an ad-hoc sweep), and the focus note. The agent corrects docs in place and returns a terse envelope (`corrected_count`, `files_changed`, `residual`, `summary`).
+Pass the agent the repo root, the diff range (or "full tree" in an ad-hoc sweep), and the focus note. The agent corrects docs in place and returns a terse envelope (`corrected_count`, `files_changed`, `suggestions`, `residual`, `summary`). `suggestions` are plain-language rewrites for user-facing strings in changed client-side code, which the agent cannot edit — code is outside its write surface — so it hands them back for a person to apply.
 
 ## Phase 1 — Resolve focus  `docgardner:focus`
 
@@ -43,18 +43,18 @@ If `.karta/doc-gardner.json` exists, read its `focus` (may be absent). In the au
 
 ## Phase 2 — Dispatch the gardner  `docgardner:correct`
 
-Dispatch `karta-doc-gardner` (resolved as above) with the repo root, the diff range, and the focus note. It re-globs the live doc surface, derives the blast radius from git, runs its repo-wide pointer pass, corrects every drift it finds (bounded re-verify, no human), and returns its envelope. It edits **only** doc-surface files.
+Dispatch `karta-doc-gardner` (resolved as above) with the repo root, the diff range, and the focus note. It re-globs the live doc surface, derives the blast radius from git, runs its repo-wide pointer pass, corrects every drift it finds (bounded re-verify, no human), and returns its envelope. It edits **only** doc-surface files. It also runs a plain-language pass (via the bundled `karta-plainlanguage` skill): it makes the doc prose it writes plain, and for user-facing strings in changed client-side code — which it cannot edit — it returns plain rewrites as `suggestions`.
 
 ## Phase 3 — Land or hand back  `docgardner:land`
 
-- **`Mode: delivery`** — the gardner's edits are in the integration branch's working tree. If `corrected_count > 0`, stage the changed doc files and commit them as a single labeled commit: `docs: gardner <slug>` (carry the gardner's `summary` in the body, and any `residual` as a trailer). This is the auditable record on the integration branch — the human reviewing the branch sees exactly what the gardner changed. If `corrected_count == 0`, make no commit. Never push.
+- **`Mode: delivery`** — the gardner's edits are in the integration branch's working tree. If `corrected_count > 0`, stage the changed doc files and commit them as a single labeled commit: `docs: gardner <slug>` (carry the gardner's `summary` in the body, any `suggestions` and `residual` as trailers). This is the auditable record on the integration branch — the human reviewing the branch sees exactly what the gardner changed. If `corrected_count == 0` but there are `suggestions` or `residual`, make no commit but still surface them in the caller's report. Never push.
 - **`Mode: ad-hoc`** — leave the corrected files in the working tree and report the envelope to the caller; the user reviews and commits. Make no commit yourself.
 
-Fold the envelope into the caller's report. There is no human decision to surface — the corrections stand, any residual is noted, the run ends.
+Fold the envelope into the caller's report — including any `suggestions` (plain-language rewrites for client-side copy the gardner could not edit) so a person can apply them. There is no human decision to surface for the doc edits — the corrections stand, any residual is noted, the run ends.
 
 ## Rules
 
-- **One agent, doc-surface only.** The gardner edits prose docs to correct drift; it never touches code, tests, the binder, refs, or `.karta/`. This skill never edits anything itself — it dispatches and (in delivery mode) commits the agent's doc edits.
+- **One agent, doc-surface only.** The gardner edits prose docs to correct drift; it never touches code, tests, the binder, refs, or `.karta/`. User-facing copy in client-side code gets a plain-language **suggestion**, never an edit. This skill never edits anything itself — it dispatches and (in delivery mode) commits the agent's doc edits.
 - **No human, no halt, no waive.** Correct, re-verify within the agent's bound, record residual, return. The delivery is never paused for a doc decision.
 - **All or nothing.** No severity tier and no advisory mode. Opted in → every drift corrected; opted out → never runs.
 - **Scope is recomputed live.** The agent re-globs the doc surface and derives the blast radius every run; nothing about what to gardner is stored. New files are always in scope.
