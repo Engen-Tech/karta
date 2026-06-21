@@ -1,7 +1,7 @@
 # karta
 
 <p align="center">
-  <img src="docs/images/mascot.png" alt="karta mascot — a paper plane folded from a map, charting a route to a star" width="220">
+  <img src="docs/images/web/mascot.png" alt="karta mascot — a paper plane folded from a map, charting a route to a star" width="220">
 </p>
 
 > **karta** — a play on *carta* (map / chart): you hand it the territory, it charts the route and delivers you there.
@@ -16,11 +16,11 @@ It **grew out of, and still contains, a strong frontend pipeline.** UI is one st
 
 The plumbing is five skills, but the idea is simple: you describe the work, karta turns it into a plan, builds every piece at the same time — each in its own isolated space — double-checks each piece against its own acceptance check, and assembles the lot onto one branch.
 
-![How karta works: you describe what you want, karta makes a plan, everything is built at once, each piece is checked, and you get it all assembled](docs/images/how-it-works.png)
+![How karta works: you describe what you want, karta makes a plan, everything is built at once, each piece is checked, and you get it all assembled](docs/images/web/how-it-works.png)
 
 | | |
 |-|-|
-| ![Many pieces built side by side, each in its own space, then combined into one finished layout](docs/images/parallel-build.png) | ![Every piece earns its place — checked for behavior and appearance before it ships](docs/images/quality-gate.png) |
+| ![Many pieces built side by side, each in its own space, then combined into one finished layout](docs/images/web/parallel-build.png) | ![Every piece earns its place — checked for behavior and appearance before it ships](docs/images/web/quality-gate.png) |
 | **Many pieces, built side by side** — each item gets its own isolated worktree, so parallel work never collides; the finished pieces merge at the end. | **Every piece earns its place** — each item is gated against its own oracle (does it *work*, does it *look right*) before it lands. |
 
 ## The pipeline
