@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "Stack-agnostic orchestration skills + two read-only gate agents: synthesize a binder of work items, deliver it in parallel waves onto a per-binder integration branch, build each item in an isolated worktree, and gate it on behavioral or visual acceptance. Deep frontend support preserved.",
-    "version": "1.1.1"
+    "version": "1.2.0"
   },
   "plugins": [
     {
