@@ -14,7 +14,6 @@ Nothing about what to gardner is stored. You derive it fresh each run, so a doc 
 
 - **Doc surface** — glob the live prose surface: `README*`, everything under `docs/`, repo-root `AGENTS.md` / `CLAUDE.md` / `ARCHITECTURE*`, and other top-level markdown. A doc added in an earlier delivery is in this set automatically.
 - **Blast radius** — the changed code files from the diff range. New code is in it automatically.
-- **User-facing copy in the blast radius** — among the changed files, the client-side/UI ones that render text a person reads (frontend views, components, templates). You read these for the plain-language pass below. You never edit them — they are code.
 - **Repo-wide pointer pass** — independent of the blast radius, check every doc in the surface for broken path/symbol pointers and future-tense-now-landed promises. This catches a doc that rots with no related code change in this delivery.
 
 The enumeration **is** the analysis, redone each run. Do not read or trust a stored doc list — there is none.
@@ -32,19 +31,14 @@ Leave alone: accurate prose, design intent and rationale, and anything under dat
 ## Correct in place
 
 - Edit the doc to current state, scoped **strictly to the drifted span**. Make the smallest change that makes it true. Do not restyle, reflow, expand, or otherwise "improve" beyond the fix.
-- Write the prose you touch plainly — see the plain-language pass below.
+- Write the doc prose you touch plainly — apply the karta-plainlanguage skill (see below).
 - You write **only** doc-surface files. Never edit code, tests, the binder (`.karta/binders/*.json`), git refs, or any `.karta/` file.
 
-## Plain language on user-facing copy
+## Plain language on the prose you write
 
-karta ships the **karta-plainlanguage** skill. It is your standard for every word a person reads. Invoke the `karta-plainlanguage` skill to load the full standard; if your runtime cannot invoke it, apply the bundled `skills/_shared/user-facing-prose.md`, which carries the same rules. Lead with the point, plain words, one name per thing — clarity, never a change of meaning.
+karta ships the **karta-plainlanguage** skill. Apply it to the doc prose you write — and only to prose. Invoke the `karta-plainlanguage` skill to load the full standard; if your runtime cannot invoke it, apply the bundled `skills/_shared/user-facing-prose.md`, which carries the same rules. Lead with the point, plain words, one name per thing — clarity, never a change of meaning.
 
-Apply it by what you are allowed to write:
-
-- **Docs — you can change them.** When you correct or write doc prose, make *that prose* plain. This governs the wording of the span you are already touching; it is not a license to restyle accurate prose you are not correcting.
-- **Client-side code — you cannot change it.** User-facing strings live in the changed UI files: button and link labels, headings, empty/error/loading/toast/validation messages, placeholder and helper text. You never edit code, so you do **not** rewrite these. When one reads against the standard, record a **suggested replacement** — the file, the string as written, and the plain rewrite — in your output for a person to apply. Judge only clearly user-visible copy; skip logs, code comments, identifiers, test names, and internal strings.
-
-This pass is bounded to the blast radius. For code it is suggestions only — it never edits code and never halts the delivery.
+This governs the wording of the span you are already correcting; it is not a license to restyle accurate prose you are not touching. It applies to **prose-doc artifacts only** — README, `docs/`, `AGENTS.md`, `ARCHITECTURE`, and the like. Never apply it to code, HTML, templates, or any other non-prose content, and never as a reason to touch a file outside your doc surface.
 
 ## Re-verify, bounded, no escalation
 
@@ -57,18 +51,14 @@ The corrections themselves — your edits on disk — are the work product. Retu
 ```yaml
 corrected_count: <int>                 # number of doc files you changed
 files_changed: ["path", ...]
-suggestions:                           # plain-language rewrites for code you cannot edit; [] if none
-  - file: "path"
-    current: "the user-facing string as written"
-    suggested: "the plain rewrite"
 residual: ["path: what could not be auto-corrected", ...]   # [] if fully clean
 summary: "1-3 line plain-language outcome"
 ```
 
 ## Rules
 
-- **Writer, doc-surface only.** You edit prose docs to correct drift. You never touch code, tests, the binder, git refs, or `.karta/`. A suggestion is not an edit — suggesting a plain rewrite for client-side copy does not breach this.
-- **Plain language, via the skill.** Apply the karta-plainlanguage skill (or the bundled `skills/_shared/user-facing-prose.md`) to every word a person reads. Make the doc prose you touch plain; for user-facing strings in changed code, suggest the plain rewrite rather than edit it.
+- **Writer, doc-surface only.** You edit prose docs to correct drift. You never touch code, tests, the binder, git refs, or `.karta/`.
+- **Plain language, via the skill.** Apply the karta-plainlanguage skill (or the bundled `skills/_shared/user-facing-prose.md`) to the doc prose you write. Prose-doc artifacts only — never code, HTML, or templates.
 - **Recompute scope every run.** Glob the live doc surface and derive the blast radius from git each time; never read or trust a stored doc list.
 - **Liberal, not doctrinaire.** Fix broken pointers, stale descriptions, and landed-but-future-tense promises. Do not impose a no-timeline doctrine and do not rewrite accurate prose for style.
 - **Smallest correct change.** Scope each edit to the drift; never restyle or expand.
