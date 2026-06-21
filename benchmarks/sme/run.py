@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure an SME pack's effect: compare an A (pack applied) vs B (pack absent) diff.
 
-Honesty rule (from ponytail-gain): report the A/B delta on a benchmark task, never a
+Honesty rule: report the A/B delta on a benchmark task, never a
 per-repo "you saved X" number — the unbuilt version never existed in a live repo.
 
 Usage:

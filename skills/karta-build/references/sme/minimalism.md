@@ -1,6 +1,6 @@
 ---
 name: minimalism
-description: Write the least code that works; don't over-build (ponytail "full")
+description: Write the least code that works; don't over-build
 always: true
 see_also: ["platform-native"]
 ---

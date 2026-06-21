@@ -11,7 +11,7 @@ Measure whether an SME pack earns its place: run the same fixture task **with th
 5. **Safety axis:** run the fixture's acceptance gate (`karta-verify`) on both arms and record pass/fail. A pack must not cut correctness to cut code — if Arm A is smaller but fails the gate, the pack lost.
 6. Repeat for a small `n` and report medians.
 
-## Honesty rule (from ponytail-gain)
+## Honesty rule
 
 Report only the **A/B delta on these fixtures**. Never print a per-repo "you saved X lines/tokens here" number: in a live repo the unbuilt version was never written, so there is no real baseline to subtract from. The only honest per-repo figure is the `karta-debt` ledger (a counted list of real markers).
 

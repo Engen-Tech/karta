@@ -2,16 +2,16 @@
 
 - Date: 2026-06-21
 - Status: approved (brainstorming) — pending implementation plan
-- Scope: an auto-applied domain-expertise layer for karta. karta ships curated **SME packs** — stack-specific do's/don'ts *and* cross-cutting rule packs — auto-applies the ones that fit a repo, pins them in the binder at plan time, and feeds them to planning and implementation so work is decomposed and written to each pack's norms. Each pack's **Review checklist** is enforceable: the implementer self-checks before commit, and the existing `karta-safety-auditor` flags *undeclared* checklist violations (a declared override with a rationale passes). Ships `angular` + `python-fastapi` (stack packs) and `minimalism` (a rule pack distilled from ponytail's ladder); projects extend with their own in `.karta/sme/`. No new gate authority. The design also borrows ponytail's debt mechanics (a marker trigger grammar, a no-trigger rot flag, and an on-demand harvest), and adds a method to measure that a pack earns its place.
+- Scope: an auto-applied domain-expertise layer for karta. karta ships curated **SME packs** — stack-specific do's/don'ts *and* cross-cutting rule packs — auto-applies the ones that fit a repo, pins them in the binder at plan time, and feeds them to planning and implementation so work is decomposed and written to each pack's norms. Each pack's **Review checklist** is enforceable: the implementer self-checks before commit, and the existing `karta-safety-auditor` flags *undeclared* checklist violations (a declared override with a rationale passes). Ships `angular` + `python-fastapi` (stack packs) and `minimalism` (a rule pack built on a minimalism ladder); projects extend with their own in `.karta/sme/`. No new gate authority. The design also adds debt mechanics (a marker trigger grammar, a no-trigger rot flag, and an on-demand harvest), and a method to measure that a pack earns its place.
 
-## 0. What changed in v2 (after studying ponytail)
+## 0. What changed in v2
 
-v1 designed stack-specific SME packs (angular, python-fastapi) — advisory knowledge with an enforceable Review checklist. v2 incorporates ideas from [ponytail](https://github.com/DietrichGebert/ponytail) (MIT), an always-on anti-over-engineering skill:
+v1 designed stack-specific SME packs (angular, python-fastapi) — advisory knowledge with an enforceable Review checklist. v2 adds the following:
 
-- **Two pack kinds.** SME packs are now either **stack packs** (matched by detected stack/deps, as v1) or **rule packs** (apply to every binder). The first rule pack is `minimalism`, distilled from ponytail's decision ladder, calibrated to ponytail's **full** level (the ladder enforced; not the softer "lite" nor the extremist "ultra"). There is **no intensity dial** — karta is fixed at "full".
-- **A shared "use the platform" reference.** ponytail's `platform-native.md` (native/stdlib substitutions across HTML/CSS/JS/Node/Python/DB) becomes `skills/_shared/sme/platform-native.md`, owned by the `minimalism` pack and referenced by the stack packs — the concrete, diff-checkable slice of ponytail.
+- **Two pack kinds.** SME packs are now either **stack packs** (matched by detected stack/deps, as v1) or **rule packs** (apply to every binder). The first rule pack is `minimalism`, built on a decision ladder. There is **no intensity dial**.
+- **A shared "use the platform" reference.** A `platform-native` reference of native/stdlib substitutions (across HTML/CSS/JS/Node/Python/DB) ships as `skills/_shared/sme/platform-native.md`, owned by the `minimalism` pack and referenced by the stack packs — the concrete, diff-checkable slice.
 - **Debt-marker mechanics.** The `KARTA-SME-OVERRIDE` marker gains an optional **ceiling + upgrade-trigger** grammar; karta-build's once-surfaced debt register flags any deferral with **no trigger**; a new read-only **`karta-debt`** skill harvests both marker families on demand. None of this adds a tracked backlog.
-- **Proof a pack helps.** A documented A/B method + a lean harness under `benchmarks/sme/` to measure a pack's effect (code size, cost, time, and whether the gate still passes), with ponytail's honesty rule: never claim a per-repo "you saved X" number.
+- **Proof a pack helps.** A documented A/B method + a lean harness under `benchmarks/sme/` to measure a pack's effect (code size, cost, time, and whether the gate still passes), with an honesty rule: never claim a per-repo "you saved X" number.
 
 The enforcement model from v1 is unchanged: only a pack's **Review checklist** has teeth, judged by the one existing boundary gate; the acceptance-reviewer stays SME-unaware.
 
@@ -25,7 +25,7 @@ Constraints (all set by the user):
 - **Two kinds, one mechanism.** Stack packs match by detected stack/deps; rule packs apply to every binder. Both are pinned in the binder, both write against the implementer, and both are enforced identically through the Review checklist. The only difference is *selection*.
 - **Advisory to write by; only the Review checklist is enforceable.** Do / Don't / Patterns shape how code is written and never block. A checklist deviation passes when declared with a rationale; an undeclared checklist violation is a `karta-safety-auditor` finding. The acceptance-reviewer stays SME-unaware — one acceptance authority.
 - **Checklist items must be diff-checkable.** This is the rule that lets a rule pack like `minimalism` be enforced safely: only objectively-checkable items go in the Review checklist (e.g. "no new dependency where the stdlib/platform already ships it"); heuristics ("prefer the simplest thing") stay in the advisory sections. The gate never judges a vibe.
-- **No intensity dial.** karta runs the rule packs at one fixed level (ponytail's "full"). A team that wants it stronger or softer edits the pack via the project overlay.
+- **No intensity dial.** karta runs the rule packs at one fixed level. A team that wants it stronger or softer edits the pack via the project overlay.
 - **Built-in plus project overlay.** karta ships curated built-ins; a project drops its own packs in `.karta/sme/` to cover arbitrary stacks, add a house rule pack, or override a built-in.
 - **No tracked backlog.** The debt borrowings stay one-shot and read-only. karta still surfaces debt once and never persists, schedules, or revisits it.
 - **Cross-platform, dual-runtime.** Same canonical-vs-generated discipline as the rest of karta: canonical under `skills/` / `agents/`, drift-guarded Codex projections, Claude Code + Codex on macOS/Linux/Windows.
@@ -63,7 +63,7 @@ see_also: ["platform-native#html-elements", "platform-native#css-capabilities"]
 skills/_shared/sme/minimalism.md         (rule pack)
 ---
 name: minimalism
-description: Write the least code that works; don't over-build (ponytail "full")
+description: Write the least code that works; don't over-build
 always: true
 see_also: ["platform-native"]
 ---
@@ -138,29 +138,29 @@ The self-check never halts the build. The judgment of declared-vs-undeclared is 
 
 ### 3g. The minimalism rule pack and the shared platform-native reference
 
-- **`skills/_shared/sme/minimalism.md`** (rule pack, `always: true`), calibrated to ponytail's "full":
+- **`skills/_shared/sme/minimalism.md`** (rule pack, `always: true`):
   - *Advisory:* the ladder — does this need to exist (YAGNI) → stdlib → native platform feature → already-installed dependency → one line → the minimum that works; no unrequested abstractions; deletion over addition; shortest working diff.
   - *Safety floor ("never simplify away"):* validation at trust boundaries, error handling that prevents data loss, security, accessibility, anything explicitly requested, hardware calibration knobs. This guards the pack against advising away safety.
   - *Review checklist (enforceable, concrete):* the four diff-checkable items in 3a.
-- **`skills/_shared/sme/platform-native.md`** — the substitution tables adapted from ponytail's `platform-native.md` (HTML elements, CSS, JS/browser, Node stdlib, Python stdlib, DB), **attributed to ponytail (MIT)** in the file header. It is *reference data*, not a pack (no `name`/`match`/`always`): the `minimalism` pack and the stack packs link to the relevant slice via `see_also`, so the concrete substitutions live **once** and the packs point at them (reference, don't copy — the same anti-staleness rule karta's `_shared` convention already follows). A stack pack's Review checklist may name a specific high-value substitution as a concrete item (Angular: native form inputs; python-fastapi: stdlib over thin wrappers).
+- **`skills/_shared/sme/platform-native.md`** — a `platform-native` reference of native/stdlib substitutions (HTML elements, CSS, JS/browser, Node stdlib, Python stdlib, DB). It is *reference data*, not a pack (no `name`/`match`/`always`): the `minimalism` pack and the stack packs link to the relevant slice via `see_also`, so the concrete substitutions live **once** and the packs point at them (reference, don't copy — the same anti-staleness rule karta's `_shared` convention already follows). A stack pack's Review checklist may name a specific high-value substitution as a concrete item (Angular: native form inputs; python-fastapi: stdlib over thin wrappers).
 
 ### 3h. Debt markers, the rot flag, and the on-demand harvest
 
 - **Marker grammar (borrow).** `KARTA-SME-OVERRIDE(<pack>: <rule>): <rationale> [ceiling: <limit>; upgrade: <trigger>]` (3e). The optional `ceiling`/`upgrade` is recommended for `KARTA-DEFER` too (its existing `follow-up:` is the trigger). Some overrides are permanent exceptions, so the trigger is never required on an override.
 - **No-trigger rot flag (borrow).** karta-build's once-surfaced **debt register** (Phase 10 report) flags any `KARTA-DEFER` marker missing its `follow-up:` trigger as `no-trigger` — the deferral that silently rots. Ends with `<N> markers, <M> no-trigger`. This is a read of what's already scanned; no new state. The grep one-liner (`grep -rnE 'KARTA-DEFER|KARTA-SME-OVERRIDE'`) is documented for ad-hoc use.
-- **On-demand harvest skill (borrow).** A new read-only skill **`karta-debt`** (modelled on ponytail-debt): on request, grep both marker families repo-wide, group by file, flag `no-trigger` rows, and print a one-shot ledger — `<file>:<line>, <what>. ceiling: <…>. upgrade: <…>.` ending `<N> markers, <M> no-trigger`. It **writes nothing and tracks nothing** — a report, not a backlog, consistent with karta's once-surfaced/no-backlog rule. It is the consolidated, repo-wide companion to the build report's per-run register.
+- **On-demand harvest skill (borrow).** A new read-only skill **`karta-debt`**: on request, grep both marker families repo-wide, group by file, flag `no-trigger` rows, and print a one-shot ledger — `<file>:<line>, <what>. ceiling: <…>. upgrade: <…>.` ending `<N> markers, <M> no-trigger`. It **writes nothing and tracks nothing** — a report, not a backlog, consistent with karta's once-surfaced/no-backlog rule. It is the consolidated, repo-wide companion to the build report's per-run register.
 
 ### 3i. Proving a pack helps (measurement)
 
-A lean A/B method + harness under `benchmarks/sme/`, modelled on ponytail's agentic benchmark:
+A lean A/B method + harness under `benchmarks/sme/`:
 
 - **Method:** for a fixed task and a target pack, run the build twice — pack applied vs pack absent — and compare: lines of code in the diff, tokens/cost/time when the host exposes them, and **whether the acceptance gate still passes** (the safety axis — a pack must not cut correctness to cut code). Report medians over a small `n`.
-- **Honesty rule (from ponytail-gain):** the harness reports the **A/B delta on benchmark tasks**, never a per-repo "you saved X here" number — the unbuilt version was never written, so there is no live baseline to subtract from.
+- **Honesty rule:** the harness reports the **A/B delta on benchmark tasks**, never a per-repo "you saved X here" number — the unbuilt version was never written, so there is no live baseline to subtract from.
 - **Shape:** `benchmarks/sme/README.md` (method + honesty rule), a `fixtures/` dir of 2–3 small tasks, and a runner that drives the build both ways and tabulates the result. Full push-button automation depends on a headless build path; V1 ships the method + a semi-automated runner. This is a **validation tool, not a runtime feature** — it can land after the packs.
 
 ## 4. Wiring (canonical-vs-generated discipline)
 
-- New canonical content: `skills/_shared/sme/{angular,python-fastapi}.md` (stack, v1), `skills/_shared/sme/minimalism.md` (rule), `skills/_shared/sme/platform-native.md` (shared reference, ponytail-attributed). Each pack carries a concrete Review checklist.
+- New canonical content: `skills/_shared/sme/{angular,python-fastapi}.md` (stack, v1), `skills/_shared/sme/minimalism.md` (rule), `skills/_shared/sme/platform-native.md` (shared reference). Each pack carries a concrete Review checklist.
 - Per-consumer byte-equal copies under `references/sme/` for the three pack consumers: `karta-plan` (match + guidance), `karta-build` (implement + self-check), `karta-verify` (resolve checklists for the auditor). `check_shared_copies.py` is generalized to compare nested `_shared` subdirs (path-relative keying), backward-compatible with the flat copies.
 - `sync_codex_skills.py` regenerates the `.agents/skills/` mirror and the `plugins/karta/` projection (it already recurses); `validate_plugin.py` covers them.
 - `agents/karta-safety-auditor.md` gains the conditional **SME-norm conformance** check (`sme[]`-gated; declared vs undeclared); `sync_codex_agents.py` regenerates its `.codex/agents/*.toml` and the bundled `references/karta-safety-auditor.agent.md`.
@@ -175,7 +175,7 @@ A lean A/B method + harness under `benchmarks/sme/`, modelled on ponytail's agen
 - No advisor subagent sessions — packs are inline context for the writer and a resolved checklist for the auditor.
 - **No new gate authority** — the acceptance-reviewer stays SME-unaware; enforcement rides the existing safety-auditor as one conditional check, scoped to the Review checklist, and any deviation is passable by declaring a rationale.
 - **No style-nit blocking** — only *undeclared* violations of concrete *checklist* rules block; advisory prose and the ladder never block. Checklist items must be diff-checkable by construction.
-- **No intensity dial** — fixed at ponytail "full"; a team re-calibrates by editing the pack via overlay.
+- **No intensity dial** — a team re-calibrates by editing the pack via overlay.
 - **No tracked/persisted backlog** — the rot flag and `karta-debt` are one-shot and read-only; karta still never persists, schedules, or revisits debt.
 - No kill switch beyond the overlay — no stack match still applies rule packs; a project silences a rule pack by overriding it with a no-op overlay file.
 - No per-item `sme[]` override — packs apply by detected stack/area or always.
@@ -184,7 +184,7 @@ A lean A/B method + harness under `benchmarks/sme/`, modelled on ponytail's agen
 
 ## 6. Build sequence (outline for the plan)
 
-1. Author the built-in packs — stack (`angular`, `python-fastapi`) with concrete Review checklists, the `minimalism` rule pack (ponytail "full"), and the shared `platform-native.md` reference (attributed). Generalize `check_shared_copies.py` for nested subdirs; add the byte-equal copies into plan/build/verify.
+1. Author the built-in packs — stack (`angular`, `python-fastapi`) with concrete Review checklists, the `minimalism` rule pack, and the shared `platform-native.md` reference. Generalize `check_shared_copies.py` for nested subdirs; add the byte-equal copies into plan/build/verify.
 2. Add the `sme` field to `binder-schema.json`, `binder-reference.md`, and the `validate_binder.py` self-test.
 3. karta-plan: matcher after `plan:survey` (rule packs always-apply + stack packs by match), domain-guidance in synthesis, pin in `plan:emit`, report line.
 4. karta-build: read `sme[]`, resolve + load packs before implement, self-check + `KARTA-SME-OVERRIDE` markers (with optional ceiling/upgrade) before commit, report tally + the no-trigger rot flag in the debt register.

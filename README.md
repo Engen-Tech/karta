@@ -107,9 +107,9 @@ It's all or nothing: on, drift is fixed automatically; off, it never runs. Scope
 karta carries curated **SME packs** so planning and implementation follow good norms. There are two kinds:
 
 - **Stack packs** switch on when your project uses that tech — built-ins ship for `angular` and `python-fastapi`.
-- **Rule packs** apply to every project — the built-in `minimalism` pack distils ponytail's ladder (write the least code that works; reach for the stdlib and the platform before a dependency) at its "full" level.
+- **Rule packs** apply to every project — the built-in `minimalism` pack encodes a "write the least code that works" ladder (reach for the stdlib and the platform before a dependency).
 
-At plan time karta applies the rule packs plus any stack packs that match the repo, and pins their ids in the binder's `sme` field; karta-build loads them to write against. ponytail's "use the platform" tables ship as a shared `platform-native` reference the packs link to. A project adds or overrides any pack — stack or rule — by dropping `.karta/sme/<id>.md` in its repo (project-local wins on a name clash); a no-op file silences a built-in rule pack.
+At plan time karta applies the rule packs plus any stack packs that match the repo, and pins their ids in the binder's `sme` field; karta-build loads them to write against. A `platform-native` reference of native/stdlib substitutions ships as a shared reference the packs link to. A project adds or overrides any pack — stack or rule — by dropping `.karta/sme/<id>.md` in its repo (project-local wins on a name clash); a no-op file silences a built-in rule pack.
 
 Each pack's **Review checklist** is the enforceable part (checklist items are diff-checkable; the advisory do's/don'ts and the ladder never block). Before commit the build implementer self-checks its diff; a deliberate deviation is declared inline with a `KARTA-SME-OVERRIDE(<pack>: <rule>): <reason>` marker, optionally naming where the shortcut breaks and what forces a revisit. The existing `karta-safety-auditor` then flags any **undeclared** checklist violation as a boundary crossing the item never justified — a kickback, escalating to you at its cap. A declared override passes and is surfaced in the run report. The acceptance gate stays SME-unaware: exactly one acceptance authority.
 
