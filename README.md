@@ -118,7 +118,7 @@ Each skill is a directory whose `SKILL.md` carries the frontmatter and workflow 
 
 ## Install
 
-karta ships as a self-contained Claude Code plugin + marketplace (the `.claude-plugin/` manifests). Add the marketplace and install from the **public GitHub** repo, which needs no auth:
+karta ships as a self-contained Claude Code plugin + marketplace (the `.claude-plugin/` manifests). The repo is publicly readable on GitHub, so the marketplace install needs no auth — but the code is proprietary, not open source; using it is governed by the [License](#license):
 
 ```bash
 /plugin marketplace add https://github.com/TejGandham/karta.git
