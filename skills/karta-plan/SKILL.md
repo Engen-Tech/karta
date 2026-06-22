@@ -21,7 +21,7 @@ karta-plan is **stack-agnostic**. It plans frontend, backend, CLI, data pipeline
 **Scope limits (V1):**
 
 - Repo detection is light and never blocks (see Project configuration below).
-- When the scope spans multiple natural binders, it suggests a breakdown and plans one binder per run.
+- When the scope spans multiple natural binders that must land in order, it emits a *set* of self-sufficient binders (each independently valid and mergeable) and suggests the run order — see Phase 5. Default is still one binder; a set is the exception, not the reflex.
 - Synthesis runs as a single subagent, not a panel.
 
 ## Project configuration (resolve once, never blocking)
@@ -207,7 +207,9 @@ Educate; don't forbid. If the user wants the full scope, move on.
 
 ### Phase 5 — Emit, validate, and commit  `plan:emit`
 
-**Write the binder** to the resolved location (`.karta/binders/<slug>.json`).
+**Write the binder(s)** to the resolved location (`.karta/binders/<slug>.json`).
+
+**When the work is one sequence of stages, emit a set.** Split into an ordered set of binders only when **either** the user asks for separate ordered binders (e.g. *"new first, then edit, then delete — separate binders"*) **or** the work genuinely needs ordered, separately-mergeable stages — the expand → migrate → contract shape is the canonical one (see [references/example-sequence/](references/example-sequence/)). Each binder in the set is a normal, self-sufficient binder: it must pass `validate_binder.py` on its own and leave the tree green on its own (e.g. *new* adds standalone code, *edit* rewires call sites, *delete* removes the now-dead code). Slugs are **descriptive and unique, grouped by a shared prefix, and carry no sequence number** (`note-tags-new`, `note-tags-edit`, `note-tags-delete`) — a number would be a stored order that rots when the set changes. Do **not** write a manifest, an `after` field, or any other persisted record of the order.
 
 **Validate it.** Run:
 
@@ -215,11 +217,11 @@ Educate; don't forbid. If the user wants the full scope, move on.
 uv run --script skills/karta-plan/scripts/validate_binder.py --binder <path>
 ```
 
-The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, or `python3` all run it. Do not proceed on a validation failure. Fix the binder and re-validate until it passes.
+The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, or `python3` all run it. Do not proceed on a validation failure. Fix the binder and re-validate until it passes. **For a set, validate every binder** — each must pass on its own before you present the set.
 
 **Single-work-item hatch.** A binder with exactly one work item can skip the deliver phase and go straight to build. Tell the user this option exists; let them make the call.
 
-**Commit on the `commit` verb.** Show the binder as an editable card. Commit only when the user says "commit." Once committed, the binder is read-only to every later build step.
+**Commit on the `commit` verb.** Show the binder — or, for a set, every binder — as an editable card. Commit only when the user says "commit"; a set commits together, in one commit. Once committed, a binder is read-only to every later build step.
 
 ---
 
@@ -233,6 +235,8 @@ Lead with the binder path and the total work-item count, then give the user:
 - **First wave** — the items with no `depends_on`. These can start right away.
 - **Experts applied** — the `sme` packs in effect for this binder (or *none*).
 
+**For a set, also state the run order — once, as advice.** Name the binders in suggested order, linearly: *first* `<slug>`, *next* `<slug>`, *then* `<slug>`, and remind the user to review and merge each before starting the next. This suggestion is spoken here and **not** written anywhere — karta persists no order. The user moves between binders manually.
+
 ---
 
 ## Gotchas
@@ -243,5 +247,5 @@ Lead with the binder path and the total work-item count, then give the user:
 - **Opt-out is explicit and recorded.** There is no silent opt-out. Every `opt_out: true` requires a `reason`. karta reports opted-out items after every run so nothing slips through unnoticed.
 - **Don't delegate synthesis judgment.** The synthesis subagent drafts; the main thread reviews, corrects, and owns the binder. Cross-referencing contracts, oracle traceability, and dependency order requires judgment — do not hand that off.
 - **Validate before commit.** A binder that fails `validate_binder.py` is not a valid binder. Fix it before presenting it to the user for commit.
-- **One binder per run in V1.** When the scope spans multiple natural binders, suggest a breakdown and plan one binder this run. Multi-binder partitioning is not supported in V1.
+- **A sequence is a set of self-sufficient binders, with no persisted order.** When scope spans multiple natural binders that must land in order, emit them as a set — each independently valid and mergeable, sliced expand → migrate → contract so each leaves the tree green. Slugs are descriptive and unique (no sequence number); the run order is stated once as plan-time advice and persisted nowhere (no manifest, no `after` field). Movement between binders is the user's, done manually. Default is still one binder.
 - **The binder is read-only once committed.** Build steps read the binder; they do not modify it. A build step that tries to rewrite its own work item's oracle or estimate is corrupting its own governance.
