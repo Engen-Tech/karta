@@ -1,9 +1,10 @@
 # Multi-binder planning — problem brief and directions
 
-> **Status: open design discussion — not a settled spec.** This changes canonical karta
-> behavior (how `karta-plan` and `karta-deliver` treat the binder as the unit of work), so
-> it needs more conversation before becoming a plan. This doc records what was observed and
-> the candidate directions, to anchor that conversation. Nothing here is decided.
+> **Status: resolved — superseded by the V1 design spec**
+> [2026-06-22-multi-binder-sequences-design.md](2026-06-22-multi-binder-sequences-design.md).
+> This doc remains as the problem brief: what was observed and the candidate directions. The
+> settled V1 decisions (self-sufficient binders + a plain manifest + a run-order suggestion;
+> no `after` field, no guard, no auto-sequencer, manual movement) live in the spec.
 
 ## The trigger
 
