@@ -17,7 +17,7 @@ The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **i
 **Validate the binder.** Run:
 
 ```bash
-uv run skills/karta-plan/scripts/validate_binder.py --binder <path>
+uv run --script skills/karta-plan/scripts/validate_binder.py --binder <path>
 ```
 
 This checks schema validity, dependency cycles, and dangling `depends_on` references. On failure, bail with the validator's output — no "continue anyway?".

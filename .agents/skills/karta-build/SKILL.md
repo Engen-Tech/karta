@@ -93,7 +93,7 @@ Three gates, **all must pass**. Any failing is an immediate hard stop — report
 **Gate 1 — The binder validates.** Run:
 
 ```bash
-uv run skills/karta-plan/scripts/validate_binder.py --binder <binder path>
+uv run --script skills/karta-plan/scripts/validate_binder.py --binder <binder path>
 ```
 
 This checks schema validity, dependency cycles, and dangling `depends_on` references. If the orchestrator already validated the binder for this run, you may take that as satisfied rather than re-running — but never skip validation when invoked directly. On a validation failure, bail with the validator's output.

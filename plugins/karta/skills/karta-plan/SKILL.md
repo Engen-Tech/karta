@@ -210,10 +210,10 @@ Educate; don't forbid. If the user wants the full scope, move on.
 **Validate it.** Run:
 
 ```
-uv run skills/karta-plan/scripts/validate_binder.py --binder <path>
+uv run --script skills/karta-plan/scripts/validate_binder.py --binder <path>
 ```
 
-Do not proceed on a validation failure. Fix the binder and re-validate until it passes.
+The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, or `python3` all run it. Do not proceed on a validation failure. Fix the binder and re-validate until it passes.
 
 **Single-work-item hatch.** A binder with exactly one work item can skip the deliver phase and go straight to build. Tell the user this option exists; let them make the call.
 

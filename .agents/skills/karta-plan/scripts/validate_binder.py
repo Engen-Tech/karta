@@ -1,19 +1,20 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jsonschema>=4.21"]
+# dependencies = []
 # ///
-"""Validate a karta binder: JSON Schema + dependency-graph + opt-out checks.
+"""Validate a karta binder: schema + dependency-graph + opt-out checks.
 
-Usage:
-  uv run validate_binder.py --binder <path>     # validate one binder, exit 0/1
-  uv run validate_binder.py --self-test          # run embedded fixtures, exit 0/1
+Zero dependencies (pure stdlib), so every invocation form behaves identically —
+nothing has to be provisioned before it runs:
+  uv run --script validate_binder.py --binder <path>   # validate one binder, exit 0/1
+  uv run --script validate_binder.py --self-test        # run embedded fixtures, exit 0/1
+  python3 validate_binder.py --binder <path>            # also fine — no deps to install
 """
 from __future__ import annotations
-import argparse, json, posixpath, sys
+import argparse, json, posixpath, re, sys
 from fnmatch import fnmatch
 from itertools import combinations
 from pathlib import Path
-from jsonschema import Draft202012Validator
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "references" / "binder-schema.json"
 
@@ -22,13 +23,99 @@ def _load_schema() -> dict:
     return json.loads(SCHEMA_PATH.read_text())
 
 
+# --- Minimal JSON-Schema checker (pure stdlib) --------------------------------
+# karta owns its binder schema, so rather than depend on `jsonschema` we check
+# against exactly the draft-2020-12 keywords binder-schema.json actually uses:
+#   type (incl. union lists), required, properties, additionalProperties:false,
+#   items, enum, const, pattern, minLength, minItems, oneOf, and local $ref.
+# Keywords outside that subset are ignored — keep this in step with the schema.
+
+def _type_ok(value, t: str) -> bool:
+    if t == "object":  return isinstance(value, dict)
+    if t == "array":   return isinstance(value, list)
+    if t == "string":  return isinstance(value, str)
+    if t == "boolean": return isinstance(value, bool)
+    if t == "null":    return value is None
+    if t == "integer": return isinstance(value, int) and not isinstance(value, bool)
+    if t == "number":  return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return False
+
+
+def _resolve_ref(ref: str, root: dict) -> dict:
+    # local refs only, e.g. "#/$defs/workItem"
+    node = root
+    for part in ref.lstrip("#/").split("/"):
+        node = node[part.replace("~1", "/").replace("~0", "~")]
+    return node
+
+
+def _check(value, schema: dict, root: dict, path: list, errors: list[str]) -> None:
+    if "$ref" in schema:
+        _check(value, _resolve_ref(schema["$ref"], root), root, path, errors)
+        return
+
+    loc = "/".join(str(p) for p in path) or "(root)"
+
+    if "type" in schema:
+        types = schema["type"]
+        types = [types] if isinstance(types, str) else types
+        if not any(_type_ok(value, t) for t in types):
+            errors.append(f"schema: {loc}: is not of type {' or '.join(types)}")
+            return  # a wrong-typed value makes the deeper keyword checks noise
+
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"schema: {loc}: {value!r} is not one of {schema['enum']}")
+    if "const" in schema and value != schema["const"]:
+        errors.append(f"schema: {loc}: {value!r} is not the allowed constant {schema['const']!r}")
+
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errors.append(f"schema: {loc}: string shorter than minLength {schema['minLength']}")
+        if "pattern" in schema and not re.search(schema["pattern"], value):
+            errors.append(f"schema: {loc}: {value!r} does not match pattern {schema['pattern']!r}")
+
+    if isinstance(value, list):
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            errors.append(f"schema: {loc}: array shorter than minItems {schema['minItems']}")
+        if "items" in schema:
+            for i, item in enumerate(value):
+                _check(item, schema["items"], root, path + [i], errors)
+
+    if isinstance(value, dict):
+        props = schema.get("properties", {})
+        for req in schema.get("required", []):
+            if req not in value:
+                errors.append(f"schema: {loc}: missing required property '{req}'")
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in props:
+                    errors.append(f"schema: {loc}: additional property '{key}' is not allowed")
+        for key, subschema in props.items():
+            if key in value:
+                _check(value[key], subschema, root, path + [key], errors)
+
+    if "oneOf" in schema:
+        matched = 0
+        for sub in schema["oneOf"]:
+            branch: list[str] = []
+            _check(value, sub, root, path, branch)
+            if not branch:
+                matched += 1
+        if matched != 1:
+            errors.append(
+                f"schema: {loc}: matched {matched} of the oneOf branches (exactly 1 required)")
+
+
+def _schema_errors(binder: dict) -> list[str]:
+    schema = _load_schema()
+    errors: list[str] = []
+    _check(binder, schema, schema, [], errors)
+    return sorted(errors)
+
+
 def validate_binder(binder: dict) -> list[str]:
     """Return a list of human-readable errors; empty list == valid."""
-    errors: list[str] = []
-    validator = Draft202012Validator(_load_schema())
-    for e in sorted(validator.iter_errors(binder), key=lambda e: list(e.path)):
-        loc = "/".join(str(p) for p in e.path) or "(root)"
-        errors.append(f"schema: {loc}: {e.message}")
+    errors = _schema_errors(binder)
     if errors:
         return errors  # graph checks assume a schema-valid shape
 
@@ -222,11 +309,32 @@ def _run_self_test() -> int:
         "sme": ["Angular_Expert"],
         "work_items": [{"id": "a", "title": "A", "oracle": _u}],
     }
+    bad_estimate = {
+        "slug": "bad-est", "motivation": "x", "scope": {"included": ["x"]},
+        "work_items": [{"id": "a", "title": "A", "estimate": "XL", "oracle": _u}],
+    }
+    unknown_top_key = {
+        "slug": "extra", "motivation": "x", "scope": {"included": ["x"]},
+        "work_items": [{"id": "a", "title": "A", "oracle": _u}],
+        "surprise": True,
+    }
+    empty_work_items = {
+        "slug": "empty", "motivation": "x", "scope": {"included": ["x"]},
+        "work_items": [],
+    }
+    bad_slug = {
+        "slug": "Bad_Slug", "motivation": "x", "scope": {"included": ["x"]},
+        "work_items": [{"id": "a", "title": "A", "oracle": _u}],
+    }
     cases = [
         ("valid example", valid, True),
         ("binder with sme packs", sme_valid, True),
         ("sme not an array", sme_not_array, False),
         ("sme id bad pattern", sme_bad_id, False),
+        ("bad estimate enum", bad_estimate, False),
+        ("unknown top-level property", unknown_top_key, False),
+        ("empty work_items", empty_work_items, False),
+        ("bad slug pattern", bad_slug, False),
         ("cyclic deps", cyclic, False),
         ("dangling dep", dangling, False),
         ("missing oracle", no_oracle, False),
