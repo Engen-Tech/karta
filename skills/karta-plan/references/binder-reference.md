@@ -2,6 +2,8 @@
 
 The binder is karta's spine — the single JSON artifact that drives planning, build, and integration from start to finish. Every karta skill reads it; none of them write to it during a build run. The shape is karta's own. `validate_binder.py` gates every binder before a run: it checks schema validity, detects dependency cycles, flags dangling `depends_on` references, and prints an opt-out summary.
 
+A binder may stand alone, or be one of an **ordered set** that karta-plan emits when work separates into stages that must land in order (expand → migrate → contract; see [example-sequence/](example-sequence/)). Each binder in a set is fully self-sufficient — independently valid and independently mergeable. The order is given once as plan-time advice and is **not persisted**: there is no sequence manifest, no `after` field, and no ordering encoded in slugs (slugs are descriptive and unique, grouped by a shared prefix). The user runs the binders in the suggested order manually.
+
 ## Binder-level fields
 
 | Field | Type | Required | Meaning |
