@@ -1,6 +1,6 @@
 {
   "name": "karta",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "description": "Stack-agnostic, ad-hoc orchestration framework. karta synthesizes a binder of work items (karta-plan) and delivers it in parallel waves onto a per-binder integration branch (karta-deliver), building each item in an isolated git worktree (karta-build) and verifying it against its own acceptance check — behavioral (karta-verify) or visual (karta-validate). Works across stacks (frontend, backend, CLI, data, IaC, …) while keeping deep frontend support: component/icon/token mapping, DTCG conformance, and a design-validation loop.",
   "author": {
     "name": "Tej Gandham",

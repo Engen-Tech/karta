@@ -3,7 +3,7 @@ name: karta-doc-gardner
 description: Automatically correct documentation drift. A writer (docs only) — it rewrites prose docs (README, docs/, AGENTS.md, ARCHITECTURE) to match the current code across a delivery's blast radius plus a live repo-wide pointer sweep, fixing broken path/symbol pointers, stale descriptions, and future-tense-now-landed promises, culling speculative or derivable prose, and closing coverage gaps so the docs capture the whole current state. No report-only mode, no severity tiers, no human waive: when invoked it corrects and is done. Opt-in via .karta/doc-gardner.json.
 tools: Read, Glob, Grep, Edit, Write, Skill
 model: sonnet
-effort: medium
+effort: high
 codex_model: gpt-5.4
 ---
 
