@@ -20,15 +20,21 @@ Remove the file, or set `"enabled": false`, to turn it off. The file shape is ga
 
 Once the switch is on, the doc-gardner phase runs on **every** delivery and cannot be silently skipped — that is the "once opted in, always required" contract.
 
+## The doctrine — minimalism and derivability
+
+The gardner holds docs to one goal: **capture the whole state of the app as it stands now** — the whole, not partial, with no gaps. Docs store only facts, and decisions recorded against those facts (rationale, accepted trade-offs, deliberate deferrals, and the designs that informed them). Anything that can be derived from the code or from other docs is derived, not documented. Derivability is not extrapolation: no projection, no prediction, no speculation — every statement grounded in the current tree. The gardner examines every change it makes against these tests and culls anything extraneous, including its own new prose.
+
 ## What it corrects
 
-The gardner is liberal and current-state focused. It fixes three kinds of drift:
+The gardner is current-state focused. It fixes five kinds of drift:
 
 - **Broken pointers** — a doc names a path, file, symbol, command, or flag that no longer exists; it is corrected to the current name, or the dangling reference is removed.
 - **Stale descriptions** — prose that describes changed code (signature, behavior, location, config keys) and no longer matches; it is rewritten to the current behavior.
 - **Future-tense-now-landed** — "will add", "planned", "coming soon" for something that now exists; rewritten to present tense.
+- **Speculative or derivable content** — prose that projects or predicts, or that restates what the code or another doc already answers; the span is culled. Recorded decisions and design documents stay — designs are informers for decision-making, and deciding to defer work is decision capture, not speculation.
+- **Coverage gaps** — current state in the change's blast radius that no doc captures (a behavior, command, flag, config key, or contract with no prose anywhere); closed with the smallest grounded prose in the most specific existing doc.
 
-It leaves accurate prose, design rationale, and dated archival docs (`docs/specs/YYYY-MM-DD-*`, `docs/design-docs/YYYY-MM-DD-*`) alone. It edits **only** prose docs — never code, tests, the binder, or refs.
+It leaves doctrine-passing prose (grounded, non-derivable facts and recorded decisions) alone, never culls design documents (specs, design docs, plans — they record what a decision was weighed against, though their broken pointers and landed-now promises still get fixed), and leaves dated archival docs (`docs/specs/YYYY-MM-DD-*`, `docs/design-docs/YYYY-MM-DD-*`) entirely untouched. It edits **only** prose docs — never code, tests, the binder, or refs.
 
 ## Plain language
 

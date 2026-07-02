@@ -9,7 +9,7 @@ triggers:
   - "run doc-gardner"
 ---
 
-`karta-doc-gardner` keeps a repo's prose in lockstep with its code, automatically. It dispatches one karta-owned agent — `karta-doc-gardner` — which **rewrites** drifted docs to match the current code and is done. There is no report-and-wait, no severity triage, no human waive, and no halt: when it runs, drift is corrected. It is **all or nothing** — opted in, every delivery corrects drift; opted out, it never runs.
+`karta-doc-gardner` keeps a repo's prose in lockstep with its code, automatically. It dispatches one karta-owned agent — `karta-doc-gardner` — which **rewrites** drifted docs to match the current code and is done. The agent holds the docs to karta's doc doctrine: facts and recorded decisions only, nothing derivable or speculative, and the whole current state captured with no gaps. There is no report-and-wait, no severity triage, no human waive, and no halt: when it runs, drift is corrected. It is **all or nothing** — opted in, every delivery corrects drift; opted out, it never runs.
 
 This skill is the only place the gardner is dispatched. It is the doc analog of `karta-verify`: a thin orchestrator around a single agent.
 
@@ -44,7 +44,7 @@ If `.karta/doc-gardner.json` exists, read its `focus` (may be absent). In the au
 
 ## Phase 2 — Dispatch the gardner  `docgardner:correct`
 
-Dispatch `karta-doc-gardner` (resolved as above) with the repo root, the diff range, and the focus note. It re-globs the live doc surface, derives the blast radius from git, runs its repo-wide pointer pass, corrects every drift it finds (bounded re-verify, no human), and returns its envelope. It edits **only** doc-surface files, and writes the prose it corrects in plain language (via the bundled `karta-plainlanguage` skill).
+Dispatch `karta-doc-gardner` (resolved as above) with the repo root, the diff range, and the focus note. It re-globs the live doc surface, derives the blast radius from git, runs its repo-wide pointer pass, corrects every drift it finds — including culling speculative or derivable prose and closing coverage gaps — with bounded re-verify and no human, and returns its envelope. It edits **only** doc-surface files, and writes the prose it corrects in plain language (via the bundled `karta-plainlanguage` skill).
 
 ## Phase 3 — Land or hand back  `docgardner:land`
 
@@ -58,5 +58,6 @@ Fold the envelope into the caller's report. There is no human decision to surfac
 - **One agent, doc-surface only.** The gardner edits prose docs to correct drift; it never touches code, tests, the binder, refs, or `.karta/`. This skill never edits anything itself — it dispatches and (in delivery mode) commits the agent's doc edits.
 - **No human, no halt, no waive.** Correct, re-verify within the agent's bound, record residual, return. The delivery is never paused for a doc decision.
 - **All or nothing.** No severity tier and no advisory mode. Opted in → every drift corrected; opted out → never runs.
+- **Doctrine-bound.** The agent enforces minimalism and derivability: docs hold facts and decisions recorded against them, nothing derivable or speculative, and the surface captures the whole current state with no gaps. The doctrine lives in the agent; this skill only dispatches.
 - **Scope is recomputed live.** The agent re-globs the doc surface and derives the blast radius every run; nothing about what to gardner is stored. New files are always in scope.
 - **Labeled, revertible commit.** In delivery mode the corrections are one `docs: gardner <slug>` commit on the integration branch — never pushed, never on a protected branch — so they are reviewed and revertible like any commit.
