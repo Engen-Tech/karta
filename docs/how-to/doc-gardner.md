@@ -34,7 +34,11 @@ The gardner is current-state focused. It fixes five kinds of drift:
 - **Speculative or derivable content** — prose that projects or predicts, or that restates what the code or another doc already answers; the span is culled. Recorded decisions and design documents stay — designs are informers for decision-making, and deciding to defer work is decision capture, not speculation.
 - **Coverage gaps** — current state in the change's blast radius that no doc captures (a behavior, command, flag, config key, or contract with no prose anywhere); closed with the smallest grounded prose in the most specific existing doc.
 
-It leaves doctrine-passing prose (grounded, non-derivable facts and recorded decisions) alone, never culls design documents (specs, design docs, plans — they record what a decision was weighed against, though their broken pointers and landed-now promises still get fixed), and leaves dated archival docs (`docs/specs/YYYY-MM-DD-*`, `docs/design-docs/YYYY-MM-DD-*`) entirely untouched. It edits **only** prose docs — never code, tests, the binder, or refs.
+It leaves doctrine-passing prose (grounded, non-derivable facts and recorded decisions) alone, never culls design documents (specs, design docs, plans — they record what a decision was weighed against, though their broken pointers and landed-now promises still get fixed), and leaves dated archival docs (`docs/specs/YYYY-MM-DD-*`, `docs/design-docs/YYYY-MM-DD-*`) entirely untouched. It edits **only** prose docs — never code, tests, the binder, or refs (the lone exception is adding `superpowers/` to `.gitignore`; see below).
+
+## Salvaging a superpowers folder
+
+If a `superpowers/` folder is present (top-level `superpowers/` or `docs/superpowers/`), the gardner salvages it rather than letting its keepers vanish when the folder is ignored. It relocates every keeper — recorded facts, decisions, and design documents — into the right `docs/` home for the repo's hierarchy, leaves pure scratch (brainstorm logs, working notes) where it is, and then ensures `.gitignore` ignores `superpowers/`. That `.gitignore` line is the single non-prose file the gardner ever writes. Where there is no such folder, this step does nothing.
 
 ## Plain language
 
