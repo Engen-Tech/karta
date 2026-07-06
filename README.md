@@ -110,7 +110,11 @@ Every change lands as a labeled `kaizen:` commit on the branch you already revie
 
 ## Stack packs
 
-Curated **stack packs** make karta plan and build the way each stack expects. karta detects your stack and applies the experts that fit — built-ins for `angular`, `python-fastapi`, and `vue` — plus an always-on `minimalism` pack that keeps every project from over-building. Add or override one by dropping a file in `.karta/sme/`.
+Curated **stack packs** make karta plan and build the way each stack expects. karta detects your stack from its manifests and applies the packs whose match tokens equal a detected dependency or language — built-ins for `angular`, `vue`, `python`, and `python-fastapi` — plus an always-on `minimalism` pack that keeps every project from over-building. Each pack carries advisory Do/Don't guidance the builder writes against, and an enforced **Review checklist** of diff-checkable rules with stable ids (`min.1`, `ng.3`) the safety-auditor judges every item's diff against. A justified miss is declared in place with a `KARTA-SME-OVERRIDE(<rule-id>): <rationale>` marker, and **`karta-debt`** harvests every marker into a one-shot ledger so overrides never rot silently. Add your own pack — or override a built-in by name — by dropping a file in `.karta/sme/`. Authoring guide: [`docs/how-to/stack-packs.md`](docs/how-to/stack-packs.md).
+
+## Enforcement below the agent
+
+The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, and a safety-auditor dispatch missing its binder or pinned checklists is blocked before it starts (a fourth hook lists your binders at session start). On Codex, the same rules hold as skill doctrine backed by the OS sandbox and execpolicy rules until its hooks surface stabilizes — the scripts are runtime-agnostic so that switch needs no rewrite. Skills still state every rule; hooks are the backstop. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
 
 ## Cross-cutting
 
