@@ -2,7 +2,7 @@
 name: karta-debt
 model: haiku
 description: >-
-  Harvest every KARTA-DEFER and KARTA-SME-OVERRIDE marker in the repo into a one-shot, read-only ledger so deliberate shortcuts and overrides don't rot into "later means never". Groups by file, flags markers with no upgrade trigger. Writes nothing, tracks nothing. Trigger phrases: "karta debt", "list the shortcuts", "what did we defer", "harvest the overrides".
+  Harvest every KARTA-DEFER and KARTA-SME-OVERRIDE marker in the repo into a one-shot, read-only ledger so deliberate shortcuts and overrides don't rot into "later means never". Groups by file, flags deferrals with no follow-up trigger and legacy-format overrides due for migration. Writes nothing, tracks nothing. Trigger phrases: "karta debt", "list the shortcuts", "what did we defer", "harvest the overrides".
 ---
 
 karta-debt collects karta's inline deferral and override markers into one ledger so a deferral can't quietly become permanent. It is **read-only**: it reads and reports, and changes nothing — consistent with karta's no-backlog rule (the ledger is a report handed to you once, not a list karta persists, schedules, or revisits).
@@ -10,7 +10,7 @@ karta-debt collects karta's inline deferral and override markers into one ledger
 ## Two marker families
 
 - `KARTA-DEFER(<id>): <what> — <why> — follow-up: <trigger>` — an inline build-time deferral (see karta-build's references/declared-debt.md).
-- `KARTA-SME-OVERRIDE(<pack>: <rule>): <rationale> [ceiling: <limit>; upgrade: <trigger>]` — a deliberate deviation from an SME pack's Review checklist (see karta-build, `build:merge`).
+- `KARTA-SME-OVERRIDE(<rule-id>): <rationale> [ceiling: <bound>; upgrade: <trigger>]` — a deliberate deviation from a stack pack's Review checklist, named by rule id (e.g. `min.2`; see karta-build, `build:acceptance` step 6-sme). The legacy form `KARTA-SME-OVERRIDE(<pack>: <rule paraphrase>): <rationale>` is still recognized — harvest it, but classify it `legacy-format (migrate to rule id)`.
 
 ## Scan
 
@@ -26,9 +26,9 @@ One row per marker, grouped by file:
 
 `<file>:<line>  <family>  <what>.  trigger: <upgrade / follow-up, or "none">.`
 
-Pull the trigger straight from the marker — `follow-up:` for a `KARTA-DEFER`, `upgrade:` for an override. Flag any marker with no trigger as `no-trigger` — those silently rot. A `KARTA-SME-OVERRIDE` whose rationale states it is a permanent exception is expected; tag it `permanent`, not `no-trigger`.
+Pull the trigger straight from the marker — `follow-up:` for a `KARTA-DEFER`, `upgrade:` for an override. Flag a `KARTA-DEFER` with no `follow-up:` trigger as `no-trigger` — the deferral that silently rots. For a `KARTA-SME-OVERRIDE` the trigger is optional by definition (karta-build, `build:acceptance` step 6-sme): with an `upgrade:` trigger it is knowingly temporary — report the trigger; without one it is a permanent justified exception — tag it `permanent`, not `no-trigger`. Tag any legacy pack-name override `legacy-format (migrate to rule id)` alongside its other tag.
 
-End with `<N> markers, <M> no-trigger`. Nothing found: `No karta debt markers. Clean ledger.`
+End with `<N> markers, <M> no-trigger, <L> legacy-format`. Nothing found: `No karta debt markers. Clean ledger.`
 
 ## Boundaries
 

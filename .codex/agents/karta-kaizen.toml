@@ -31,14 +31,15 @@ Your writable surface is exactly two things: `.karta/sme/` (the project's packs)
 
 ## Seed on the first enabled run
 
-If `.karta/sme/` is missing or does not yet hold the project's packs, seed it: copy every pack in the resolved list into `.karta/sme/<id>.md` as a full, complete file — the whole pack, not a diff or an overlay. A pack the project already has under `.karta/sme/` wins on a name clash: leave it exactly as it is; never overwrite the project's own copy. From then on those files **are** the packs — the built-ins become templates that still cover only names the repo does not carry.
+If `.karta/sme/` is missing or does not yet hold the project's packs, seed it: copy every pack in the resolved list into `.karta/sme/<id>.md` as a full, complete file — the whole pack, not a diff or an overlay. A pack the project already has under `.karta/sme/` wins on a name clash: leave it exactly as it is; never overwrite the project's own copy. From then on those files **are** the packs — the built-ins become templates that still cover only names the repo does not carry. A seeded file must pass `skills/karta-kaizen/scripts/validate_packs.py` like any pack you write — the packs you copy carry valid numbered checklists, so a full, faithful copy passes.
 
 ## Editing a pack
 
 Beyond seeding, phase one gives you no signal to act on by yourself. Edit a pack only when your dispatch hands you a concrete instruction to, and hold every edit to these lines:
 
 - Obey the core rule: add, clarify, or narrow-with-an-exception — never weaken.
-- Keep the pack parseable: frontmatter intact (`name`, `description`, `match` or `always`), the Do / Don't / Patterns / Review-checklist sections intact. A bad edit must not break the checker that reads the pack.
+- Keep the pack parseable: frontmatter intact (`name`, `description`, `match` or `always`), the Do / Don't / Patterns / Review-checklist sections intact. Every edit must leave the file valid per `skills/karta-kaizen/scripts/validate_packs.py` — the orchestrating skill runs it before anything lands; an invalid edit is returned to you once to fix, and a second failure fails the run.
+- Rule ids are immutable: never renumber a checklist item, never reuse a retired id. When a rule is removed — a human decision; you never remove one — its tombstone line (`- ~~<id>~~ retired: <reason>`) stays.
 - Make the smallest change that carries the knowledge. Do not restyle a pack you are not otherwise changing.
 
 ## Plain language — to humans only
@@ -60,6 +61,8 @@ summary: "1-3 line plain-language outcome"
 
 - **Writer, packs only.** You write inside `.karta/sme/` and `.karta/kaizen.json` — never code, tests, the binder, git refs, prose docs, or karta's built-in packs.
 - **Never weaker.** No rule loosened or removed, no pack promoted to enforcing. Changing what gates a build is the human's decision, made in review of your commits — never yours.
+- **Valid per the validator.** Every pack file you write — edits and seeds alike — must pass `skills/karta-kaizen/scripts/validate_packs.py`. The orchestrating skill runs it before landing; an invalid file comes back to you once to fix, then the run fails.
+- **Ids are immutable.** Never renumber a checklist id, never reuse a retired one; a removed rule (removal is the human's call — never yours) keeps its tombstone.
 - **Seed once, full files.** First enabled run copies every used pack into `.karta/sme/` whole; an existing project copy always wins. The repo owns its packs from then on.
 - **Reviewed, revertible.** Every change you make reaches the repo as a normal commit a human reviews. You never push and never open a PR.
 - **Phase-one honesty.** Sharpening, erosion notes, and new-pack suggestion are later phases. Never pretend to a behavior that is not built; say what you did and no more.

@@ -40,7 +40,7 @@ Resolve in order: **explicit user input → detect from the repo → ask the use
 | **Repo direction docs** | Architecture docs, ADRs, or decision records | Detect: `ARCHITECTURE.md`, `docs/architecture/`, `docs/decisions/`, `adr/`; cite only filled docs (skip placeholder templates); ask when context is thin |
 | **Project rules** | Conventions the repo documents (lint configs, contributor guides, rules files) | Detect; verify the doc has real content before citing |
 | **Repo policy** | CI/branch/deployment policy (only when in planning scope) | Read root/area `AGENTS.md`, workflows, and CI docs; load [references/ci-policy.md](references/ci-policy.md) and [references/policy-yagni.md](references/policy-yagni.md) |
-| **stack packs** | Advisory domain-expert do's/don'ts to apply (each with an enforceable Review checklist) | Match the built-in [references/sme/](references/sme/) plus the project overlay `.karta/sme/*.md` against the detected deps/stack; record matched ids in the binder's `sme` |
+| **stack packs** | Advisory domain-expert do's/don'ts to apply (each with an enforceable Review checklist) | Match the built-in [references/sme/](references/sme/) plus the project overlay `.karta/sme/*.md` against the dependencies/languages reported by `scripts/detect_stack.py`; record matched ids in the binder's `sme` |
 
 Resolved values feed the binder's `design_facts.stack`, `env_contract`, `runtime_contract`, and each oracle's `command`. Record them — every later phase references them.
 
@@ -101,13 +101,16 @@ When the token system is W3C DTCG (JSON leaves carrying `$value`/`$type`), also 
 
 Non-UI stacks skip this annex entirely — the base survey above is all they need.
 
-**stack pack matching (after the survey)  `plan:sme`.** karta ships curated stack packs — advisory do's/don'ts per stack, each with an enforceable Review checklist — and a project may add its own. Once the survey resolves the stack and dependencies, select the packs that apply:
+**stack pack matching (after the survey)  `plan:sme`.** karta ships curated stack packs — advisory do's/don'ts per stack, each with an enforceable Review checklist — and a project may add its own. Once the survey completes, select the packs that apply:
 
-1. Enumerate available packs by `name`: the project overlay `.karta/sme/*.md` in the repo, laid over the built-ins in [references/sme/](references/sme/). On a name clash the project-local file wins. (`platform-native.md` is shared reference data, not a pack — skip it; the packs link to it via `see_also`.)
-2. Select the packs that apply, by frontmatter kind:
-   - An **always-on stack pack** (`always: true`, e.g. `minimalism`) applies to **every** binder, unconditionally.
-   - A **matched stack pack** (`match: [tokens]`) applies when a token equals a detected dependency name or is a case-insensitive substring of the resolved stack phrase.
-3. Collect the applied pack `name`s — always-on and matched together — into the binder's `sme`. Every binder gets at least the always-on stack packs (e.g. `["minimalism"]`); a polyglot repo adds several stack packs (e.g. `["minimalism", "python-fastapi", "angular"]`). A project that wants no always-on stack pack overrides it with a no-op `.karta/sme/<name>.md`.
+1. Detect dependencies deterministically: run `python3 skills/karta-plan/scripts/detect_stack.py <repo-root>` (stdlib-only) during the survey. It scans the repo's manifests (package.json, pyproject.toml, requirements*.txt, go.mod, Cargo.toml, Gemfile, composer.json) and prints `{"dependencies": [...], "languages": [...]}`. That JSON is the **only** matching input. The survey's one-phrase stack summary stays — for human reporting — but it is not a matching input.
+2. Enumerate available packs. A pack's identity is its **file basename** (sans `.md`); the frontmatter `name` must equal it (`validate_packs.py` enforces this), so pinning here and resolution at verify time use one identity. Enumerate the project overlay `.karta/sme/*.md` in the repo, laid over the built-ins in [references/sme/](references/sme/). On a basename clash the project-local file wins. A file whose frontmatter carries `disabled: true` is a **suppression pack** — the sanctioned no-op override: enumerate it as suppressed, never pin it. (`platform-native.md` is shared reference data, not a pack — skip it; the packs link to it via `see_also`.)
+3. Select the packs that apply, by frontmatter kind:
+   - An **always-on stack pack** (`always: true`, e.g. `minimalism`) applies to **every** binder — unless the project suppresses it with a `disabled: true` overlay of the same basename.
+   - A **matched stack pack** (`match: [tokens]`) applies when a match token equals — case-insensitively — a name in detect_stack.py's `dependencies` list or a `languages` entry. No substring matching, no matching against the stack phrase.
+4. Collect the applied pack basenames — always-on and matched together — into the binder's `sme`. Every binder gets at least the unsuppressed always-on stack packs (e.g. `["minimalism"]`); a polyglot repo adds several stack packs (e.g. `["minimalism", "python", "python-fastapi", "angular"]`). A suppressed always-on pack is **not** pinned into `sme`; when every always-on pack is suppressed and nothing matches, `sme` is legitimately empty and `validate_binder.py`'s empty-`sme` warning is the expected, legitimate outcome — not a failure.
+
+Because `sme` is matched from one repo survey, it is identical across every binder in a planning run unless a binder's scope genuinely excludes a stack.
 
 Load the applied packs now — their guidance feeds synthesis (Phase 2) and their ids are pinned into the binder (Phase 5). These packs are **advisory for decomposition**: they shape how items are split, what each `contract` says, and which `oracle` assertions you choose; they never add a gate at plan time.
 
@@ -117,7 +120,7 @@ Load the applied packs now — their guidance feeds synthesis (Phase 2) and thei
 
 Decompose the stated intent into work items. Do not delegate this judgment — the synthesis subagent drafts; you review and own the output.
 
-When the runtime cannot spawn the synthesis subagent (a host that gates delegation behind an explicit opt-in), **say so and synthesize inline in the main thread** — the binder is still yours to review and own, but the fresh-context draft/review separation was unavailable this run, so flag that plainly in what you show the user. Running inline is **not** licence to skip phases: still run the stack-pack match (`plan:sme`) and pin `sme[]` (every binder carries at least the always-on packs, e.g. `["minimalism"]`), and still apply every survey output. Degrade visibly; never drop steps silently.
+When the runtime cannot spawn the synthesis subagent (a host that gates delegation behind an explicit opt-in), **say so and synthesize inline in the main thread** — the binder is still yours to review and own, but the fresh-context draft/review separation was unavailable this run, so flag that plainly in what you show the user. Running inline is **not** licence to skip phases: still run the stack-pack match (`plan:sme`) and pin `sme[]` (every binder carries at least the unsuppressed always-on packs, e.g. `["minimalism"]`), and still apply every survey output. Degrade visibly; never drop steps silently.
 
 **Subagent brief:**
 
@@ -135,7 +138,7 @@ For the binder level, populate:
 - `env_contract.command`, `env_contract.supports_isolation`, and `env_contract.isolation_params` (from `plan:survey`)
 - `runtime_contract` when the project pins a runtime floor: one `runtimes` entry per runtime (`name`, the required `version`/range, and an optional `manager` — the version manager that pins it, e.g. `nvm`/`mise`), plus `on_unavailable` (always `halt` — karta never auto-provisions or selects a runtime). Detect the floor from version-manager pin files and manifest fields (`engines`, `requires-python`), then record the resolved `version`; omit the whole object when no runtime floor exists
 - `token_manifest` only when the stack has a token system
-- `sme` — the stack pack ids matched in `plan:sme`; omit or use `[]` when none matched
+- `sme` — the stack pack ids pinned in `plan:sme`. An always-on pack applies to every binder, so an empty `sme` is legitimate only when every always-on pack is suppressed by a `disabled: true` overlay and nothing else matched — never because the match step was skipped
 
 For each work item, set:
 - `id` (kebab-case, unique)
@@ -183,7 +186,7 @@ After the subagent returns, review the draft. Check:
 - Oracle assertions trace to the item's contract.
 - `serialize`/`shared_resources` are set for any items that write shared state (migrations, lock files, config that multiple items touch).
 - UI fields are present only on items with a UI surface.
-- `sme` lists the packs matched in `plan:sme` (or is absent / `[]` when none matched).
+- `sme` lists exactly the packs pinned in `plan:sme`. An empty `sme` is legitimate only when every always-on pack is suppressed by a `disabled: true` overlay — empty without that suppression means `plan:sme` was skipped; go back and run it.
 
 Fix gaps in the main thread before proceeding.
 

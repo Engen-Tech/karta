@@ -50,6 +50,8 @@ Dispatch `karta-kaizen` (resolved as above) with the repo root, the resolved pac
 
 ## Phase 4 — Land or hand back  `kaizen:land`
 
+**Pre-land syntax check — a hard rule in both modes.** Before staging or committing anything (delivery) and before reporting (direct), run the bundled pack validator over every changed file under `.karta/sme/`, seeded files included: `python3 skills/karta-kaizen/scripts/validate_packs.py <pack.md>...` (exit 0 clean, 1 findings). On findings, return the invalid file(s) and the validator output to the agent once to fix, then run the check again. If it still fails, do **not** land — no commit, no clean hand-back: report the validator output and return the failure as this phase's result.
+
 - **`Mode: delivery`** — the agent's edits are in the integration branch's working tree. If `packs_changed` is non-empty, stage the changed files under `.karta/sme/` and commit them as a labeled kaizen commit on the integration branch: `kaizen: <short summary>` (for a seed run, `kaizen: seed <n> packs into .karta/sme/`), carrying the agent's `summary` in the body and any `residual` as a trailer. The human reviewing the branch reviews these commits like any other. If nothing changed, make no commit. Never push.
 - **`Mode: direct`** — leave the edits in the working tree and report the envelope to the caller; the user reviews and commits. Make no commit yourself.
 
@@ -60,6 +62,7 @@ Fold the envelope into the caller's report. Write everything you show a person i
 - **One agent, packs only.** The kaizen agent writes inside `.karta/sme/` and `.karta/kaizen.json` — never code, tests, the binder, git refs, prose docs, or karta's built-in packs. This skill never edits anything itself — it dispatches and (in delivery mode) commits the agent's pack edits.
 - **The switch is absolute.** Absent or disabled means kaizen never runs, direct invocation included. There is no standalone carve-out.
 - **Never weaker.** No rule loosened or removed, no pack promoted to enforcing — changing what gates a build is the human's decision, made in review of kaizen's commits.
+- **Syntax-checked before landing.** Every changed file under `.karta/sme/` must pass `skills/karta-kaizen/scripts/validate_packs.py` before Phase 4 commits (delivery) or hands back (direct); a failure lands nothing, and the validator output is the phase result. The design's promise that pack edits are syntax-checked before they land — so a bad edit can't silently break the checker that reads the pack — is now a running check, not prose.
 - **Seed once, full files.** The first enabled run copies every used pack into `.karta/sme/` whole; a project's existing copy always wins. From then on the repo owns its packs, and the built-ins cover only names the repo does not carry.
 - **Labeled, revertible commits.** In delivery mode every change is a `kaizen:` commit on the integration branch — never pushed, never on a protected branch — reviewed and revertible like any commit.
 - **Plain language to people, precision in packs.** Human-facing output goes through the karta-plainlanguage skill; pack content stays technical.

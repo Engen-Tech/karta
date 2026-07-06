@@ -8,9 +8,16 @@ triggers:
   - "check acceptance for <id>"
 ---
 
-`karta-verify` is the thin orchestrator for the behavioral acceptance gate. It dispatches two karta-owned gate agents — `karta-acceptance-reviewer` and `karta-safety-auditor` — aggregates their verdicts, and drives the kickback and escalation loop per `references/verification-gate.md`. This skill is read-only throughout: the agents read the diff and the binder; this skill never edits code, tests, or the binder.
+`karta-verify` is the thin orchestrator for the behavioral acceptance gate. In its default **full** mode it dispatches two karta-owned gate agents — `karta-acceptance-reviewer` and `karta-safety-auditor` — aggregates their verdicts, and drives the kickback and escalation loop per `references/verification-gate.md`; in **boundary-only** mode it dispatches the safety-auditor alone (see *Modes* below). This skill is read-only throughout: the agents read the diff and the binder; this skill never edits code, tests, or the binder.
 
-Visual oracles (`type: visual`) are not this skill's concern — those belong to `karta-validate`. Opt-out oracles bypass this gate entirely; the build step skips karta-verify for items where `oracle.opt_out` is true.
+Visual oracles (`type: visual`) get their acceptance judgment from `karta-validate`, never from this skill — but they do not skip the boundary gate: karta-build (Phase 6) dispatches this skill in **boundary-only** mode for visual-oracle items *before* karta-validate runs, so a VIOLATION or BLOCKED halts before any dev-server work. Opt-out oracles bypass this gate entirely; the build step skips karta-verify for items where `oracle.opt_out` is true.
+
+## Modes
+
+The caller names the mode at dispatch; unnamed means **full**.
+
+- **full** (default) — the pipeline as written below: Phase 0, Phase 1 (acceptance), Phase 2 (boundary scan), Phase 3 (aggregate).
+- **boundary-only** — runs only the safety-auditor boundary gate (no acceptance phase): Phase 0, then Phase 2 directly, then report the safety verdict alone (Phase 3's aggregate table does not apply — PASS → `pass`, VIOLATION → the kickback loop under the same cap of 3, BLOCKED → `blocked`). karta-build's Phase 6 dispatches this mode for visual-oracle items BEFORE karta-validate runs; a VIOLATION or BLOCKED halts the item before any dev-server work. Acceptance for a visual oracle stays with karta-validate and is never judged here.
 
 ## Inputs
 
@@ -65,23 +72,23 @@ See `references/verification-gate.md`.
 
 Dispatch the **`karta-safety-auditor`** gate (resolved per *Resolving the gate agents* above) with the same inputs: worktree path, binder path, work item id, and diff range.
 
-**Resolve stack-pack checklists first (only when the binder pins `sme[]`).** Read the binder's `sme` list. For each id, resolve the pack — the worktree's project overlay `.karta/sme/<id>.md` laid over this skill's built-in [references/sme/](references/sme/) `<id>.md` (project-local wins) — and extract its **Review checklist** section. Hand those checklists to the auditor in its dispatch brief. This is the one input beyond the four that travels to a gate agent, and only when `sme[]` is non-empty: a project-extensible checklist cannot be embedded in the self-contained agent, and built-in packs live in the plugin rather than the worktree, so the dispatcher resolves them. When `sme[]` is empty or absent, hand nothing and the auditor's stack-pack check no-ops.
+**Resolve stack-pack checklists first (only when the binder pins `sme[]`).** Read the binder's `sme` list. For each id, resolve the pack — the worktree's project overlay `.karta/sme/<id>.md` laid over this skill's built-in [references/sme/](references/sme/) `<id>.md` (project-local wins). Before extracting anything from a project overlay, validate it with the pack validator (`python3 skills/karta-kaizen/scripts/validate_packs.py <pack.md>`): a malformed overlay is **BLOCKED** — report the validator's findings and halt; never skip a pack that fails validation, because a silently dropped pack silently drops its rules out of the gate. A pinned id that resolves to no pack at all (no overlay, no built-in) is likewise **BLOCKED**, with the missing id(s) named in the report. From each resolved pack, extract the **Review checklist** section and normalize it into an item list — one entry per rule: rule id, rule text, source pack — and hand that normalized list to the auditor in its dispatch brief, never a raw section blob. This is the one input beyond the four that travels to a gate agent, and only when `sme[]` is non-empty: a project-extensible checklist cannot be embedded in the self-contained agent, and built-in packs live in the plugin rather than the worktree, so the dispatcher resolves them. When `sme[]` is empty or absent, hand nothing and the auditor's stack-pack check no-ops.
 
 The agent re-runs the seven smart-surfaced-review signals (see `references/smart-surfaced-review.md`) on the actual diff — plus, when handed stack-pack checklists, the conditional stack-pack check (an undeclared `KARTA-SME-OVERRIDE` is a VIOLATION) — and returns:
 
 - `PASS` — no undeclared crossings.
 - `VIOLATION` — one or more undeclared boundary crossings.
-- `BLOCKED` — a required input is unreadable.
+- `BLOCKED` — a required input is unreadable, or the binder pins a non-empty `sme[]` and the auditor received no checklists, or a pinned id has no resolved checklist (the auditor reads the binder itself, so it detects the mismatch and fails closed).
 
 **On VIOLATION:** kick findings back to karta-build and re-dispatch the agent on the corrected diff. Cap: **max 3 attempts total**. After the third attempt still returning VIOLATION, escalate to the human — an unjustified boundary crossing is a safety question that requires a person's decision.
 
 **On BLOCKED:** halt with the blocking reason.
 
-The boundary scan (`verify:boundary`) runs after acceptance (`verify:acceptance`) resolves to CONFORMANT (or is skipped on SPEC-SUSPECT/BLOCKED halt). The two agents run sequentially in the common path; if `verify:acceptance` loops, `verify:boundary` does not start until `verify:acceptance` clears or exhausts its cap.
+In full mode the boundary scan (`verify:boundary`) runs after acceptance (`verify:acceptance`) resolves to CONFORMANT (or is skipped on SPEC-SUSPECT/BLOCKED halt). The two agents run sequentially in the common path; if `verify:acceptance` loops, `verify:boundary` does not start until `verify:acceptance` clears or exhausts its cap. In boundary-only mode this phase runs directly after Phase 0 — there is no acceptance phase to wait on.
 
 ## Phase 3 — Aggregate verdict  `verify:aggregate`
 
-Combine both agents' return envelopes into a single verdict:
+In boundary-only mode there is nothing to aggregate: report the safety-auditor's verdict alone — PASS → `pass`, VIOLATION with the cap exhausted → escalate per the cap rules, BLOCKED → `blocked`. In full mode, combine both agents' return envelopes into a single verdict:
 
 | Acceptance result | Safety result | Aggregate |
 |-|-|-|
@@ -108,4 +115,4 @@ This skill is read-only throughout all phases.
 - **Escalate only on exhaustion; this gate never records an accept.** No human review gate fires during delivery except safety-auditor cap exhaustion (3 attempts). The acceptance gate (2 attempts) and a SPEC-SUSPECT halt with a call to action, not a human escalation. A human may accept or defer the halted item, but only at the delivery orchestrator's Phase-4 halt through the host's user-input facility — this read-only gate surfaces the halt and never writes the `accepted` ref.
 - **Caps are per-agent, not shared.** The acceptance cap (2) and the safety cap (3) are independent. Exhausting one does not reset the other.
 - **Opt-out items skip this gate.** Items with `oracle.opt_out: true` are not dispatched here. The build step reports the opt-out; karta-verify is not invoked.
-- **Visual oracles belong to karta-validate.** If a work item arrives here with `oracle.type: visual`, return `blocked` with a note redirecting to `karta-validate`.
+- **Visual oracles run boundary-only here; acceptance belongs to karta-validate.** If a work item arrives here with `oracle.type: visual`, run boundary-only mode — never Phase 1, and never a plain refusal. Its acceptance judgment happens in `karta-validate`, after this gate clears.

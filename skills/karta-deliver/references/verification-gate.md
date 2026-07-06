@@ -22,6 +22,14 @@ karta does **not** silently substitute that inline pass. It **surfaces** the con
 
 3. **Boundary scan.** Does the diff cross a sensitive, destructive, or contract boundary the item never justified? `karta-safety-auditor` re-runs the seven smart-surfaced-review signals on the real code and flags any crossing the work item did not declare. This is the build-time pass that the smart-surfaced-review reference calls the real gate: the plan-time triage informs, this decides.
 
+## Boundary-only mode for visual oracles
+
+A visual oracle gets its acceptance judgment from `karta-validate`, but it never skips the boundary scan. karta-verify has a **boundary-only** mode that runs only the safety-auditor boundary gate — no acceptance phase. karta-build's Phase 6 dispatches it for visual-oracle items before karta-validate runs, so a VIOLATION or BLOCKED halts the item before any dev-server work.
+
+## The stack-pack checklist handoff
+
+When the binder pins a non-empty `sme[]`, the dispatcher (karta-verify) resolves each pinned pack — the project overlay `.karta/sme/<id>.md` over the built-in copy, project-local wins — validates each overlay with `skills/karta-kaizen/scripts/validate_packs.py` (a malformed overlay is BLOCKED, never skipped), and hands `karta-safety-auditor` a normalized item list — rule id, rule text, source pack — never a raw section blob. A pinned id that resolves to no pack is BLOCKED with the missing id(s) named. The auditor fails closed on its end too: a pinned non-empty `sme[]` with no checklists in hand, or any pinned id without a resolved checklist, is BLOCKED — the stack-pack check is skipped only when the binder pins nothing, and every auditor report carries the provenance line `Stack-pack check: ran|skipped|blocked — pinned: [<ids>]; resolved: [<ids>]; items judged: <n>`.
+
 ## An empty diff is BLOCKED
 
 karta has no no-op work item, so a work item whose diff is readable but **empty** — zero changes versus its base — has produced nothing to judge. The acceptance reviewer returns **BLOCKED** for it, before dispositioning any assertion: an empty diff is never CONFORMANT, and it is not a DEVIATION to kick back. It means one of two things — the work was not delivered (a whiff), or the change is already present on the integration tip (a sibling or earlier work landed it). karta-build's build-time guard catches the whiff before the gate runs: a worker whose branch did not change anything versus its base does not write `built` and halts. The gate is the catch for the already-present case, which shows up when the orchestrator re-validates an item against the moved tip. A BLOCKED-empty halt is surfaced for a person; it is **not** an accept/defer candidate — there is no diff to merge and no named assertion to waive. The ways forward are re-dispatch (a whiff) or drop/amend the item via karta-plan (already present).
