@@ -28,6 +28,14 @@ def check() -> list[str]:
             rel = ref.relative_to(refs).as_posix()
             if rel in shared and ref.read_text() != shared[rel]:
                 errors.append(f"{ref.relative_to(ROOT)} drifted from skills/_shared/{rel}")
+        # A references dir that mirrors a shared subdir (e.g. sme/) must carry
+        # every file in it — a new shared file must land in all mirrors.
+        for sub in (p for p in SHARED.iterdir() if p.is_dir()):
+            if not (refs / sub.name).is_dir():
+                continue
+            for rel in (r for r in shared if r.startswith(f"{sub.name}/")):
+                if not (refs / rel).is_file():
+                    errors.append(f"{(refs / rel).relative_to(ROOT)} missing (skills/_shared/{rel} not copied)")
     return errors
 
 

@@ -2,17 +2,18 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Plugin integrity check: SKILL.md frontmatter + reference-link existence.
+"""Plugin integrity check: SKILL.md frontmatter, reference-link existence, hook assets.
 
 Usage:
   uv run scripts/validate_plugin.py --self-test   # check this repo, exit 0/1
 """
 from __future__ import annotations
-import argparse, json, re, sys, tomllib
+import argparse, json, os, re, shlex, subprocess, sys, tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
+HOOKS = ROOT / "hooks"
 LINK_RE = re.compile(r"\(([^\s)]+\.(?:md|json|py))\)")        # markdown links (no spaces)
 PATH_RE = re.compile(r"`(references/[^`]+|scripts/[^`]+)`")    # backticked paths
 
@@ -52,6 +53,8 @@ def check() -> list[str]:
         for rel in sorted(cited):
             if rel.startswith(("http://", "https://")):
                 continue
+            if "<" in rel:
+                continue  # placeholder path like references/sme/<id>.md, not a repo file
             target = (sd / rel).resolve()
             if not str(target).startswith(str(ROOT)):
                 continue  # out-of-tree example path, not a repo file
@@ -87,6 +90,7 @@ def check() -> list[str]:
             for name in sorted(listed - present):
                 errors.append(f"marketplace.json: plugin '{pname}' lists '{name}' but skills/{name}/SKILL.md is missing")
     _check_codex(errors, present)
+    _check_hooks(errors)
     return errors
 
 
@@ -225,10 +229,10 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                     errors.append(f".karta/doc-gardner.json: unknown key '{key}' (allowed: enabled, focus)")
 
     # 7. kaizen opt-in config — if a repo commits one, it must be well-formed.
-    # KARTA-SME-OVERRIDE(minimalism: non-trivial new logic leaves one runnable check):
-    # mirrors the proven doc-gardner block above pattern-for-pattern, and this repo ships
-    # no test framework by design (manual gate scripts only) [ceiling: a third opt-in
-    # config copy; upgrade: factor the copies into one shared, checked helper]
+    # KARTA-SME-OVERRIDE(min.4): mirrors the proven doc-gardner block above
+    # pattern-for-pattern, and this repo ships no test framework by design (manual gate
+    # scripts only) [ceiling: a third opt-in config copy; upgrade: factor the copies
+    # into one shared, checked helper]
     kz = ROOT / ".karta" / "kaizen.json"
     if kz.exists():
         try:
@@ -242,6 +246,56 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
             for key in cfg:
                 if key not in ("enabled", "focus"):
                     errors.append(f".karta/kaizen.json: unknown key '{key}' (allowed: enabled, focus)")
+
+
+def _check_hooks(errors: list[str]) -> None:
+    """Guard the plugin hook assets: the manifest parses, every script it references
+    exists and is executable, no hook script is orphaned (an unreferenced script would
+    silently never run — same class as the marketplace skill-listing check), and each
+    script's embedded fixtures (--self-test) pass."""
+    data = _load_json(HOOKS / "hooks.json", errors)
+    referenced: set[Path] = set()
+    for event, groups in (data.get("hooks") or {}).items():
+        if not isinstance(groups, list):
+            errors.append(f"hooks/hooks.json: '{event}' must map to a list of matcher groups")
+            continue
+        for group in groups:
+            hook_list = group.get("hooks") if isinstance(group, dict) else None
+            for hook in hook_list or []:
+                if not isinstance(hook, dict):
+                    continue
+                if hook.get("type") != "command":
+                    errors.append(f"hooks/hooks.json: {event}: unexpected hook type {hook.get('type')!r}")
+                    continue
+                try:
+                    tokens = shlex.split(hook.get("command", ""))
+                except ValueError as e:
+                    errors.append(f"hooks/hooks.json: {event}: unparseable command ({e})")
+                    continue
+                for tok in tokens:
+                    if "${CLAUDE_PLUGIN_ROOT}" not in tok:
+                        continue
+                    path = (ROOT / tok.replace("${CLAUDE_PLUGIN_ROOT}/", "")).resolve()
+                    if path in referenced:
+                        continue  # a script may back several events; report it once
+                    referenced.add(path)
+                    if not path.is_file():
+                        errors.append(f"hooks/hooks.json: {event} references missing script '{tok}'")
+                    elif not os.access(path, os.X_OK):
+                        errors.append(f"{path.relative_to(ROOT)}: not executable (chmod +x)")
+    scripts_dir = HOOKS / "scripts"
+    for script in sorted(scripts_dir.glob("*.py")) if scripts_dir.is_dir() else []:
+        if script.resolve() not in referenced:
+            errors.append(f"{script.relative_to(ROOT)}: not referenced by hooks/hooks.json — it would never run")
+        try:
+            proc = subprocess.run([sys.executable, str(script), "--self-test"],
+                                  capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            errors.append(f"{script.relative_to(ROOT)}: --self-test did not run ({e})")
+            continue
+        if proc.returncode != 0:
+            tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
+            errors.append(f"{script.relative_to(ROOT)}: --self-test failed ({tail})")
 
 
 def main() -> int:
