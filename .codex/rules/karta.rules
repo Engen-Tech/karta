@@ -1,0 +1,46 @@
+# karta project execpolicy — hooks phase 1 (docs/specs/2026-07-06-hooks-phase1-design.md).
+# Starlark prefix rules, loaded from the project layer (.codex/rules/) when this
+# repo is trusted. Prefix matching is token-wise from the start of the command, so
+# the forbidden rules below catch the flag-first forms; any other `git push`
+# variant still lands on the prompt rule and waits for a human.
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "karta deliveries and kaizen never push; a human-approved push proceeds",
+    match = [
+        "git push",
+        "git push origin main",
+        "git push -u origin karta/stack-pack-hardening",
+    ],
+    not_match = [
+        "git pull",
+        "git commit -m 'push the fix'",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "--force"],
+    decision = "forbidden",
+    justification = "force pushes rewrite shared history; karta never force-pushes",
+    match = [
+        "git push --force",
+        "git push --force origin main",
+    ],
+    not_match = [
+        "git push origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "-f"],
+    decision = "forbidden",
+    justification = "force pushes rewrite shared history; karta never force-pushes",
+    match = [
+        "git push -f",
+        "git push -f origin main",
+    ],
+    not_match = [
+        "git push origin main",
+    ],
+)
