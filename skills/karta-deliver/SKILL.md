@@ -175,6 +175,17 @@ There is no human decision here and the phase never halts the delivery — the d
 
 ---
 
+## Phase 6b — Kaizen (opt-in)  `deliver:kaizen`
+
+After doc-gardner resolves, check the kaizen switch: read `.karta/kaizen.json`.
+
+- **Absent, or `enabled` is false** → opted out. Skip with a one-line note in the report ("kaizen: off"). Nothing runs.
+- **`enabled` is true** → opted in, and this phase is **required**: it always runs and cannot be skipped. Invoke the `karta-kaizen` skill in `delivery` mode over this run's blast radius (the same diff range doc-gardner used: everything merged into `karta/<slug>/integration` versus the binder base), passing the `focus` note from the file. On the first enabled run the skill seeds every used pack into `.karta/sme/`; pack changes land as labeled `kaizen:` commits on the integration branch.
+
+There is no human decision here and the phase never halts the delivery — the kaizen contract is fully automatic (see the `karta-kaizen` skill), and the human reviews the `kaizen:` commits on the integration branch like any other.
+
+---
+
 ## Phase 7 — Report back  `deliver:report`
 
 Write everything you show a person in plain language — see [references/user-facing-prose.md](references/user-facing-prose.md).
@@ -188,6 +199,7 @@ After the final wave (or halt), report:
 - **Items halted** — their ids, what caused each halt, and the path to each preserved worktree.
 - **Backlog records** — every accept/defer gap appended to the backlog sink, if one was configured. Each gap appears here once either way.
 - **Doc-gardner** — off, or on with the `docs: gardner <slug>` commit (if any), the number of doc files corrected, and any residual the gardner could not auto-correct (`deliver:docgardner`).
+- **Kaizen** — off, or on with the `kaizen:` commits (if any) and what changed: packs seeded into `.karta/sme/` on the first enabled run, pack files edited (`deliver:kaizen`).
 - **The integration branch** — `karta/<slug>/integration` holds the one assembled result to review. No PR is open. Review this branch and merge it yourself. If any item was deferred, the run is incomplete: the deferred items are not in the result.
 
 ---
