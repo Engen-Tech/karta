@@ -91,7 +91,24 @@ def check() -> list[str]:
                 errors.append(f"marketplace.json: plugin '{pname}' lists '{name}' but skills/{name}/SKILL.md is missing")
     _check_codex(errors, present)
     _check_hooks(errors)
+    _check_kaizen_shadow(errors)
     return errors
+
+
+def _check_kaizen_shadow(errors: list[str]) -> None:
+    """Kaizen dogfood guard: this repo authors the built-in packs, so its seeded
+    .karta/sme/minimalism.md is a managed shadow that must stay byte-identical to
+    the canonical skills/_shared/sme/minimalism.md. A kaizen (or hand) edit to the
+    shadow must be either discarded or promoted upstream into the canonical pack —
+    never left to drift."""
+    shadow = ROOT / ".karta/sme/minimalism.md"
+    canonical = ROOT / "skills/_shared/sme/minimalism.md"
+    if shadow.exists() and canonical.exists() and shadow.read_bytes() != canonical.read_bytes():
+        errors.append(
+            ".karta/sme/minimalism.md: differs from skills/_shared/sme/minimalism.md — "
+            "this repo's seeded copy is a managed shadow (kaizen dogfood policy, see AGENTS.md): "
+            "discard the shadow edit, or promote it into the canonical pack and re-copy"
+        )
 
 
 def _load_json(path: Path, errors: list[str]) -> dict:

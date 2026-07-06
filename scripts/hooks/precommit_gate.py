@@ -63,11 +63,13 @@ def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
     ]
     # platform-native.md is shared reference data the packs point at via see_also,
     # not a pack (karta-plan skips it the same way) — validating it would fail
-    # every commit on its by-design lack of frontmatter.
+    # every commit on its by-design lack of frontmatter. .karta/sme/ overlay packs
+    # (the kaizen dogfood surface) are validated with the same gate.
     packs = [p for p in sorted(root.glob("skills/_shared/sme/*.md"))
              if p.name != "platform-native.md"]
+    packs += sorted(root.glob(".karta/sme/*.md"))
     if packs:
-        gates.append(("validate_packs (skills/_shared/sme)",
+        gates.append(("validate_packs (packs)",
                       [py, str(root / "skills/karta-kaizen/scripts/validate_packs.py"),
                        *map(str, packs)]))
     return gates
@@ -188,7 +190,7 @@ def _run_self_test() -> int:
 
     stub_gates = [("check_shared_copies", []), ("sync_codex_skills --check", []),
                   ("sync_codex_agents --check", []), ("validate_plugin", []),
-                  ("validate_packs (skills/_shared/sme)", [])]
+                  ("validate_packs (packs)", [])]
 
     # allow paths
     code, _ = decide(_payload("ls -la"), {}, must_not_run, stub_gates)

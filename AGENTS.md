@@ -42,6 +42,14 @@ uv run scripts/sync_codex_skills.py --check
 
 The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating.
 
+## Kaizen dogfood policy (this repo)
+
+Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because this repo authors the built-in packs:
+
+- `.karta/sme/minimalism.md` is a **managed shadow** of `skills/_shared/sme/minimalism.md` and must stay byte-identical (`validate_plugin.py` enforces this). When kaizen — or anyone — edits the shadow, the change is either discarded or promoted upstream into the canonical pack (then re-copied); it never drifts. Editing the canonical pack means re-copying it to the shadow in the same change.
+- `.karta/sme/karta-house-skill-authoring.md` is this repo's own non-coding pack (reserved `karta-house-*` namespace, so it can never collide with a built-in). It is the pack kaizen is expected to actually evolve; its edits are reviewed like any `kaizen:` commit.
+- Never seed further built-ins here; deliveries pin what their binders pin.
+
 ## Two platforms, one behavior
 
 The gate agents are read-only on every install. On Claude Code and on Codex-with-`.codex/agents/`, they run as registered subagents (`sandbox_mode = "read-only"`). On a Codex plugin install — where plugins cannot register subagents — `karta-verify` spawns a read-only subagent using the bundled `references/*.agent.md`. Keep that adaptive dispatch intact when editing `skills/karta-verify/SKILL.md`.
