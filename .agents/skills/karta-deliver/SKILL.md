@@ -201,6 +201,7 @@ After the final wave (or halt), report:
 - **Doc-gardner** — off, or on with the `docs: gardner <slug>` commit (if any), the number of doc files corrected, and any residual the gardner could not auto-correct (`deliver:docgardner`).
 - **Kaizen** — off, or on with the `kaizen:` commits (if any) and what changed: packs seeded into `.karta/sme/` on the first enabled run, pack files edited (`deliver:kaizen`).
 - **The integration branch** — `karta/<slug>/integration` holds the one assembled result to review. No PR is open. Review this branch and merge it yourself. If any item was deferred, the run is incomplete: the deferred items are not in the result.
+- **Review surface (optional).** Probe for the plannotator CLI (`uv run python -c "import shutil,sys; sys.exit(0 if shutil.which('plannotator') else 1)"` — the same probe as karta-plan's review surface). On success, offer to open the integration branch's diff in a plannotator review session (the `plannotator-review` skill where the host lists it, else the CLI) as the way to read the branch; on a failed probe say nothing. The offer changes no outcome — the branch stays the user's to merge, and feedback from the session returns here for the user to act on.
 
 ---
 
