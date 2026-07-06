@@ -3,7 +3,7 @@ name: karta-plan
 model: opus
 effort: xhigh
 description: >-
-  Analyze a problem/feature description and/or a design mock or non-functional prototype and synthesize a validated binder of work items for ad-hoc orchestration; stack-agnostic (frontend, backend, CLI, data, library/SDK, IaC, mobile, ML, docs — UI is one stack among many); emits .karta/binders/<slug>.json. Trigger phrases: "plan this with karta", "synthesize a binder", "break this work into a binder", "karta-plan this feature".
+  Analyze a problem/feature description and/or a design mock or non-functional prototype and synthesize a validated binder of work items for ad-hoc orchestration; stack-agnostic (frontend, backend, CLI, data, library/SDK, IaC, mobile, ML, docs — UI is one stack among many); emits .karta/binders/<slug>.json. The draft is reviewed as an editable in-chat card — or one plannotator browser annotation session when that separately-installed CLI is present — and commits only on the explicit "commit" verb. Trigger phrases: "plan this with karta", "synthesize a binder", "break this work into a binder", "karta-plan this feature".
 ---
 
 karta-plan ingests intent and — without fail — synthesizes a binder. Give it a problem or feature description; optionally attach a design mock or non-functional prototype. It asks a minimal set of questions, runs a synthesis subagent to draft the binder, and commits on an explicit "commit" verb. The output lands at `.karta/binders/<slug>.json` and is validated by `validate_binder.py` before any build run.
@@ -234,7 +234,23 @@ The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, 
 
 **Single-work-item hatch.** A binder with exactly one work item can skip the deliver phase and go straight to build. Tell the user this option exists; let them make the call.
 
-**Commit on the `commit` verb.** Show the binder — or, for a set, every binder — as an editable card. Commit only when the user says "commit"; a set commits together, in one commit. Once committed, a binder is read-only to every later build step.
+**Review surface — in-chat card, or a plannotator annotation session.** The editable card has an optional second surface: a browser annotation session over the same card(s), through the separately-installed plannotator CLI. The surface changes how the user reviews; it changes no gate and no verb — committing still takes the explicit `commit`.
+
+- **Probe** for the CLI first (cross-shell; exit 0 = installed):
+
+  ```
+  uv run python -c "import shutil,sys; sys.exit(0 if shutil.which('plannotator') else 1)"
+  ```
+
+  On a failed probe, skip this block silently — never mention plannotator, offer nothing; the flow is the in-chat card exactly as below. Do not retry.
+- **Offer** (probe succeeded), recommendation-first, through the host's user-input facility:
+
+  > **Recommended: plannotator** — one browser session over the whole binder reads faster than a card-by-card chat walk, and every gate still runs.
+  >
+  > Verbs: `card` — review in chat · `plannotator` — annotate in a browser session
+- **The annotation session** (chosen): render the card(s) to a session-scratch markdown file (the host's scratch area or a temp path — never committed, never under `.karta/binders/`): the binder frame first, then every work item in dependency order carrying the same fields the chat card shows — title, summary, contract, `touches`, oracle, `depends_on`, and any smart-surfaced flags. Hand the file to a blocking plannotator session (the `plannotator-annotate` skill where the host lists it, else the CLI directly) and wait for the returned feedback. Ingest by mapping each annotation onto binder-field edits; an annotation that maps to no binder field unambiguously is asked back in chat against that item — never guessed. Re-run the validator after applying the edits; it must pass before the card is presented for commit.
+
+**Commit on the `commit` verb.** Show the binder — or, for a set, every binder — as an editable card (annotated-session runs: the updated card summary). Commit only when the user says "commit"; a set commits together, in one commit. Once committed, a binder is read-only to every later build step.
 
 ---
 
