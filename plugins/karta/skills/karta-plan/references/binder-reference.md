@@ -22,6 +22,7 @@ When emitting a set, karta-plan stores the cross-binder dependency as an `after`
 | `design_facts.source` | string \| null | no | Path to the source design or prototype, or null |
 | `design_facts.stack` | string | no | Resolved tech stack, recorded once at plan time |
 | `sme` | string[] | no | Ids of advisory SME packs matched at plan time; the implementer writes against them and `karta-safety-auditor` enforces each pack's Review checklist (undeclared violations only). Absent or `[]` = none |
+| `shared_terms` | object[] | no | Canonical strings several work items must render byte-identically; the whole-binder consistency gate `check_shared_terms.py` enforces at deliver time. Absent or `[]` = nothing to check (see Shared terms) |
 | `token_manifest` | object \| null | no | Shared design-token map; present only when a token system exists |
 | `env_contract.command` | string | yes | The project's own test/dev env command |
 | `env_contract.supports_isolation` | boolean | yes | Whether the command accepts injectable isolation params |
@@ -49,6 +50,45 @@ The two roles split cleanly:
 - **karta-build** runs a preflight before the deterministic floor. It checks the active runtime against the declaration. On a match it proceeds; on a mismatch it **halts** with an actionable call to action — the same hard-gate idiom karta uses for `playwright-cli` and `uv`: surface the gap, name the fix, do not auto-fix it.
 
 When the repo declares a version manager, the `env_contract.command` or an oracle `command` may route through it (e.g. `mise exec -- <command>`) so the declared runtime is the one that runs. That is the repo's own manager doing the selection inside the worktree — karta still installs nothing.
+
+## Shared terms
+
+karta builds a binder's items in parallel and gates each item's diff in isolation, so no
+per-item gate can see two items wording the same user-facing string differently. `shared_terms`
+is the whole-binder answer: a binder declares the strings several items must render identically,
+and the deliver-time check `check_shared_terms.py` halts a delivery whose assembled tree lets one
+drift. The field is optional and backward-compatible — a binder with no shared wording omits it,
+and an absent or empty `shared_terms` is a clean no-op everywhere downstream.
+
+Each entry has exactly three keys:
+
+| Key | Type | Meaning |
+|-|-|-|
+| `id` | string (kebab-case) | Unique identifier for the shared term; must be unique across all entries |
+| `canonical` | string | The exact substring every listed item must contain, byte-identical (non-empty) |
+| `items` | string[] | Two or more work-item ids that must each render `canonical`; every id must resolve to a real work item in this binder |
+
+```json
+"shared_terms": [{
+  "id": "shadow-warning",
+  "canonical": "reuses an archived (delivered) slug — the delivered history is shadowed; pick a fresh slug",
+  "items": ["archive-aware-validator", "archive-aware-status-engine", "plan-slug-freshness-doctrine"]
+}]
+```
+
+`canonical` is a byte-identical **substring**, not a whole line. Drifting strings usually live
+inside interpolations (`f"binder '{slug}' reuses an archived …"`), so declaring the stable
+substring — the part with no interpolated prefix or suffix — keeps the check free of interpolation
+syntax and language assumptions: it is plain substring presence in a file's bytes, not parsing.
+Pick the longest run of literal text that every listed item shares, and leave any per-item prefix
+(a variable, a slug, a leading label) outside it.
+
+`validate_binder.py` checks the shape at plan time: `id` kebab-case and unique across entries,
+`canonical` present and non-empty, `items` with at least two ids that each resolve to a real work
+item (a dangling id is an error, mirroring the `depends_on` dangling check). It also **warns** when
+a listed item has an empty `touches` — the deliver-time check would then have no files to scan for
+that item. These are structural checks only; the byte-identity enforcement over real file contents
+is `check_shared_terms.py`'s job on the assembled tree, not the validator's.
 
 ## Per-work-item fields
 

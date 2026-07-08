@@ -18,6 +18,28 @@ from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "references" / "binder-schema.json"
 
+# `shared_terms` — an optional top-level array declaring canonical strings several
+# work items must render byte-identically (the whole-binder consistency gate that
+# check_shared_terms.py enforces at deliver time). Its shape lives here rather than in
+# binder-schema.json because only validate_binder.py and check_shared_terms.py read the
+# field; injecting it into the loaded schema at check time keeps the top-level
+# additionalProperties:false from rejecting it while reusing the same JSON-schema checker
+# for its shape. Cross-references (unique entry id, item ids that resolve) are checked in
+# Python below, exactly as depends_on's duplicate/dangling checks are.
+_SHARED_TERMS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": ["id", "canonical", "items"],
+        "additionalProperties": False,
+        "properties": {
+            "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+            "canonical": {"type": "string", "minLength": 1},
+            "items": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        },
+    },
+}
+
 
 def _load_schema() -> dict:
     return json.loads(SCHEMA_PATH.read_text())
@@ -108,6 +130,7 @@ def _check(value, schema: dict, root: dict, path: list, errors: list[str]) -> No
 
 def _schema_errors(binder: dict) -> list[str]:
     schema = _load_schema()
+    schema.setdefault("properties", {})["shared_terms"] = _SHARED_TERMS_SCHEMA
     errors: list[str] = []
     _check(binder, schema, schema, [], errors)
     return sorted(errors)
@@ -128,6 +151,19 @@ def validate_binder(binder: dict) -> list[str]:
         for dep in it.get("depends_on", []):
             if dep not in id_set:
                 errors.append(f"graph: item '{it['id']}' depends_on unknown id '{dep}'")
+
+    # shared_terms cross-references: entry ids unique across entries, and every listed
+    # item id resolves to a real work item (dangling id -> error, mirroring depends_on).
+    # Shape (kebab id, non-empty canonical, >=2 items) is already enforced by the schema.
+    seen_term_ids: set[str] = set()
+    for term in binder.get("shared_terms", []):
+        tid = term.get("id")
+        if tid in seen_term_ids:
+            errors.append(f"shared_terms: duplicate entry id '{tid}'")
+        seen_term_ids.add(tid)
+        for ref in term.get("items", []):
+            if ref not in id_set:
+                errors.append(f"shared_terms: entry '{tid}' lists unknown work-item id '{ref}'")
 
     # cycle detection (DFS over depends_on)
     graph = {it["id"]: list(it.get("depends_on", [])) for it in items}
@@ -232,6 +268,22 @@ def sme_warnings(binder: dict) -> list[str]:
         return []
     return ["no stack packs pinned (sme is empty) — every binder should carry at least the "
             "always-on 'minimalism' pack; confirm the plan:sme matching step ran"]
+
+
+def shared_terms_warnings(binder: dict) -> list[str]:
+    """Advisory (non-fatal): a shared_terms entry lists an item whose `touches` is empty, so
+    the deliver-time check_shared_terms.py pass has no files to scan for that item — the
+    declaration would be silently un-enforceable there. Not fatal (an item may declare its
+    touched files later, or legitimately carry none), so it warns rather than errors."""
+    by_id = {it["id"]: it for it in binder.get("work_items", [])}
+    out: list[str] = []
+    for term in binder.get("shared_terms", []):
+        for ref in term.get("items", []):
+            it = by_id.get(ref)
+            if it is not None and not it.get("touches"):
+                out.append(f"shared_terms entry '{term.get('id')}' lists item '{ref}' with empty "
+                           "touches — the deliver-time check has no files to scan for it")
+    return out
 
 
 def cross_binder_errors(binders: list[dict],
@@ -400,8 +452,37 @@ def _run_self_test() -> int:
         "scope": {"included": ["x"]},
         "work_items": [{"id": "a", "title": "A", "summary": "s", "oracle": _u}],
     }
+    # shared_terms: two items touching distinct files (so no wave collision) plus a term.
+    _st_items = [
+        {"id": "a", "title": "A", "summary": "s", "touches": ["app/a.py"], "oracle": _u},
+        {"id": "b", "title": "B", "summary": "s", "touches": ["app/b.py"], "oracle": _u},
+    ]
+    def _st_binder(slug, terms, items=None):
+        return {
+            "slug": slug, "title": "T", "summary": "S", "motivation": "x",
+            "scope": {"included": ["x"]},
+            "work_items": items if items is not None else [dict(i) for i in _st_items],
+            "shared_terms": terms,
+        }
+    shared_terms_ok = _st_binder(
+        "st-ok", [{"id": "shadow-warning", "canonical": "reuses an archived slug", "items": ["a", "b"]}])
+    shared_terms_dangling = _st_binder(
+        "st-dangling", [{"id": "t", "canonical": "c", "items": ["a", "ghost"]}])
+    shared_terms_dup_id = _st_binder(
+        "st-dup",
+        [{"id": "t", "canonical": "c", "items": ["a", "b"]},
+         {"id": "t", "canonical": "d", "items": ["a", "b"]}])
+    shared_terms_empty_canonical = _st_binder(
+        "st-empty-canon", [{"id": "t", "canonical": "", "items": ["a", "b"]}])
+    shared_terms_single_item = _st_binder(
+        "st-single", [{"id": "t", "canonical": "c", "items": ["a"]}])
     cases = [
         ("valid example", valid, True),
+        ("well-formed shared_terms", shared_terms_ok, True),
+        ("shared_terms dangling item id", shared_terms_dangling, False),
+        ("shared_terms duplicate entry id", shared_terms_dup_id, False),
+        ("shared_terms empty canonical", shared_terms_empty_canonical, False),
+        ("shared_terms single-item entry", shared_terms_single_item, False),
         ("binder with sme packs", sme_valid, True),
         ("sme not an array", sme_not_array, False),
         ("sme id bad pattern", sme_bad_id, False),
@@ -442,6 +523,17 @@ def _run_self_test() -> int:
     ok = len(sme_warnings(cyclic)) == 1 and len(sme_warnings(sme_valid)) == 0
     print(f"[{'PASS' if ok else 'FAIL'}] sme warning fires only on empty sme")
     failures += 0 if ok else 1
+    # shared_terms advisory: warns for a listed item with empty touches; silent otherwise.
+    # The entry is otherwise well-formed, so the binder still validates (warning != error).
+    st_empty_touches = _st_binder(
+        "st-warn", [{"id": "t", "canonical": "c", "items": ["a", "b"]}],
+        items=[{"id": "a", "title": "A", "summary": "s", "touches": ["app/a.py"], "oracle": _u},
+               {"id": "b", "title": "B", "summary": "s", "oracle": _u}])
+    ok = (not validate_binder(st_empty_touches)
+          and len(shared_terms_warnings(st_empty_touches)) == 1
+          and len(shared_terms_warnings(shared_terms_ok)) == 0)
+    print(f"[{'PASS' if ok else 'FAIL'}] shared_terms warns on a listed item with empty touches")
+    failures += 0 if ok else 1
 
     # cross-binder `after` graph (resolution + acyclicity)
     cb_new   = {"slug": "s-new",   "title": "T", "summary": "S", "motivation": "x", "scope": {"included": ["x"]},
@@ -476,7 +568,7 @@ def _run_self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: errors={errs} warnings={warns}")
         failures += 0 if ok else 1
 
-    print(f"\n{len(cases) + 2 + len(cb_cases) - failures}/{len(cases) + 2 + len(cb_cases)} checks passed")
+    print(f"\n{len(cases) + 3 + len(cb_cases) - failures}/{len(cases) + 3 + len(cb_cases)} checks passed")
     return 1 if failures else 0
 
 
@@ -510,6 +602,8 @@ def main() -> int:
     for s in summ:
         print(f"  opt-out: {s}")
     for w in sme_warnings(binder):
+        print(f"  warning: {w}")
+    for w in shared_terms_warnings(binder):
         print(f"  warning: {w}")
     # cross-binder `after` graph, when the binder is one of a set on disk — including
     # delivered (archived) slugs, so an `after` naming one reads satisfied and a slug
