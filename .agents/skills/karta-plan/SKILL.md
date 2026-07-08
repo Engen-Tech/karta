@@ -175,6 +175,13 @@ Non-UI items keep the stack-agnostic synthesis above and carry none of these fie
 
 **Oracle traceability rule.** Each oracle assertion must be traceable to the item's `contract`. If an assertion references a field, shape, or behavior the `contract` does not declare, flag the gap now — emit the work item with a note that the contract needs expanding rather than writing an assertion that cannot be verified.
 
+**Propose shared-term candidates  `plan:terms`.** After drafting the items, read every `contract` at once and propose a `shared_terms` entry for each string two or more items must render identically (see [references/binder-reference.md](references/binder-reference.md) — `id`, the `canonical` substring, and the `items` that must render it). Two signals raise a candidate:
+
+- **Explicit** — a `contract` that says an item must quote or match another item's string verbatim. Turn that declared edge into a `shared_terms` entry so the invariant is machine-checkable, not just prose.
+- **Overlap** — two or more items whose contracts describe emitting the same user-facing string or message. Propose the stable substring they share as `canonical` and list those items.
+
+Each candidate is a proposal, not a commitment: it surfaces in the plan review card (`plan:surface`) for the human to confirm into the binder — surfacing is **advisory, not a gate**. This is the **only** point in karta with cross-item visibility — the planner reads every contract at once, where the per-item build and deliver gates each see one item in isolation — so it is the one place the overlap can be caught. It is **best-effort, not a guarantee**: a shared term nobody surfaces here is never declared, so it is never enforced downstream.
+
 Return the draft binder JSON.
 
 ---
