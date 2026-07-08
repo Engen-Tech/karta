@@ -4,7 +4,7 @@ description: House rules for authoring karta's own skills, agents, and doctrine 
 always: true
 ---
 ## Do
-- State every cross-file term — marker grammar, mode name, phase id, report line format — identically everywhere it appears; quote the canonical wording, never paraphrase it.
+- State every cross-file term — marker grammar, mode name, phase id, report line format — identically everywhere it appears; quote the canonical wording, never paraphrase it. A binder declares such a string as a `shared_terms` entry, and `check_shared_terms.py` then enforces it — asserting byte-identity across the listed items at deliver and build time — so the identity is a checked invariant, not a wish.
 - Give every new invariant an enforcement point (a validator, a gate, a hook); prose alone is a wish.
 - Model new scripts on the house pattern: stdlib-only, argparse, a `--self-test` mode with [PASS]/[FAIL] lines.
 - Write human-facing prose (README, docs/how-to, release notes) in plain language: lead with what the reader does, short sentences, no unexplained codenames.
