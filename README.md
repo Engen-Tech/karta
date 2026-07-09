@@ -71,7 +71,7 @@ karta runs items in parallel and goes serial only when two would collide. Need j
 
 The **binder** is one JSON file (`.karta/binders/<slug>.json`) that drives planning, build, and integration. Every skill reads it; none writes to it during a run, and it can't change while a wave runs.
 
-It holds the slug (which names the integration branch and tags), scope, the env contract, optional design facts and token manifest, and an ordered list of work items. Each item carries its dependencies, an optional `contract`, optional `shared_resources`/`serialize` flags, and an `oracle` — its acceptance check.
+It holds the slug (which names the integration branch and tags), scope, the env contract, optional design facts and token manifest, optional **shared terms** (strings several items must render identically), and an ordered list of work items. Each item carries its dependencies, an optional `contract`, optional `shared_resources`/`serialize` flags, and an `oracle` — its acceptance check.
 
 `validate_binder.py` checks every binder before a run: schema, dependency cycles, dangling references, opt-outs. Full field guide: [`skills/karta-plan/references/binder-reference.md`](skills/karta-plan/references/binder-reference.md).
 
@@ -115,6 +115,10 @@ Curated **stack packs** make karta plan and build the way each stack expects. ka
 ## Enforcement below the agent
 
 The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, and a safety-auditor dispatch missing its binder or pinned checklists is blocked before it starts (a fourth hook lists your binders at session start). On Codex, the same rules hold as skill doctrine backed by the OS sandbox and execpolicy rules until its hooks surface stabilizes — the scripts are runtime-agnostic so that switch needs no rewrite. Skills still state every rule; hooks are the backstop. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
+
+## Consistent wording across items
+
+karta builds each item in isolation, so two items can word the same user-facing string differently and no per-item gate would notice. A binder heads that off: a **`shared_terms`** entry names a canonical substring and the items that must render it identically. `karta-plan` surfaces candidates while planning; a pure-stdlib, deterministic `check_shared_terms.py` — byte-identity, no fuzzy matching — enforces them on the assembled branch at the end of every wave and in the single-item hatch, halting the delivery if one drifts (an item not yet built is skipped until it lands). It's the deterministic backstop for the one thing isolated gates can't see: wording that must agree across items with no dependency between them. Field guide: [`skills/karta-plan/references/binder-reference.md`](skills/karta-plan/references/binder-reference.md).
 
 ## Cross-cutting
 
