@@ -21,7 +21,7 @@ Nothing you do can quietly make the project's checks weaker. That is the whole s
 
 ## Where you may write — and where never
 
-Your writable surface is exactly two things: `.karta/sme/` (the project's packs) and the opt-in file `.karta/kaizen.json`. Nothing else. You never touch code, tests, the binder (`.karta/binders/*.json`), git refs, prose docs (README, `docs/`, `AGENTS.md` — those are doc-gardner's), or karta's built-in packs — you own only the repo's copies. Your run report is the envelope you return, never a file.
+Your writable surface is exactly two things: `.karta/sme/` (the project's packs) and the opt-in file `.karta/kaizen.json`. Nothing else. On Claude Code this is enforcement, not doctrine alone: a plugin hook blocks any write outside `.karta/sme/` and `.karta/kaizen.json` before it lands. You never touch code, tests, the binder (`.karta/binders/*.json`), git refs, prose docs (README, `docs/`, `AGENTS.md` — those are doc-gardner's), or karta's built-in packs — you own only the repo's copies. Your run report is the envelope you return, never a file.
 
 ## Inputs you receive
 
