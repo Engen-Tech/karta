@@ -11,17 +11,18 @@ Hooks are a backstop, not a replacement. Every skill still states its rules in f
 | Committed binders are read-only | Claude Code (plugin hook) | Any `Write`, `Edit`, or `NotebookEdit` to a `.karta/binders/*.json` that exists in `HEAD` is blocked — including delivered binders under `.karta/binders/archive/`. Untracked binders — plan drafts — pass. |
 | Pack edits must validate | Claude Code (plugin hook) | A `Write` of a `.md` file under `.karta/sme/` is checked against the pack validator before it lands and blocked with the findings. After an `Edit` or `Write`, the file on disk is checked again; a failure comes back as feedback the agent must fix. |
 | Safety-auditor dispatch is complete | Claude Code (plugin hook) | Dispatching `karta-safety-auditor` without a binder path — or, when the binder pins packs, without the resolved rule checklists — is blocked, naming the pinned ids. |
+| The kaizen writer stays inside its surface | Claude Code (plugin hook) | A kaizen `Write`, `Edit`, or `NotebookEdit` is blocked unless the target is under `.karta/sme/` or is exactly `.karta/kaizen.json`; the denial restates kaizen's own rule. Main-thread writes and every other agent pass untouched. |
 | You see your binders at session start | Claude Code (plugin hook) | At session start: one short line per binder in `.karta/binders/` (slug, item count, pinned packs). Delivered binders — archived to `.karta/binders/archive/` — are excluded. About ten lines at most; silent when there are none. Informs only — never blocks. |
 | Commits in this repo pass the gate suite | Claude Code (this repo's project settings) | A `git commit` in a karta checkout first runs the repo's sync and validation gates; a failing gate blocks the commit with its output. Not shipped in the plugin. |
 | karta never pushes | Codex CLI (this repo's `.codex/rules/karta.rules`) | `git push` asks you first; a flag-first `git push --force` (or `git push -f`) is forbidden outright. A force flag buried later in the command (`git push origin main --force`) still lands on the ask-first rule — prefix rules match from the start of the command. Copy the file into your own project's `.codex/rules/` for the same protection there. |
 
-The first four ship in the plugin: install karta and they are active in every project you use it in. The last two live in this repository and protect karta's own development.
+The first five ship in the plugin: install karta and they are active in every project you use it in. The last two live in this repository and protect karta's own development.
 
 ## How a hook decides
 
 Each hook is a stdlib-only Python script under `hooks/scripts/`, registered in `hooks/hooks.json` at the plugin root. The harness hands it the tool call as JSON on stdin. Exit 0 allows the call; exit 2 blocks it — or, on a check that runs after the fact, returns corrective feedback — with a one-paragraph reason on stderr.
 
-If a script hits an internal error, it allows the call: enforcement must never break normal work. The one exception is the auditor-dispatch guard, whose whole point is to fail closed — a dispatch it recognizes is blocked unless the required evidence is present, and any shape it does not recognize passes. Every script has a `--self-test`, and `validate_plugin.py` checks the manifest, the scripts, and their self-tests.
+If a script hits an internal error, it allows the call: enforcement must never break normal work. The two exceptions are the guards whose whole point is to fail closed — `guard_auditor_dispatch.py`, which blocks a dispatch it recognizes unless the required evidence is present, and `guard_writer_confinement.py`, which blocks a kaizen write it recognizes unless the target is inside kaizen's surface. Any shape they do not recognize passes. Every script has a `--self-test`, and `validate_plugin.py` checks the manifest, the scripts, and their self-tests.
 
 ## The prompts you will see, once
 
@@ -47,6 +48,6 @@ It skips the gate for that command and nothing else. It has no effect on the plu
 
 ## Why Claude Code and Codex differ (for now)
 
-The asymmetry is deliberate. Claude Code gets hook enforcement now. Codex keeps three layers of its own — the skill doctrine, its OS-level sandbox, and the execpolicy rules — until its hooks feature stabilizes upstream. The hook scripts are written runtime-agnostic (JSON on stdin, exit 2 blocks, reason on stderr) precisely so the same scripts can back a Codex hooks manifest in a later phase, with no rewrite. Until then, Codex behavior does not regress: everything the hooks enforce is still stated in the skills.
+The asymmetry is deliberate. Claude Code gets hook enforcement now. Codex keeps three layers of its own — the skill doctrine, its OS-level sandbox, and the execpolicy rules — until its hooks feature stabilizes upstream. kaizen's writer confinement follows the same split: on Codex it stays doctrine plus the OS sandbox, because Codex cannot register plugin subagents and its hooks surface is not yet stable. The hook scripts are written runtime-agnostic (JSON on stdin, exit 2 blocks, reason on stderr) precisely so the same scripts — `guard_writer_confinement.py` included — can back a Codex hooks manifest in a later phase, with no rewrite. Until then, Codex behavior does not regress: everything the hooks enforce is still stated in the skills.
 
 Design and rationale: the [phase 1 spec](../specs/2026-07-06-hooks-phase1-design.md).
