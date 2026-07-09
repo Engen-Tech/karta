@@ -114,7 +114,7 @@ Curated **stack packs** make karta plan and build the way each stack expects. ka
 
 ## Enforcement below the agent
 
-The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, and a safety-auditor dispatch missing its binder or pinned checklists is blocked before it starts (a fourth hook lists your binders at session start). On Codex, the same rules hold as skill doctrine backed by the OS sandbox and execpolicy rules until its hooks surface stabilizes — the scripts are runtime-agnostic so that switch needs no rewrite. Skills still state every rule; hooks are the backstop. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
+The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, the kaizen writer may write only under `.karta/sme/` and to `.karta/kaizen.json` — any other write is blocked before it lands — and a safety-auditor dispatch missing its binder or pinned checklists is blocked before it starts (a fifth hook lists your binders at session start). On Codex, the same rules hold as skill doctrine backed by the OS sandbox and execpolicy rules until its hooks surface stabilizes — the scripts are runtime-agnostic so that switch needs no rewrite. Skills still state every rule; hooks are the backstop. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
 
 ## Consistent wording across items
 
