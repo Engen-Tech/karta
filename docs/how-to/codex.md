@@ -1,6 +1,6 @@
 # Use karta with Codex CLI
 
-karta runs on Codex CLI with the same skills and gate agents it uses on Claude Code. This guide covers the two ways to get it, how the acceptance gate runs automatically, and the cross-platform notes.
+karta runs on Codex CLI with the same skills and gate logic it uses on Claude Code. The enforcement mechanism differs where Codex does not provide plugin hooks. This guide explains both installation modes, the fallback agents, and the boundaries you can rely on.
 
 ## Two ways to install
 
@@ -10,7 +10,7 @@ karta is packaged as a Codex plugin published through the repo marketplace (`.ag
 
 1. In Codex, open the plugin browser: `/plugins`.
 2. Add this repository as a marketplace source and install **karta**.
-3. The skills are available immediately — `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`, `karta-plainlanguage`, `karta-doc-gardner`, and `karta-debt`.
+3. The skills are available immediately — including `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`, `karta-kaizen`, `karta-plainlanguage`, `karta-doc-gardner`, and `karta-debt`.
 
 From the CLI, the equivalent commands are:
 
@@ -31,10 +31,19 @@ karta's behavioral gate (`karta-verify`) dispatches two read-only agents — `ka
 
 | How karta reached you | Where the gate agent comes from | Read-only enforcement |
 |-|-|-|
-| Plugin install | instructions bundled inside the `karta-verify` skill (`references/*.agent.md`), spawned as a read-only subagent | behavioral (the agent's own instructions); add the sandbox by spawning an `explorer`-style read-only agent |
+| Plugin install | instructions bundled inside the `karta-verify` skill (`references/*.agent.md`), spawned as a fresh fallback agent | instruction-enforced by the bundled agent; sandbox-enforced only when the Codex host starts that agent or session read-only |
 | Repo checkout, or a project that has `.codex/agents/*.toml` | the registered `.codex/agents/karta-*.toml` subagent | sandbox-enforced (`sandbox_mode = "read-only"`) |
 
-You never copy a file. The only difference is the strength of read-only enforcement: behavioral on a bare plugin install, sandbox-enforced when the `.codex/agents/*.toml` are present. Both keep the gate strictly read-only; one is defense-in-depth stronger. If you want the stronger form in your own project, copy `.codex/agents/karta-acceptance-reviewer.toml` and `.codex/agents/karta-safety-auditor.toml` from this repo into your project's `.codex/agents/` — optional, not required.
+You never copy a fallback instruction file. On a bare plugin install, the bundled agent says not to write; a read-only Codex sandbox makes that boundary enforceable. When registered `.codex/agents/*.toml` files are present, their read-only sandbox supplies that enforcement automatically. If you want the registered form in your own project, copy `.codex/agents/karta-acceptance-reviewer.toml` and `.codex/agents/karta-safety-auditor.toml` from this repo into your project's `.codex/agents/`.
+
+## Karta 1.19 features on Codex
+
+The installed Karta 1.19 plugin passed live Codex tests for fallback gates, Kaizen, and Plannotator. Read the [feature-by-feature compatibility result](../showcase/codex-1.19-compatibility/README.md) before relying on a security or write-confinement boundary.
+
+- **Fallback gates:** work without repo-local registered agents by loading the agent instructions bundled with `karta-verify`. Use a read-only Codex sandbox for an enforceable no-write boundary.
+- **Kaizen:** the absent and disabled switches are no-ops. Direct mode detects packs and leaves edits uncommitted. Delivery mode uses the binder's pinned packs and can land a labeled `kaizen:` commit on the supplied integration branch.
+- **Plannotator:** Karta probes for the separately installed CLI. If it is absent, Karta does not mention the browser review surface. If it is present, plan annotations map only when the target field is unambiguous; Karta returns ambiguous feedback to chat and still waits for the explicit `commit` verb.
+- **Hooks:** Karta's Claude Code hooks are unavailable on Codex. Exact Kaizen writer paths and similar narrow boundaries are instruction-enforced unless a separate sandbox or script enforces them.
 
 ## Notes
 
