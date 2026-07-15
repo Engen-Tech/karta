@@ -35,6 +35,8 @@ PREFIXES = {
     "vue": "vue",
     "python-fastapi": "fapi",
     "python": "py",
+    "go-htmx": "htmx",
+    "go-naming": "goname",
 }
 ALLOWED_KEYS = ("name", "description", "match", "always", "see_also", "disabled")
 SIZE_WARN_BYTES = 3500

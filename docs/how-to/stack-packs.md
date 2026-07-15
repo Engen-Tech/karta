@@ -4,7 +4,7 @@ A stack pack is a short markdown file of expert guidance for one technology or o
 
 ## Where packs live
 
-Built-in packs ship inside the plugin: `minimalism` (always on), `angular`, `vue`, `python`, and `python-fastapi`, plus a `platform-native` reference they point at. Your project adds its own in `.karta/sme/*.md`. On a name clash the project file wins — drop a `.karta/sme/minimalism.md` in your repo and karta reads yours, not the built-in. (With [kaizen](kaizen.md) on, the first enabled run copies every pack your project uses into `.karta/sme/`; from then on those files are the packs, and this guide is how you edit them.)
+Built-in packs ship inside the plugin: `minimalism` (always on), `angular`, `vue`, `python`, `python-fastapi`, `go-naming`, and `go-htmx`, plus a `platform-native` reference they point at. Your project adds its own in `.karta/sme/*.md`. On a name clash the project file wins — drop a `.karta/sme/minimalism.md` in your repo and karta reads yours, not the built-in. (With [kaizen](kaizen.md) on, the first enabled run copies every pack your project uses into `.karta/sme/`; from then on those files are the packs, and this guide is how you edit them.)
 
 A React/Next pack is deliberately missing: it is deferred until its rules have been validated against real projects. Write your own overlay pack if you need one now.
 
@@ -49,7 +49,7 @@ Each rule is one line in a fixed format:
 - [ ] py.1 — No bare `except:` — catch the narrowest exception the block can raise.
 ```
 
-- The id is `<prefix>.<number>`. Each pack has one prefix, fixed for its lifetime: `min` (minimalism), `ng` (angular), `vue`, `py` (python), `fapi` (python-fastapi). A new pack registers its own short prefix — pick one and never change it.
+- The id is `<prefix>.<number>`. Each pack has one prefix, fixed for its lifetime: `min` (minimalism), `ng` (angular), `vue`, `py` (python), `fapi` (python-fastapi), `goname` (go-naming), `htmx` (go-htmx). A new pack registers its own short prefix — pick one and never change it.
 - **Ids are never recycled.** A retired rule keeps its number forever as a tombstone line, so an override marker already sitting in someone's code never silently points at a different rule:
 
   ```markdown
