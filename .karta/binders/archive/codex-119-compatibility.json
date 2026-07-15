@@ -1,0 +1,226 @@
+{
+  "slug": "codex-119-compatibility",
+  "title": "Certify Karta 1.19 on Codex",
+  "summary": "Run the recent Karta features through Codex as an installed plugin and record what is fully enforced, behaviorally enforced, or unavailable. The result turns the remaining 1.14–1.16 checklist claims into evidence-backed compatibility guidance.",
+  "motivation": "Karta 1.19 implements the Codex paths, but its Kaizen, fail-closed gate, fallback-agent, and Plannotator scenarios have not all been certified in a live Codex run.",
+  "scope": {
+    "included": [
+      "repair the macOS path canonicalization bug that currently makes the binder-immutability self-test fail",
+      "test installed-plugin fallback agents without repo-local .codex/agents",
+      "test stack-pack unresolved-id and missing-checklist fail-closed behavior on Codex",
+      "test Kaizen off, direct, and delivery modes through the installed Codex plugin",
+      "test the Plannotator absent/present probe, annotation round-trip, and delivery review offer",
+      "record separate test-drive evidence and update Codex guidance and release checklists only where that evidence supports a claim"
+    ],
+    "excluded": [
+      "adding a Codex hooks manifest or claiming hook parity with Claude Code",
+      "changing Kaizen, stack-pack, Plannotator, or fallback-agent behavior to make a failed scenario pass",
+      "certifying Claude Code hook behavior already covered by the 1.19 release test-drive",
+      "removing or committing the user's untracked Plannotator skill installations",
+      "checking off any release item whose scenario fails, is skipped, or cannot be reproduced"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Karta plugin and doctrine repository: Python 3.11+ stdlib scripts run with uv, Markdown skills and agents, JSON manifests and binders, and generated Claude Code and Codex plugin projections"
+  },
+  "sme": [
+    "minimalism",
+    "karta-house-skill-authoring"
+  ],
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "fix-macos-binder-paths",
+      "title": "Make binder protection path-safe on macOS",
+      "summary": "Canonicalize repository and target paths so the binder guard recognizes committed binders under macOS path aliases and its full self-test passes.",
+      "estimate": "S",
+      "depends_on": [],
+      "contract": {
+        "exposes": "Binder immutability resolves the tool-call target and Git's reported repository root to the same canonical filesystem form before checking whether the target is inside the repo and committed in HEAD.",
+        "preserves": "Non-binder paths, untracked binder drafts, non-repository paths, and paths outside the resolved repository continue to pass exactly as before.",
+        "platform_case": "The real-git self-test covers the macOS /var versus /private/var alias and reports 15/15 checks passed."
+      },
+      "touches": [
+        "hooks/scripts/guard_binder_immutability.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive zone: changes a fail-open protection hook that decides whether committed binder writes are blocked",
+          "contract behavior: path canonicalization must close the macOS bypass without widening the paths the hook denies"
+        ]
+      },
+      "oracle": {
+        "type": "smoke",
+        "command": "uv run --script hooks/scripts/guard_binder_immutability.py --self-test && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "The binder-immutability hook reports 15/15 checks passed on macOS, including a committed binder reached through the /var and /private/var aliases.",
+          "A committed live or archived binder is denied, while an untracked draft and a path outside the repository still pass.",
+          "All four repository integrity and projection gates pass."
+        ]
+      }
+    },
+    {
+      "id": "test-codex-fallback-gates",
+      "title": "Test fallback agents and fail-closed gates",
+      "summary": "Run the installed plugin in clean Codex scratch repositories and capture proof that bundled fallback agents resolve correctly and stack-pack gate inputs fail closed.",
+      "estimate": "L",
+      "depends_on": [
+        "fix-macos-binder-paths"
+      ],
+      "contract": {
+        "exposes": "A reproducible test-drive record for a Karta 1.19 Codex plugin install in a scratch repository with no .codex/agents: acceptance and safety agents load from bundled instructions, stay read-only, and judge the actual diff; doc-gardner resolves as a write-capable bundled fallback and stays on its declared documentation surface.",
+        "fail_closed_cases": "A binder pinning an unknown stack-pack id halts with that id named, and a safety-auditor dispatch missing the pinned checklists returns BLOCKED rather than skipping the check.",
+        "evidence_rule": "Record the Codex and plugin versions, exact prompts and commands, relevant output, filesystem before/after checks, and verdicts in one evidence file. Any missing, skipped, or failing scenario halts the item and remains uncertified."
+      },
+      "touches": [
+        "docs/showcase/codex-1.19-compatibility/fallback-agents-and-gates.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "capability and resource use: launches nested Codex sessions and both read-only and write-capable fallback agents in isolated scratch repositories",
+          "sensitive zone: tests the fail-closed inputs and read-only boundary of Karta's acceptance path"
+        ]
+      },
+      "oracle": {
+        "type": "e2e",
+        "command": "codex --version && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "The evidence proves the installed 1.19 plugin path was used in a scratch repository that had no registered Karta agents.",
+          "Both gate fallbacks read the binder and actual diff, return their required envelopes, and leave the scratch repository byte-for-byte unchanged.",
+          "The doc-gardner fallback changes only its declared documentation surface and records its result without touching code, tests, binders, or git refs.",
+          "The unknown-pack and missing-checklist scenarios halt or BLOCK with the missing ids named; neither silently skips stack-pack review.",
+          "The evidence contains no skipped or failed scenario and all four repository gates pass."
+        ]
+      }
+    },
+    {
+      "id": "test-codex-kaizen",
+      "title": "Test Kaizen through the Codex plugin",
+      "summary": "Exercise Kaizen's absolute switch, direct seeding, and delivery landing behavior through the installed plugin and record its actual Codex enforcement strength.",
+      "estimate": "L",
+      "depends_on": [
+        "fix-macos-binder-paths"
+      ],
+      "contract": {
+        "exposes": "A reproducible test-drive record covering Kaizen off, direct, and delivery modes through the installed Karta 1.19 Codex plugin fallback writer.",
+        "direct_mode": "With Kaizen enabled and no binder, the resolved seed set comes from deterministic detect_stack token matching plus always-on packs; existing project packs win and every seeded pack validates.",
+        "delivery_mode": "A delivery seeds exactly the binder's pinned sme ids and lands any changes as labeled kaizen: commits on the integration branch, with no push or PR.",
+        "enforcement_report": "The evidence distinguishes behavior enforced by the skill and workspace sandbox from the exact two-path writer-confinement hook that Codex does not install. It must not claim hook parity.",
+        "evidence_rule": "Record versions, prompts, commands, file and commit before/after state, validator output, and the agent envelope. Any missing, skipped, or failing scenario halts the item and remains uncertified."
+      },
+      "touches": [
+        "docs/showcase/codex-1.19-compatibility/kaizen.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "capability and resource use: launches a workspace-write fallback agent that edits packs and creates commits in isolated scratch repositories",
+          "contract behavior: the report must preserve the deliberate Codex versus Claude hook asymmetry rather than overstating confinement"
+        ]
+      },
+      "oracle": {
+        "type": "e2e",
+        "command": "codex --version && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "With the switch absent or disabled, a direct Kaizen invocation stops without dispatching an agent or changing the scratch repository.",
+          "Direct mode seeds exactly the always-on and token-matched packs, preserves existing project copies, and leaves every pack valid.",
+          "Delivery mode seeds exactly the binder's pinned packs and records changes only in labeled kaizen: commits on the integration branch.",
+          "The fallback writer touches only .karta/sme/ and .karta/kaizen.json in the exercised runs, never pushes, and the evidence accurately states that Codex lacks the Claude writer-confinement hook.",
+          "The evidence contains no skipped or failed scenario and all four repository gates pass."
+        ]
+      }
+    },
+    {
+      "id": "test-codex-plannotator",
+      "title": "Test the Plannotator review path",
+      "summary": "Run Karta's chat fallback and browser annotation paths on Codex, including annotation ingestion and the delivery review offer, and capture the round-trip evidence.",
+      "estimate": "M",
+      "depends_on": [
+        "fix-macos-binder-paths"
+      ],
+      "contract": {
+        "exposes": "A reproducible test-drive record for the Plannotator integration on Codex 1.19 using a scratch binder and integration branch.",
+        "probe_cases": "When Plannotator is hidden from PATH, Karta uses the card flow without mentioning it; when Plannotator 0.23 or newer is available, Karta offers exactly card and plannotator with Plannotator recommended.",
+        "round_trip": "One browser annotation session renders the binder frame and every work-item card field outside .karta/binders, maps an unambiguous annotation to the correct binder field, returns an ambiguous note to chat rather than guessing, re-validates the binder, and commits nothing without the explicit commit verb.",
+        "delivery_review": "A completed delivery offers a plannotator-review session over the integration branch diff when the CLI is present and remains silent about the offer when it is absent.",
+        "evidence_rule": "Record versions, probes, rendered scratch location, returned annotation payload, mapped change, validator result, git state, and delivery offer. Any missing, skipped, or failing scenario halts the item and remains uncertified."
+      },
+      "touches": [
+        "docs/showcase/codex-1.19-compatibility/plannotator.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "capability and resource use: opens a local browser annotation session and requires a live human round-trip",
+          "explicit interaction boundary: the test must prove ambiguous feedback returns to chat and no commit occurs without the user's verb"
+        ]
+      },
+      "oracle": {
+        "type": "e2e",
+        "command": "plannotator --version && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "The absent-CLI probe stays silent and the present-CLI probe offers exactly card and plannotator with Plannotator recommended.",
+          "The browser session renders every required binder and work-item field in scratch space outside .karta/binders.",
+          "An unambiguous annotation updates the intended field, an ambiguous note returns to chat, and the updated binder validates.",
+          "No binder or branch commit occurs without the explicit commit verb, and the delivery review offer appears only when the CLI is available.",
+          "The evidence contains no skipped or failed scenario and all four repository gates pass."
+        ]
+      }
+    },
+    {
+      "id": "publish-codex-compatibility",
+      "title": "Publish the verified compatibility result",
+      "summary": "Turn the three test-drive records into one practical Codex compatibility guide and close only the release checklist cases the evidence proves.",
+      "estimate": "M",
+      "depends_on": [
+        "test-codex-fallback-gates",
+        "test-codex-kaizen",
+        "test-codex-plannotator"
+      ],
+      "contract": {
+        "exposes": "A showcase index and Codex guide that state, feature by feature, what works in plugin-install and repo-local modes and whether each boundary is sandbox-enforced, script-enforced, instruction-enforced, or unavailable.",
+        "release_updates": "Update the 1.14, 1.15, and 1.16 test-drive checklists only where a linked evidence record proves the exact scenario. Leave every failed, skipped, or untested box open and explain the remaining gap without rewriting historical claims.",
+        "source_of_truth": "The three evidence files are the source for every compatibility statement; the summary must not infer success beyond them or claim Codex hook parity."
+      },
+      "touches": [
+        "docs/showcase/codex-1.19-compatibility/README.md",
+        "docs/how-to/codex.md",
+        "docs/releases/v1.14.0-checklist.md",
+        "docs/releases/v1.15.0-checklist.md",
+        "docs/releases/v1.16.0-checklist.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": []
+      },
+      "oracle": {
+        "type": "smoke",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "The showcase index links all three evidence files and gives a feature-by-feature result for plugin-install and repo-local Codex modes.",
+          "The Codex guide explains the fallback-agent resolution and enforcement differences in plain language, including the absence of plugin hooks.",
+          "Every newly checked 1.14, 1.15, or 1.16 release item links to evidence that proves its exact scenario; failed, skipped, and untested items remain unchecked.",
+          "No compatibility statement exceeds the recorded evidence and all four repository gates pass."
+        ]
+      }
+    }
+  ]
+}

@@ -23,6 +23,8 @@ Some files are hand-edited (canonical); others are generated projections you mus
 
 Why committed mirrors and not symlinks: Codex does not detect symlinked skills on Windows (openai/codex#8400), so `.agents/skills/` and the marketplace install projection under `plugins/karta/` are real directories kept in sync by the generator and guarded by the validator.
 
+Externally managed cross-runtime skills are the exception to `.agents/skills/` ownership. A skill with a complete entry in `skills-lock.json` may be committed under `.agents/skills/` alongside its `.claude/skills/` and `.pi/skills/` copies. The generator preserves these locked external skills, does not compare them with `skills/`, and never ships them in `plugins/karta/`.
+
 ## After you edit
 
 - Edited a skill (including its `references/`, `scripts/`, or `agents/openai.yaml`): run `uv run scripts/sync_codex_skills.py`.

@@ -176,7 +176,9 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
             if codex and pn != codex.get("name"):
                 errors.append(f".agents/plugins/marketplace.json: plugin '{pn}' != plugin.json name '{codex.get('name')}'")
 
-    # 3. Repo-local skill mirror — byte-parity with skills/, no orphans.
+    # 3. Repo-local skill mirror — byte-parity for karta-owned skills, no
+    # unmanaged orphans. Cross-runtime skills with complete skills-lock.json
+    # entries share .agents/skills but are excluded from the karta plugin.
     want, names = sync_codex_skills.expected()
     for p, content in sorted(want.items()):
         if not p.exists():

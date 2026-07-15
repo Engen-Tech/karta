@@ -35,17 +35,17 @@ def _target_path(tool_input: dict) -> str | None:
 
 def _tracked_in_head(path: str, cwd: str) -> bool:
     """Is `path` (as the tool call names it) a blob in HEAD of its repo?"""
-    abs_path = Path(path) if os.path.isabs(path) else Path(cwd) / path
+    abs_path = (Path(path) if os.path.isabs(path) else Path(cwd) / path).resolve()
     base = str(abs_path.parent) if abs_path.parent.is_dir() else cwd
     top = subprocess.run(["git", "-C", base, "rev-parse", "--show-toplevel"],
                          capture_output=True, text=True)
     if top.returncode != 0:
         return False  # not a repo (or no git): nothing is committed here
-    toplevel = top.stdout.strip()
+    toplevel = Path(top.stdout.strip()).resolve()
     rel = os.path.relpath(abs_path, toplevel)
     if rel.startswith(".."):
         return False  # outside the repo the tool call runs in
-    out = subprocess.run(["git", "-C", toplevel, "ls-tree", "HEAD", "--", rel],
+    out = subprocess.run(["git", "-C", str(toplevel), "ls-tree", "HEAD", "--", rel],
                          capture_output=True, text=True)
     return out.returncode == 0 and bool(out.stdout.strip())
 
@@ -131,7 +131,8 @@ def _run_self_test() -> int:
         (repo / ".karta" / "binders" / "draft.json").write_text("{}\n")
 
         git_cases = [
-            ("git: committed binder denied", ".karta/binders/committed.json", 2),
+            ("git: committed binder denied across path aliases",
+             ".karta/binders/committed.json", 2),
             ("git: untracked draft passes", ".karta/binders/draft.json", 0),
         ]
         for name, rel, want in git_cases:
