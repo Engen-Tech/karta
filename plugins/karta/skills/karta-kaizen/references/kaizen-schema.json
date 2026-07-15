@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/TejGandham/karta/kaizen-schema.json",
+  "$id": "https://github.com/Engen-Tech/karta/kaizen-schema.json",
   "title": "karta kaizen config",
   "description": "Opt-in switch for karta's stack-pack writer. The switch is absolute: absent or enabled:false means kaizen never runs, including direct invocation. Presence with enabled:true turns kaizen on — it runs after each karta-deliver run and seeds the project's packs into .karta/sme/ on the first enabled run.",
   "type": "object",

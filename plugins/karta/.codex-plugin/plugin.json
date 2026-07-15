@@ -6,8 +6,8 @@
     "name": "Tej Gandham",
     "email": "tej@engen.tech"
   },
-  "homepage": "https://github.com/TejGandham/karta",
-  "repository": "https://github.com/TejGandham/karta",
+  "homepage": "https://github.com/Engen-Tech/karta",
+  "repository": "https://github.com/Engen-Tech/karta",
   "license": "UNLICENSED",
   "keywords": [
     "orchestration",
@@ -32,7 +32,7 @@
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/TejGandham/karta",
+    "websiteURL": "https://github.com/Engen-Tech/karta",
     "defaultPrompt": [
       "Synthesize a karta binder for this work.",
       "Deliver this binder in parallel waves.",

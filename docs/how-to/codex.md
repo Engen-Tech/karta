@@ -15,7 +15,7 @@ karta is packaged as a Codex plugin published through the repo marketplace (`.ag
 From the CLI, the equivalent commands are:
 
 ```bash
-codex plugin marketplace add https://github.com/TejGandham/karta.git
+codex plugin marketplace add https://github.com/Engen-Tech/karta.git
 codex plugin add karta@karta-local
 ```
 

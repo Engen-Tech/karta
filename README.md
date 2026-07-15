@@ -32,7 +32,7 @@ karta is a plugin for **both** Claude Code and Codex CLI — both first-class. T
 ### Claude Code
 
 ```bash
-/plugin marketplace add https://github.com/TejGandham/karta.git
+/plugin marketplace add https://github.com/Engen-Tech/karta.git
 /plugin install karta@karta
 ```
 

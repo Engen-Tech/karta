@@ -7,7 +7,7 @@ karta is a Claude Code plugin: its skills and three agents, installed from the r
 karta is packaged as a Claude Code plugin (the `.claude-plugin/` manifests). The GitHub repo is public, so the marketplace install needs no auth — but the code is proprietary, not open source; use is governed by the [License](../../LICENSE).
 
 ```bash
-/plugin marketplace add https://github.com/TejGandham/karta.git
+/plugin marketplace add https://github.com/Engen-Tech/karta.git
 /plugin install karta@karta
 ```
 

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/TejGandham/karta/doc-gardner-schema.json",
+  "$id": "https://github.com/Engen-Tech/karta/doc-gardner-schema.json",
   "title": "karta doc-gardner config",
   "description": "Opt-in switch for karta's automatic documentation correction. Presence with enabled:true turns the doc-gardner delivery phase on for every karta-deliver run in the repo. This file is the only static element — what to gardner is recomputed live each run and is never enumerated here.",
   "type": "object",
