@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "vector": "field-feature-adoption-ledger",
+  "audit_date": "2026-07-18",
+  "repo": "gringotts",
+  "repo_head": "d5fa1974c59e333a3d1d231889985ee7d8992788",
+  "activity": {
+    "events_total": 11,
+    "classes": {
+      "plan": 2,
+      "archive": 4,
+      "integration_merge": 5
+    },
+    "newest": "2026-07-17T10:29:39-04:00"
+  },
+  "features": [
+    {
+      "id": "debt-markers",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "KARTA-DEFER",
+        "path": ""
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "d62ea75bdce0e27c1f9909dea5e917fa2d6a5970",
+        "date": "2026-06-13T16:19:18-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": -4,
+      "lag_label": "pre-release-dogfood",
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "smoke-oracle-type",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"smoke\"",
+        "path": ".karta/binders"
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "failure-path-durable-traces",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/accepted",
+        "path": ""
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "failed-ref-presence",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": false,
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/failed",
+        "path": ""
+      },
+      "status": "CURRENT-STATE-ONLY",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": false,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "binder-title-summary",
+      "karta_version": "1.8.0",
+      "ship_date": "2026-06-23T21:04:05-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"title\"",
+        "path": ".karta/binders"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "a127bbc1e0d8ddc3dbbe0789e16c0300a0466e08",
+        "date": "2026-07-16T14:31:31-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 22,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "karta-validate-loop",
+      "karta_version": "1.10.0",
+      "ship_date": "2026-07-01T01:00:44-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "karta-validate",
+        "path": ""
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "doc-gardner-optin",
+      "karta_version": "1.11.0",
+      "ship_date": "2026-07-02T14:25:58-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "jq",
+        "pattern": ".enabled",
+        "path": ".karta/doc-gardner.json"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "40bd608c6e03974c0e530f63cc4d6b7a2c176473",
+        "date": "2026-07-16T18:13:10-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 14,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "kaizen-optin",
+      "karta_version": "1.13.0",
+      "ship_date": "2026-07-05T22:12:11-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "jq",
+        "pattern": ".enabled",
+        "path": ".karta/kaizen.json"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "2cdc3ae132bcf8ea4f221afd352083d3d540d080",
+        "date": "2026-07-14T21:37:02-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 8,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "sme-override-markers",
+      "karta_version": "1.14.0",
+      "ship_date": "2026-07-06T03:54:08-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "KARTA-SME-OVERRIDE",
+        "path": ""
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "binder-eol-archive",
+      "karta_version": "1.17.0",
+      "ship_date": "2026-07-08T09:34:56-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"slug\"",
+        "path": ".karta/binders/archive"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "94dde03cb153b49e8f4c64d5d3e2882905c95fe9",
+        "date": "2026-07-16T17:51:55-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 8,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "shared-terms",
+      "karta_version": "1.18.0",
+      "ship_date": "2026-07-08T23:58:08-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"shared_terms\"",
+        "path": ".karta/binders"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "d5fa1974c59e333a3d1d231889985ee7d8992788",
+        "date": "2026-07-17T10:29:39-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 8,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    }
+  ],
+  "headline": {
+    "available_but_unused": [
+      "smoke-oracle-type",
+      "failure-path-durable-traces",
+      "karta-validate-loop",
+      "sme-override-markers"
+    ],
+    "count": 4,
+    "denominator": 11
+  },
+  "adoption_lag_n": 5,
+  "adoption_lag_median_days": 8
+}

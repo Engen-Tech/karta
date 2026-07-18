@@ -1,0 +1,51 @@
+{
+ "slug": "fixture-binder",
+ "title": "Miner fixture binder",
+ "summary": "Synthetic binder for the transcript-miner fixture; item ids match all but one builder meta description (the mystery widget stays unattributed).",
+ "scope": {
+  "included": [
+   "src/"
+  ]
+ },
+ "shared_terms": [
+  {
+   "id": "fixture-term",
+   "canonical": "fixture canonical string",
+   "items": [
+    "alpha-endpoint"
+   ]
+  }
+ ],
+ "work_items": [
+  {
+   "id": "alpha-endpoint",
+   "title": "Alpha endpoint",
+   "summary": "s",
+   "estimate": "S",
+   "oracle": {
+    "type": "unit",
+    "command": "true"
+   }
+  },
+  {
+   "id": "beta-view",
+   "title": "Beta view",
+   "summary": "s",
+   "estimate": "M",
+   "oracle": {
+    "type": "unit",
+    "command": "true"
+   }
+  },
+  {
+   "id": "gamma-docs",
+   "title": "Gamma docs",
+   "summary": "s",
+   "estimate": "L",
+   "oracle": {
+    "type": "unit",
+    "command": "true"
+   }
+  }
+ ]
+}

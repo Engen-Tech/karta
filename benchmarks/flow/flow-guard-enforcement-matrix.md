@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release (Families A+B); quarterly (Family C live cells)
 cost: M
 probe: benchmarks/probes/flow-guard-enforcement-matrix.py
-probe_status: planned
+probe_status: partial
 results: benchmarks/flow/results/
 provenance: "lens=flow; merged_from=guard-bypass-probe-matrix, cross-runtime-enforcement-matrix"
 ---

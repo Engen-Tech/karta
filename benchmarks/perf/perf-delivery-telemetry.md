@@ -5,7 +5,7 @@ method: telemetry-mining
 cadence: every-release
 cost: M
 probe: benchmarks/probes/perf-delivery-telemetry.py
-probe_status: planned
+probe_status: partial
 results: benchmarks/perf/results/
 provenance: "lens=perf; merged_from=delivery-cost-mining, gate-serialization-tax, redundant-oracle-runs, mandated-script-invocation-compliance"
 ---

@@ -1,0 +1,9 @@
+{
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": {
+  "content": "---\nname: minimalism\ndescription: Fixture pack \u2014 validator-clean, used by the guard enforcement matrix\nmatch: [\"python\"]\n---\n## Review checklist\n- [ ] min.1 \u2014 Fixture rule line for guard probes.\n",
+  "file_path": ".karta/sme/minimalism.md"
+ },
+ "tool_name": "Write"
+}

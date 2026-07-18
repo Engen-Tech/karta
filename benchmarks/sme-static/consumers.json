@@ -1,0 +1,4 @@
+{
+  "_comment": "Enrolled consumer repo names, resolved as sibling directories of the --target repo's parent (no absolute paths); each probe run records the SHA probed.",
+  "consumers": ["parchmark", "gringotts"]
+}

@@ -5,7 +5,7 @@ method: drift-diff
 cadence: every-release
 cost: S
 probe: benchmarks/probes/ownership-cost-ledger.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/meta/results/
 provenance: "lens=completeness; merged_from=[]"
 ---

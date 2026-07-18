@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"You are a karta-build wave worker. Build item gamma-docs."},"timestamp":"2026-07-01T10:22:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"tool_use","id":"tu_b4_scan","name":"Bash","input":{"command":"uv run skills/karta-build/scripts/scan_secrets.py"}}]},"timestamp":"2026-07-01T10:23:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"tool_use","id":"tu_b4_edit","name":"Edit","input":{"file_path":"docs/gamma.md","old_string":"a","new_string":"b"}}]},"timestamp":"2026-07-01T10:24:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"tool_use","id":"tu_b4_commit","name":"Bash","input":{"command":"git commit -m \"[karta:item-gamma-docs] docs\""}}]},"timestamp":"2026-07-01T10:25:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"text","text":"done"}],"usage":{"output_tokens":800,"cache_read_input_tokens":15000}},"timestamp":"2026-07-01T10:26:00.000Z"}
+{"type":"user","message":{"role":"user","content":"tool result: committed"},"timestamp":"2026-07-01T10:30:00.000Z"}

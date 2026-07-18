@@ -1,0 +1,9 @@
+{
+  "_comment": "Pack-validation skip-list; one-line justification per entry. Skips are encoded here, never as frontmatter added to shipped prompt text (bench-spec open_questions[4] ruling).",
+  "exceptions": [
+    {
+      "file": "platform-native.md",
+      "justification": "Shared reference data, not a pack — the karta-plan SKILL plan:sme step declares it so; packs link to it via see_also."
+    }
+  ]
+}

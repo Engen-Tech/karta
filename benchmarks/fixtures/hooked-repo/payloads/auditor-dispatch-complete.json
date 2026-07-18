@@ -1,0 +1,10 @@
+{
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": {
+  "description": "boundary scan",
+  "prompt": "binder: .karta/binders/hooked.json\nResolved checklist: min.1",
+  "subagent_type": "karta-safety-auditor"
+ },
+ "tool_name": "Task"
+}

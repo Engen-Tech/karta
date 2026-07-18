@@ -30,6 +30,383 @@
       "used_by": [
         "ownership-cost-ledger"
       ]
+    },
+    {
+      "id": "fixtures-hooked-repo-build-fixture-sh",
+      "path": "benchmarks/fixtures/hooked-repo/build_fixture.sh",
+      "sha256": "83307a88a061dc0d971351a44b9695beb45dd32a16b59f11d9658be38e2e0ed6",
+      "used_by": [
+        "flow-guard-enforcement-matrix"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-auditor-dispatch-complete-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/auditor-dispatch-complete.json",
+      "sha256": "27c2ebd81f1ef772d1877ffea000e8ebb69b81a091f3f4c9a99eed88b85b35ac",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-auditor-dispatch-no-binder-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/auditor-dispatch-no-binder.json",
+      "sha256": "3b80fa1091c23a683f37ad8714a93544e1eaf02d337c56a74fd6de9e9c1363a5",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-auditor-dispatch-no-checklists-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/auditor-dispatch-no-checklists.json",
+      "sha256": "77c208a90dcdcfbbcfe624a3b4124ba34888fec2fd37705feb908d2117790247",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-auditor-dispatch-unrecognized-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/auditor-dispatch-unrecognized.json",
+      "sha256": "6c1f82940d140837a10321810ca003ef43deec4c1d806120520394ac58a14bfa",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-binder-write-archived-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/binder-write-archived.json",
+      "sha256": "4cafeb2f70fab01efb80d1f95afe5504be6b5ba3af8b8f06b7e31ec27f60ca98",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-binder-write-benign-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/binder-write-benign.json",
+      "sha256": "7a031d2d78db0da67aa87d9d10fe25916498850ad175a4728cc3e1922f859a64",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-binder-write-committed-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/binder-write-committed.json",
+      "sha256": "d0e1b428786e6795cbdd14d2cc3ccefa807553ba71f59995d464118de59690ca",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-binder-write-staged-only-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/binder-write-staged-only.json",
+      "sha256": "ceb71de23a379fb0ff0e768681ed5addca99e5ccf0ce87ac33a11c97b9b788ed",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-binder-write-symlink-alias-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/binder-write-symlink-alias.json",
+      "sha256": "57e4dd2f3d63e7cbd76b1994227338364b46dcb19be18bb50dea3f4af5a19dc6",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-kaizen-write-in-surface-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/kaizen-write-in-surface.json",
+      "sha256": "3c3826879ee46bed4cfbe8a7158df86677fcfea6905c0de9d7192cac88d30e50",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-kaizen-write-out-of-surface-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/kaizen-write-out-of-surface.json",
+      "sha256": "18b8a109de1a624e77185d662d0f5b162ee182f1339cd4f1758dab7c9f2b66ea",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-kaizen-write-unverifiable-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/kaizen-write-unverifiable.json",
+      "sha256": "5ae7e3e89e287a80cf1e22468909f7b4669a03fa5341d72cdf948c6aa15f96b4",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-malformed-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/malformed.json",
+      "sha256": "618a0810265007b4db250f23866eb4b76135175b5e6b9adc8e2fb66b0e1b6147",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-pack-notebookedit-invalid-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/pack-notebookedit-invalid.json",
+      "sha256": "11a3457ad2f34eb2532d1aeff9981497ca0a1a9a1107d1d991c68715263fdc42",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-pack-write-invalid-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/pack-write-invalid.json",
+      "sha256": "4fcb53a05fd69336972a6dc33c5d9936c5f396771d677cd734fa4570eec8f173",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-pack-write-valid-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/pack-write-valid.json",
+      "sha256": "b03a976e35579a79f31a0b5546b2926c03440093a37d89724f1a2be7721e1ba3",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-stop-dirty-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/stop-dirty.json",
+      "sha256": "5fee9a4aab5164ff33c7222d9f46b1fc44af9910099d76885f95b1481d33f6ba",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-schema-contradictions-bogus-extra-key-json",
+      "path": "benchmarks/fixtures/schema-contradictions/bogus-extra-key.json",
+      "sha256": "f0ca919166cfe316e7f346f8f704ed09d2cfcf94c4e7c358bd17f4ad25da348d",
+      "used_by": [
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-schema-contradictions-shared-terms-binder-json",
+      "path": "benchmarks/fixtures/schema-contradictions/shared-terms-binder.json",
+      "sha256": "85be7bcfdb939f9b022eb3921562446825f5ee36e7f26451f15840cd6dd0cbaa",
+      "used_by": [
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-schema-contradictions-ui-fields-on-backend-item-json",
+      "path": "benchmarks/fixtures/schema-contradictions/ui-fields-on-backend-item.json",
+      "sha256": "de2566c08a8b6714b9be2ce13c1a7fd4f96200bd4776dca44907bdbdb9350508",
+      "used_by": [
+        "flow-spec-contradictions"
+      ]
+    },
+    {
+      "id": "fixtures-stranded-states-make-state-sh",
+      "path": "benchmarks/fixtures/stranded-states/make_state.sh",
+      "sha256": "6e03662cbf9f4e81994d07d277d6c53e53094ec2d3fc338fbc0af092a2cd2f2d",
+      "used_by": [
+        "dark-status-surface-probes"
+      ]
+    },
+    {
+      "id": "fixtures-stranded-states-expected-json",
+      "path": "benchmarks/fixtures/stranded-states/expected.json",
+      "sha256": "0b4942c2b67853fec19c125991f499e925343ae3c399776e1bf840891c2efc09",
+      "used_by": [
+        "dark-status-surface-probes"
+      ]
+    },
+    {
+      "id": "fixtures-adversarial-archive-tampered-json",
+      "path": "benchmarks/fixtures/adversarial/archive-tampered.json",
+      "sha256": "f3a8beb2c79afa86862e57483edd0f18730b8d5a6e67cade386a1bed2c3af641",
+      "used_by": [
+        "sec-untrusted-input-surfaces"
+      ]
+    },
+    {
+      "id": "fixtures-adversarial-binder-adversarial-json",
+      "path": "benchmarks/fixtures/adversarial/binder-adversarial.json",
+      "sha256": "735120835117d715dcffa19a8178b78b3748f013bb377cdd8859435133939891",
+      "used_by": [
+        "sec-untrusted-input-surfaces"
+      ]
+    },
+    {
+      "id": "fixtures-adversarial-expected-json",
+      "path": "benchmarks/fixtures/adversarial/expected.json",
+      "sha256": "7b9f1cbb4ed355ff5f3bc9b433103f683cd2ef7120bc9f7785a5d284782366e8",
+      "used_by": [
+        "sec-untrusted-input-surfaces"
+      ]
+    },
+    {
+      "id": "fixtures-adversarial-sme-poison-md",
+      "path": "benchmarks/fixtures/adversarial/sme-poison.md",
+      "sha256": "e546f3453b221f604d862cc5be9eb698ff7542e9a20bd0971184abb133b8795d",
+      "used_by": [
+        "sec-untrusted-input-surfaces"
+      ]
+    },
+    {
+      "id": "flow-fixtures-delivery-state-build-fixture-sh",
+      "path": "benchmarks/flow/fixtures/delivery-state/build_fixture.sh",
+      "sha256": "96b2ec28f5fcb312c0ebd763d66cb107037f6714a6cfeaea9bf7d54e4d66063f",
+      "used_by": [
+        "field-delivery-state-audit"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-binder-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/binder.json",
+      "sha256": "1c2e782e340dd268f19d2464861315286d149373740028f3f0d180127f6b6d40",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery.jsonl",
+      "sha256": "c33a058b105f3716749c995de96689443b157542aba402817593fa18b6e776bf",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b1-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b1.jsonl",
+      "sha256": "db3e07e4269a3cc4776f6e94dec72705e10c6010b316b68bd4545f73a757ee91",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b1-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b1.meta.json",
+      "sha256": "409b15449374b1910b618e1a0ed424b2dc32f8d7485ace4b782eff56a6c39b3e",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b2-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b2.jsonl",
+      "sha256": "530cc348f98f0566f22c016774af33e20a81fbd72cfe835005a81961c1431e8b",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b2-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b2.meta.json",
+      "sha256": "3a5cfb237e5399d4f3d7948c8ce20e9426dac1ba484f76e818cb619fb2c1933b",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b3-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b3.jsonl",
+      "sha256": "8f7682d04ce3e4ba717b249e20a39452413910bee8fc94709b4650891ee2068a",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b3-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b3.meta.json",
+      "sha256": "af279714bb5581e570761975c626419062e3b308e34caea031d4d33f5c09d8c0",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b4-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b4.jsonl",
+      "sha256": "5dbe53e5329c46e7036a39eb3e4ee6b8692ff987e4b7230540d8dbfbd3ec2fc1",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-b4-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-b4.meta.json",
+      "sha256": "86aa207f5b61e72f50c243e6e40504b2dba26cf98261999624e1e2bd92bcc4d4",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-g1-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-g1.jsonl",
+      "sha256": "10b50a2c3137fc444a6e5165c111f18e5c595976b5474b22faa082ad471575cc",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-g1-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-g1.meta.json",
+      "sha256": "fe008a8801554053c81dfa9f9bceea3dc2d0aaf6c9a33e67b81ab53e16d0a33b",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-g2-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-g2.jsonl",
+      "sha256": "460666053ad3c1c719991b0832def33ffcbca4609e6d6efecdcd5a131da0e323",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-g2-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-g2.meta.json",
+      "sha256": "ccd36d2c0bec44486824e9b3b9a317e1473523f64662b33db10caa43fc86dbeb",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-x1-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-x1.jsonl",
+      "sha256": "d2cd5ccdef5df8fe9aea519991d96865035de4ada75cf295155f8d25af729415",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-delivery-subagents-agent-x1-meta-json",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-delivery/subagents/agent-x1.meta.json",
+      "sha256": "c288a24677a7043b217c4d0c33d518cd8c952bc294cbe08557e061d673cde485",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "perf-fixtures-miner-transcript-sess-truncated-jsonl",
+      "path": "benchmarks/perf/fixtures/miner-transcript/sess-truncated.jsonl",
+      "sha256": "95a5b138101045af3057927467dd026a81d69703e1f4fc0e8fc97b237da6699c",
+      "used_by": [
+        "perf-delivery-telemetry"
+      ]
     }
   ]
 }

@@ -1,0 +1,115 @@
+{
+ "id": "parity-doc-truth-ledger",
+ "lanes": {
+  "B": {
+   "count": 7,
+   "violations": [
+    {
+     "finding_id": "B:failed-expect:claude-code-three-agents-intro",
+     "severity": "violation",
+     "summary": "claim 'three agents' in docs/how-to/claude-code.md states 3, truth is 4"
+    },
+    {
+     "finding_id": "B:failed-expect:claude-code-three-agents-registers",
+     "severity": "violation",
+     "summary": "claim 'three agents' in docs/how-to/claude-code.md states 3, truth is 4"
+    },
+    {
+     "finding_id": "B:failed-expect:marketplace-two-gate-agents-detail-desc",
+     "severity": "violation",
+     "summary": "claim 'two read-only gate agents' in .claude-plugin/marketplace.json states 2, truth is 4"
+    },
+    {
+     "finding_id": "B:failed-expect:marketplace-two-gate-agents-plugin-desc",
+     "severity": "violation",
+     "summary": "claim 'two read-only gate agents' in .claude-plugin/marketplace.json states 2, truth is 4"
+    },
+    {
+     "finding_id": "B:failed-expect:readme-five-skills-flow",
+     "severity": "violation",
+     "summary": "claim 'Five skills' in README.md states 5, truth is 10"
+    },
+    {
+     "finding_id": "B:failed-expect:readme-five-skills-heading",
+     "severity": "violation",
+     "summary": "claim 'five skills' in README.md states 5, truth is 10"
+    },
+    {
+     "finding_id": "B:failed-expect:readme-two-agents-heading",
+     "severity": "violation",
+     "summary": "claim 'two agents' in README.md states 2, truth is 4"
+    }
+   ]
+  },
+  "C": {
+   "count": 2,
+   "violations": [
+    {
+     "finding_id": "C:stale-pin:docs/how-to/codex.md:1.19:1",
+     "severity": "violation",
+     "summary": "stale major-version pin 'Karta 1.19' in docs/how-to/codex.md (current major 2)"
+    },
+    {
+     "finding_id": "C:stale-pin:docs/how-to/codex.md:1.19:2",
+     "severity": "violation",
+     "summary": "stale major-version pin 'Karta 1.19' in docs/how-to/codex.md (current major 2)"
+    }
+   ]
+  },
+  "D": {
+   "count": 1,
+   "violations": [
+    {
+     "finding_id": "D:undiscoverable:karta-status",
+     "severity": "violation",
+     "summary": "skill karta-status appears nowhere in README.md or docs/how-to/*.md"
+    }
+   ]
+  },
+  "E": {
+   "count": 2,
+   "violations": [
+    {
+     "finding_id": "E:ledger:DG-SCHEMA",
+     "severity": "violation",
+     "summary": "DG-SCHEMA: a doc promises a doc-gardner schema gate some code executes, but no .py references doc-gardner-schema.json (matching .py files: 0)"
+    },
+    {
+     "finding_id": "E:ledger:KAIZEN-USERREPO",
+     "severity": "violation",
+     "summary": "KAIZEN-USERREPO: the kaizen how-to promises config validation for user repos, but no hook/skill invokes config validation with a consumer-repo root (validate_plugin.py hard-anchors ROOT to the karta repo) (matching .py files: 0)"
+    }
+   ]
+  },
+  "F": {
+   "count": 0,
+   "violations": []
+  },
+  "G": {
+   "count": 2,
+   "violations": [
+    {
+     "finding_id": "G:unregistered-root:docgardner",
+     "severity": "violation",
+     "summary": "label root 'docgardner' is in use but missing from the Roots table"
+    },
+    {
+     "finding_id": "G:unregistered-root:kaizen",
+     "severity": "violation",
+     "summary": "label root 'kaizen' is in use but missing from the Roots table"
+    }
+   ]
+  }
+ },
+ "retired": {
+  "claims": 0,
+  "ledger": 0
+ },
+ "truth": {
+  "N_agents": 4,
+  "N_skills": 10,
+  "plugin_version": "2.21.0",
+  "readonly_agents": 2,
+  "writer_agents": 2
+ }
+}

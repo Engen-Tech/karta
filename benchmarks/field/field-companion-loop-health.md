@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release
 cost: S
 probe: benchmarks/probes/field-companion-loop-health.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/field/results/
 provenance: lens=field; merged_from=kaizen-loop-health, companion-loop-coverage
 ---

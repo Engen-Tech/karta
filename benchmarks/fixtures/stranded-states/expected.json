@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "comment": "Frozen grading anchors for dark-status-surface-probes, one per case. warning_regex (case-insensitive) is what counts as the surface telling the truth in karta_next warnings[] — no free-form judgment. expect_command_nonnull and stop_gate_exit freeze today's observed behavior so drift without an anchor edit surfaces as an anchor mismatch. serve_status pins the exact _STATE_META symbol and badge word checked via the import probe (null = no symbol pinned for this case). Anchor edits are only legal in the same commit as the surface change they track; the anchor diff ships inside the bench results file.",
+  "cases": {
+    "S1": {
+      "shape": "built-unmerged mid-wave: item a merged+done, item b built with no done/failed",
+      "warning_regex": "carr(y|ies) built|built[^\\n]*no done|stranded|unmerged",
+      "expect_command_nonnull": false,
+      "stop_gate_exit": 2,
+      "serve_status": {"symbol": "built", "word": "BUILT"}
+    },
+    "S2": {
+      "shape": "all-done-unmerged: archived on integration, integration never merged to main",
+      "warning_regex": "integration[^\\n]*merge|merge[^\\n]*integration|awaiting[^\\n]*merge",
+      "expect_command_nonnull": false,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "S3": {
+      "shape": "accepted-done item with proper Karta-Accept trailers + a ready sibling",
+      "warning_regex": "accept|waiv",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": {"symbol": "done", "word": "PASSED"}
+    },
+    "S4": {
+      "shape": "crashed-build branch with no refs",
+      "warning_regex": "crash|abandon|stale|no refs",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": {"symbol": "building", "word": "RUNNING"}
+    },
+    "S5": {
+      "shape": "corrupt/non-dict binder JSON",
+      "warning_regex": "corrupt|malformed|invalid|unreadable|not valid",
+      "expect_command_nonnull": false,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "S6": {
+      "shape": "binder in HEAD but deleted from the working tree; stranded built ref",
+      "warning_regex": "deleted|missing[^\\n]*binder|only in HEAD|working tree",
+      "expect_command_nonnull": false,
+      "stop_gate_exit": 2,
+      "serve_status": null
+    },
+    "S7": {
+      "shape": "post-merge leftovers (parchmark backend-hygiene replica, synthesized)",
+      "warning_regex": "leftover|stale|clean ?up|prune",
+      "expect_command_nonnull": false,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "S8": {
+      "shape": "done-item worktree still mounted (gringotts replica, synthesized)",
+      "warning_regex": "worktree|leftover|stale|clean ?up|prune",
+      "expect_command_nonnull": false,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "F1": {
+      "shape": "forged done ref not first-parent-reachable from integration",
+      "warning_regex": "forg|not[^\\n]*reachable|unreachable|suspect",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "F2": {
+      "shape": "accepted ref whose target merge lacks Karta-Accept trailers",
+      "warning_regex": "forg|trailer|suspect",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "F3": {
+      "shape": "built+done refs forged onto a commit with no item branch",
+      "warning_regex": "forg|no[^\\n]*branch|suspect",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "F4": {
+      "shape": "done ref for an item absent from the binder",
+      "warning_regex": "forg|not in[^\\n]*binder|unknown item|suspect",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    },
+    "P1": {
+      "shape": "accepted-done fixture: state key distinct from clean done + badge word not PASSED",
+      "warning_regex": "accept|waiv",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": {"symbol": "done", "word": "PASSED"}
+    },
+    "P2": {
+      "shape": "accepted-done fixture: waiver reconstructible from refs + merge trailers alone",
+      "warning_regex": "accept|waiv",
+      "expect_command_nonnull": true,
+      "stop_gate_exit": 0,
+      "serve_status": null
+    }
+  }
+}

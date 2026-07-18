@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"You are a karta-build wave worker. Build item beta-view."},"timestamp":"2026-07-01T10:01:20.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"text","text":"implementing"}],"usage":{"output_tokens":2000,"cache_read_input_tokens":40000}},"timestamp":"2026-07-01T10:10:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"tool_use","id":"tu_b2_commit","name":"Bash","input":{"command":"git commit -m \"[karta:item-beta-view] add view\""}}]},"timestamp":"2026-07-01T10:15:00.000Z"}
+{"type":"user","message":{"role":"user","content":"tool result: committed"},"timestamp":"2026-07-01T10:21:20.000Z"}

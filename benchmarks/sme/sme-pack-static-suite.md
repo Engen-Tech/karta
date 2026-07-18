@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release
 cost: S
 probe: benchmarks/probes/sme-pack-static-suite.py
-probe_status: partial
+probe_status: implemented
 results: benchmarks/sme/results/
 provenance: "lens=sme; merged_from=pin-derivation-fidelity, pack-integrity-sweep, seed-drift-against-upstream"
 ---

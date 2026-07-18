@@ -5,7 +5,7 @@ method: drift-diff
 cadence: every-release
 cost: S
 probe: benchmarks/probes/parity-doc-truth-ledger.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/parity/results/
 provenance: "lens: parity; merged_from: doc-inventory-parity, doc-claim-verification-ledger, phase-label-registry-completeness"
 ---

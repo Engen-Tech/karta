@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "notes": [
+    "One entry per shipped, consumer-repo-observable karta capability: {id, karta_version, ship_date, detection:{kind: grep|jq|ref, pattern, path}, durable} — or an explicit {version, observable: false} sentinel for a release that shipped no new repo-observable capability.",
+    "Coverage floor: every released version from 1.8.0 through 2.21.0 carries an entry or a sentinel, enumerated from the .claude-plugin/plugin.json version-transition commits (git log -G).",
+    "Era capabilities that shipped before the 1.8.0 coverage floor (debt markers, the smoke oracle type, the accept/failure path, failed-ref presence) carry their true first released version (1.0.0) and that version-transition commit's committer date; attributing them to 1.8.0 would forge their ship dates. The plan-time seed expectations name these features, so they are entries, not omissions.",
+    "ship_date = committer date of the plugin.json version-transition commit for that version. Declared deviation from card step 2: pre-1.13.0 bumps predate the chore(release) subject convention, so the transition commit — not a chore(release) grep — is the date source for every version.",
+    "detection kinds: grep = tracked-content substring (first-use via git log -S<pattern> [-- path]); jq = key presence in the tracked JSON file at path (first-use via git log -S on the final key token, scoped to path); ref = git refs matching pattern (first-use via the earliest ref-target committer date).",
+    "durable:false detections report current-state presence only and are EXCLUDED from adoption-lag and from AVAILABLE-BUT-UNUSED (card step 3): refs/karta/**/failed is rewritten by karta-deliver and git keeps no reflog for refs/karta/**."
+  ],
+  "entries": [
+    {
+      "id": "debt-markers",
+      "capability": "Inline declared-debt markers (KARTA-DEFER) at deferral sites in tracked content",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "detection": {"kind": "grep", "pattern": "KARTA-DEFER", "path": ""},
+      "durable": true
+    },
+    {
+      "id": "smoke-oracle-type",
+      "capability": "The smoke oracle type on binder work items",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "detection": {"kind": "grep", "pattern": "\"smoke\"", "path": ".karta/binders"},
+      "durable": true
+    },
+    {
+      "id": "failure-path-durable-traces",
+      "capability": "The delivery failure path, tracked via its durable traces: accepted refs persist post-archive (waiver/override markers in tracked content are the sibling trace)",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "detection": {"kind": "ref", "pattern": "refs/karta/*/item-*/accepted", "path": ""},
+      "durable": true
+    },
+    {
+      "id": "failed-ref-presence",
+      "capability": "Current-state failed-ref presence (ephemeral: karta-deliver deletes the failed ref on accept and rewrites it in revert-the-wave)",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "detection": {"kind": "ref", "pattern": "refs/karta/*/item-*/failed", "path": ""},
+      "durable": false
+    },
+    {
+      "id": "binder-title-summary",
+      "capability": "Human title + plain-language summary on binders and work items",
+      "karta_version": "1.8.0",
+      "ship_date": "2026-06-23T21:04:05-04:00",
+      "detection": {"kind": "grep", "pattern": "\"title\"", "path": ".karta/binders"},
+      "durable": true
+    },
+    {"version": "1.9.0", "observable": false, "note": "per-host model + effort tiers on karta's own agents/skills — plugin-internal, no consumer-repo trace"},
+    {
+      "id": "karta-validate-loop",
+      "capability": "karta-validate design-fidelity loop (data-first comparison shipped 1.10.0); adoption trace = any tracked karta-validate mention (a committed validation report or delivery note)",
+      "karta_version": "1.10.0",
+      "ship_date": "2026-07-01T01:00:44-04:00",
+      "detection": {"kind": "grep", "pattern": "karta-validate", "path": ""},
+      "durable": true
+    },
+    {
+      "id": "doc-gardner-optin",
+      "capability": "doc-gardner opt-in config committed at .karta/doc-gardner.json",
+      "karta_version": "1.11.0",
+      "ship_date": "2026-07-02T14:25:58-04:00",
+      "detection": {"kind": "jq", "pattern": ".enabled", "path": ".karta/doc-gardner.json"},
+      "durable": true
+    },
+    {"version": "1.11.1", "observable": false, "note": "doc-gardner agent effort raise — patch, plugin-internal"},
+    {"version": "1.12.0", "observable": false, "note": "doc-gardner superpowers-folder salvage behavior — plugin-internal"},
+    {
+      "id": "kaizen-optin",
+      "capability": "kaizen opt-in config committed at .karta/kaizen.json",
+      "karta_version": "1.13.0",
+      "ship_date": "2026-07-05T22:12:11-04:00",
+      "detection": {"kind": "jq", "pattern": ".enabled", "path": ".karta/kaizen.json"},
+      "durable": true
+    },
+    {
+      "id": "sme-override-markers",
+      "capability": "Declared stack-pack overrides with stable rule ids (KARTA-SME-OVERRIDE markers) in tracked content",
+      "karta_version": "1.14.0",
+      "ship_date": "2026-07-06T03:54:08-04:00",
+      "detection": {"kind": "grep", "pattern": "KARTA-SME-OVERRIDE", "path": ""},
+      "durable": true
+    },
+    {"version": "1.15.0", "observable": false, "note": "kaizen dogfood enablement on karta itself + example-binder docs — no new consumer-repo-observable capability"},
+    {"version": "1.16.0", "observable": false, "note": "plannotator optional review surface — separately-installed CLI, leaves no consumer-repo trace"},
+    {
+      "id": "binder-eol-archive",
+      "capability": "Binder end-of-life: delivered binders archived to .karta/binders/archive/",
+      "karta_version": "1.17.0",
+      "ship_date": "2026-07-08T09:34:56-04:00",
+      "detection": {"kind": "grep", "pattern": "\"slug\"", "path": ".karta/binders/archive"},
+      "durable": true
+    },
+    {
+      "id": "shared-terms",
+      "capability": "Cross-item shared_terms declarations on binders (byte-identity enforcement)",
+      "karta_version": "1.18.0",
+      "ship_date": "2026-07-08T23:58:08-04:00",
+      "detection": {"kind": "grep", "pattern": "\"shared_terms\"", "path": ".karta/binders"},
+      "durable": true
+    },
+    {"version": "1.19.0", "observable": false, "note": "writer-confinement hooks + shared-terms pending detection — plugin-internal enforcement"},
+    {"version": "2.20.0", "observable": false, "note": "Codex CLI compatibility certification — plugin-internal/publishing, no consumer-repo trace"},
+    {"version": "2.21.0", "observable": false, "note": "delivery Stop-gate (sixth hook) — plugin-internal enforcement"}
+  ]
+}

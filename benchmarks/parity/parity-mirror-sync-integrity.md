@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release
 cost: S
 probe: benchmarks/probes/parity-mirror-sync-integrity.py
-probe_status: partial
+probe_status: implemented
 results: benchmarks/parity/results/
 provenance: "lens: parity; merged_from: mirror-sync-integrity-probes"
 ---

@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release (P1/P2 static probes); quarterly (P3 live cells)
 cost: M
 probe: benchmarks/probes/sec-untrusted-input-surfaces.py
-probe_status: planned
+probe_status: partial
 results: benchmarks/sec/results/
 provenance: "lens: completeness; merged_from: none"
 ---

@@ -5,7 +5,7 @@ method: ab-fixture-run
 cadence: "every-release (static layer + empty-diff family; Path 3 at k=1); quarterly (kickback family; Path 3 at k=3)"
 cost: L
 probe: benchmarks/probes/quality-verify-integrity-drills.py
-probe_status: planned
+probe_status: partial
 results: benchmarks/quality/results/
 provenance: "lens: quality; merged_from: empty-diff-verdict-integrity, kickback-cap-drill"
 ---

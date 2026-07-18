@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release
 cost: S
 probe: benchmarks/probes/flow-spec-contradictions.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/flow/results/
 provenance: "lens=flow; merged_from=prose-hook-contradiction-count, binder-amend-path-probe, schema-vs-validator-disagreement"
 ---

@@ -1,0 +1,21 @@
+{
+  "slug": "sc-ui-fields-on-backend",
+  "title": "Schema-contradiction fixture: UI fields on a non-UI item",
+  "summary": "A structurally valid binder whose single work item is a backend data migration yet carries component_map, icon_map, and token_changes. karta-plan SKILL.md promises 'Emitting them on a migration, a CLI command, or a data pipeline item is a schema error — the validator will catch it', but both binder-schema.json (they are optional array properties on every work item) and validate_binder.py accept it. Both validators accept exactly what the promise claims is caught.",
+  "motivation": "Pin the false safety net: the plan prose claims a validator catches UI keys on non-UI items, and neither validator does.",
+  "scope": {
+    "included": ["nothing — fixture only"]
+  },
+  "work_items": [
+    {
+      "id": "backend-migration",
+      "title": "Migrate the accounts table to the new partition key",
+      "summary": "A pure backend data migration with no UI surface, yet it carries UI-only keys.",
+      "touches": ["migrations/003_accounts.sql"],
+      "component_map": [{"name": "DataTable", "source": "custom"}],
+      "icon_map": [{"name": "database"}],
+      "token_changes": [{"operation": "add", "tier": "semantic", "name": "color.accent"}],
+      "oracle": {"type": "integration", "command": "true"}
+    }
+  ]
+}

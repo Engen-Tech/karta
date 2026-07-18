@@ -5,7 +5,7 @@ method: telemetry-mining
 cadence: every-release
 cost: M
 probe: benchmarks/probes/field-feature-adoption-ledger.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/field/results/
 provenance: lens=field; merged_from=feature-adoption-ledger
 ---

@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "vector": "field-feature-adoption-ledger",
+  "audit_date": "2026-07-18",
+  "repo": "parchmark",
+  "repo_head": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+  "activity": {
+    "events_total": 14,
+    "classes": {
+      "plan": 0,
+      "archive": 0,
+      "integration_merge": 14
+    },
+    "newest": "2026-07-06T16:44:05Z"
+  },
+  "features": [
+    {
+      "id": "debt-markers",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "KARTA-DEFER",
+        "path": ""
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "b0fdc879cb03a27aabcd13ac74ca8d84f6e8a5ee",
+        "date": "2026-06-10T00:40:52-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": -8,
+      "lag_label": "pre-release-dogfood",
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "smoke-oracle-type",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"smoke\"",
+        "path": ".karta/binders"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "b9f900ed6134070b177e9bbef3533b16b39c30fa",
+        "date": "2026-06-18T00:23:59-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 0,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "failure-path-durable-traces",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/accepted",
+        "path": ""
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "failed-ref-presence",
+      "karta_version": "1.0.0",
+      "ship_date": "2026-06-17T16:13:15-04:00",
+      "durable": false,
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/failed",
+        "path": ""
+      },
+      "status": "CURRENT-STATE-ONLY",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": false,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "binder-title-summary",
+      "karta_version": "1.8.0",
+      "ship_date": "2026-06-23T21:04:05-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"title\"",
+        "path": ".karta/binders"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "b9f900ed6134070b177e9bbef3533b16b39c30fa",
+        "date": "2026-06-18T00:23:59-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": -6,
+      "lag_label": "pre-release-dogfood",
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "karta-validate-loop",
+      "karta_version": "1.10.0",
+      "ship_date": "2026-07-01T01:00:44-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "karta-validate",
+        "path": ""
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "doc-gardner-optin",
+      "karta_version": "1.11.0",
+      "ship_date": "2026-07-02T14:25:58-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "jq",
+        "pattern": ".enabled",
+        "path": ".karta/doc-gardner.json"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "90ef8b935dc9e2096119e30649ebcaaba29c97ae",
+        "date": "2026-06-23T10:22:18-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": -10,
+      "lag_label": "pre-release-dogfood",
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "kaizen-optin",
+      "karta_version": "1.13.0",
+      "ship_date": "2026-07-05T22:12:11-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "jq",
+        "pattern": ".enabled",
+        "path": ".karta/kaizen.json"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "64ce31627221077c6bab5724f30128f682c037a1",
+        "date": "2026-07-05T22:44:53-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": 0,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "sme-override-markers",
+      "karta_version": "1.14.0",
+      "ship_date": "2026-07-06T03:54:08-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "KARTA-SME-OVERRIDE",
+        "path": ""
+      },
+      "status": "AVAILABLE-BUT-UNUSED",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "binder-eol-archive",
+      "karta_version": "1.17.0",
+      "ship_date": "2026-07-08T09:34:56-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"slug\"",
+        "path": ".karta/binders/archive"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "657f6bf146d9c377c066e28d76fd0bee0106bc13",
+        "date": "2026-07-01T20:07:29-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": -7,
+      "lag_label": "pre-release-dogfood",
+      "present_now": null,
+      "days_since_last_activity": null
+    },
+    {
+      "id": "shared-terms",
+      "karta_version": "1.18.0",
+      "ship_date": "2026-07-08T23:58:08-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"shared_terms\"",
+        "path": ".karta/binders"
+      },
+      "status": "NOT-EXERCISED-SINCE-SHIP",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": 12
+    }
+  ],
+  "headline": {
+    "available_but_unused": [
+      "failure-path-durable-traces",
+      "karta-validate-loop",
+      "sme-override-markers"
+    ],
+    "count": 3,
+    "denominator": 11
+  },
+  "adoption_lag_n": 2,
+  "adoption_lag_median_days": null
+}

@@ -1,0 +1,30 @@
+{
+  "$comment": "Committed whitelist of Claude Code hook event names and matcher tool names, pinned so that flow-spec-contradictions pass 2 can tell three states apart: a name that matches exactly is fine; a name within edit-distance 2 of a whitelisted one is a MISSPELLING finding (closes validate_plugin.py's silent acceptance of typos like 'PreTooluse'); a name that matches nothing is UNKNOWN-EVENT, reported apart from findings so a genuine Claude Code upgrade reads as bench maintenance, not a karta defect. Re-pin deliberately when Claude Code ships a new event or tool.",
+  "source": "Claude Code plugin hook contract as of karta 2.21.0 (2026-07-17)",
+  "events": [
+    "PreToolUse",
+    "PostToolUse",
+    "UserPromptSubmit",
+    "Notification",
+    "Stop",
+    "SubagentStop",
+    "SessionStart",
+    "SessionEnd",
+    "PreCompact"
+  ],
+  "matcher_tools": [
+    "*",
+    "Task",
+    "Agent",
+    "Bash",
+    "Glob",
+    "Grep",
+    "Read",
+    "Edit",
+    "MultiEdit",
+    "Write",
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch"
+  ]
+}

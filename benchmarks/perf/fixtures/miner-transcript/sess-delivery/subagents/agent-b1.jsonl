@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"You are a karta-build wave worker. Build item alpha-endpoint."},"timestamp":"2026-07-01T10:01:10.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"text","text":"implementing"}],"usage":{"output_tokens":1000,"cache_read_input_tokens":20000}},"timestamp":"2026-07-01T10:03:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"tool_use","id":"tu_b1_scan","name":"Bash","input":{"command":"uv run skills/karta-build/scripts/scan_secrets.py"}}]},"timestamp":"2026-07-01T10:05:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"model-a","content":[{"type":"tool_use","id":"tu_b1_commit","name":"Bash","input":{"command":"git commit -m \"[karta:item-alpha-endpoint] add endpoint\""}}],"usage":{"output_tokens":500,"cache_read_input_tokens":10000}},"timestamp":"2026-07-01T10:08:00.000Z"}
+{"type":"user","message":{"role":"user","content":"tool result: committed"},"timestamp":"2026-07-01T10:11:10.000Z"}
