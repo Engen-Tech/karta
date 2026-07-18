@@ -1,0 +1,19 @@
+{
+  "slug": "sc-bogus-extra-key",
+  "title": "Schema-contradiction control: an undeclared top-level key",
+  "summary": "A structurally valid binder plus one undeclared top-level key. This is the control: additionalProperties:false is enforced by BOTH binder-schema.json and validate_binder.py, so both must reject it. If either accepts it the dual mechanism itself has broken, which is a finding — the control proves the two-validator comparison is live.",
+  "motivation": "Prove the schema-vs-validator dual actually rejects the undeclared-key case on both sides, so an agreement is real and not a both-blind pass.",
+  "scope": {
+    "included": ["nothing — fixture only"]
+  },
+  "bogus_extra_key": "neither binder-schema.json nor validate_binder.py declares this key",
+  "work_items": [
+    {
+      "id": "control",
+      "title": "Control item",
+      "summary": "A single valid work item; the deviation is the undeclared top-level key.",
+      "touches": ["c.py"],
+      "oracle": {"type": "unit", "command": "true"}
+    }
+  ]
+}

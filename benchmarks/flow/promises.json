@@ -1,0 +1,40 @@
+{
+  "$comment": "Pass-3 promise probes for flow-spec-contradictions. Each entry names a written promise (file + a sentence-REGEX anchor, never a line number) and a check that decides whether the running code keeps it. An anchor that no longer matches its file emits ANCHOR-LOST as its own state (never a silent pass) so doc drift is loud. Add-only: resolutions move to the runner's resolved list with a resolving commit hash, they are not deleted here.",
+  "promises": [
+    {
+      "id": "A1",
+      "check": "guard-deny",
+      "anchor_file": "hooks/scripts/guard_binder_immutability.py",
+      "anchor_regex": "committed binders are read-only",
+      "guard": "hooks/scripts/guard_binder_immutability.py",
+      "payload_fixture": "benchmarks/fixtures/hooked-repo/payloads/binder-write-committed.json",
+      "expected_exit": 2,
+      "summary": "the immutability guard denies a Write to a HEAD-committed binder — the promise 'committed binders are read-only' must hold at the hook, proven by piping the shared hooked-repo committed-binder payload to guard_binder_immutability.py stdin"
+    },
+    {
+      "id": "A2",
+      "check": "sentence-xor-mechanism",
+      "anchor_file": "skills/karta-deliver/SKILL.md",
+      "anchor_regex": "edit the binder between waves",
+      "mechanism_file": "hooks/scripts/guard_binder_immutability.py",
+      "mechanism_regex": "wave[ _-]?in[ _-]?flight|between[ _-]?waves|amend",
+      "summary": "karta-deliver promises 'you can edit the binder between waves (then re-validate it)' but guard_binder_immutability.py denies every write to a committed binder unconditionally — there is no wave-in-flight distinction in the guard, so the promised between-waves edit is blocked by the running code"
+    },
+    {
+      "id": "A3",
+      "check": "no-repair-anchor",
+      "anchor_files": [
+        "skills/karta-deliver/SKILL.md",
+        "skills/karta-deliver/references/integration-branch.md",
+        "skills/karta-deliver/references/verification-gate.md"
+      ],
+      "repair_regexes": [
+        "sanctioned repair path",
+        "re-plan to a new slug",
+        "amend the committed binder (in place|via)",
+        "repair mechanism"
+      ],
+      "summary": "no sanctioned in-place repair path is documented for a committed binder that a wave proved wrong: the between-waves prose says 're-validate it' but names no mechanism, so the field workaround has been a full re-plan (gringotts 1f548e5 field-proven; parchmark 76aadba burned a re-plan). Stays open until a repair-mechanism anchor appears or re-plan-to-new-slug is documented as the sanctioned path."
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "slug": "sc-shared-terms",
+  "title": "Schema-contradiction fixture: a modern binder carrying shared_terms",
+  "summary": "A structurally valid binder whose only deviation from binder-schema.json is a top-level shared_terms array. binder-schema.json (additionalProperties:false, no shared_terms property) rejects it; validate_binder.py injects the shared_terms sub-schema at check time and accepts it. The two disagree — every modern gringotts binder is invalid per karta's own published schema file.",
+  "motivation": "Pin the schema-vs-validator disagreement on shared_terms so a silent divergence between the shipped schema and the runtime validator cannot pass unnoticed.",
+  "scope": {
+    "included": ["nothing — fixture only"]
+  },
+  "shared_terms": [
+    {
+      "id": "probe-json-contract",
+      "canonical": "{\"id\",\"status\":\"pass\"|\"fail\"}",
+      "items": ["alpha", "beta"]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "alpha",
+      "title": "Alpha item",
+      "summary": "First item enrolled in the shared term.",
+      "touches": ["a.py"],
+      "oracle": {"type": "unit", "command": "true"}
+    },
+    {
+      "id": "beta",
+      "title": "Beta item",
+      "summary": "Second item enrolled in the shared term.",
+      "touches": ["b.py"],
+      "oracle": {"type": "unit", "command": "true"}
+    }
+  ]
+}

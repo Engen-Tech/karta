@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "vector": "flow-spec-contradictions",
+  "probe_set": [
+    "A1",
+    "A2",
+    "A3",
+    "card-consistency",
+    "p4:bogus-control",
+    "p4:doc-gardner",
+    "p4:gringotts",
+    "p4:shared-terms",
+    "p4:ui-fields",
+    "pass1-ref-vocabulary",
+    "pass2-hooks-events"
+  ],
+  "probe_set_hash": "bfcb4931689490d878b7522c189b4abb1c6fcd70175169f510f15b3a38d531ac",
+  "findings": [
+    {
+      "finding_id": "card:results-path-mismatch",
+      "probe_id": "card-consistency",
+      "pass": "card",
+      "severity": "known-open",
+      "summary": "the card's `results: benchmarks/flow/results/` frontmatter contradicts the procedure step-1 --out path `benchmarks/results/flow-spec-contradictions/<version>.json`; this item follows the procedure text and leaves the frontmatter untouched (cards are edited only to flip probe_status), recording the mismatch here"
+    },
+    {
+      "finding_id": "p1:dead-vocab:in-progress",
+      "probe_id": "pass1-ref-vocabulary",
+      "pass": "1",
+      "severity": "known-open",
+      "summary": "ref state `in-progress` appears in the ref vocabulary prose but no guard reads it and the Stop-gate's REF_STATES does not track it \u2014 dead vocabulary"
+    },
+    {
+      "finding_id": "p1:written-unread:accepted",
+      "probe_id": "pass1-ref-vocabulary",
+      "pass": "1",
+      "severity": "known-open",
+      "summary": "ref state `accepted` is written per prose but is absent from guard_delivery_stop.py REF_STATES=('built', 'done', 'failed') \u2014 a stranded `accepted` item is invisible to the Stop-gate"
+    },
+    {
+      "finding_id": "p3:promise:between-waves-edit",
+      "probe_id": "A2",
+      "pass": "3",
+      "severity": "known-open",
+      "summary": "karta-deliver promises 'you can edit the binder between waves (then re-validate it)' but guard_binder_immutability.py denies every write to a committed binder unconditionally \u2014 there is no wave-in-flight distinction in the guard, so the promised between-waves edit is blocked by the running code"
+    },
+    {
+      "finding_id": "p3:promise:missing-repair-path",
+      "probe_id": "A3",
+      "pass": "3",
+      "severity": "known-open",
+      "summary": "no sanctioned in-place repair path is documented for a committed binder that a wave proved wrong: the between-waves prose says 're-validate it' but names no mechanism, so the field workaround has been a full re-plan (gringotts 1f548e5 field-proven; parchmark 76aadba burned a re-plan). Stays open until a repair-mechanism anchor appears or re-plan-to-new-slug is documented as the sanctioned path."
+    },
+    {
+      "finding_id": "p4:dual-disagree:gringotts-browse-refinements",
+      "probe_id": "p4:gringotts",
+      "pass": "4",
+      "severity": "known-open",
+      "summary": "the vendored frozen gringotts browse-refinements binder: rejected by binder-schema.json but accepted by validate_binder.py \u2014 a real shipped consumer binder invalid per karta's published schema"
+    },
+    {
+      "finding_id": "p4:dual-disagree:shared-terms",
+      "probe_id": "p4:shared-terms",
+      "pass": "4",
+      "severity": "known-open",
+      "summary": "shared_terms binder: rejected by binder-schema.json (additionalProperties:false, no shared_terms) but accepted by validate_binder.py (runtime schema injection) \u2014 every modern gringotts binder is invalid per karta's own published schema file"
+    },
+    {
+      "finding_id": "p4:orphan-schema:doc-gardner",
+      "probe_id": "p4:doc-gardner",
+      "pass": "4",
+      "severity": "known-open",
+      "summary": "doc-gardner-schema.json validates the shipped doc-gardner.example.json but no code in hooks/scripts, scripts/, or skills/*/scripts loads or enforces it \u2014 a published schema executed by no one"
+    },
+    {
+      "finding_id": "p4:promise-uncaught:ui-fields-non-ui",
+      "probe_id": "p4:ui-fields",
+      "pass": "4",
+      "severity": "known-open",
+      "summary": "UI fields (component_map/icon_map/token_changes) on a non-UI item: accepted by BOTH binder-schema.json and validate_binder.py, though karta-plan SKILL.md promises 'the validator will catch it' \u2014 a fictional safety net"
+    }
+  ],
+  "unknown_events": [],
+  "resolved": [],
+  "open_total": 9
+}
