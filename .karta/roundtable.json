@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "tool": "roundtable-critique",
+  "providers": [],
+  "min_providers": 2,
+  "focus": "",
+  "points": { "plan_commit": true, "deliver_merge": true }
+}
