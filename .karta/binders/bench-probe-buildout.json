@@ -1,0 +1,633 @@
+{
+ "slug": "bench-probe-buildout",
+ "title": "Give the benchmark its instruments: real probes for the release gate and the field audits",
+ "summary": "The deterministic benchmark runner exists but almost every row it prints is SKIPPED \u2014 only two thin probes are real, and nothing stops a release from shipping without a green run. This builds the measuring scripts for the pre-release gate lane and the consumer-repo field lane, and wires the release block so a version bump cannot be committed without a matching green gate file.",
+ "motivation": "The 2026-07-17 baseline run reports the gate lane as loud SKIPPED rows: the spec and per-vector cards are committed, the runner composes probes, but the probes themselves do not exist \u2014 so a broken guard, validator, or sync script would ship to the consumer repos and the bench would document it a release later.",
+ "scope": {
+  "included": [
+   "Phase-1 gate lane: deterministic probes under benchmarks/probes/ for the guard enforcement matrix (Families A+B), the prose/schema contradiction runner, the completed SME pack static suite, the doc truth ledger with its committed claims file, the completed mirror-sync integrity probes, the stranded/forged/waived status-surface fixture matrix, the verify-drill static tripwires (Layer 0), and the untrusted-input static probes (P1/P2)",
+   "The release block: scripts/hooks/precommit_gate.py refuses a version-bump commit unless benchmarks/results/gate/ holds a green full-gate file for the staged RC version whose recorded sha matches the commit's parent HEAD",
+   "Phase-2 field lane: the delivery-state auditors with their seeded-violation fixture gate, the feature adoption ledger with its manifest seeded back to 1.8.0, the companion-loop health auditor, the transcript miner (cost and compliance modes only), and the ownership cost ledger with its first committed row (the recorded promptfoo/bayes resolution)",
+   "New fixtures are sha256-registered in benchmarks/fixtures/REGISTRY.json by a single composing work item that appends every entry after the fixture-writing items land (one entry per file); each probe item may flip only its own vector card's probe_status frontmatter",
+   "A committed card-errata ledger (benchmarks/meta/card-errata-2026-07-17.md) recording every known deviation between card text and shipped code"
+  ],
+  "excluded": [
+   "Phase 3 entirely \u2014 every arm gated on the unpiloted headless claude -p path: dark-midwave-crash-resume, sme-fixture-campaign, perf-fixture-cost-baseline, verify-drill Families E and K (Layers 1-2), doc-gardner-recall, sec P3 live cells, flow-guard Family C live cells, bench-self-integrity M1, and the promptfoo/node chassis (the deterministic lane is stdlib by design \u2014 no node, no promptfoo anywhere in this binder)",
+   "Modifying vector card procedures, metrics, or bench-spec.json semantics \u2014 the cards keep authority; a probe implementing a subset declares partial: true and flips only its own card's probe_status frontmatter",
+   "Any change to benchmarks/gate/run_gate.py \u2014 it exists and its probe JSON contract is frozen; an item that believes it needs a runner change must say so in its report, not edit it",
+   "Transcript miner modes 2 (timeline) and 3 (oracle-count) \u2014 the card's own rollout rule ships modes 1+4 first",
+   "The release-gate card's retroactive past-release audit probe (benchmarks/probes/release-gate-blocking-smoke.py) \u2014 deferred; its card's probe_status stays planned",
+   "Consumer-repo remediation \u2014 field probes report findings; fixing parchmark/gringotts state is not this binder's work",
+   "The six remaining every-release vectors not built here \u2014 dark-ledger-burndown expansion, perf-context-latency-floors, quality-oracle-discrimination, consumer-upgrade-compat, model-refresh-sentinel, and bench-self-integrity M2/M3 \u2014 deferred to a later binder; their probe_status stays planned and their SKIPPED rows remain honest (SKIPPED does not block the release gate)",
+   "The host-side cleanupPeriodDays>=365 transcript-retention setting \u2014 host configuration, not repo work; the transcript-miner item's contract references it as a precondition note only, and it surfaces as a manual step in the ownership ledger"
+  ]
+ },
+ "design_facts": {
+  "source": null,
+  "stack": "Claude Code plugin: markdown skills + stdlib-python hook guards and scripts; no package manifests. Bench probes are standalone python3 stdlib scripts composed by benchmarks/gate/run_gate.py; toolchain checks are python3 scripts/validate_plugin.py, python3 scripts/check_shared_copies.py, and python3 benchmarks/gate/run_gate.py. probe_status is a scope claim (planned|partial|implemented), not a gate-state claim; pass/fail lives in results files. Single sanctioned non-stdlib invocation: flow-spec-contradictions runs uv run --with jsonschema per its card; uv is part of the host toolchain \u2014 no other item may add a dependency. Every builder renders each shared_terms canonical its item is enrolled in verbatim in a produced file (a docstring is fine)."
+ },
+ "env_contract": {
+  "command": "python3 scripts/validate_plugin.py --self-test",
+  "supports_isolation": true,
+  "isolation_params": [],
+  "cwd": "."
+ },
+ "sme": [
+  "karta-house-skill-authoring",
+  "minimalism"
+ ],
+ "shared_terms": [
+  {
+   "id": "probe-json-contract",
+   "canonical": "{\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}",
+   "items": [
+    "flow-guard-enforcement-matrix",
+    "flow-spec-contradictions",
+    "sme-pack-static-suite",
+    "parity-doc-truth-ledger",
+    "parity-mirror-sync-integrity",
+    "dark-status-surface-probes",
+    "quality-verify-integrity-drills",
+    "sec-untrusted-input-surfaces",
+    "field-delivery-state-audit",
+    "field-feature-adoption-ledger",
+    "field-companion-loop-health",
+    "perf-delivery-telemetry",
+    "ownership-cost-ledger"
+   ]
+  },
+  {
+   "id": "self-test-report-format",
+   "canonical": "[PASS]/[FAIL] lines and an N/N checks passed summary",
+   "items": [
+    "flow-guard-enforcement-matrix",
+    "flow-spec-contradictions",
+    "sme-pack-static-suite",
+    "parity-doc-truth-ledger",
+    "parity-mirror-sync-integrity",
+    "dark-status-surface-probes",
+    "quality-verify-integrity-drills",
+    "sec-untrusted-input-surfaces",
+    "release-version-bump-block",
+    "field-delivery-state-audit",
+    "field-feature-adoption-ledger",
+    "field-companion-loop-health",
+    "perf-delivery-telemetry",
+    "ownership-cost-ledger",
+    "fixture-registry-entries"
+   ]
+  },
+  {
+   "id": "baseline-regression-rule",
+   "canonical": "status \"fail\" only on regression against the last committed results file",
+   "items": [
+    "flow-guard-enforcement-matrix",
+    "sme-pack-static-suite",
+    "parity-doc-truth-ledger",
+    "parity-mirror-sync-integrity",
+    "dark-status-surface-probes",
+    "quality-verify-integrity-drills",
+    "sec-untrusted-input-surfaces",
+    "flow-spec-contradictions"
+   ]
+  },
+  {
+   "id": "baseline-selection-rule",
+   "canonical": "the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file",
+   "items": [
+    "dark-status-surface-probes",
+    "flow-guard-enforcement-matrix",
+    "flow-spec-contradictions",
+    "parity-doc-truth-ledger",
+    "parity-mirror-sync-integrity",
+    "quality-verify-integrity-drills",
+    "sec-untrusted-input-surfaces",
+    "sme-pack-static-suite"
+   ]
+  }
+ ],
+ "work_items": [
+  {
+   "id": "flow-guard-enforcement-matrix",
+   "title": "Prove each guard blocks what it claims to block, and map every path around them",
+   "summary": "A fabricated repo feeds crafted payloads to every hook guard to confirm deny and allow behavior, and a committed manifest of mutation-versus-channel rows makes every unguarded path an explicit, named bypass instead of an unspoken one.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Implements benchmarks/flow/flow-guard-enforcement-matrix.md Families A+B only; Family C (quarterly live claude -p cells) is deferred with the rest of phase 3, so the probe declares partial: true and the card's probe_status frontmatter flips planned -> partial. New gate probe benchmarks/probes/flow-guard-enforcement-matrix.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies), accepts --target (run_gate passes it) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. Family A lives entirely inside this single gate probe \u2014 the card step-3 name benchmarks/flow/probe_guards.py is superseded by the card frontmatter probe path and run_gate's probes/<vector-id>.py convention; no separate flow/probe_guards.py is created (deliberate deviation, recorded in benchmarks/meta/card-errata-2026-07-17.md, shipped by a sibling item). On stdout the probe emits the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"} and exits 0 whether pass or fail (nonzero exit means the probe itself crashed). Family A: benchmarks/fixtures/hooked-repo/build_fixture.sh deterministically fabricates a scratch git repo (HEAD-committed binder, archived binder, staged-but-uncommitted binder edit, symlink alias, .karta/sme/ pack, refs/karta/<slug>/item-<id>/built with no done ref via git update-ref \u2014 deliberate deviation, also in the errata ledger: card step 1 spells this refs/karta/<slug>/built/<id>, a namespace that does not exist in karta; guard_delivery_stop.py and karta-build use refs/karta/<slug>/item-<id>/{built,done}, and the fixture uses the real namespace so the Stop-gate can actually see the stranded ref \u2014 GIT_AUTHOR_DATE/GIT_COMMITTER_DATE pinned) plus committed stdin payload JSONs (also consumed by the contradiction probe's A1 promise check); the probe runs each hooks/scripts/guard_*.py as a subprocess with cwd = fixture repo and records per-probe-id {expected, actual}, including the card's pinned known-gap rows (staged-not-committed passes; NotebookEdit-on-pack unmatched) and the fail-open (binder immutability, Stop-gate) vs fail-closed (auditor dispatch, writer confinement) split. Family B: parse hooks/hooks.json matchers against the committed benchmarks/flow/mutation-surface.json manifest (rows seeded from the hooks dark_areas of benchmarks/flow/seed-map-2026-07-17.json; each row enforced or waived:<id>, e.g. the KARTA_SKIP_GATE waiver); a guard_*.py with no manifest row always flips status to \"fail\" (anti-staleness, fail-closed). Known open rows (the ~6 seeded unwaivered bypasses) are findings, not failures: the probe reports status \"fail\" only on regression against the last committed results file (a changed Family A row, an enforced->bypassed flip, or a new unwaivered bypass); with no prior file it records the baseline and passes. Baseline mechanics: on every run the probe writes its dated evidence JSON to benchmarks/flow/results/<delivery-date>-flow-guard-enforcement-matrix.json (overwriting a same-date file); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename); the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; the builder commits the first run's file as the touched results artifact; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. The probe never mutates the real repo: all guard invocations run inside the scratch fixture. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item. Registry manifest (data for the composing registry item, which alone writes benchmarks/fixtures/REGISTRY.json): fixture files created = benchmarks/fixtures/hooked-repo/build_fixture.sh plus every benchmarks/fixtures/hooked-repo/payloads/*.json file (one registry entry per file); intended used_by = flow-guard-enforcement-matrix, with the payload files additionally listing flow-spec-contradictions.",
+   "touches": [
+    "benchmarks/probes/flow-guard-enforcement-matrix.py",
+    "benchmarks/fixtures/hooked-repo/build_fixture.sh",
+    "benchmarks/fixtures/hooked-repo/payloads/",
+    "benchmarks/flow/mutation-surface.json",
+    "benchmarks/flow/results/<delivery-date>-flow-guard-enforcement-matrix.json",
+    "benchmarks/flow/flow-guard-enforcement-matrix.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/probes/flow-guard-enforcement-matrix.py --self-test && python3 benchmarks/gate/run_gate.py --only flow-guard-enforcement-matrix",
+    "assertions": [
+     "the probe self-test passes: fixture builder produces the documented states deterministically, and every Family A expected/actual row for the crafted payloads (guarded write exit 2, benign write exit 0, archived-binder write exit 2, symlink alias, staged-not-committed known gap, malformed-JSON fail-open/fail-closed split, NotebookEdit-on-pack asymmetry) matches its pinned expectation",
+     "Family B cross-references every hooks.json matcher against mutation-surface.json and a guard script absent from the manifest flips status to \"fail\"",
+     "run_gate --only reports the vector with a valid contract row (no ERROR), partial true, and the seeded unwaivered-bypass findings listed, status pass on the recorded baseline",
+     "the card's probe_status frontmatter reads partial"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "novelty:baseline-regression-pattern-first-implementations",
+     "not-computed:blast-radius-diff"
+    ]
+   }
+  },
+  {
+   "id": "flow-spec-contradictions",
+   "title": "Count the places where the written promises and the running code disagree",
+   "summary": "A report-only checker walks the ref vocabulary, the hook manifest spellings, a committed list of documented promises, and schema-versus-validator pairs, and keeps a stable-id ledger of every open contradiction so the count can only close honestly.",
+   "estimate": "M",
+   "depends_on": [
+    "flow-guard-enforcement-matrix"
+   ],
+   "contract": "Implements benchmarks/flow/flow-spec-contradictions.md in full (all four passes), so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. Runner benchmarks/flow/check_contradictions.py exactly as the card pins it: report-only (always exit 0), invoked `uv run --with jsonschema benchmarks/flow/check_contradictions.py --repo . --out <file>` \u2014 the one non-stdlib dependency in this binder, sanctioned because pass 4 must evaluate binder-schema.json as real JSON Schema and the card names the command. Pass 1 ref-vocabulary cross-check over the card's fixed file list vs hooks/scripts/*.py literals and REF_STATES; pass 2 hooks.json event/matcher names vs the new committed whitelist benchmarks/flow/claude-code-events.json with UNKNOWN-EVENT distinct from findings and edit-distance-2 MISSPELLING detection (the live hooks/hooks.json is correctly spelled today, so pass 2 reports zero live findings; the misspelling and UNKNOWN-EVENT paths are exercised in --self-test fixtures); pass 3 promise probes from the new committed benchmarks/flow/promises.json with sentence-regex anchors where an anchor miss emits ANCHOR-LOST as its own finding state, never a silent pass \u2014 A1 pipes the payload fixtures from benchmarks/fixtures/hooked-repo/ (built by the guard-matrix item, hence the dependency) into guard_binder_immutability.py stdin; pass 4 schema-vs-validator duals over new small fixtures in benchmarks/fixtures/schema-contradictions/ (minimal shared_terms binder, backend-only item with UI keys, bogus-extra-key control, shipped doc-gardner example config) plus the already-vendored frozen gringotts binder consumed through its existing REGISTRY.json entry. Findings carry content-derived stable ids; resolutions move to an append-only resolved list with resolving commit hashes; output carries the probe-set id list and hash. Gate adapter benchmarks/probes/flow-spec-contradictions.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies), --target support and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. It subprocess-runs the uv command above, maps the findings JSON into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exits 0 whether pass or fail, and reports status \"fail\" (fail-closed) if uv or the runner cannot run (uv is part of the host toolchain per design_facts; jsonschema resolves from the local uv cache). The ~7 seeded open findings are the baseline product, not failures: status \"fail\" only on regression against the last committed results file (a new open finding on the intersection of probe ids, per the card's intersection rule); the first committed run under benchmarks/results/flow-spec-contradictions/ is that baseline. Baseline mechanics: during a gate run the adapter writes the runner's --out to a temp path and never rewrites the committed baseline; the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; adapter metrics carry {open_total, open_on_intersection, probe_set_hash}; the committed <version>.json is written deliberately at release time \u2014 <version> resolves to the plugin.json version of the tree it is committed on (2.21.0 for the first baseline, written by the builder); the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. The oracle's gate run also emits benchmarks/results/gate/<date>-gate.partial.json and a temp runner output \u2014 both are transient verification artifacts, discarded, never committed. The card's results: frontmatter (benchmarks/flow/results/) contradicts the procedure's pinned --out path; this item follows the procedure text and leaves the frontmatter untouched (cards are edited only to flip probe_status), recording the mismatch as a permanent card-inconsistency finding in the runner output. Registry manifest (data for the composing registry item, which alone writes benchmarks/fixtures/REGISTRY.json): fixture files created = every file under benchmarks/fixtures/schema-contradictions/ (one registry entry per file); intended used_by = flow-spec-contradictions.",
+   "touches": [
+    "benchmarks/probes/flow-spec-contradictions.py",
+    "benchmarks/flow/check_contradictions.py",
+    "benchmarks/flow/claude-code-events.json",
+    "benchmarks/flow/promises.json",
+    "benchmarks/fixtures/schema-contradictions/",
+    "benchmarks/results/flow-spec-contradictions/<version>.json",
+    "benchmarks/flow/flow-spec-contradictions.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/probes/flow-spec-contradictions.py --self-test && python3 benchmarks/gate/run_gate.py --only flow-spec-contradictions",
+    "assertions": [
+     "passes 1, 3, and 4 reproduce their seeded findings on the live repo (dead in-progress vocabulary, accepted missing from REF_STATES, between-waves/missing-repair-path, shared_terms schema/validator disagreement, UI-fields-on-non-UI dual acceptance) with content-derived stable ids; pass 2 reports zero live findings today",
+     "in --self-test, a fixture hooks.json with a typo'd event name yields a MISSPELLING finding, an unrecognized name yields UNKNOWN-EVENT distinct from findings, and an anchor whose sentence regex no longer matches emits ANCHOR-LOST",
+     "the A1 promise probe consumes the hooked-repo payload fixtures and asserts the immutability guard's deny exit",
+     "run_gate --only reports a valid contract row with {open_total, open_on_intersection, probe_set_hash} in metrics and status pass on the recorded baseline; a synthetic new finding in self-test flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "escalation:only-non-stdlib-invocation-uv-run-with-jsonschema-card-pinned",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "sme-pack-static-suite",
+   "title": "Finish the pack integrity suite so pins, prefixes, and drift are all machine-checked",
+   "summary": "The existing thin pack-format probe grows into the full static suite: pin derivation replayed from the documented matching rule, prefix collision detection, overlay drift classification against upstream history, and a committed exception list that records the standing ruling for the one file that is reference data rather than a pack.",
+   "estimate": "L",
+   "depends_on": [],
+   "contract": "Completes benchmarks/sme/sme-pack-static-suite.md: extends the existing thin benchmarks/probes/sme-pack-static-suite.py into the composer over the new benchmarks/sme-static/ scripts, so the probe declares partial: false and the card's probe_status frontmatter flips partial -> implemented. New files, each stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise): benchmarks/sme-static/match_pins.py (implements the karta-plan SKILL sme matching steps 1-4, embeds the sha256 of the SKILL.md matching-rule section text \u2014 the hashed span runs from that section's heading line to the next same-level heading, LF-normalized \u2014 and exits 2 on mismatch \u2014 'matching rule changed \u2014 re-verify implementation, update hash'; self-test fixtures include the templ vs github.com/a-h/templ whole-token non-match and a doctored-section-text case exercising the hash check), benchmarks/sme-static/cross_prefix.py (prefix->basename map over _shared plus overlays; collision or foreign PREFIXES use fails), benchmarks/sme-static/seed_drift.py (overlay vs every historical blob of the built-in: IDENTICAL / UPSTREAM-UNPROPAGATED / LOCAL-ADDITIVE / DIVERGENT, plus the dead-token and overbroad-token audit reusing the match_pins matcher), benchmarks/sme-static/consumers.json (enrolled consumer repo names, resolved as sibling directories of the --target repo's parent: parchmark, gringotts; each run records the SHA probed), and benchmarks/sme-static/exceptions.json (skip-list with one-line justification per entry, carrying the platform-native ruling from spec open_questions[4]: skip encoded in the exception file, no frontmatter added to shipped prompt text). Consumer repos are addressed through --consumers <path,...>, defaulting to those sibling directories \u2014 no absolute paths anywhere in code or configuration; a missing consumer directory is a clear error in live mode and irrelevant in self-test. Two deliberate card-layout deviations (the run.sh row recorded in benchmarks/meta/card-errata-2026-07-17.md, shipped by a sibling item): (1) run.sh is not shipped \u2014 the gate probe is the single composer (minimalism); (2) the findings JSON lands at benchmarks/sme/results/<delivery-date>-sme-pack-static-suite.json per the card frontmatter results dir \u2014 the procedure step-1 sme-static/findings/ subdir is not created. Probe behavior: PROBE 1 runs validate_packs.py over built-ins (exceptions applied) and each enrolled repo's .karta/sme/, plus scripts/check_shared_copies.py for mirror parity, plus cross_prefix; PROBE 2 emits the per-binder pin table {binder, era, pinned, expected_contract, expected_coverage, underivable_pins, missing_pins} over the enrolled consumer repos' binders only (karta's own .karta/binders/archive/ is excluded from the denominator) with era partitioning and the coverage-mode unmatched-ecosystem list kept as a diagnostic; PROBE 3 runs seed_drift. All self-test fixtures (templ non-match, synthetic four-class overlays, doctored section text) are embedded in the scripts \u2014 no fixture files land under benchmarks/fixtures/. Gating and evidence split: gating = self-test fixtures plus karta-repo-owned surfaces; live consumer runs = recorded evidence. Status stance: karta-repo-owned zero-target surfaces (validator failures after exceptions, mirror drift, prefix collisions) and a match_pins rule-hash mismatch flip status to \"fail\" directly (fail-closed); an enrolled consumer directory that is missing is a clear error in live mode (status \"fail\" with a finding naming the path); consumer-side findings (expected at plan time, 2026-07-17, recorded not asserted: gringotts go-htmx DIVERGENT, dead-token templ, overbroad-token go, pin non-conformance) are findings under status \"fail\" only on regression against the last committed results file, with the first committed findings JSON under benchmarks/sme/results/ as baseline. Bootstrap: when no prior findings JSON exists under benchmarks/sme/results/, consumer-side findings are recorded but do not flip status; that run's committed findings JSON becomes the baseline for all subsequent runs. Baseline mechanics: on every run the probe writes its dated findings JSON to benchmarks/sme/results/<delivery-date>-sme-pack-static-suite.json (overwriting a same-date file); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename); the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; the builder commits the first run's file as the touched results artifact; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. Emits the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"} on stdout, exit 0 whether pass or fail, and must fit run_gate's 120s probe budget. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item.",
+   "touches": [
+    "benchmarks/probes/sme-pack-static-suite.py",
+    "benchmarks/sme-static/match_pins.py",
+    "benchmarks/sme-static/cross_prefix.py",
+    "benchmarks/sme-static/seed_drift.py",
+    "benchmarks/sme-static/consumers.json",
+    "benchmarks/sme-static/exceptions.json",
+    "benchmarks/sme/results/<delivery-date>-sme-pack-static-suite.json",
+    "benchmarks/sme/sme-pack-static-suite.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/sme-static/match_pins.py --self-test && python3 benchmarks/sme-static/cross_prefix.py --self-test && python3 benchmarks/sme-static/seed_drift.py --self-test && python3 benchmarks/probes/sme-pack-static-suite.py --self-test && python3 benchmarks/gate/run_gate.py --only sme-pack-static-suite",
+    "assertions": [
+     "match_pins self-test covers the four matching steps and the templ non-match, and a doctored SKILL-section text makes it exit 2 naming the re-verify instruction",
+     "exceptions.json carries platform-native.md with its one-line justification and the built-in pack sweep reports 0 findings after exceptions",
+     "seed_drift classifies a synthetic overlay fixture into each of the four classes in self-test, and the live run records consumer-side findings (expected at plan time: gringotts go-htmx DIVERGENT, dead-token templ, overbroad-token go) without gating on them",
+     "the pin table partitions eras, counts sme-less binders as excluded not failing, and still emits the unmatched-ecosystem diagnostic list",
+     "run_gate --only reports partial false with a valid contract row; mirror drift or a prefix collision injected in self-test flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "blast-radius:8-touches-4-new-scripts-L",
+     "io:reads-sibling-consumer-repos-evidence-mode-only",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "parity-doc-truth-ledger",
+   "title": "Check the docs' numbers, links, and promises against what the repo actually contains",
+   "summary": "One stdlib runner recomputes the repo's true counts and surfaces every documentation claim through a committed adjudication file, so a wrong number, dead link, unregistered label, or promised-but-unexecuted check shows up as a per-lane violation instead of prose drift.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Implements benchmarks/parity/parity-doc-truth-ledger.md lanes B-G in full as benchmarks/probes/parity-doc-truth-ledger.py, so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. NOTE for review: the card's procedure names the runner benchmarks/probes/doc_truth.py while its frontmatter names benchmarks/probes/parity-doc-truth-ledger.py; the probe lands at the frontmatter/gate name only (one file, no wrapper) \u2014 a card erratum recorded, with the claims-file erratum below, in benchmarks/meta/card-errata-2026-07-17.md (shipped by a sibling item). Stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies), --target support, and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. Card erratum 2, flagged not silently applied: step 1's nonzero-exit-on-any-violation is superseded by step 10's regression-only gate and by run_gate.py's contract (the runner reads stdout JSON and ignores exit codes) \u2014 the probe exits 0 after emitting valid contract JSON regardless of status, nonzero only on crash. Truth vars recomputed each run (N_agents, N_skills, writer split, plugin version). Lane B binds every count-claim regex hit to an entry in the new committed benchmarks/claims.yaml \u2014 authored in the JSON subset of YAML so the stdlib probe parses it with json (the card names .yaml and stdlib has no YAML parser; also in the errata ledger) \u2014 with unadjudicated-claim, failed-expect, and stale-entry verdicts, including the literal-2 entries that keep the two locally-true sentences from false-positiving; the count-claim matcher tolerates up to three intervening hyphenated-adjective tokens between the number and the noun (so 'two READ-ONLY gate agents' and 'two READ-ONLY agents' are hits \u2014 card step 3's regex is illustrative, the seed observation is normative). Lane C stale major-version pins outside the archival allowlist; Lane D skill discoverability; Lane E ledger seeds DG-SCHEMA, KAIZEN-USERREPO, HOOKS-MATCHER-PARITY; Lane F relative-link existence; Lane G phase-label root registry (unregistered roots, wrong doc-path rows, duplicate leaves). claims.yaml and the ledger are add-only; retirement requires a retired: reason field with retired counts reported. All self-test fixtures are synthesized at runtime inside the self-test \u2014 no fixture files are committed. Emits the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"} with the per-lane vector in metrics (never a scalar sum), exit 0 whether pass or fail. The ~10 seeded violations are the baseline product: the first committed benchmarks/findings/doc-truth-2.21.0.json is the baseline and the probe reports status \"fail\" only on regression against the last committed results file (any lane count above its last committed value); with no prior file it records the baseline and passes. Baseline mechanics: the probe re-emits its findings JSON on every run and the file is byte-deterministic \u2014 no timestamps, run dates, or shas \u2014 so re-running on an unchanged tree rewrites the committed baseline byte-identically; the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item.",
+   "touches": [
+    "benchmarks/probes/parity-doc-truth-ledger.py",
+    "benchmarks/claims.yaml",
+    "benchmarks/findings/doc-truth-2.21.0.json",
+    "benchmarks/parity/parity-doc-truth-ledger.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/probes/parity-doc-truth-ledger.py --self-test && python3 benchmarks/gate/run_gate.py --only parity-doc-truth-ledger",
+    "assertions": [
+     "the live run reproduces the seeded per-lane violations ('three agents' x2, marketplace 'two read-only gate agents' x2, the Karta 1.19 pins, undiscoverable karta-status, DG-SCHEMA and KAIZEN-USERREPO reds, the 2 unregistered label roots, and the README heading pair: 'The five skills' vs 10 skills, 'The two agents' vs 4 agents) with the two pinned locally-true sentences bound to literal-2 expects and NOT violated",
+     "an unbound count-claim hit self-test fixture yields unadjudicated-claim and a claims entry whose line-regex no longer matches yields stale-entry",
+     "metrics carry the per-lane vector and never a scalar sum; retired entries are counted visibly",
+     "run_gate --only reports partial false, status pass on the committed baseline; a synthetic lane regression in self-test flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "parity-mirror-sync-integrity",
+   "title": "Drill the mirror machinery on the failure modes it silently ignores today",
+   "summary": "Three rehearsals in throwaway copies of the repo show whether an executable bit survives projection, whether a degraded lock entry makes the sync destroy a third-party skill, and whether tampering with installed skill content is ever noticed.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Completes benchmarks/parity/parity-mirror-sync-integrity.md by implementing P1-exec-bit-projection, P2-lock-degradation-survival, and P3-external-hash-liveness \u2014 the probe's own not_implemented list \u2014 inside the existing benchmarks/probes/parity-mirror-sync-integrity.py (python, not the card's sketched bash runner; same drills, single file \u2014 recorded in benchmarks/meta/card-errata-2026-07-17.md, shipped by a sibling item), so the probe declares partial: false and the card's probe_status frontmatter flips partial -> implemented. The two existing wrapped checks (check_shared_copies, validate_plugin) stay. SAFETY INVARIANT (the card's own): every drill runs against its OWN fresh scratch copy (mktemp + rsync -a --exclude .git of the --target repo) and every script invocation addresses the copy's path ($S/scripts/...) \u2014 ROOT resolves from __file__, so a cwd-relative invocation would run the P2 rmtree drill destructively against the real repo; the probe asserts the copy path before each invocation and refuses to run the drills if the copy setup failed (fail-closed as a probe: setup failure reports status fail with a finding, never a silent skip). Fixture derivation per the card: first external mirror skill name, else the synthesized bench-external-probe lock entry, keeping the P2/P3 denominator alive. P1 chmod +x on a canonical skill script, run write-mode sync in the copy, assert owner-exec on both projections; P2 delete computedHash from the entry, run write mode, PASS iff the external skill dir survives; P3 append a byte to the external SKILL.md, PASS iff --check or validate_plugin flags it by name. Evidence lands in benchmarks/parity/results/ per the card frontmatter results: field and README section 5, deliberately overriding Procedure step 8's benchmarks/results/ literal (card-internal conflict resolved in favor of frontmatter, declared here; the card text is left untouched \u2014 cards are edited only to flip probe_status). All three fail at seed (0/3): per the card, probe IDs are permanent and a previously-passing ID may never regress \u2014 the probe reports status \"fail\" only on regression against the last committed results file, with the first committed benchmarks/parity/results/<delivery-date>-sync-probes.json (per-probe evidence cards: command outputs, stat modes, exit codes) as baseline; evidence cards normalize scratch paths (each drill's copy root is replaced with the literal $S) so a same-date re-run produces a byte-identical evidence file. Baseline mechanics: on every run the probe writes its dated evidence JSON to benchmarks/parity/results/<delivery-date>-sync-probes.json (overwriting a same-date file); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename); the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; when no tracked baseline exists (the first build run) no regression is possible, status is pass, and that run's committed evidence file becomes the baseline; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. Emits the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail; the rsync copies and both sync invocations must fit run_gate's 120s probe budget. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item. Self-test: stdlib-only argparse, PEP 723 header (requires-python >=3.11, no dependencies), --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise), driving the three drills against a miniature synthetic tree, never the real repo \u2014 the synthetic tree embeds the repo's real sync scripts (the drills invoke $S/scripts/sync_codex_skills.py, with P3 falling back to validate_plugin.py) and includes a zero-external-lock variant so the bench-external-probe synthesis path is exercised; self-test also covers the fail-closed copy-setup guard (refusal when the scratch copy is missing) and the baseline-regression flip (a previously-passing probe ID flipping to false yields status fail).",
+   "touches": [
+    "benchmarks/probes/parity-mirror-sync-integrity.py",
+    "benchmarks/parity/results/<delivery-date>-sync-probes.json",
+    "benchmarks/parity/parity-mirror-sync-integrity.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/probes/parity-mirror-sync-integrity.py --self-test && python3 benchmarks/gate/run_gate.py --only parity-mirror-sync-integrity",
+    "assertions": [
+     "every drill invocation targets a scratch copy path, and no tracked file outside the probe's declared outputs (benchmarks/parity/results/<date>-sync-probes.json and run_gate's benchmarks/results/gate/<date>-gate.partial.json) is created or modified by the oracle run \u2014 in particular skills/, .agents/skills/, plugins/karta/, and skills-lock.json are byte-identical before and after (self-test asserts the guard refuses to drill when copy setup fails)",
+     "P1/P2/P3 reproduce the seeded 0/3 with evidence cards recording the mode-blind projection, the orphan rmtree plus stale-have-set crash, and the silent tampered-content pass",
+     "the synthesized bench-external-probe fixture keeps P2/P3 runnable when no live external skill exists",
+     "run_gate --only reports partial false, status pass on the committed 0/3 baseline; a previously-passing probe ID flipping false in self-test flips status to fail",
+     "the card's probe_status frontmatter reads implemented and the not_implemented metric is gone"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "destructive-adjacent:exercises-rmtree-guard-in-dry-run-only",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "dark-status-surface-probes",
+   "title": "Prove the status surfaces tell the truth when the git state goes wrong",
+   "summary": "A fixture factory fabricates fourteen broken, forged, and waived delivery states in throwaway repos, then checks whether the next-step script, the status page, and the stop guard each surface the truth with an actionable answer instead of a dead end or a false green badge.",
+   "estimate": "L",
+   "depends_on": [],
+   "contract": "Implements benchmarks/dark/dark-status-surface-probes.md in full (Families S, F, P, the gate/engine ref-set agreement, and the scripted-reachability static binary), so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. benchmarks/fixtures/stranded-states/make_state.sh <case-id> fabricates each case in a throwaway repo with plain git (worktrees, git update-ref, binder JSON; S7/S8 synthesized from recorded git commands, never copied from live consumer repos at run time; dates pinned for byte-stable shas). benchmarks/fixtures/stranded-states/expected.json commits one frozen grading anchor per case {warning_regex, expect_command_nonnull, stop_gate_exit, serve_status symbols}; anchor edits are only legal in the same commit as the surface change they track, and the anchor diff is included in the results. Results file benchmarks/dark/results/<delivery-date>-status-truth.json deliberately deviates from card step 8's benchmarks/results/<version>-status-truth.json: it follows the card frontmatter (results: benchmarks/dark/results/) and the README family-local-evidence rule, and is date-keyed to match the sibling probes' convention; the card text is left untouched (cards are edited only to flip probe_status) and the mismatch is recorded as a finding and as row 8 of benchmarks/meta/card-errata-2026-07-17.md (shipped by a sibling item). Gate probe benchmarks/probes/dark-status-surface-probes.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies), --target support and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. Per case it runs (1) skills/karta-status/scripts/karta_next.py --json in the fixture (ACTIONABLE iff next_action.command non-null OR a warning matches the committed regex \u2014 no free-form judgment), (2) the synthetic Stop payload through hooks/scripts/guard_delivery_stop.py comparing exit 0/2 to the anchor, (3) the pinned serve_status._STATE_META import probe where an import failure grades FAIL-LOUD (probe error, never a silent skip \u2014 fail-closed). Each grading invocation fabricates every case fresh via make_state.sh; a fabricated scratch repo is never reused across two guard_delivery_stop.py invocations (its once-per-(session,state) sentinel in the git common dir silences the second Stop); the synthetic Stop payload pins a fixed session_id and the fixture repo cwd \u2014 freshness of the repo, not the id, guarantees sentinel reset. Family F forgeries F1-F4 count DETECTED iff karta_next warns per anchor or the Stop-gate exits 2; the static reachability grep and the REF_STATES-vs-engine ref-set assertion (which catches the missing accepted entry today) round out the matrix. Emits the per-case stable-ID matrix in metrics of the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail; the probe also writes the full matrix to the dated results file on every run. Self-test includes a seeded-regression check: it grades a synthetically worsened matrix (one case ID flipped toward worse) against a synthetic baseline via the same diff-by-ID code path and asserts status flips to fail, plus the inverse (an identical matrix stays pass). The seeded truth (~2/8 actionable, 0/4 detected, PASSED-badged waiver, ref-set disagreement) is the baseline product: status \"fail\" only on regression against the last committed results file (any case ID flipping toward worse, per the card's diff-by-ID rule), with the first committed benchmarks/dark/results/<delivery-date>-status-truth.json as baseline. Baseline mechanics: on every run the probe writes its dated evidence JSON to benchmarks/dark/results/<delivery-date>-status-truth.json (overwriting a same-date file); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename); the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; the builder commits the first run's file as the touched results artifact; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. All fabrication is confined to mktemp scratch repos. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item. Registry manifest (data for the composing registry item, which alone writes benchmarks/fixtures/REGISTRY.json): fixture files created = benchmarks/fixtures/stranded-states/make_state.sh and benchmarks/fixtures/stranded-states/expected.json (one registry entry each); intended used_by = dark-status-surface-probes.",
+   "touches": [
+    "benchmarks/probes/dark-status-surface-probes.py",
+    "benchmarks/fixtures/stranded-states/make_state.sh",
+    "benchmarks/fixtures/stranded-states/expected.json",
+    "benchmarks/dark/results/<delivery-date>-status-truth.json",
+    "benchmarks/dark/dark-status-surface-probes.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/probes/dark-status-surface-probes.py --self-test && python3 benchmarks/gate/run_gate.py --only dark-status-surface-probes",
+    "assertions": [
+     "make_state.sh fabricates all 14 cases (S1-S8, F1-F4, P1-P2) deterministically in scratch repos and the probe grades each strictly against the committed expected.json anchors",
+     "the live matrix reproduces the seeded reds: S1 dead-end with empty warnings, S5 vanishing corrupt binder, 0/4 forgeries detected with the forged done ref silencing the Stop-gate, P1 accepted-done badged PASSED, and the REF_STATES set disagreeing with the engine's ref names",
+     "a serve_status import failure grades FAIL-LOUD as a probe error, never a silent skip",
+     "run_gate --only reports partial false with the stable-ID matrix in metrics, status pass on the committed baseline; a case ID regressing in self-test flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "blast-radius:fixture-state-factory-plus-12-seeded-states-L",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "quality-verify-integrity-drills",
+   "title": "Pin the known verification gaps statically so no doc change can quietly widen them",
+   "summary": "Three static tripwires watch the reviewer and auditor definitions for the empty-diff blind spot and the in-memory-only retry caps, keeping today's known gaps on the record until the agent-driven drills that exercise them can be built.",
+   "estimate": "S",
+   "depends_on": [],
+   "contract": "Implements Layer 0 only of benchmarks/quality/quality-verify-integrity-drills.md (Families E and K need headless claude -p and are phase 3), so the probe declares partial: true and the card's probe_status frontmatter flips planned -> partial. Ships the card-named benchmarks/verify-drills/static_check.py carrying the three tripwires \u2014 (a) agents/karta-safety-auditor.md's BLOCKED definition contains an empty-diff clause (grep 'readable but empty' in the Verdicts section; FAILS today, pinning the known gap), (b) agents/karta-acceptance-reviewer.md keeps its empty-diff precondition \u2014 needles pinned: the 'Precondition \u2014 the diff must be non-empty' heading plus the 'readable but **empty**' clause in the Verdicts section, (c) 'store no loop state' remains paired with a persisted-attempt mechanism once one ships \u2014 pinned mechanically: the scan covers only the canonical agents/karta-safety-auditor.md and agents/karta-acceptance-reviewer.md (mirror parity belongs to the mirror-sync item); (c) is a known-open finding while 'store no loop state' is present in either file with no persisted-attempt marker (regex 'refs/karta/\\S*attempt|persisted attempt (counter|ref)') in the same file, and the string vanishing entirely is the anchor-lost loud finding \u2014 plus the thin gate adapter benchmarks/probes/quality-verify-integrity-drills.py that accepts run_gate's --target <repo-root> invocation (defaulting to the repo root when run standalone), runs static_check and maps the three tripwires into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail. Both scripts are stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise; self-test drives the tripwires over embedded fixture texts, both passing and failing shapes). Stance: tripwire (b) failing is an immediate status \"fail\" (a shipped protection regressing is fail-closed); tripwires (a) and (c) are known-open findings under status \"fail\" only on regression against the last committed results file \u2014 for (a) that means the clause appearing and later vanishing. Baseline mechanics: static_check.py's live (non-self-test) mode writes the dated results JSON to benchmarks/quality/results/<delivery-date>-verify-drills.json on every run (overwriting a same-date file); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename); the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; with no tracked baseline it reports the known-open set as findings under status pass and the builder commits that first file as the baseline; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. A missing or renamed Verdicts section anchor is a loud finding (anchor gone means the doc changed \u2014 re-anchor in the same commit), never a silent pass. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item.",
+   "touches": [
+    "benchmarks/probes/quality-verify-integrity-drills.py",
+    "benchmarks/verify-drills/static_check.py",
+    "benchmarks/quality/results/<delivery-date>-verify-drills.json",
+    "benchmarks/quality/quality-verify-integrity-drills.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/verify-drills/static_check.py --self-test && python3 benchmarks/probes/quality-verify-integrity-drills.py --self-test && python3 benchmarks/gate/run_gate.py --only quality-verify-integrity-drills",
+    "assertions": [
+     "the live run reports tripwire (a) failing (the safety-auditor BLOCKED definition lacks the empty-diff clause) and tripwire (b) passing (the acceptance reviewer keeps its precondition)",
+     "self-test fixtures cover both shapes of each tripwire and the anchor-gone loud-finding path",
+     "run_gate --only reports partial true with exactly the Layer 0 checks in implemented_checks, status pass on the committed baseline; a self-test fixture where the acceptance reviewer loses its clause flips status to fail (demonstrated via the embedded fixtures, never by mutating the real agents files)",
+     "the card's probe_status frontmatter reads partial"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": []
+   }
+  },
+  {
+   "id": "sec-untrusted-input-surfaces",
+   "title": "Feed the status page and the session injection hostile repo content and watch what escapes",
+   "summary": "An adversarial fixture repo with script tags and embedded directives in its planning files drives the status web page and the session-start injection, asserting that attacker-controlled strings render inert, the server stays loopback-and-keyed, and the injected block stays delimited and budgeted.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Implements P1 and P2 of benchmarks/sec/sec-untrusted-input-surfaces.md (P3 live claude -p cells are phase 3), so the probe declares partial: true and the card's probe_status frontmatter flips planned -> partial. benchmarks/fixtures/adversarial/ commits the hostile payload files (a binder JSON whose title/summary/contract/oracle strings carry <script>/<img onerror> payloads and prompt-injection sentences, a poisoned .karta/sme/ overlay pack, a tampered archive entry) plus a small assemble step in the probe that copies them into a mktemp git-initialized scratch repo. Gate probe benchmarks/probes/sec-untrusted-input-surfaces.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies), --target support and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. P1 launches skills/karta-status/scripts/serve_status.py as a subprocess against the fixture on 127.0.0.1 with an ephemeral port, fetches / and /state.json via urllib, byte-greps for every unescaped payload (unescaped = FAIL \u2014 red today: zero html.escape calls), asserts the bind address stays 127.0.0.1, and asserts keyless requests are refused when --key is set; the server is always torn down, and a server that fails to start is a probe failure (fail-closed), never a silent skip. P2 runs hooks/scripts/inject_karta_status.py against the fixture and asserts the injected block wraps repo-derived text in an inert delimiter (red today: inject_karta_status.py emits undelimited lines \u2014 a seeded finding under the baseline rule, like the P1 sinks) and stays under the pinned byte budget committed in benchmarks/fixtures/adversarial/expected.json, recording verbatim what reaches context. Results land in benchmarks/sec/results/ (the card frontmatter's results dir; procedure step 6's benchmarks/results/ path predates the per-family results dirs) and are named <delivery-date>-sec-probes.json \u2014 a deliberate deviation from the card's <version>-sec-probes.json, because this first baseline is committed mid-cycle before any RC version exists. The frozen unescaped-sink list ships in the committed first results JSON per the card (count must reach and stay 0): status \"fail\" only on regression against the last committed results file \u2014 a NEW sink beyond the frozen list, a passing probe flipping, a bind or key-gate regression \u2014 with the seeded reds as recorded findings. Baseline mechanics: on every run the probe writes its dated evidence JSON to benchmarks/sec/results/<delivery-date>-sec-probes.json (overwriting a same-date file); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename); the regression baseline is the newest git-tracked results file for this vector (git ls-files), never an untracked or same-run file; the builder commits the first run's file as the touched results artifact; the first committed baseline must contain the seeded findings this contract names, and the probe fails closed if a seeded finding is absent from its own first baseline. Emits the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail; hook bypass and ref forgery stay out of scope per the card's scope guard. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item. Registry manifest (data for the composing registry item, which alone writes benchmarks/fixtures/REGISTRY.json): fixture files created = every file under benchmarks/fixtures/adversarial/ including expected.json (one registry entry per file); intended used_by = sec-untrusted-input-surfaces.",
+   "touches": [
+    "benchmarks/probes/sec-untrusted-input-surfaces.py",
+    "benchmarks/fixtures/adversarial/",
+    "benchmarks/sec/results/<delivery-date>-sec-probes.json",
+    "benchmarks/sec/sec-untrusted-input-surfaces.md"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/probes/sec-untrusted-input-surfaces.py --self-test && python3 benchmarks/gate/run_gate.py --only sec-untrusted-input-surfaces",
+    "assertions": [
+     "P1 reproduces the seeded finding: at least one fixture payload reaches the rendered HTML unescaped, the frozen sink list is recorded, and the loopback-bind and key-gate assertions hold as they do today",
+     "P2 reproduces the seeded finding (no inert delimiter today, recorded as a finding under the committed baseline), records verbatim what the injection carries into context, and asserts the pinned byte budget from the committed expected file",
+     "the server subprocess is torn down on every path and a failed launch reports a probe failure, never a silent skip",
+     "run_gate --only reports partial true, status pass on the committed baseline; a synthetic new sink in self-test flips status to fail",
+     "the card's probe_status frontmatter reads partial"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "release-version-bump-block",
+   "title": "Make a version bump impossible to commit without a matching green benchmark run",
+   "summary": "The repo's commit gate learns one new rule: if the staged change bumps the plugin version, there must be a committed green gate file for exactly that version and exactly this commit's parent, or the commit is blocked with the fix named.",
+   "estimate": "L",
+   "depends_on": [],
+   "contract": "Extends scripts/hooks/precommit_gate.py (the dev-repo PreToolUse Bash hook) with the release block from benchmarks/meta/release-gate-blocking-smoke.md step 3; the card's retroactive past-release audit probe is explicitly deferred (recorded in benchmarks/meta/card-errata-2026-07-17.md, shipped by a sibling item), so its probe_status frontmatter stays planned and the card is not touched \u2014 the deferred audit, when built, must compare a gate artifact's recorded sha against the tagged commit's PARENT, since the artifact records the pre-bump sha. Detection: when the command is a git commit (existing detector), additionally check whether the commit would change the .claude-plugin/plugin.json version: compare the version fields of git show HEAD:.claude-plugin/plugin.json and git show :.claude-plugin/plugin.json \u2014 the staged blob \u2014 plumbing only; a diff is never parsed. When the commit command carries -a/--all (or a pathspec that could include .claude-plugin/plugin.json), the version comparison reads the WORKING-TREE .claude-plugin/plugin.json against git show HEAD:.claude-plugin/plugin.json instead of the staged blob \u2014 the commit will record working-tree content in those forms. Only a version change arms the block. Sha semantics, pinned: the gate artifact records the sha it ran on; when armed, the block accepts the commit iff a green full-gate file exists \u2014 some benchmarks/results/gate/*-gate.json (never a *.partial.json \u2014 subset runs do not count) \u2014 whose plugin_version equals the new version, whose recorded karta_sha equals the HEAD the bump commit is being created on (the gate ran on the pre-bump tree, after the working-tree version edit, before any commit), and whose summary shows fail == 0 and error == 0; skipped vectors deliberately do not block (SKIPPED stays loud in the gate file and run_gate's own exit is non-strict \u2014 an all-skipped-but-green gate file admitting the commit is design, not oversight). The block additionally requires that gate file to be staged in this commit (its path appears in git diff --cached --name-only; working-tree presence counts under -a); a green matching file left unstaged blocks with a reason naming git add <file>. Operator sequence, stated for the release checklist: (1) finish the RC tree and edit the working-tree plugin version; (2) run python3 benchmarks/gate/run_gate.py \u2014 the dated artifact records the current HEAD sha; (3) git add the gate artifact together with the version bump and create the bump commit on that same HEAD, so the artifact is committed with the bump and its recorded sha equals the bump commit's parent \u2014 this dissolves the first-release chicken-and-egg (no seed gate file is needed before the first gated release). Missing, red, partial-only, malformed, version-mismatched, sha-mismatched, or unstaged gate files block with exit 2 and a reason naming the exact fix \u2014 a gate failure is a block, not an internal error. The hook's existing stance is unchanged: internal errors (unreadable stdin, malformed payload, unexpected exceptions) still fail OPEN, the KARTA_SKIP_GATE=1 escape hatch still applies and is named in the reason, and the five existing gates run exactly as before. Self-test extends the embedded suite with fabricated staged-diff states and fabricated gate files (green match staged, green match unstaged, red, sha mismatch, version mismatch, partial-only, absent, malformed JSON \u2014 malformed gate JSON blocks, since an unreadable verdict is not a green verdict; plus -am and pathspec bump cases proving the block arms on working-tree content) using the existing stubbed-runner pattern, keeping the [PASS]/[FAIL] lines and an N/N checks passed summary format (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise). README.md's existing sentence describing this block (line ~121 of benchmarks/README.md) becomes true rather than aspirational; no doc edit needed.",
+   "touches": [
+    "scripts/hooks/precommit_gate.py"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 scripts/hooks/precommit_gate.py --self-test && python3 scripts/validate_plugin.py",
+    "assertions": [
+     "a commit with no plugin.json version change never arms the block and behaves exactly as before (all pre-existing self-test checks still pass)",
+     "a version bump with a green full-gate file matching the new version and the current HEAD sha, staged into the same commit, allows",
+     "a version bump blocks when the gate file is missing, red, a .partial.json only, malformed, version-mismatched, sha-mismatched, or unstaged \u2014 each with a reason naming the run_gate command (or the git add) and the escape hatch",
+     "a version bump via git commit -a/-am or a pathspec commit is detected from working-tree content and blocked identically to a staged bump",
+     "internal errors still fail open and KARTA_SKIP_GATE=1 still skips, per the hook's documented stance",
+     "scripts/validate_plugin.py stays green"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "contract-mutation:extends-existing-precommit-enforcement-surface",
+     "sensitive:scripts-hooks-enforcement-layer",
+     "pre-justified:sha-semantics-pinned-in-contract-gate-sha-equals-parent-of-bump"
+    ]
+   }
+  },
+  {
+   "id": "field-delivery-state-audit",
+   "title": "Audit the consumer repos' delivery leftovers against the rules the skills promise",
+   "summary": "Four git-plumbing auditors sweep each consumer repo for unreachable completion refs, disordered wave tags, unmarked work commits, hand-edited planning files, and stranded cleanup debt \u2014 but only after proving themselves on a seeded fixture where every violation class is planted and both innocent look-alikes stay clean.",
+   "estimate": "L",
+   "depends_on": [],
+   "contract": "Implements benchmarks/field/field-delivery-state-audit.md in full, so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. Ships the card-named auditors in benchmarks/flow/ \u2014 lint_delivery_refs.py (done-ref first-parent reachability, built/done/failed pairing, wave-tag order and ancestry, Karta-Accept trailers via git interpret-trailers, no in-progress refs, zero survivors post-archive, complete-implies-archived with the discard-path exemption), audit_hygiene.py (refs/tags/branches/worktrees/stashes by slug: IN-FLIGHT / STALE / MISSING-DOCTRINE-REF), check_markers.py (marker forms and id cross-check), audit_binder_mutations.py (RE-PLAN / ARCHIVE-MOVE / METADATA-RETROFIT / MANUAL-SURGERY blob diffs) \u2014 composed by benchmarks/flow/run_all.py, plus the deterministic seeded-violation fixture benchmarks/flow/fixtures/delivery-state/build_fixture.sh (dates pinned; >=1 instance of every violation class plus the two pinned negative cases: legit fast-forward landing, discarded-integration-branch binder; the fixture repo is rebuilt on demand \u2014 only the script is committed). All scripts are stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise). The gate adapter benchmarks/probes/field-delivery-state-audit.py accepts run_gate's --target <repo-root> invocation, a --fixture-only mode that runs the full detection matrix against the seeded fixture and skips the live sweep, and --consumers <path,...> for the live sweep \u2014 consumer repos default to the sibling directories parchmark and gringotts resolved relative to the --target repo's parent (plus the --target repo itself as the third audited repo); no absolute paths in code or contracts; a missing consumer directory is a clear error in live mode and irrelevant in fixture mode. DECLARED DEVIATIONS from card text: jq field-diffs are implemented with stdlib json (no jq binary), per the binder-wide stdlib-only rule; audit scripts derive the karta repo root from their own file location, never a hardcoded absolute path. The card frontmatter's results: benchmarks/field/results/ line contradicts procedure step 7's benchmarks/flow/results/; this item follows the procedure text and leaves the frontmatter untouched (cards are edited only to flip probe_status), recording the mismatch as a finding. GATE STANCE \u2014 gating = fixture mode, live = recorded evidence: run_all.py must score 100% detection and 0 false positives on the fixture or all consumer results are discarded and the probe reports status \"fail\"; a doctrine content-grep anchor missing from the skills also fails (doctrine changed \u2014 update linter first); the live sweep's field findings are the reported product with per-cohort attribution (slug + delivery date + plugin version), recorded as evidence and never a gate condition \u2014 expected at plan time (2026-07-17), recorded not asserted: parchmark complete-unarchived with stranded artifacts and 0/5 markers on its last binder; gringotts stale worktree, manual-surgery edit, 14/14 markers; karta's 2 missing-doctrine-ref slugs. Never-exercised classes report n/a-fixture-only, never 0 violations. Per card step 7 the live sweep writes and commits per-repo snapshots benchmarks/flow/results/<delivery-date>-parchmark.json / -gringotts.json / -karta.json recording linter_version and audit_timestamp; the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename). Per card step 8, binder-EOL-never-invoked and cleanup-not-run facts are exported as an adoption_rows array inside each committed per-repo snapshot (the adoption ledger may join on it later; no cross-item dependency created). Self-test pins the audit_timestamp used for the STALE >48h classification (never wall-clock now()), and the plugin version active at a date is derived from the committer dates of plugin.json version-transition commits. The gate adapter maps run_all.py output into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail, and must fit run_gate's 120s probe budget across all three repos. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item. Registry manifest (data for the composing registry item, which alone writes benchmarks/fixtures/REGISTRY.json): fixture files created = benchmarks/flow/fixtures/delivery-state/build_fixture.sh; intended used_by = field-delivery-state-audit.",
+   "touches": [
+    "benchmarks/probes/field-delivery-state-audit.py",
+    "benchmarks/flow/lint_delivery_refs.py",
+    "benchmarks/flow/audit_hygiene.py",
+    "benchmarks/flow/check_markers.py",
+    "benchmarks/flow/audit_binder_mutations.py",
+    "benchmarks/flow/run_all.py",
+    "benchmarks/flow/fixtures/delivery-state/build_fixture.sh",
+    "benchmarks/field/field-delivery-state-audit.md",
+    "benchmarks/flow/results/<delivery-date>-parchmark.json",
+    "benchmarks/flow/results/<delivery-date>-gringotts.json",
+    "benchmarks/flow/results/<delivery-date>-karta.json"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/flow/run_all.py --self-test && python3 benchmarks/probes/field-delivery-state-audit.py --self-test && python3 benchmarks/probes/field-delivery-state-audit.py --fixture-only && python3 benchmarks/gate/run_gate.py --only field-delivery-state-audit",
+    "assertions": [
+     "the seeded fixture yields 100% detection across every violation class and 0 false positives on the two pinned negative cases; a class without a fixture case cannot be reported from the field",
+     "the live sweep completes across all three audited repos and writes a well-formed dated snapshot per repo under benchmarks/flow/results/ with per-cohort keys (binder slug + delivery date + plugin version); finding content is recorded evidence, never asserted",
+     "a removed doctrine sentence in a self-test fixture hard-fails the run before any field reporting",
+     "run_gate --only reports partial false with a valid contract row, status pass gated on the fixture matrix alone; a fixture detection miss flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "io:reads-live-sibling-consumer-repos-evidence-mode-oracle-gates-on-fixtures",
+     "blast-radius:L",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "field-feature-adoption-ledger",
+   "title": "Track which shipped capabilities the consumer repos actually use, with every absence explained",
+   "summary": "A committed manifest lists every release's observable capability back to the first binder-era version, and an auditor classifies each one per consumer repo as adopted, idle-since-ship, or available-but-unused \u2014 the only alarm class \u2014 with first-use dates that can never silently un-happen.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Implements benchmarks/field/field-feature-adoption-ledger.md in full, so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. Ships benchmarks/field/feature-manifest.json seeded back to 1.8.0: one entry {id, karta_version, ship_date, detection:{kind: grep|jq|ref, pattern, path}, durable} \u2014 or an explicit {version, observable: false} sentinel \u2014 for every released version from 1.8.0 through 2.21.0 (1.8.0, 1.9.0, 1.10.0, 1.11.0, 1.11.1, 1.12.0, 1.13.0, 1.14.0, 1.15.0, 1.16.0, 1.17.0, 1.18.0, 1.19.0, 2.20.0, 2.21.0), enumerated from plugin.json version-transition commits (git log -G over .claude-plugin/plugin.json). DECLARED DEVIATION from card step 2: pre-1.13.0 bumps predate the chore(release) subject convention, so every ship_date is taken from the committer date of the plugin.json version-transition commit; patch releases take an observable:false sentinel unless they shipped an observable capability; ephemeral-state detections are marked durable:false (excluded from lag and the alarm class per the card). Ships the card-named benchmarks/field/audit_adoption.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise); it derives the karta repo root from its own file location, never a hardcoded absolute path, and addresses consumer repos through --consumers <path,...>, defaulting to the sibling directories parchmark and gringotts resolved relative to the --target repo's parent \u2014 no absolute paths in code or contracts; a missing consumer directory is a clear error in live mode and irrelevant in self-test. It enforces the manifest gate (exit 2 when a release newer than the newest manifest entry lacks both an entry and a sentinel \u2014 enforced, not asserted), pins activity events to exactly the three deterministic commit classes, computes first-use via git log -S or durable-ref target dates, carries committed first_use values forward immutably, and classifies into NOT-EXERCISED-SINCE-SHIP vs AVAILABLE-BUT-UNUSED with the denominator always shown. Gating and evidence split: gating = self-test (which constructs a fixture git repo in a tempdir covering one adopted feature, one NOT-EXERCISED-SINCE-SHIP with zero post-ship activity, one AVAILABLE-BUT-UNUSED with a post-ship plan(karta): commit and a never-firing detection, and one durable:false detection excluded from lag and alarm) plus the manifest gate; live = recorded evidence \u2014 per card step 9 the live audit writes and commits benchmarks/field/results/<delivery-date>-parchmark.json and benchmarks/field/results/<delivery-date>-gringotts.json with the full attribution table; these are the first committed results and the immutable first_use baseline; the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename). Expected at plan time (2026-07-17), recorded not asserted: gringotts 4 AVAILABLE-BUT-UNUSED including the failure path via durable traces; parchmark mostly NOT-EXERCISED-SINCE-SHIP with binder-EOL and debt markers live-and-ignored. Gate adapter benchmarks/probes/field-feature-adoption-ledger.py accepts run_gate's --target <repo-root> invocation in addition to --self-test and maps the per-repo attribution tables into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail. Stance: a manifest-gate violation or a missing enrolled consumer directory in live mode reports status \"fail\" (fail-closed on probe integrity); AVAILABLE-BUT-UNUSED ids are findings \u2014 a prune-or-fix signal, never a gate failure; adoption_lag medians only at n>=5, negative lags labeled pre-release-dogfood and excluded from the median. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item.",
+   "touches": [
+    "benchmarks/probes/field-feature-adoption-ledger.py",
+    "benchmarks/field/audit_adoption.py",
+    "benchmarks/field/feature-manifest.json",
+    "benchmarks/field/field-feature-adoption-ledger.md",
+    "benchmarks/field/results/<delivery-date>-parchmark.json",
+    "benchmarks/field/results/<delivery-date>-gringotts.json"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/field/audit_adoption.py --self-test && python3 benchmarks/probes/field-feature-adoption-ledger.py --self-test && python3 benchmarks/gate/run_gate.py --only field-feature-adoption-ledger",
+    "assertions": [
+     "the manifest covers every released version from 1.8.0 to 2.21.0 (enumerated from plugin.json version-transition commits) with an entry or an explicit observable:false sentinel, and the manifest gate exits 2 in self-test when a release is missing both",
+     "self-test reproduces the seeded classification semantics on its tempdir fixture git repo (adopted, NOT-EXERCISED-SINCE-SHIP, AVAILABLE-BUT-UNUSED, and the excluded durable:false detection) with denominators shown",
+     "the live run writes a well-formed dated attribution snapshot per enrolled repo under benchmarks/field/results/ with every manifest feature classified and the denominator shown; per-repo counts land in metrics as recorded evidence, never in assertions",
+     "a first_use recorded in a committed result is carried forward unchanged in self-test even when the detection pattern no longer fires",
+     "run_gate --only reports partial false, status pass with the alarm-class ids as findings; a manifest-gate violation in self-test flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "io:reads-live-sibling-consumer-repos-evidence-mode",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "field-companion-loop-health",
+   "title": "Measure whether the two opt-in follow-up loops actually fire and whether their edits stick",
+   "summary": "A history auditor walks each consumer repo's first-parent line to report doc-follow-up coverage per delivery, whether pack edits stayed additive and survived human counter-correction, and how stale each loop's configuration has gone.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Implements benchmarks/field/field-companion-loop-health.md in full, so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. Ships the card-named benchmarks/field/audit_companions.py --repo <path> [--head <sha>]: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary (--self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise); when --head is given, every git read is scoped to that sha. DECLARED DEVIATIONS from card text (card steps 1/3 contradict the card's own step 4 and seed observation on the real repos; the probe emits a permanent card-contradiction finding recording this for card maintenance): (a) subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (git log <head>, never --all); first-parent is reserved for epoch transitions and delivery enumeration; (b) the delivery denominator = first-parent merges of karta/<slug>/integration, with first-parent commits adding .karta/binders/archive/<slug>.json as the fallback for fast-forward landings (dedupe by slug, merge wins), each dated by that commit's committer date; epoch membership is strictly-after the first-parent enable-transition commit. Per the card: enable epochs from config-value transitions on first-parent history; gardner coverage with timing-race whiffs auto-attributed by comparing the delivery merge's second-parent lineage age to the enable commit; kaizen additive floor via the imported grammar of skills/karta-kaizen/scripts/validate_packs.py \u2014 ITEM_RE and TOMBSTONE_RE imported via importlib.util.spec_from_file_location (the hyphenated directory name is not a valid package path; validate_packs.py has no standalone extraction function and none may be added), applied to before/after pack text from git show, never re-implemented \u2014 with FAIL on an active id vanishing without a tombstone and WARN on >20% rule-text shrink; correction incidents in the 0-14 day window, right-censored, emitted as (kaizen sha, correcting sha, delta-minutes, subject) lists; spawn-utility and config-staleness raw counts; every fraction as n/N with underlying lists, and the no-version-stamp caveat carried in every row. Gating and evidence split: gating = self-test, whose fixtures fabricate synthetic git histories covering FAIL/WARN/window-open/timing-race/pre-enable cases; live = recorded evidence \u2014 per card step 1 the live run writes and commits benchmarks/field/results/<delivery-date>-companions.json with one row per enrolled repo (row content recorded, never asserted); the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename). Expected at plan time (2026-07-17), recorded not asserted: parchmark gardner 8/10 with both whiffs auto-attributed to the enable-timing race and kaizen spawn-utility 0; gringotts gardner 3/3 with the pre-enable delivery excluded and the 17-minute correction incident listed. Gate adapter benchmarks/probes/field-companion-loop-health.py accepts run_gate's --target <repo-root> invocation plus its own --self-test, and addresses consumer repos through --consumers <path,...>, defaulting to the sibling directories parchmark and gringotts resolved relative to the --target repo's parent \u2014 no absolute paths in code or contracts; a missing consumer directory is a clear error in live mode and irrelevant in self-test. It maps rows for the enrolled repos into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail. Stance: a parser import failure or a missing enrolled repo in live mode reports status \"fail\" (fail-closed on probe integrity); coverage whiffs, floor violations, and incidents are findings \u2014 field facts feeding the kaizen-phase-2 decision, never a gate failure. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item.",
+   "touches": [
+    "benchmarks/probes/field-companion-loop-health.py",
+    "benchmarks/field/audit_companions.py",
+    "benchmarks/field/field-companion-loop-health.md",
+    "benchmarks/field/results/<delivery-date>-companions.json"
+   ],
+   "oracle": {
+    "type": "integration",
+    "command": "python3 benchmarks/field/audit_companions.py --self-test && python3 benchmarks/probes/field-companion-loop-health.py --self-test && python3 benchmarks/gate/run_gate.py --only field-companion-loop-health",
+    "assertions": [
+     "self-test fixtures prove the timing-race auto-attribution, the 0-14 day incident window, and the pre-enable exclusion on synthetic first-parent histories; the live run emits one complete, well-formed row per enrolled repo and writes the dated companions snapshot, whose content is recorded evidence, never asserted",
+     "the additive-floor check uses the imported validate_packs grammar (ITEM_RE and TOMBSTONE_RE) and FAILs in self-test when an active id vanishes without a tombstone",
+     "in self-test, a synthetic kaizen commit dated inside the trailing 14-day window is flagged window-open and excluded from the closed denominator while its correction incident still appears in the emitted list",
+     "run_gate --only reports partial false, status pass with the field facts as findings; a parser import failure flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "io:reads-live-sibling-consumer-repos-evidence-mode"
+    ]
+   }
+  },
+  {
+   "id": "perf-delivery-telemetry",
+   "title": "Mine what a delivery really costs and whether sessions ran the scripts the prose demands",
+   "summary": "A transcript miner reads the recorded session files to report per-item token and wall-clock medians by agent type, and checks whether each mandated helper script was actually invoked when the rules said it must be \u2014 with sessions it cannot measure counted out loud.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Implements modes 1 (cost) and 4 (compliance) of benchmarks/perf/perf-delivery-telemetry.md \u2014 the card's own two-pass rollout order; modes 2 (timeline) and 3 (oracle-count) are deferred \u2014 so the probe declares partial: true and the card's probe_status frontmatter flips planned -> partial. Ships the card-named benchmarks/perf/mine_sessions.py <transcript-dir>... --since <date> --out <file>: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies), pure JSONL parsing, no judge; it also accepts --binders <path>..., and when omitted derives each consumer's .karta/binders/ plus archive/ from the transcript dir's encoded project path. Mode 1 per the card: delivery windows from the deliver Skill invocation, per-subagent usage summed from the agent's own JSONL (meta carries no usage), builder/gate classification including karta:-scoped forms, builder-to-item mapping via binder item ids with unmapped spawns in an explicit unattributed bucket never dropped, per-item medians and overhead_ratio with numerator and denominator emitted separately, models per agentType. Mode 4: the four compliance rows (scan_secrets before commits, validate_binder before first worktree creation, check_shared_terms after qualifying waves, karta_next --footer before session end) with transcript-counted denominators, and sessions with missing or truncated subagent files reported as an unmeasurable count, never silently excluded. Every miner output carries the card's step-7 context block (project, binder slug, plugin version, item count + estimate mix, models per agentType, claude-code version if present). Because live transcript dirs decay (~30d cleanup), correctness rests on a committed synthetic fixture transcript at benchmarks/perf/fixtures/miner-transcript/ (small hand-authored JSONL session + subagents + meta files exercising every classification branch, plus binder.json \u2014 a minimal binder whose item ids match all but one builder meta description) driven by the self-test \u2014 the miner is validated against the fixture, and live mining is best-effort over whatever raws survive. Gate adapter benchmarks/probes/perf-delivery-telemetry.py accepts run_gate's --target <repo-root> invocation (default: its own repo root, matching the two existing probes) in addition to --self-test, and maps the fixture-transcript run plus the live-dir summary into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail. Gating and evidence split: gating = the fixture run (fixture-run mismatch = status \"fail\", fail-closed on the miner's own correctness); live = recorded evidence \u2014 each gate run's live pass writes a well-formed dated snapshot to benchmarks/perf/results/<delivery-date>-perf-telemetry.json summarizing whatever live transcript dirs survive (content recorded, never asserted), and the builder commits the first snapshot; the builder replaces <delivery-date> with the actual run date in file names at build time (the placeholder never appears in a committed filename). All live-dir mining is error-contained \u2014 any parse or IO exception during the best-effort live pass increments the unmeasurable/skipped count in metrics and never crashes the probe or affects status; absent or decayed live transcript dirs are an unmeasurable count with status \"pass\" (decay is an expected environment fact the card documents, not a probe defect). Host precondition, referenced not owned: the card's cleanupPeriodDays>=365 setting in ~/.claude/settings.json is host configuration outside this binder (see scope.excluded); decay before it is set simply lands in the unmeasurable count. Self-test prints [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item. Registry manifest (data for the composing registry item, which alone writes benchmarks/fixtures/REGISTRY.json): fixture files created = every file under benchmarks/perf/fixtures/miner-transcript/ including binder.json (one registry entry per file); intended used_by = perf-delivery-telemetry.",
+   "touches": [
+    "benchmarks/probes/perf-delivery-telemetry.py",
+    "benchmarks/perf/mine_sessions.py",
+    "benchmarks/perf/fixtures/miner-transcript/",
+    "benchmarks/perf/perf-delivery-telemetry.md",
+    "benchmarks/perf/results/<delivery-date>-perf-telemetry.json"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 benchmarks/perf/mine_sessions.py --self-test && python3 benchmarks/probes/perf-delivery-telemetry.py --self-test && python3 benchmarks/gate/run_gate.py --only perf-delivery-telemetry",
+    "assertions": [
+     "the miner reproduces the fixture transcript's known totals exactly: per-agentType spawns, summed output and cache-read tokens, wall minutes, builder-to-item mapping with the planted unmappable spawn landing in the unattributed bucket, and the output carries the step-7 context block populated from the fixture",
+     "mode 4 scores each of the four compliance rows against the fixture's planted invocations and omissions with transcript-counted denominators, and a truncated-subagent fixture session lands in the unmeasurable count",
+     "modes 2 and 3 are absent from implemented_checks",
+     "run_gate --only reports partial true with status pass derived solely from the fixture run, and the live pass completes and writes a well-formed dated snapshot under benchmarks/perf/results/ whose content is recorded, never asserted; a doctored fixture expectation flips status to fail",
+     "the card's probe_status frontmatter reads partial"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "escalation:reads-host-claude-transcript-dirs-outside-repo",
+     "precondition:host-cleanupPeriodDays-noted-not-performed",
+     "novelty:baseline-regression-pattern"
+    ]
+   }
+  },
+  {
+   "id": "ownership-cost-ledger",
+   "title": "Start the running account of what keeping all this machinery costs",
+   "summary": "An append-only ledger gains its first row \u2014 machinery counts, manual release steps, bench spend, triage load, and the recorded tool-choice resolution \u2014 and a small script recomputes and diffs a fresh row against the last one each release.",
+   "estimate": "M",
+   "depends_on": [
+    "release-version-bump-block"
+   ],
+   "contract": "Implements benchmarks/meta/ownership-cost-ledger.md in full, so the probe declares partial: false and the card's probe_status frontmatter flips planned -> implemented. Ships the card-named benchmarks/field/ownership_ledger.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. Row parts per the card: (a) machinery counts (sync/projection scripts, byte-identical mirrored copies and duplicated bytes over the check_shared_copies scope plus the codex projections \u2014 the three skill mirrors are inside check_shared_copies scope, so this compression loses no card coverage \u2014 hook scripts, bench runner scripts and LOC), (b) manual release steps not enforced by the release block \u2014 enumerated from the latest docs/releases/v*-checklist.md minus what scripts/hooks/precommit_gate.py enforces, countable only once the release block exists in the tree (hence the dependency on the release-block item); the host-side cleanupPeriodDays setting counts as one such manual step, (c) bench spend summed from whatever gate artifacts and quarterly results exist under benchmarks/results/ \u2014 where artifacts carry no wall-clock or token fields, part (c) records \"n/a (not yet instrumented)\" per honesty rule 12, never 0; the sum activates as spend fields appear in later artifacts, (d) triage load (findings opened vs resolved vs waived across committed vector results), plus one buy-vs-build row per hand-rolled component citing benchmarks/research/evaltool-2026-07-17.json with a yes/no still-correct and a one-line reason. Ships benchmarks/field/results/ownership-ledger.json with row 1 recording the already-written resolution from benchmarks/results/2026-07-17-baseline.md: promptfoo ADOPT for the executable arms only (pinned via benchmarks/bench/package.json when that lane lands, not before; the deterministic lane never depends on node) and bayes_evals only at k>=5 with raw counts at n<=3. The ledger lands at benchmarks/field/results/ownership-ledger.json per the card procedure; the card frontmatter's results: benchmarks/meta/results/ is a known card-internal inconsistency \u2014 left untouched (cards are edited only to flip probe_status) and recorded as a finding. Two modes, pinned: --append writes the new row (release-time only); the default --check mode recomputes the fresh row in memory and diffs it against the last committed row WITHOUT writing \u2014 the gate adapter and this item's oracle use check mode only, so a gate run leaves ownership-ledger.json byte-identical; self-test exercises append/refusal behavior on temp copies only, never on the committed ledger. The script refuses to rewrite or reorder existing rows (it only appends, verifies rows are date-ordered and release-unique, and diffs the fresh row against the last committed one); any buy-vs-build row answered no-longer-correct without an action or dated waiver is a violation. Gate adapter benchmarks/probes/ownership-cost-ledger.py accepts run_gate's --target <repo-root> invocation in addition to --self-test and maps the check-mode row diff into the gate probe JSON contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"}, exit 0 whether pass or fail. Gating and evidence split: gating = self-test plus ledger-integrity checks; the fresh-row diff itself is recorded in the gate row's metrics \u2014 evidence for the human, never asserted. Stance: a corrupted ledger (out-of-order or duplicate rows) or an unactioned no-longer-correct row reports status \"fail\"; growing cost deltas are findings for the human, never a gate failure. The <date>-gate.partial.json written by the oracle's run_gate --only invocation is a transient verification artifact \u2014 never committed by this item.",
+   "touches": [
+    "benchmarks/probes/ownership-cost-ledger.py",
+    "benchmarks/field/ownership_ledger.py",
+    "benchmarks/field/results/ownership-ledger.json",
+    "benchmarks/meta/ownership-cost-ledger.md"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 benchmarks/field/ownership_ledger.py --self-test && python3 benchmarks/probes/ownership-cost-ledger.py --self-test && python3 benchmarks/gate/run_gate.py --only ownership-cost-ledger",
+    "assertions": [
+     "row 1 is committed carrying the recorded resolution verbatim in substance: promptfoo adopted for the executable arms only and bayes machinery reserved for k>=5, each buy-vs-build row citing the committed evaltool verdicts file",
+     "the script's --append mode writes rows only at release time and the default --check mode recomputes and diffs in memory without writing \u2014 a gate run leaves ownership-ledger.json byte-identical; self-test shows append works and a reordered or duplicated row is refused, all on temp copies",
+     "a no-longer-correct buy-vs-build row without an action or dated waiver is reported as a violation",
+     "run_gate --only reports partial false, status pass with the fresh-row diff recorded in metrics; a corrupted-ledger self-test fixture flips status to fail",
+     "the card's probe_status frontmatter reads implemented"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": []
+   }
+  },
+  {
+   "id": "fixture-registry-entries",
+   "title": "Record every new test fixture in the shared registry with its fingerprint",
+   "summary": "After the fixture-writing items land, one composing step appends a fingerprint entry for each new fixture file to the shared registry so later audits can prove nothing changed unnoticed.",
+   "estimate": "S",
+   "depends_on": [
+    "flow-guard-enforcement-matrix",
+    "flow-spec-contradictions",
+    "dark-status-surface-probes",
+    "sec-untrusted-input-surfaces",
+    "field-delivery-state-audit",
+    "perf-delivery-telemetry"
+   ],
+   "contract": "Composes the registry entries for every fixture shipped by this binder, as the single writer of benchmarks/fixtures/REGISTRY.json \u2014 no other work item touches that file. Input: the registry manifest clause that ends each of the six fixture-writing items' contracts in .karta/binders/bench-probe-buildout.json (flow-guard-enforcement-matrix, flow-spec-contradictions, dark-status-surface-probes, sec-untrusted-input-surfaces, field-delivery-state-audit, perf-delivery-telemetry); each clause names the exact fixture paths that item creates and the used_by list it intends, stated as data for this item. Ships benchmarks/fixtures/update_registry.py: stdlib-only argparse with a PEP 723 header (requires-python >=3.11, no dependencies) and a --self-test mode printing [PASS]/[FAIL] lines and an N/N checks passed summary; --self-test exits 0 only when the summary is N/N checks passed, nonzero otherwise. For each manifested fixture file on the assembled tree it computes sha256 and APPENDS an entry {id, path, sha256, used_by} to benchmarks/fixtures/REGISTRY.json \u2014 append-only: existing entries are never edited, reordered, or removed; entries are per-file, so a directory of payloads gets one entry per file (e.g. every benchmarks/fixtures/hooked-repo/payloads/*.json). The used_by lists are carried verbatim from the manifests. The script's --check mode re-reads benchmarks/fixtures/REGISTRY.json and verifies every listed fixture path exists relative to the repo root and its sha256 matches the file on disk, exiting nonzero on any missing path or mismatch; --self-test drives append, duplicate-refusal, and mismatch detection against temp registry copies, never the committed file.",
+   "touches": [
+    "benchmarks/fixtures/update_registry.py",
+    "benchmarks/fixtures/REGISTRY.json"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 benchmarks/fixtures/update_registry.py --self-test && python3 benchmarks/fixtures/update_registry.py --check",
+    "assertions": [
+     "every fixture path named by the six registry manifest clauses has exactly one appended entry whose sha256 matches the file on the assembled tree, with the manifested used_by lists carried verbatim",
+     "pre-existing registry entries are byte-identical to their state before this item ran",
+     "--check verifies every listed path exists with a matching sha256 and exits nonzero on any missing path or mismatch; self-test proves append, duplicate refusal, and mismatch detection on temp copies"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "novelty:composing-item-pattern-single-writer-of-shared-registry"
+    ]
+   }
+  },
+  {
+   "id": "card-errata-ledger",
+   "title": "Write down every place the build deliberately departs from a benchmark card",
+   "summary": "A committed ledger records each known deviation between what a vector card says and what actually shipped, with the reason, so card text and code can be reconciled deliberately instead of drifting apart.",
+   "estimate": "S",
+   "depends_on": [],
+   "contract": "Ships benchmarks/meta/card-errata-2026-07-17.md: a plain-language markdown table with one row per known deviation, columns {card, card_text, implemented_as, why}. Rows to record (each cited by the affected sibling item's contract): (1) flow-guard ref-namespace spelling \u2014 the card's refs/karta/<slug>/built/<id> names a namespace that does not exist; the real namespace is refs/karta/<slug>/item-<id>/built, used by guard_delivery_stop.py and karta-build. (2) flow-guard probe filename \u2014 card step-3's benchmarks/flow/probe_guards.py is superseded by the probes/<vector-id>.py convention run_gate.py composes. (3) doc-truth runner naming \u2014 the card procedure's benchmarks/probes/doc_truth.py lands as the frontmatter/gate name benchmarks/probes/parity-doc-truth-ledger.py, one file, no wrapper. (4) doc-truth claims file \u2014 benchmarks/claims.yaml is authored in the JSON subset of YAML so the stdlib probe can parse it. (5) mirror-sync implementation language \u2014 python inside the existing probe, not the card's sketched bash runner; same drills. (6) sme suite run.sh \u2014 not shipped; the gate probe is the single composer. (7) release-gate retroactive audit \u2014 the card's past-release audit probe (benchmarks/probes/release-gate-blocking-smoke.py) is deferred and its probe_status stays planned while the blocking portion ships in the precommit hook; when built, the audit must compare a gate artifact's recorded sha against the tagged commit's parent, since the artifact records the pre-bump sha. Cards themselves are not edited by this item at all, and by sibling items only to flip their own probe_status frontmatter (binder scope unchanged); this ledger is the reconciliation record. (8) dark-status results path \u2014 card step 8's benchmarks/results/<version>-status-truth.json lands as benchmarks/dark/results/<delivery-date>-status-truth.json per the card frontmatter results dir, the README family-local-evidence rule, and the sibling probes' date-keyed convention.",
+   "touches": [
+    "benchmarks/meta/card-errata-2026-07-17.md"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 -c \"import pathlib,sys; t=pathlib.Path('benchmarks/meta/card-errata-2026-07-17.md').read_text(); missing=[n for n in ['card_text','implemented_as','refs/karta/<slug>/item-<id>/built','probe_guards.py','doc_truth.py','claims.yaml','run.sh','release-gate-blocking-smoke'] if n not in t]; sys.exit(1 if missing else 0)\"",
+    "assertions": [
+     "the ledger file exists at benchmarks/meta/card-errata-2026-07-17.md and contains one row for each of the seven deviations named in the contract",
+     "every row carries all four columns: card, card_text, implemented_as, why",
+     "no vector card file is modified by this item"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": []
+   }
+  }
+ ]
+}
