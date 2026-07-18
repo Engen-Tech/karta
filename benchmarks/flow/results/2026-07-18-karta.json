@@ -1,0 +1,442 @@
+{
+ "schema_version": 1,
+ "repo": "karta",
+ "linter_version": "1.0.0",
+ "audit_timestamp": "2026-07-18T00:00:00+00:00",
+ "finding_count": 31,
+ "findings": [
+  {
+   "class": "SURVIVOR-POST-ARCHIVE",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "archived slug cross-item-consistency still has live branch(es): karta/cross-item-consistency/integration, karta/cross-item-consistency/item-build-enforce-terms, karta/cross-item-consistency/item-deliver-enforce-terms, karta/cross-item-consistency/item-plan-surface-terms, karta/cross-item-consistency/item-shared-terms-check, karta/cross-item-consistency/item-shared-terms-field",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "SURVIVOR-POST-ARCHIVE",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "medium",
+   "summary": "archived slug shared-terms-pending still has live branch(es): karta/shared-terms-pending/integration, karta/shared-terms-pending/item-hatch-check-after-refs, karta/shared-terms-pending/item-pending-from-done-refs",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "SURVIVOR-POST-ARCHIVE",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "archived slug writer-confinement still has live branch(es): karta/writer-confinement/integration, karta/writer-confinement/item-guard-script-and-wiring, karta/writer-confinement/item-hooks-doc, karta/writer-confinement/item-kaizen-agent-note, karta/writer-confinement/item-readme-clause",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/cross-item-consistency/integration%x094c9f2de7a48becd932b247b33aab4fbe70eda0cb' survives 495648h post-archive",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/cross-item-consistency/item-build-enforce-terms%x091e1a539a7d3f7be515dff12d29471eabd8f698fb' survives 495648h post-archive",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/cross-item-consistency/item-deliver-enforce-terms%x09e33fdc340afc0a17538c7c57193126924c359d21' survives 495648h post-archive",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/cross-item-consistency/item-plan-surface-terms%x092bf624bb65b61696db0a720a220fdb581ab05f35' survives 495648h post-archive",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/cross-item-consistency/item-shared-terms-check%x09448e1267be8997e9368959fb9fe86dc608f64812' survives 495648h post-archive",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/cross-item-consistency/item-shared-terms-field%x0920139a9e1f0a338aa0a833be57ed4c92f51c243c' survives 495648h post-archive",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/shared-terms-pending/integration%x09ff57690eba1808f6e7fb3b7543806424104a58c5' survives 495648h post-archive",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/shared-terms-pending/item-hatch-check-after-refs%x0911a3477385d7f9bd22b036802b7a89dbb94e1485' survives 495648h post-archive",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/shared-terms-pending/item-pending-from-done-refs%x09fb395ce840c8eaafa81079d815e3dcf0fa9d62df' survives 495648h post-archive",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/writer-confinement/integration%x0944d1199e0981e8f3b377549fc894ac534dccff9c' survives 495648h post-archive",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/writer-confinement/item-guard-script-and-wiring%x097768754f8b4771f1038e67b9d13250e1fdf010dc' survives 495648h post-archive",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/writer-confinement/item-hooks-doc%x0955eba030b76a19b06d993c4eaf0a7161eac1d867' survives 495648h post-archive",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/writer-confinement/item-kaizen-agent-note%x091e7cdaf386df31d031e52fc6cbe4fd5260edd932' survives 495648h post-archive",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "STALE-BRANCH",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "branch 'karta/writer-confinement/item-readme-clause%x098eead53f9d78c4b8a396159a0bcb8aac66152e27' survives 495648h post-archive",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "codex-119-compatibility",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug codex-119-compatibility has no refs/karta/codex-119-compatibility/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "codex-119-compatibility",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "kaizen-frame",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug kaizen-frame has no refs/karta/kaizen-frame/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "kaizen-frame",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "UNMARKED-WORK-COMMIT",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "medium",
+   "summary": "shared-terms-pending work commit 11a347738 carries no karta marker (subject: 'docs(build): single-item hatch checks shared terms after the merge lands [karta:item-hatch-check-after-refs]')",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "UNMARKED-WORK-COMMIT",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "medium",
+   "summary": "shared-terms-pending work commit fb395ce84 carries no karta marker (subject: 'fix(plan): shared-terms check judges landed by done ref, not file existence [karta:item-pending-from-done-refs]')",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "UNMARKED-WORK-COMMIT",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "writer-confinement work commit 1e7cdaf38 carries no karta marker (subject: \"docs(agents): kaizen's write boundary is hook-enforced on Claude Code [karta:item-kaizen-agent-note]\")",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "UNMARKED-WORK-COMMIT",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "writer-confinement work commit 55eba030b carries no karta marker (subject: 'docs(hooks): writer confinement in the enforcement table, both fail-closed guards named [karta:item-hooks-doc]')",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "UNMARKED-WORK-COMMIT",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "writer-confinement work commit 8eead53f9 carries no karta marker (subject: 'docs(readme): kaizen write confinement joins the enforcement list [karta:item-readme-clause]')",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "UNMARKED-WORK-COMMIT",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "medium",
+   "summary": "writer-confinement work commit 7768754f8 carries no karta marker (subject: 'feat(hooks): writer confinement \u2014 deny kaizen writes outside its surface [karta:item-guard-script-and-wiring]')",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "codex-119-compatibility",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "codex-119-compatibility binder commit 47e171b2d: ARCHIVE-MOVE (.karta/binders/codex-119-compatibility.json -> .karta/binders/archive/codex-119-compatibility.json)",
+   "cohort": {
+    "slug": "codex-119-compatibility",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "cross-item-consistency",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "cross-item-consistency binder commit 4c9f2de7a: ARCHIVE-MOVE (.karta/binders/cross-item-consistency.json -> .karta/binders/archive/cross-item-consistency.json)",
+   "cohort": {
+    "slug": "cross-item-consistency",
+    "delivery_date": "2026-07-08",
+    "plugin_version": "1.17.0"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "delivery-stop-gate",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "delivery-stop-gate binder commit 71eda22c2: ARCHIVE-MOVE (.karta/binders/delivery-stop-gate.json -> .karta/binders/archive/delivery-stop-gate.json)",
+   "cohort": {
+    "slug": "delivery-stop-gate",
+    "delivery_date": "2026-07-14",
+    "plugin_version": "2.20.0"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "kaizen-frame",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "kaizen-frame binder commit d904e9f53: ARCHIVE-MOVE (.karta/binders/kaizen-frame.json -> .karta/binders/archive/kaizen-frame.json)",
+   "cohort": {
+    "slug": "kaizen-frame",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "shared-terms-pending",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "shared-terms-pending binder commit ff57690eb: ARCHIVE-MOVE (.karta/binders/shared-terms-pending.json -> .karta/binders/archive/shared-terms-pending.json)",
+   "cohort": {
+    "slug": "shared-terms-pending",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "writer-confinement",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "writer-confinement binder commit 44d1199e0: ARCHIVE-MOVE (.karta/binders/writer-confinement.json -> .karta/binders/archive/writer-confinement.json)",
+   "cohort": {
+    "slug": "writer-confinement",
+    "delivery_date": "2026-07-09",
+    "plugin_version": "1.18.0"
+   }
+  }
+ ],
+ "class_counts": {
+  "BUILT-WITHOUT-DONE": null,
+  "COMPLETE-UNARCHIVED": null,
+  "DANGLING-MARKER-ID": null,
+  "FORGED-DONE-REF": null,
+  "LEFTOVER-IN-PROGRESS-REF": null,
+  "MANUAL-SURGERY": null,
+  "MISSING-DOCTRINE-REF": 2,
+  "MISSING-KARTA-ACCEPT-TRAILER": "n/a (fixture-only)",
+  "STALE-STASH": null,
+  "SURVIVOR-POST-ARCHIVE": 3,
+  "UNMARKED-WORK-COMMIT": 6,
+  "WAVE-BASE-NON-ANCESTOR": null,
+  "WAVE-TAG-DISORDER": null
+ },
+ "adoption_rows": [
+  {
+   "slug": "codex-119-compatibility",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "cross-item-consistency",
+   "binder_eol_invoked": true,
+   "cleanup_run": false
+  },
+  {
+   "slug": "delivery-stop-gate",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "kaizen-frame",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "shared-terms-pending",
+   "binder_eol_invoked": true,
+   "cleanup_run": false
+  },
+  {
+   "slug": "writer-confinement",
+   "binder_eol_invoked": true,
+   "cleanup_run": false
+  }
+ ],
+ "card_inconsistencies": [
+  "field-delivery-state-audit.md frontmatter `results: benchmarks/field/results/` contradicts procedure step 7 `benchmarks/flow/results/`; this linter follows the procedure text (snapshots land under benchmarks/flow/results/) and leaves the card frontmatter untouched (cards are edited only to flip probe_status)"
+ ],
+ "metrics": {
+  "stale_artifact_count": 14,
+  "manual_surgery_count": 0,
+  "missing_doctrine_ref_count": 2
+ }
+}
