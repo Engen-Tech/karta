@@ -5,7 +5,7 @@ method: field-audit
 cadence: every-release
 cost: M
 probe: benchmarks/probes/field-delivery-state-audit.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/field/results/
 provenance: lens=field; merged_from=delivery-ref-topology-linter, eol-hygiene-audit, commit-marker-conformance, marker-conformance, binder-mutation-audit
 ---

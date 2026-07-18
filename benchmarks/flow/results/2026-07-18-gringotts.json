@@ -1,0 +1,167 @@
+{
+ "schema_version": 1,
+ "repo": "gringotts",
+ "linter_version": "1.0.0",
+ "audit_timestamp": "2026-07-18T00:00:00+00:00",
+ "finding_count": 9,
+ "findings": [
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "debt-sweep",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug debt-sweep has no refs/karta/debt-sweep/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "debt-sweep",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "exif-display",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug exif-display has no refs/karta/exif-display/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "exif-display",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "exif-persistence",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug exif-persistence has no refs/karta/exif-persistence/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "exif-persistence",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "upload-reliability",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug upload-reliability has no refs/karta/upload-reliability/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "upload-reliability",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "debt-sweep",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "debt-sweep binder commit 70fbeed05: ARCHIVE-MOVE (.karta/binders/debt-sweep.json -> .karta/binders/archive/debt-sweep.json)",
+   "cohort": {
+    "slug": "debt-sweep",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "exif-display",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "exif-display binder commit 04290ccb2: ARCHIVE-MOVE (.karta/binders/exif-display.json -> .karta/binders/archive/exif-display.json)",
+   "cohort": {
+    "slug": "exif-display",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "exif-persistence",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "exif-persistence binder commit 1f548e52b: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "exif-persistence",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "exif-persistence",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "exif-persistence binder commit 729c7c375: ARCHIVE-MOVE (.karta/binders/exif-persistence.json -> .karta/binders/archive/exif-persistence.json)",
+   "cohort": {
+    "slug": "exif-persistence",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "upload-reliability",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "upload-reliability binder commit 94dde03cb: ARCHIVE-MOVE (.karta/binders/upload-reliability.json -> .karta/binders/archive/upload-reliability.json)",
+   "cohort": {
+    "slug": "upload-reliability",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  }
+ ],
+ "class_counts": {
+  "BUILT-WITHOUT-DONE": null,
+  "COMPLETE-UNARCHIVED": null,
+  "DANGLING-MARKER-ID": null,
+  "FORGED-DONE-REF": null,
+  "LEFTOVER-IN-PROGRESS-REF": null,
+  "MANUAL-SURGERY": 1,
+  "MISSING-DOCTRINE-REF": 4,
+  "MISSING-KARTA-ACCEPT-TRAILER": "n/a (fixture-only)",
+  "STALE-STASH": null,
+  "SURVIVOR-POST-ARCHIVE": null,
+  "UNMARKED-WORK-COMMIT": null,
+  "WAVE-BASE-NON-ANCESTOR": null,
+  "WAVE-TAG-DISORDER": null
+ },
+ "adoption_rows": [
+  {
+   "slug": "debt-sweep",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "exif-display",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "exif-persistence",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "upload-reliability",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  }
+ ],
+ "card_inconsistencies": [
+  "field-delivery-state-audit.md frontmatter `results: benchmarks/field/results/` contradicts procedure step 7 `benchmarks/flow/results/`; this linter follows the procedure text (snapshots land under benchmarks/flow/results/) and leaves the card frontmatter untouched (cards are edited only to flip probe_status)"
+ ],
+ "metrics": {
+  "stale_artifact_count": 0,
+  "manual_surgery_count": 1,
+  "missing_doctrine_ref_count": 4
+ }
+}

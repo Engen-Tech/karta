@@ -1,0 +1,579 @@
+{
+ "schema_version": 1,
+ "repo": "parchmark",
+ "linter_version": "1.0.0",
+ "audit_timestamp": "2026-07-18T00:00:00+00:00",
+ "finding_count": 37,
+ "findings": [
+  {
+   "class": "COMPLETE-UNARCHIVED",
+   "slug": "backend-hygiene",
+   "item": null,
+   "severity": "high",
+   "summary": "live binder backend-hygiene is complete (all items done) and landed on main but was never archived (the discard path \u2014 integration never merged onto main \u2014 is exempt)",
+   "cohort": {
+    "slug": "backend-hygiene",
+    "delivery_date": "2026-07-06",
+    "plugin_version": "1.14.0"
+   }
+  },
+  {
+   "class": "STALE-STASH",
+   "slug": "v2-login-auth-gate",
+   "item": null,
+   "severity": "medium",
+   "summary": "karta-message stash 714h old: 'WIP on karta/v2-login-auth-gate/integration: b9f900e karta: commit v2-login-auth-gate binder (login screen + app-shell auth gate)'",
+   "cohort": {
+    "slug": "v2-login-auth-gate",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "backend-drop-sync-session",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug backend-drop-sync-session has no refs/karta/backend-drop-sync-session/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "backend-drop-sync-session",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "backend-pyjwt-migration",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug backend-pyjwt-migration has no refs/karta/backend-pyjwt-migration/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "backend-pyjwt-migration",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "backend-service-layer-notes-auth",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug backend-service-layer-notes-auth has no refs/karta/backend-service-layer-notes-auth/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "backend-service-layer-notes-auth",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "deps-upgrade-latest",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug deps-upgrade-latest has no refs/karta/deps-upgrade-latest/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "deps-upgrade-latest",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "note-create-workflow",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug note-create-workflow has no refs/karta/note-create-workflow/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "note-create-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "note-delete-workflow",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug note-delete-workflow has no refs/karta/note-delete-workflow/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "note-delete-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "note-edit-save-workflow",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug note-edit-save-workflow has no refs/karta/note-edit-save-workflow/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "note-edit-save-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "note-events-live-refresh",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug note-events-live-refresh has no refs/karta/note-events-live-refresh/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "note-events-live-refresh",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "note-tags-editing",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug note-tags-editing has no refs/karta/note-tags-editing/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "note-tags-editing",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "notes-list-from-backend",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug notes-list-from-backend has no refs/karta/notes-list-from-backend/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "notes-list-from-backend",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "settings-account-delete",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug settings-account-delete has no refs/karta/settings-account-delete/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "settings-account-delete",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "settings-account-summary",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug settings-account-summary has no refs/karta/settings-account-summary/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "settings-account-summary",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "settings-notes-export",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug settings-notes-export has no refs/karta/settings-notes-export/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "settings-notes-export",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MISSING-DOCTRINE-REF",
+   "slug": "settings-password-change",
+   "item": null,
+   "severity": "low",
+   "summary": "delivered slug settings-password-change has no refs/karta/settings-password-change/** and no wave tags \u2014 the delivery left no machine-recoverable record",
+   "cohort": {
+    "slug": "settings-password-change",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "backend-drop-sync-session",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "backend-drop-sync-session binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/backend-drop-sync-session.json -> .karta/binders/archive/backend-drop-sync-session.json)",
+   "cohort": {
+    "slug": "backend-drop-sync-session",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "backend-pyjwt-migration",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "backend-pyjwt-migration binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/backend-pyjwt-migration.json -> .karta/binders/archive/backend-pyjwt-migration.json)",
+   "cohort": {
+    "slug": "backend-pyjwt-migration",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "backend-service-layer-notes-auth",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "backend-service-layer-notes-auth binder commit 76aadbaaa: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "backend-service-layer-notes-auth",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "backend-service-layer-notes-auth",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "backend-service-layer-notes-auth binder commit eda789c9d: ARCHIVE-MOVE (.karta/binders/backend-service-layer-notes-auth.json -> .karta/binders/archive/backend-service-layer-notes-auth.json)",
+   "cohort": {
+    "slug": "backend-service-layer-notes-auth",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "deps-upgrade-latest",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "deps-upgrade-latest binder commit eda789c9d: ARCHIVE-MOVE (.karta/binders/deps-upgrade-latest.json -> .karta/binders/archive/deps-upgrade-latest.json)",
+   "cohort": {
+    "slug": "deps-upgrade-latest",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "note-create-workflow",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "note-create-workflow binder commit 33d381e0f: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "note-create-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "note-create-workflow",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "note-create-workflow binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/note-create-workflow.json -> .karta/binders/archive/note-create-workflow.json)",
+   "cohort": {
+    "slug": "note-create-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "note-delete-workflow",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "note-delete-workflow binder commit 33d381e0f: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "note-delete-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "note-delete-workflow",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "note-delete-workflow binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/note-delete-workflow.json -> .karta/binders/archive/note-delete-workflow.json)",
+   "cohort": {
+    "slug": "note-delete-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "note-edit-save-workflow",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "note-edit-save-workflow binder commit 33d381e0f: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "note-edit-save-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "note-edit-save-workflow",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "note-edit-save-workflow binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/note-edit-save-workflow.json -> .karta/binders/archive/note-edit-save-workflow.json)",
+   "cohort": {
+    "slug": "note-edit-save-workflow",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "note-events-live-refresh",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "note-events-live-refresh binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/note-events-live-refresh.json -> .karta/binders/archive/note-events-live-refresh.json)",
+   "cohort": {
+    "slug": "note-events-live-refresh",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "RE-PLAN",
+   "slug": "note-tags-editing",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "note-tags-editing binder commit 2c4b83e39: RE-PLAN",
+   "cohort": {
+    "slug": "note-tags-editing",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "note-tags-editing",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "note-tags-editing binder commit 33d381e0f: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "note-tags-editing",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "note-tags-editing",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "note-tags-editing binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/note-tags-editing.json -> .karta/binders/archive/note-tags-editing.json)",
+   "cohort": {
+    "slug": "note-tags-editing",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "MANUAL-SURGERY",
+   "slug": "notes-list-from-backend",
+   "item": null,
+   "severity": "high",
+   "violation": true,
+   "summary": "notes-list-from-backend binder commit 33d381e0f: MANUAL-SURGERY",
+   "cohort": {
+    "slug": "notes-list-from-backend",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "notes-list-from-backend",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "notes-list-from-backend binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/notes-list-from-backend.json -> .karta/binders/archive/notes-list-from-backend.json)",
+   "cohort": {
+    "slug": "notes-list-from-backend",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "settings-account-delete",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "settings-account-delete binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/settings-account-delete.json -> .karta/binders/archive/settings-account-delete.json)",
+   "cohort": {
+    "slug": "settings-account-delete",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "settings-account-summary",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "settings-account-summary binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/settings-account-summary.json -> .karta/binders/archive/settings-account-summary.json)",
+   "cohort": {
+    "slug": "settings-account-summary",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "settings-notes-export",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "settings-notes-export binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/settings-notes-export.json -> .karta/binders/archive/settings-notes-export.json)",
+   "cohort": {
+    "slug": "settings-notes-export",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  },
+  {
+   "class": "ARCHIVE-MOVE",
+   "slug": "settings-password-change",
+   "item": null,
+   "severity": "info",
+   "violation": false,
+   "summary": "settings-password-change binder commit 657f6bf14: ARCHIVE-MOVE (.karta/binders/settings-password-change.json -> .karta/binders/archive/settings-password-change.json)",
+   "cohort": {
+    "slug": "settings-password-change",
+    "delivery_date": null,
+    "plugin_version": "unknown"
+   }
+  }
+ ],
+ "class_counts": {
+  "BUILT-WITHOUT-DONE": null,
+  "COMPLETE-UNARCHIVED": 1,
+  "DANGLING-MARKER-ID": null,
+  "FORGED-DONE-REF": null,
+  "LEFTOVER-IN-PROGRESS-REF": null,
+  "MANUAL-SURGERY": 6,
+  "MISSING-DOCTRINE-REF": 14,
+  "MISSING-KARTA-ACCEPT-TRAILER": "n/a (fixture-only)",
+  "STALE-STASH": 1,
+  "SURVIVOR-POST-ARCHIVE": null,
+  "UNMARKED-WORK-COMMIT": null,
+  "WAVE-BASE-NON-ANCESTOR": null,
+  "WAVE-TAG-DISORDER": null
+ },
+ "adoption_rows": [
+  {
+   "slug": "backend-drop-sync-session",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "backend-hygiene",
+   "binder_eol_invoked": false,
+   "cleanup_run": true
+  },
+  {
+   "slug": "backend-pyjwt-migration",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "backend-service-layer-notes-auth",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "deps-upgrade-latest",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "note-create-workflow",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "note-delete-workflow",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "note-edit-save-workflow",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "note-events-live-refresh",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "note-tags-editing",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "notes-list-from-backend",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "settings-account-delete",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "settings-account-summary",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "settings-notes-export",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "settings-password-change",
+   "binder_eol_invoked": true,
+   "cleanup_run": true
+  },
+  {
+   "slug": "v2-login-auth-gate",
+   "binder_eol_invoked": true,
+   "cleanup_run": false
+  }
+ ],
+ "card_inconsistencies": [
+  "field-delivery-state-audit.md frontmatter `results: benchmarks/field/results/` contradicts procedure step 7 `benchmarks/flow/results/`; this linter follows the procedure text (snapshots land under benchmarks/flow/results/) and leaves the card frontmatter untouched (cards are edited only to flip probe_status)"
+ ],
+ "metrics": {
+  "stale_artifact_count": 1,
+  "manual_surgery_count": 6,
+  "missing_doctrine_ref_count": 14
+ }
+}
