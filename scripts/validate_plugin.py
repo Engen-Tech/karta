@@ -266,6 +266,45 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                 if key not in ("enabled", "focus"):
                     errors.append(f".karta/kaizen.json: unknown key '{key}' (allowed: enabled, focus)")
 
+    # 8. roundtable-edict opt-in config — if this repo commits one, it must be
+    # well-formed. Richer than the doc-gardner/kaizen switches above (typed panel
+    # settings + a nested points object), but the same house pattern: an absent file
+    # or enabled:false disables every gate, and a malformed switch is caught at commit
+    # by this validator (already run on every commit by precommit_gate.py).
+    # KARTA-SME-OVERRIDE(min.4): this repo ships no test framework by design (manual gate
+    # scripts only); the check for this new branch logic is validate_plugin's own run over
+    # the committed config plus the item oracle's malformed-config probe [ceiling: a fourth
+    # divergent opt-in config copy; upgrade: factor the shared enabled/unknown-key checks
+    # into one schema-driven helper]
+    rt = ROOT / ".karta" / "roundtable.json"
+    if rt.exists():
+        try:
+            cfg = json.loads(rt.read_text())
+        except json.JSONDecodeError as e:
+            errors.append(f".karta/roundtable.json: invalid JSON ({e})")
+            cfg = None
+        if isinstance(cfg, dict):
+            if not isinstance(cfg.get("enabled"), bool):
+                errors.append(".karta/roundtable.json: 'enabled' must be a boolean")
+            if not isinstance(cfg.get("tool"), str):
+                errors.append(".karta/roundtable.json: 'tool' must be a string")
+            if not isinstance(cfg.get("providers"), list):
+                errors.append(".karta/roundtable.json: 'providers' must be a list")
+            mp = cfg.get("min_providers")
+            if not isinstance(mp, int) or isinstance(mp, bool) or mp < 1:
+                errors.append(".karta/roundtable.json: 'min_providers' must be an integer >= 1")
+            pts = cfg.get("points")
+            if (not isinstance(pts, dict) or set(pts) != {"plan_commit", "deliver_merge"}
+                    or not all(isinstance(pts.get(k), bool) for k in ("plan_commit", "deliver_merge"))):
+                errors.append(
+                    ".karta/roundtable.json: 'points' must be an object with exactly "
+                    "boolean 'plan_commit' and 'deliver_merge'")
+            for key in cfg:
+                if key not in ("enabled", "tool", "providers", "min_providers", "focus", "points"):
+                    errors.append(
+                        f".karta/roundtable.json: unknown key '{key}' "
+                        "(allowed: enabled, tool, providers, min_providers, focus, points)")
+
 
 def _check_hooks(errors: list[str]) -> None:
     """Guard the plugin hook assets: the manifest parses, every script it references
