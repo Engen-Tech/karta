@@ -1,0 +1,216 @@
+{
+ "slug": "roundtable-edict",
+ "title": "Make a recorded multi-model review a precondition for committing a plan or landing a delivery",
+ "summary": "When karta builds karta, the highest-leverage review happens before code exists — at the binder — and again on the assembled integration branch before it lands on the default branch. Today that review is run by hand and is easy to skip. This adds house-only tooling — a config switch, a stdlib record-and-check helper, and a repo-local commit/merge hook wired through the karta repo's own session settings — that turns the review into an edict: a karta binder may not be committed, and a karta integration branch may not land, unless a fresh multi-model review of that exact content has been run and recorded. The hook gates on the deterministic fact 'a fresh recorded review exists for this exact artifact', never on the nondeterministic panel verdict; the maintainer still reads the findings and decides what to act on. None of it touches the shipped plugin.",
+ "motivation": "A multi-model roundtable critique caught real design defects in this cycle's binder before a line was built, but that review was run by hand and skippable. karta's doctrine is enforced checks over skippable prose; this moves the plan-time and deliver-time review below the agent, gating on the presence of a fresh recorded review rather than on any verdict.",
+ "scope": {
+  "included": [
+   "A house config .karta/roundtable.json (the absolute on/off switch plus panel settings, a minimum-provider floor min_providers, and per-point flags), whose shape is validated by a new structural block folded into the existing repo plugin validator scripts/validate_plugin.py — no separate schema file or standalone validator — so a malformed switch is caught at commit time exactly as the sibling doc-gardner and kaizen switches are",
+   "A stdlib helper scripts/roundtable/run_review.py that files a completed panel review as .karta/roundtable/<key>.json keyed on a freshness hash (the staged binder blob, or the branch tip), stages the record so it lands with its commit, refuses a panel below the min_providers floor, and answers whether a fresh matching record still exists",
+   "A repo-local PreToolUse/Bash hook scripts/hooks/roundtable_gate.py, modeled on precommit_gate.py, that blocks a binder commit or an integration-branch merge lacking a fresh recorded review, wired as a second command in the existing .claude/settings.json PreToolUse Bash hooks array",
+   "Doctrine: a 'Roundtable edict (house-only)' section in AGENTS.md and an operator guide docs/how-to/roundtable.md"
+  ],
+  "excluded": [
+   "HARD CONSTRAINT — this is house-only tooling for karta building karta and must NEVER touch the shipped/distributed plugin surface: no item modifies anything under skills/, agents/, hooks/hooks.json, .agents/, .claude/skills/, .codex/, or plugins/ (all mirrored and shipped to consumer repos). The only surfaces touched are the non-distributed ones: .karta/ (config + records), scripts/roundtable/, scripts/hooks/, scripts/validate_plugin.py (repo tooling — the plugin-structure validator, not the shipped plugin manifest), .claude/settings.json (the repo-local session config, NOT a skill mirror), AGENTS.md, and docs/.",
+   "Any hard gate on the panel's verdict — the review is nondeterministic, so only a missing or stale recorded review blocks; disagreeing with the findings never blocks",
+   "Any gate on verify or standalone review — those have no commit or stop moment to hang an edict on and stay helper-available (advisory) by design",
+   "Any new runtime dependency for the plugin — the helper and hook are pure stdlib; roundtable is the maintainer's own MCP environment, invoked by the agent, not a code dependency of these scripts",
+   "Any change to scripts/hooks/precommit_gate.py or the shipped plugin manifest (plugin.json, hooks/hooks.json) — the new hook composes beside the existing commit gate, and the config-validation block folded into scripts/validate_plugin.py adds structural checks without altering the plugin manifest; validate_plugin does not read .claude/settings.json, so the settings edit stays green"
+  ]
+ },
+ "design_facts": {
+  "source": "docs/specs/2026-07-18-roundtable-edict-design.md",
+  "stack": "Claude Code plugin repo: stdlib-python hooks/scripts + markdown; no package manifests. detect_stack returns {\"dependencies\":[],\"languages\":[]}. House-only tooling here never touches the shipped/distributed plugin surface (skills/, agents/, hooks/hooks.json and their .agents/.claude/.codex/plugins mirrors); it lives only in .karta/, scripts/roundtable/, scripts/hooks/, .claude/settings.json, AGENTS.md, docs/. New scripts follow the repo-local precommit_gate.py precedent: pure stdlib, PEP 723 header (requires-python >=3.11, dependencies []), argparse, an embedded --self-test printing [PASS]/[FAIL] lines and an N/N checks passed summary, all git facts read through plumbing, fail-open on internal error. Roundtable is the maintainer's own MCP environment, not a code dependency of these stdlib scripts."
+ },
+ "env_contract": {
+  "command": "python3 scripts/validate_plugin.py --self-test",
+  "supports_isolation": true,
+  "isolation_params": [],
+  "cwd": "."
+ },
+ "sme": [
+  "karta-house-skill-authoring",
+  "minimalism"
+ ],
+ "shared_terms": [
+  {
+   "id": "roundtable-config-path",
+   "canonical": ".karta/roundtable.json",
+   "items": [
+    "config-and-schema",
+    "record-helper",
+    "enforcement-hook",
+    "doctrine-and-guide"
+   ]
+  },
+  {
+   "id": "roundtable-record-dir",
+   "canonical": ".karta/roundtable/",
+   "items": [
+    "record-helper",
+    "enforcement-hook"
+   ]
+  },
+  {
+   "id": "branch-record-prefix",
+   "canonical": "branch-",
+   "items": [
+    "record-helper",
+    "enforcement-hook"
+   ]
+  },
+  {
+   "id": "roundtable-skip-var",
+   "canonical": "KARTA_SKIP_ROUNDTABLE",
+   "items": [
+    "enforcement-hook",
+    "doctrine-and-guide"
+   ]
+  },
+  {
+   "id": "integration-branch-pattern",
+   "canonical": "karta/*/integration",
+   "items": [
+    "enforcement-hook",
+    "doctrine-and-guide"
+   ]
+  },
+  {
+   "id": "min-providers-floor",
+   "canonical": "min_providers",
+   "items": [
+    "config-and-schema",
+    "record-helper",
+    "doctrine-and-guide"
+   ]
+  },
+  {
+   "id": "check-seam",
+   "canonical": "run_review.py --check",
+   "items": [
+    "enforcement-hook",
+    "doctrine-and-guide"
+   ]
+  }
+ ],
+ "work_items": [
+  {
+   "id": "config-and-schema",
+   "title": "Add the on/off switch and settings file for the house review, and prove it stays well-formed",
+   "summary": "Introduces the small settings file that decides whether the house review runs and how, and folds a structural check into the repo's existing plugin validator so a malformed switch is caught at commit time before anything relies on it.",
+   "estimate": "S",
+   "depends_on": [],
+   "contract": "Create the house config file at .karta/roundtable.json containing exactly the design's fields: {\"enabled\": true, \"tool\": \"roundtable-critique\", \"providers\": [], \"min_providers\": 2, \"focus\": \"\", \"points\": {\"plan_commit\": true, \"deliver_merge\": true}}. enabled false (or an absent file) disables every gate — the switch is absolute, matching the doc-gardner/kaizen opt-in pattern; providers [] means the panel default; min_providers (default 2) is the floor that keeps 'multi-model' honest, enforced later by the record helper; each key under points turns one edict off independently. Do NOT add a JSON schema file or a standalone validator. Instead add a structural validation block to scripts/validate_plugin.py, mirroring the existing doc-gardner block (block 6) and kaizen block (block 7) that sit around lines 235-267: when .karta/roundtable.json is present, load it (guarding a malformed file with try/except json.JSONDecodeError, exactly like the sibling blocks) and append an error for each of — enabled not a boolean, tool not a string, providers not a list, min_providers not an int >= 1, points not an object carrying exactly the two boolean keys plan_commit and deliver_merge, and any unknown top-level key (allowed keys: enabled, tool, providers, min_providers, focus, points). Every error message names .karta/roundtable.json (mirroring the sibling blocks' error strings). Do not touch the plugin manifest, hooks/hooks.json, or any shipped surface; scripts/validate_plugin.py is repo tooling and is already run on every commit by precommit_gate.py, so a malformed switch is caught at commit exactly as a malformed doc-gardner/kaizen switch is. The literal path .karta/roundtable.json and the key min_providers must both appear in scripts/validate_plugin.py (the new block loads and validates the config there).",
+   "touches": [
+    ".karta/roundtable.json",
+    "scripts/validate_plugin.py"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 scripts/validate_plugin.py",
+    "assertions": [
+     ".karta/roundtable.json exists with keys enabled, tool, providers, min_providers, focus, and points, with min_providers 2 and points carrying boolean plan_commit and boolean deliver_merge",
+     "scripts/validate_plugin.py gains a structural block, alongside the doc-gardner and kaizen blocks, that validates .karta/roundtable.json when present — enabled boolean, tool string, providers list, min_providers int >= 1, points exactly {plan_commit, deliver_merge} booleans, and unknown top-level keys rejected",
+     "python3 scripts/validate_plugin.py exits 0 on the valid config and the rest of the repo (no plugin manifest or shipped surface changed)",
+     "a deliberately malformed .karta/roundtable.json (for example min_providers 0, or an unknown top-level key) makes python3 scripts/validate_plugin.py exit non-zero"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "contract:adds-the-house-review-switch-and-folds-its-validation-into-the-existing-plugin-validator"
+    ]
+   }
+  },
+  {
+   "id": "record-helper",
+   "title": "Record a completed panel review and check whether a fresh one still matches the target",
+   "summary": "Roundtable itself is a tool the agent calls, not something a script can run — so this is the piece that takes a finished panel result and files it as a review record tied to the exact content reviewed, and later answers one yes/no question: does a current, unstale review exist for this binder or this branch. It also refuses to file a panel that isn't genuinely multi-model.",
+   "estimate": "M",
+   "depends_on": [
+    "config-and-schema"
+   ],
+   "contract": "New pure-stdlib helper scripts/roundtable/run_review.py in the precommit_gate.py house pattern: PEP 723 header (requires-python >=3.11, dependencies []), argparse, a --self-test printing [PASS]/[FAIL] lines and an N/N checks passed summary. It is the record writer and checker only — it never invokes roundtable (that is an MCP tool the agent runs); it consumes a panel JSON. Records live under the directory .karta/roundtable/ as <key>.json. Key derivation: for --kind binder the key is the binder slug taken from Path(target).stem (<slug>.json); for --kind branch the key is branch-<tip-sha>.json (the branch- prefix is part of the contract the hook depends on). Each record is a JSON object carrying reviewed_hash, tool, target_kind, target_ref, run_at, config_snapshot (read from .karta/roundtable.json), and panel (the normalized list of {provider, verdict, summary} objects). STDIN PANEL SHAPE (pinned): --record reads on stdin the raw roundtable-critique MCP output object — the tool's own result object, whose per-provider entries carry a provider label, a verdict, and a summary/response — and normalizes it down to the stored panel list of {provider, verdict, summary}; implement and accept exactly that one input shape and reject anything else. REVIEWED_HASH FRESHNESS CONTRACT: for --kind binder, reviewed_hash is the SHA-256 hex of the exact binder bytes the helper is handed — the hook feeds it the STAGED blob (git show :<path>), so binder freshness keys on staged content, never the worktree file; for --kind branch, reviewed_hash is the integration tip sha resolved via git plumbing (git rev-parse <branch>). Any change to the staged binder bytes or any new commit on the branch changes reviewed_hash and invalidates the record. MIN_PROVIDERS FLOOR: --record REJECTS (non-zero exit, writes nothing) a panel that, after normalization, carries fewer than min_providers DISTINCT providers (min_providers read from .karta/roundtable.json, default 2), or any entry missing provider or verdict — a single-model or malformed panel is not a review. MODES: (a) --record --target <binder-path|branch-name> [--kind binder|branch] reads the panel JSON from stdin, computes the key and reviewed_hash, creates .karta/roundtable/ if needed, writes .karta/roundtable/<key>.json, and STAGES it with git add .karta/roundtable/<key>.json so the record can land in the same commit (records are the committed audit trail; .karta/roundtable/ must not be gitignored). (b) --check --target <...> [--kind binder|branch] [--bytes-stdin] exits 0 if and only if a record exists at the derived key whose reviewed_hash equals the freshly recomputed hash of the current target; a missing or stale record exits non-zero. For --kind binder with --bytes-stdin, the candidate bytes are read from stdin and hashed (sha256 of stdin) instead of hashing the worktree file — this is how the hook feeds the staged blob; without --bytes-stdin the worktree file is hashed. --kind may be inferred from the target shape when unambiguous but is accepted explicitly. --self-test drives, over temp fixtures: binder-vs-branch key derivation; staleness (editing the binder bytes and advancing the branch tip each invalidate a prior record via --check); --bytes-stdin match (stdin bytes equal to the recorded blob -> exit 0) versus mismatch (differing bytes -> non-zero); the min_providers rejection (a single-provider panel and a missing-verdict entry are both refused with no file written); raw-MCP-object normalization to the stored {provider, verdict, summary} list; record staging; and the --check exit codes. The literals .karta/roundtable/, reviewed_hash, min_providers, and the branch- prefix must appear in this file.",
+   "touches": [
+    "scripts/roundtable/run_review.py"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 scripts/roundtable/run_review.py --self-test && python3 scripts/validate_plugin.py",
+    "assertions": [
+     "run_review.py --self-test exits 0 with [PASS] lines and an N/N checks passed summary and no [FAIL]",
+     "a binder review records under .karta/roundtable/<slug>.json with reviewed_hash equal to the SHA-256 of the exact binder bytes handed to the helper; a branch review records under .karta/roundtable/branch-<tip-sha>.json with reviewed_hash equal to the integration tip sha; and --record stages the written record with git add",
+     "--record reads the raw roundtable-critique panel from stdin, normalizes it to a {provider, verdict, summary} list, and rejects (non-zero, no file written) a panel with fewer than min_providers distinct providers or an entry missing provider or verdict, while a panel meeting the floor is recorded",
+     "--check --kind binder --bytes-stdin compares the record's reviewed_hash to the sha256 of bytes read from stdin (exit 0 on match, non-zero on mismatch), and plain --check goes stale (non-zero) when the binder bytes change or the branch tip advances",
+     "python3 scripts/validate_plugin.py stays green"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "novelty:defines-the-review-record-location-key-and-staged-blob-freshness-hash-the-gate-trusts",
+     "sensitive:this-is-the-freshness-trust-root-a-weak-hash-or-loose-min-providers-check-would-let-an-unreviewed-artifact-pass-the-gate"
+    ]
+   }
+  },
+  {
+   "id": "enforcement-hook",
+   "title": "Block committing a plan or landing a delivery until its review has been recorded",
+   "summary": "This is the enforcement point. Watching the commands the agent runs, it stops a commit that would save a karta binder, and stops a merge that would land a karta integration branch on the default branch, whenever there is no current recorded review for that exact content — naming the one command that fixes it and the escape for when the review environment is down. A broken hook never wedges the repo, and the switch in the config file turns it off wholesale or point-by-point.",
+   "estimate": "L",
+   "depends_on": [
+    "record-helper"
+   ],
+   "contract": "New pure-stdlib PreToolUse/Bash hook scripts/hooks/roundtable_gate.py, modeled directly on scripts/hooks/precommit_gate.py and reusing its proven staged-blob / working-tree read (see the release-version-bump-block changes to precommit_gate.py: commit_reads_worktree plus git show :<path>): PEP 723 header (requires-python >=3.11, dependencies []), argparse, a --self-test printing [PASS]/[FAIL] lines and an N/N checks passed summary, reads the PreToolUse payload JSON from stdin, exit 0 allows and exit 2 blocks with a one-paragraph reason on stderr. It reads the house config from .karta/roundtable.json; when that file is absent or enabled is false, every gate is off (exit 0), and each detection additionally obeys its points.plan_commit / points.deliver_merge flag. Two detections, both by git plumbing and command-text only — never by parsing a diff, and never by evaluating a post-condition a PreToolUse hook cannot see. (a) BINDER-COMMIT GATE: when tool_input.command contains a git commit (reuse precommit_gate's conservative segment-split plus word-boundary detection, including --amend) and git diff --cached --name-only shows a staged .karta/binders/<slug>.json (never one under archive/), read the binder bytes the way release-version-bump-block reads plugin.json — the staged blob via git show :<path> for a normal commit, or the working-tree file for the git commit -a / -am / pathspec / --amend forms (reuse commit_reads_worktree) — and pipe those exact bytes to the helper: git show :<path> (or the worktree file) | python3 scripts/roundtable/run_review.py --check --target <slug> --kind binder --bytes-stdin. A non-zero helper result (missing or stale record) blocks. Additionally require the record itself to be in the commit: .karta/roundtable/<slug>.json staged (git diff --cached --name-only) or already present in HEAD (git cat-file -e HEAD:.karta/roundtable/<slug>.json); a record living only in the working tree does not satisfy the gate. (b) INTEGRATION-MERGE GATE: command-pattern only. Fire only when the current branch is the default branch — resolved via git symbolic-ref refs/remotes/origin/HEAD (stripping refs/remotes/origin/), falling back to main — AND the command is a git merge (including --squash, --ff-only, --no-ff) naming a ref matching the glob karta/*/integration. Resolve the tip sha of that branch via git rev-parse and require a fresh record by shelling to python3 scripts/roundtable/run_review.py --check --target <branch> --kind branch; the deny reason names the .karta/roundtable/branch-<tip-sha>.json record. Do NOT attempt to gate git cherry-pick, git rebase, git reset --hard, or a git merge --squash followed by a separate git commit — a PreToolUse hook cannot evaluate 'will this make the tip an ancestor', so those are accepted, documented bypasses of the same class as KARTA_SKIP_ROUNDTABLE. For both gates the deny reason (exit 2) must name the record location .karta/roundtable/, the exact helper --record command to run, and the escape token KARTA_SKIP_ROUNDTABLE. A missing-record or ref-not-found negative is an expected result that blocks (exit 2), NOT an internal error. Fail-open on any genuinely unexpected internal error (unreadable stdin/payload, no git binary, unexpected exception) — exit 0 — exactly as precommit_gate does; a broken hook must never wedge the repo. Escape hatch: KARTA_SKIP_ROUNDTABLE=1 present in the command text or the environment exits 0. Also EDIT .claude/settings.json: add python3 \"${CLAUDE_PROJECT_DIR}/scripts/hooks/roundtable_gate.py\" as a SECOND command object (type command, timeout 600) in the existing PreToolUse Bash matcher's hooks array, beside the existing precommit_gate.py entry, leaving that entry intact. --self-test drives, over fabricated payloads and a stubbed helper/git layer: binder-commit detection across git commit, -a/-am, pathspec, and --amend forms (a staged binder vs none) with the staged-blob-vs-worktree read and the record-staged-or-in-HEAD requirement; merge detection scoped to the default branch and the karta/*/integration glob (and the accepted-bypass commands — cherry-pick, rebase, reset --hard, squash-then-separate-commit — correctly NOT firing); fresh-record allow; missing/stale block whose reason names the helper --record fix and the KARTA_SKIP_ROUNDTABLE escape; KARTA_SKIP_ROUNDTABLE=1 skip in both the command text and the environment; absent/disabled config allow; a single point flag disabling only its own gate; and fail-open (exit 0) on an internal error. The literals run_review.py --check, karta/*/integration, .karta/roundtable/, the branch- prefix, and KARTA_SKIP_ROUNDTABLE must appear in this file.",
+   "touches": [
+    "scripts/hooks/roundtable_gate.py",
+    ".claude/settings.json"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 scripts/hooks/roundtable_gate.py --self-test && python3 scripts/validate_plugin.py",
+    "assertions": [
+     "roundtable_gate.py --self-test exits 0 with [PASS] lines and an N/N checks passed summary and no [FAIL]",
+     "a git commit (including -a/-am/pathspec/--amend) staging .karta/binders/<slug>.json blocks (exit 2) when the helper --check --kind binder --bytes-stdin over the staged blob finds no fresh matching record, and allows (exit 0) when it matches AND the record is staged or already in HEAD; a commit staging no binder allows",
+     "a git merge naming a karta/*/integration ref while on the default branch blocks without a fresh branch-<tip-sha> record and allows with one; an unrelated merge, or the same merge off the default branch, allows; git cherry-pick/rebase/reset --hard/squash-then-separate-commit are not gated (accepted bypasses)",
+     "the deny reason names the record location .karta/roundtable/, the helper --record command, and the KARTA_SKIP_ROUNDTABLE escape; KARTA_SKIP_ROUNDTABLE=1 in the command text or the environment skips (exit 0); an absent or enabled:false config allows; a single points flag disables only its own gate; and any internal error fails open (exit 0)",
+     "after the edit, a grep of .claude/settings.json shows scripts/hooks/roundtable_gate.py wired as a second command in the PreToolUse Bash hooks array beside precommit_gate.py, and python3 scripts/validate_plugin.py stays green (it does not read .claude/settings.json)"
+    ]
+   },
+   "surface": {
+    "flagged": true,
+    "signals": [
+     "novelty:first-below-the-agent-gate-on-binder-commit-and-integration-merge",
+     "sensitive:can-block-git-commit-and-merge-below-the-agent"
+    ]
+   }
+  },
+  {
+   "id": "doctrine-and-guide",
+   "title": "Write down the review rule and an operator guide for running it",
+   "summary": "So the rule is discoverable and the flow is repeatable, this states the house review requirement in the contributor guide and adds a short operator guide covering where it applies, how to run the panel and file its result, which git paths the gate deliberately does not catch, and how to bypass it when the review environment is down.",
+   "estimate": "M",
+   "depends_on": [],
+   "contract": "Add a 'Roundtable edict (house-only)' section to AGENTS.md stating: the edict (karta's own binders and deliveries may not proceed without a recorded multi-model review — the gate enforces the presence of a fresh recorded review, never the panel's verdict, so the maintainer still reads the findings and decides what to act on); the four insertion points and their treatment — plan-commit and deliver-merge are enforced edicts, verify and standalone are helper-available (advisory, no gate); the tool used per point (default roundtable-critique, configured in .karta/roundtable.json); the run-the-panel-then-record flow (the agent runs the roundtable MCP tool, then pipes the panel result to scripts/roundtable/run_review.py --record, and the hook confirms it with run_review.py --check); the min_providers floor (a panel with fewer than min_providers distinct providers is not a review); that records must be committed (the record is staged with its commit and lives under .karta/roundtable/, never only in the working tree); that binder freshness keys on the STAGED blob (reviewing one version of the binder and staging a different one re-arms the gate); the integration-merge gate firing only for a git merge naming a karta/*/integration branch onto the default branch; the accepted, documented bypasses of the same class as the escape hatch (git cherry-pick, git rebase, git reset --hard, and git merge --squash followed by a separate commit are NOT gated, by design); and the escape hatch KARTA_SKIP_ROUNDTABLE=1. Create the operator guide docs/how-to/roundtable.md with these headings and content: a top-level heading; a section 'Where it applies' (the four points and which two are enforced, and the karta/*/integration merge scope); a section on the config file .karta/roundtable.json and its absolute switch and the min_providers floor; a section 'Recording a review' (the panel-then-record flow with the exact run_review.py --record and run_review.py --check commands, the staged-blob freshness rule, and the record-must-be-committed rule); a section 'Accepted bypasses' (the git paths the gate does not catch, listed plainly); and a section 'Escape hatch' documenting KARTA_SKIP_ROUNDTABLE. Prose is plain-language and consistent with the design doc wording. This item documents items 1-3 but is written entirely from the design doc and is independent of them. The literals KARTA_SKIP_ROUNDTABLE, .karta/roundtable.json, min_providers, karta/*/integration, and run_review.py --check must appear in the doctrine files.",
+   "touches": [
+    "AGENTS.md",
+    "docs/how-to/roundtable.md"
+   ],
+   "oracle": {
+    "type": "unit",
+    "command": "python3 -c \"import pathlib,sys; a=pathlib.Path('AGENTS.md').read_text(); p=pathlib.Path('docs/how-to/roundtable.md'); d=p.read_text() if p.exists() else ''; areq=['Roundtable edict','KARTA_SKIP_ROUNDTABLE','min_providers','karta/*/integration','cherry-pick']; dreq=['Where it applies','Recording a review','Accepted bypasses','Escape hatch','KARTA_SKIP_ROUNDTABLE','.karta/roundtable.json','min_providers','karta/*/integration','run_review.py --check']; sys.exit(0 if (all(s in a for s in areq) and p.exists() and all(s in d for s in dreq)) else 1)\" && python3 scripts/validate_plugin.py",
+    "assertions": [
+     "AGENTS.md contains a 'Roundtable edict (house-only)' section stating the edict, the four points (plan-commit and deliver-merge enforced; verify and standalone helper-available), the tool per point, the run-panel-then-record flow, the min_providers floor, the staged-blob freshness rule, the record-must-be-committed rule, the karta/*/integration merge scope, the accepted git bypasses (cherry-pick/rebase/reset --hard/squash-then-commit), and the KARTA_SKIP_ROUNDTABLE escape",
+     "docs/how-to/roundtable.md exists with sections 'Where it applies', 'Recording a review' (the panel-then-record flow with run_review.py --record and run_review.py --check, the staged-blob freshness rule, and the record-must-be-committed rule), 'Accepted bypasses', and 'Escape hatch', referencing .karta/roundtable.json, min_providers, and karta/*/integration",
+     "the oracle python check exits 0 (both files carry the required anchors) and python3 scripts/validate_plugin.py stays green"
+    ]
+   },
+   "surface": {
+    "flagged": false,
+    "signals": [
+     "contract:documents-the-roundtable-edict-min-providers-staged-blob-freshness-accepted-bypasses-and-the-operator-guide"
+    ]
+   }
+  }
+ ]
+}
