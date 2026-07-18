@@ -1,0 +1,6 @@
+{
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "Stop",
+ "session_id": "bench-stop-1",
+ "stop_hook_active": false
+}

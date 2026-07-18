@@ -1,0 +1,9 @@
+{
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": {
+  "new_source": "## Review checklist\n- [ ] min.1 \u2014 A pack with no frontmatter at all.\n",
+  "notebook_path": ".karta/sme/minimalism.md"
+ },
+ "tool_name": "NotebookEdit"
+}

@@ -1,0 +1,7 @@
+{
+ "agent_type": "karta-kaizen",
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": "junk",
+ "tool_name": "Write"
+}

@@ -1,0 +1,457 @@
+{
+ "manifest_version": 1,
+ "seeded_from": "benchmarks/flow/seed-map-2026-07-17.json (hooks subsystem dark_areas)",
+ "description": "Versioned (mutation-class, channel) enforcement manifest for the guard enforcement matrix (Family B). Each row is enforced, waived:<id>, bypass, or n/a; an unwaivered bypass row is a named, recorded finding \u2014 never an unspoken gap. The probe fails closed when a hooks/scripts/guard_*.py has no row here (anti-staleness).",
+ "channels": [
+  "write",
+  "edit",
+  "notebookedit",
+  "bash",
+  "task",
+  "codex",
+  "terminal"
+ ],
+ "rows": [
+  {
+   "id": "binder-write:write",
+   "mutation_class": "binder-write",
+   "channel": "write",
+   "status": "enforced",
+   "guard": "guard_binder_immutability.py",
+   "hook_event": "PreToolUse",
+   "note": "committed binders are read-only; Write matcher"
+  },
+  {
+   "id": "binder-write:edit",
+   "mutation_class": "binder-write",
+   "channel": "edit",
+   "status": "enforced",
+   "guard": "guard_binder_immutability.py",
+   "hook_event": "PreToolUse",
+   "note": "committed binders are read-only; Edit matcher"
+  },
+  {
+   "id": "binder-write:notebookedit",
+   "mutation_class": "binder-write",
+   "channel": "notebookedit",
+   "status": "enforced",
+   "guard": "guard_binder_immutability.py",
+   "hook_event": "PreToolUse",
+   "note": "committed binders are read-only; NotebookEdit matcher"
+  },
+  {
+   "id": "binder-write:bash",
+   "mutation_class": "binder-write",
+   "channel": "bash",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "seeded dark area: cat >, sed -i, git checkout -- of a binder are invisible to every Write|Edit|NotebookEdit matcher"
+  },
+  {
+   "id": "binder-write:task",
+   "mutation_class": "binder-write",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a subagent's file writes surface as its own Write/Edit/NotebookEdit calls, which the same matchers see"
+  },
+  {
+   "id": "binder-write:codex",
+   "mutation_class": "binder-write",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "doctrine only \u2014 Codex registers no plugin hooks (docs/how-to/hooks.md runtime column)"
+  },
+  {
+   "id": "binder-write:terminal",
+   "mutation_class": "binder-write",
+   "channel": "terminal",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "plain-terminal edits run zero guards \u2014 field evidence: gringotts 1f548e5"
+  },
+  {
+   "id": "pack-write:write",
+   "mutation_class": "pack-write",
+   "channel": "write",
+   "status": "enforced",
+   "guard": "guard_pack_write.py",
+   "hook_event": "PreToolUse",
+   "note": "pre-land validation from proposed content; PostToolUse re-checks on disk"
+  },
+  {
+   "id": "pack-write:edit",
+   "mutation_class": "pack-write",
+   "channel": "edit",
+   "status": "enforced",
+   "guard": "guard_pack_write.py",
+   "hook_event": "PostToolUse",
+   "note": "post-only and advisory \u2014 exit 2 feeds findings back, but a broken pack persists on disk until repaired (dark area: advisory correction)"
+  },
+  {
+   "id": "pack-write:notebookedit",
+   "mutation_class": "pack-write",
+   "channel": "notebookedit",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "seeded dark area: PreToolUse pack matcher is Write-only and the guard reads only tool_input.file_path \u2014 a NotebookEdit on a pack is never validated"
+  },
+  {
+   "id": "pack-write:bash",
+   "mutation_class": "pack-write",
+   "channel": "bash",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "seeded dark area: sed -i on a pack is invisible to the file-tool matchers"
+  },
+  {
+   "id": "pack-write:task",
+   "mutation_class": "pack-write",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "subagent pack writes surface as file-tool calls the matchers see"
+  },
+  {
+   "id": "pack-write:codex",
+   "mutation_class": "pack-write",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "doctrine plus OS sandbox only \u2014 no Codex hooks surface yet"
+  },
+  {
+   "id": "pack-write:terminal",
+   "mutation_class": "pack-write",
+   "channel": "terminal",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "plain-terminal pack edits run zero guards"
+  },
+  {
+   "id": "sme-dispatch:write",
+   "mutation_class": "sme-dispatch",
+   "channel": "write",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching the auditor is a Task-tool act"
+  },
+  {
+   "id": "sme-dispatch:edit",
+   "mutation_class": "sme-dispatch",
+   "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching the auditor is a Task-tool act"
+  },
+  {
+   "id": "sme-dispatch:notebookedit",
+   "mutation_class": "sme-dispatch",
+   "channel": "notebookedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching the auditor is a Task-tool act"
+  },
+  {
+   "id": "sme-dispatch:bash",
+   "mutation_class": "sme-dispatch",
+   "channel": "bash",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "no headless auditor dispatch path exists from Bash inside a session"
+  },
+  {
+   "id": "sme-dispatch:task",
+   "mutation_class": "sme-dispatch",
+   "channel": "task",
+   "status": "enforced",
+   "guard": "guard_auditor_dispatch.py",
+   "hook_event": "PreToolUse",
+   "note": "fail-closed on the recognized dispatch shape: binder path plus checklist evidence required; the evidence bar is textual (dark area: heuristic)"
+  },
+  {
+   "id": "sme-dispatch:codex",
+   "mutation_class": "sme-dispatch",
+   "channel": "codex",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "Codex cannot register plugin subagents \u2014 the auditor does not exist there"
+  },
+  {
+   "id": "sme-dispatch:terminal",
+   "mutation_class": "sme-dispatch",
+   "channel": "terminal",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "no agent dispatch from a plain terminal"
+  },
+  {
+   "id": "kaizen-write:write",
+   "mutation_class": "kaizen-write",
+   "channel": "write",
+   "status": "enforced",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse",
+   "note": "kaizen writer confined to .karta/sme/ and .karta/kaizen.json"
+  },
+  {
+   "id": "kaizen-write:edit",
+   "mutation_class": "kaizen-write",
+   "channel": "edit",
+   "status": "enforced",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse",
+   "note": "kaizen writer confined to .karta/sme/ and .karta/kaizen.json"
+  },
+  {
+   "id": "kaizen-write:notebookedit",
+   "mutation_class": "kaizen-write",
+   "channel": "notebookedit",
+   "status": "enforced",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse",
+   "note": "kaizen writer confined to .karta/sme/ and .karta/kaizen.json"
+  },
+  {
+   "id": "kaizen-write:bash",
+   "mutation_class": "kaizen-write",
+   "channel": "bash",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "a kaizen Bash write escapes the file-tool matchers, same as every write guard"
+  },
+  {
+   "id": "kaizen-write:task",
+   "mutation_class": "kaizen-write",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "kaizen's own writes surface as file-tool calls carrying its agent_type"
+  },
+  {
+   "id": "kaizen-write:codex",
+   "mutation_class": "kaizen-write",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "deliberate phase split: doctrine plus OS sandbox only on Codex (docs/how-to/hooks.md)"
+  },
+  {
+   "id": "kaizen-write:terminal",
+   "mutation_class": "kaizen-write",
+   "channel": "terminal",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "kaizen is an agent construct \u2014 there is no terminal kaizen writer"
+  },
+  {
+   "id": "ref-forge:write",
+   "mutation_class": "ref-forge",
+   "channel": "write",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "refs are git plumbing state under .git/, not a named file-tool surface; packed refs make raw file writes unreliable"
+  },
+  {
+   "id": "ref-forge:edit",
+   "mutation_class": "ref-forge",
+   "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "same as ref-forge:write"
+  },
+  {
+   "id": "ref-forge:notebookedit",
+   "mutation_class": "ref-forge",
+   "channel": "notebookedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "same as ref-forge:write"
+  },
+  {
+   "id": "ref-forge:bash",
+   "mutation_class": "ref-forge",
+   "channel": "bash",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "seeded dark area: git update-ref forging done/accepted refs runs no guard"
+  },
+  {
+   "id": "ref-forge:task",
+   "mutation_class": "ref-forge",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "subagent ref forging lands via Bash"
+  },
+  {
+   "id": "ref-forge:codex",
+   "mutation_class": "ref-forge",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "no Codex hooks surface"
+  },
+  {
+   "id": "ref-forge:terminal",
+   "mutation_class": "ref-forge",
+   "channel": "terminal",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "plain-terminal update-ref runs no guard"
+  },
+  {
+   "id": "git-commit:write",
+   "mutation_class": "git-commit",
+   "channel": "write",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a commit is not a file-tool call"
+  },
+  {
+   "id": "git-commit:edit",
+   "mutation_class": "git-commit",
+   "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a commit is not a file-tool call"
+  },
+  {
+   "id": "git-commit:notebookedit",
+   "mutation_class": "git-commit",
+   "channel": "notebookedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a commit is not a file-tool call"
+  },
+  {
+   "id": "git-commit:bash",
+   "mutation_class": "git-commit",
+   "channel": "bash",
+   "status": "waived:KARTA_SKIP_GATE",
+   "guard": null,
+   "hook_event": null,
+   "note": "enforced by this repo's project-settings commit gate (precommit_gate.py), not the plugin; KARTA_SKIP_GATE=1 is the documented per-command escape \u2014 self-serviceable by the gated agent and unaudited (dark area: escape hatch); detection is textual, so aliases and script-internal commits run zero gates"
+  },
+  {
+   "id": "git-commit:task",
+   "mutation_class": "git-commit",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "subagent commits land via Bash"
+  },
+  {
+   "id": "git-commit:codex",
+   "mutation_class": "git-commit",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "no commit gate on Codex \u2014 .codex/rules/karta.rules covers git push only"
+  },
+  {
+   "id": "git-commit:terminal",
+   "mutation_class": "git-commit",
+   "channel": "terminal",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "plain-terminal commits run zero gates \u2014 no CI backstop"
+  },
+  {
+   "id": "integration-merge:write",
+   "mutation_class": "integration-merge",
+   "channel": "write",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a merge is not a file-tool call"
+  },
+  {
+   "id": "integration-merge:edit",
+   "mutation_class": "integration-merge",
+   "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a merge is not a file-tool call"
+  },
+  {
+   "id": "integration-merge:notebookedit",
+   "mutation_class": "integration-merge",
+   "channel": "notebookedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a merge is not a file-tool call"
+  },
+  {
+   "id": "integration-merge:bash",
+   "mutation_class": "integration-merge",
+   "channel": "bash",
+   "status": "bypass",
+   "guard": "guard_delivery_stop.py",
+   "hook_event": "Stop",
+   "note": "merge-time has no matcher; guard_delivery_stop.py nudges once per (session, state) at session Stop \u2014 advisory block-once, fail-open (dark area: purely advisory in several real states) \u2014 so the mutation-time cell stays an unwaivered bypass"
+  },
+  {
+   "id": "integration-merge:task",
+   "mutation_class": "integration-merge",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "subagent merges land via Bash"
+  },
+  {
+   "id": "integration-merge:codex",
+   "mutation_class": "integration-merge",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "no Codex Stop surface upstream"
+  },
+  {
+   "id": "integration-merge:terminal",
+   "mutation_class": "integration-merge",
+   "channel": "terminal",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "plain-terminal merges run zero guards"
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+{
+ "agent_type": "karta-kaizen",
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": {
+  "content": "x",
+  "file_path": "src/app.py"
+ },
+ "tool_name": "Write"
+}

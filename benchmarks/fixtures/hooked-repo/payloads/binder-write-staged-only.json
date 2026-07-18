@@ -1,0 +1,9 @@
+{
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": {
+  "content": "{}",
+  "file_path": ".karta/binders/staged-only.json"
+ },
+ "tool_name": "Write"
+}
