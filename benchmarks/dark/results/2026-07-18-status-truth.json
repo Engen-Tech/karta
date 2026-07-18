@@ -1,0 +1,318 @@
+{
+  "anchor_diff": [],
+  "anchors": {
+    "F1": {
+      "expect_command_nonnull": true,
+      "serve_status": null,
+      "shape": "forged done ref not first-parent-reachable from integration",
+      "stop_gate_exit": 0,
+      "warning_regex": "forg|not[^\\n]*reachable|unreachable|suspect"
+    },
+    "F2": {
+      "expect_command_nonnull": true,
+      "serve_status": null,
+      "shape": "accepted ref whose target merge lacks Karta-Accept trailers",
+      "stop_gate_exit": 0,
+      "warning_regex": "forg|trailer|suspect"
+    },
+    "F3": {
+      "expect_command_nonnull": true,
+      "serve_status": null,
+      "shape": "built+done refs forged onto a commit with no item branch",
+      "stop_gate_exit": 0,
+      "warning_regex": "forg|no[^\\n]*branch|suspect"
+    },
+    "F4": {
+      "expect_command_nonnull": true,
+      "serve_status": null,
+      "shape": "done ref for an item absent from the binder",
+      "stop_gate_exit": 0,
+      "warning_regex": "forg|not in[^\\n]*binder|unknown item|suspect"
+    },
+    "P1": {
+      "expect_command_nonnull": true,
+      "serve_status": {
+        "symbol": "done",
+        "word": "PASSED"
+      },
+      "shape": "accepted-done fixture: state key distinct from clean done + badge word not PASSED",
+      "stop_gate_exit": 0,
+      "warning_regex": "accept|waiv"
+    },
+    "P2": {
+      "expect_command_nonnull": true,
+      "serve_status": null,
+      "shape": "accepted-done fixture: waiver reconstructible from refs + merge trailers alone",
+      "stop_gate_exit": 0,
+      "warning_regex": "accept|waiv"
+    },
+    "S1": {
+      "expect_command_nonnull": false,
+      "serve_status": {
+        "symbol": "built",
+        "word": "BUILT"
+      },
+      "shape": "built-unmerged mid-wave: item a merged+done, item b built with no done/failed",
+      "stop_gate_exit": 2,
+      "warning_regex": "carr(y|ies) built|built[^\\n]*no done|stranded|unmerged"
+    },
+    "S2": {
+      "expect_command_nonnull": false,
+      "serve_status": null,
+      "shape": "all-done-unmerged: archived on integration, integration never merged to main",
+      "stop_gate_exit": 0,
+      "warning_regex": "integration[^\\n]*merge|merge[^\\n]*integration|awaiting[^\\n]*merge"
+    },
+    "S3": {
+      "expect_command_nonnull": true,
+      "serve_status": {
+        "symbol": "done",
+        "word": "PASSED"
+      },
+      "shape": "accepted-done item with proper Karta-Accept trailers + a ready sibling",
+      "stop_gate_exit": 0,
+      "warning_regex": "accept|waiv"
+    },
+    "S4": {
+      "expect_command_nonnull": true,
+      "serve_status": {
+        "symbol": "building",
+        "word": "RUNNING"
+      },
+      "shape": "crashed-build branch with no refs",
+      "stop_gate_exit": 0,
+      "warning_regex": "crash|abandon|stale|no refs"
+    },
+    "S5": {
+      "expect_command_nonnull": false,
+      "serve_status": null,
+      "shape": "corrupt/non-dict binder JSON",
+      "stop_gate_exit": 0,
+      "warning_regex": "corrupt|malformed|invalid|unreadable|not valid"
+    },
+    "S6": {
+      "expect_command_nonnull": false,
+      "serve_status": null,
+      "shape": "binder in HEAD but deleted from the working tree; stranded built ref",
+      "stop_gate_exit": 2,
+      "warning_regex": "deleted|missing[^\\n]*binder|only in HEAD|working tree"
+    },
+    "S7": {
+      "expect_command_nonnull": false,
+      "serve_status": null,
+      "shape": "post-merge leftovers (parchmark backend-hygiene replica, synthesized)",
+      "stop_gate_exit": 0,
+      "warning_regex": "leftover|stale|clean ?up|prune"
+    },
+    "S8": {
+      "expect_command_nonnull": false,
+      "serve_status": null,
+      "shape": "done-item worktree still mounted (gringotts replica, synthesized)",
+      "stop_gate_exit": 0,
+      "warning_regex": "worktree|leftover|stale|clean ?up|prune"
+    }
+  },
+  "case_matrix": {
+    "F1": {
+      "anchor_match": true,
+      "command_nonnull": true,
+      "detected": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "F2": {
+      "anchor_match": true,
+      "command_nonnull": true,
+      "detected": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "F3": {
+      "anchor_match": true,
+      "command_nonnull": true,
+      "detected": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "F4": {
+      "anchor_match": true,
+      "command_nonnull": true,
+      "detected": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "P1": {
+      "anchor_match": true,
+      "badge_word": "PASSED",
+      "command_nonnull": true,
+      "engine_crash": false,
+      "good": false,
+      "state_key": "done",
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "P2": {
+      "anchor_match": true,
+      "command_nonnull": true,
+      "engine_crash": false,
+      "good": true,
+      "reconstructible": true,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S1": {
+      "actionable": false,
+      "anchor_match": true,
+      "command_nonnull": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 2,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S2": {
+      "actionable": false,
+      "anchor_match": true,
+      "command_nonnull": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S3": {
+      "actionable": true,
+      "anchor_match": true,
+      "command_nonnull": true,
+      "engine_crash": false,
+      "good": true,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S4": {
+      "actionable": true,
+      "anchor_match": true,
+      "command_nonnull": true,
+      "engine_crash": false,
+      "good": true,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S5": {
+      "actionable": false,
+      "anchor_match": true,
+      "command_nonnull": false,
+      "engine_crash": true,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S6": {
+      "actionable": false,
+      "anchor_match": true,
+      "command_nonnull": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 2,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S7": {
+      "actionable": false,
+      "anchor_match": true,
+      "command_nonnull": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "S8": {
+      "actionable": false,
+      "anchor_match": true,
+      "command_nonnull": false,
+      "engine_crash": false,
+      "good": false,
+      "stop_gate_exit": 0,
+      "warning_matched": false,
+      "warnings_count": 0
+    },
+    "gate_engine_ref_agreement": {
+      "engine_ref_states": [
+        "accepted",
+        "built",
+        "done",
+        "failed",
+        "in-progress"
+      ],
+      "extra_in_gate": [],
+      "gate_ref_states": [
+        "built",
+        "done",
+        "failed"
+      ],
+      "good": false,
+      "missing_from_gate": [
+        "accepted",
+        "in-progress"
+      ]
+    },
+    "scripted-reachability-check-exists": {
+      "exists": false,
+      "good": false,
+      "hits": []
+    }
+  },
+  "findings": [
+    {
+      "finding_id": "seed-S1-dead-end",
+      "severity": "warn",
+      "summary": "S1 built-unmerged mid-wave: karta_next renders the dead-end fallback (null command, empty warnings) in the precise state the Stop-gate exists to catch"
+    },
+    {
+      "finding_id": "seed-S5-corrupt-binder-vanishes",
+      "severity": "warn",
+      "summary": "S5 corrupt/non-dict binder: karta_next crashes instead of naming the corrupt binder \u2014 the state vanishes from status"
+    },
+    {
+      "finding_id": "seed-F-forgeries-undetected",
+      "severity": "warn",
+      "summary": "0/4 forgeries detected: the forged done ref actively silences the Stop-gate's built-without-done check (F1 stop_gate_exit 0) and no surface warns"
+    },
+    {
+      "finding_id": "seed-P1-accepted-badged-PASSED",
+      "severity": "warn",
+      "summary": "P1 accepted-done: karta_next surfaces plain 'done' and serve_status._STATE_META badges it PASSED \u2014 the waiver is invisible on the status surfaces"
+    },
+    {
+      "finding_id": "seed-refset-disagreement",
+      "severity": "warn",
+      "summary": "guard_delivery_stop.py REF_STATES disagrees with the ref names the engine writes per integration-branch.md (missing from gate: accepted, in-progress)"
+    },
+    {
+      "finding_id": "card-step8-results-path-errata",
+      "severity": "info",
+      "summary": "results are written to benchmarks/dark/results/<date>-status-truth.json per the card frontmatter and the README family-local-evidence rule, deviating from card step 8's benchmarks/results/<version>-status-truth.json \u2014 card text left untouched; recorded as row 8 of benchmarks/meta/card-errata-2026-07-17.md"
+    }
+  ],
+  "run_date": "2026-07-18",
+  "schema_version": 1,
+  "vector": "dark-status-surface-probes"
+}

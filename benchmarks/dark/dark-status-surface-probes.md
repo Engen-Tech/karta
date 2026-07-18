@@ -5,7 +5,7 @@ method: deterministic-probe
 cadence: every-release
 cost: M (initial authoring of 12+ fixture states; per-run S thereafter)
 probe: benchmarks/probes/dark-status-surface-probes.py
-probe_status: planned
+probe_status: implemented
 results: benchmarks/dark/results/
 provenance: "lens=dark; merged_from=stranded-state-actionability-matrix, ref-forgery-detection-rate, waiver-provenance-legibility"
 ---
