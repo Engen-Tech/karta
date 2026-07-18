@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "vector": "ownership-cost-ledger",
+  "note": "append-only ownership cost ledger \u2014 one row per release; rows are never rewritten or reordered. See benchmarks/meta/ownership-cost-ledger.md.",
+  "card_erratum": "card frontmatter results: benchmarks/meta/results/ contradicts the procedure's benchmarks/field/results/ownership-ledger.json path; the ledger follows the procedure and records the mismatch as a finding (card left untouched).",
+  "rows": [
+    {
+      "release": "2.21.0",
+      "date": "2026-07-17",
+      "machinery": {
+        "sync_projection_scripts": 3,
+        "sync_projection_script_names": [
+          "check_shared_copies.py",
+          "sync_codex_agents.py",
+          "sync_codex_skills.py"
+        ],
+        "shared_source_files": 16,
+        "mirrored_copies": 46,
+        "duplicated_bytes": 176645,
+        "codex_projection_files": 116,
+        "hook_scripts": 6,
+        "bench_scripts": 27,
+        "bench_loc": 9918
+      },
+      "manual_release_steps": {
+        "documented_checklist_steps": 11,
+        "checklist": "v2.21.0-checklist.md",
+        "enforced_by_release_block": 1,
+        "host_side_manual_steps": [
+          "set cleanupPeriodDays>=365 in ~/.claude/settings.json (transcript retention; host configuration, not enforced by the release block)"
+        ],
+        "manual_release_steps": 11
+      },
+      "bench_spend": {
+        "artifacts_scanned": 14,
+        "wall_clock_fields_found": 0,
+        "token_fields_found": 12,
+        "wall_clock_s": "n/a (not yet instrumented)",
+        "tokens": "n/a (not yet instrumented)"
+      },
+      "triage_load": {
+        "results_files_scanned": 13,
+        "opened": 112,
+        "resolved": 0,
+        "waived": 0,
+        "unresolved": 112
+      },
+      "buy_vs_build": [
+        {
+          "component": "gate-runner",
+          "path": "benchmarks/gate/run_gate.py",
+          "evaltool_key": "eval-frameworks",
+          "evaltool_verdict": "buy",
+          "cites": "benchmarks/research/evaltool-2026-07-17.json",
+          "still_correct": "yes",
+          "reason": "promptfoo is adopted for the executable arms only, pinned when that lane lands; the deterministic gate lane is stdlib by design and never depends on node, so the stdlib composer stays correct.",
+          "action": null,
+          "waiver": null
+        },
+        {
+          "component": "transcript-miner",
+          "path": "benchmarks/perf/mine_sessions.py",
+          "evaltool_key": "stats-telemetry",
+          "evaltool_verdict": "adopt-component",
+          "cites": "benchmarks/research/evaltool-2026-07-17.json",
+          "still_correct": "yes",
+          "reason": "direct JSONL session-transcript mining is the recommended composition for local Claude Code cost/compliance telemetry; no whole-tool buy fits the modes-1+4 need.",
+          "action": null,
+          "waiver": null
+        },
+        {
+          "component": "fixture-harness",
+          "path": "benchmarks/fixtures/",
+          "evaltool_key": "agent-bench-harnesses",
+          "evaltool_verdict": "adopt-component",
+          "cites": "benchmarks/research/evaltool-2026-07-17.json",
+          "still_correct": "yes",
+          "reason": "no off-the-shelf harness benches an orchestration framework's internal behavior out of the box, so the stdlib fixture factories stay in-house.",
+          "action": null,
+          "waiver": null
+        },
+        {
+          "component": "stats",
+          "path": "benchmarks/(bayes/small-n treatment)",
+          "evaltool_key": "stats-telemetry",
+          "evaltool_verdict": "adopt-component",
+          "cites": "benchmarks/research/evaltool-2026-07-17.json",
+          "still_correct": "yes",
+          "reason": "bayes_evals is reserved for k>=5 only; at n<=3 raw count tables \u2014 vendoring its single file is the recorded plan once k>=5 executable arms exist, not before.",
+          "action": null,
+          "waiver": null
+        }
+      ],
+      "resolution": {
+        "open_contradiction": "spec open_questions[0] \u2014 evaltool says buy promptfoo + vendor bayes_evals, while the sharpened vectors dropped both from their per-vector procedures.",
+        "promptfoo": "ADOPT for the executable arms only \u2014 pinned via benchmarks/bench/package.json when that lane lands, not before; the deterministic gate lane never depends on node (standalone stdlib python probes composed by run_gate.py).",
+        "bayes_evals": "reserved for k>=5 only \u2014 at n<=3, raw count tables only (credible intervals at that n are false precision).",
+        "source": "benchmarks/results/2026-07-17-baseline.md"
+      }
+    }
+  ]
+}
