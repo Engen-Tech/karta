@@ -14,19 +14,8 @@
    "violations": []
   },
   "E": {
-   "count": 2,
-   "violations": [
-    {
-     "finding_id": "E:ledger:DG-SCHEMA",
-     "severity": "violation",
-     "summary": "DG-SCHEMA: a doc promises a doc-gardner schema gate some code executes, but no shipped .py references doc-gardner-schema.json (matching .py files: 0)"
-    },
-    {
-     "finding_id": "E:ledger:KAIZEN-USERREPO",
-     "severity": "violation",
-     "summary": "KAIZEN-USERREPO: the kaizen how-to promises config validation for user repos, but no hook/skill invokes config validation with a consumer-repo root (validate_plugin.py hard-anchors ROOT to the karta repo) (matching .py files: 0)"
-    }
-   ]
+   "count": 0,
+   "violations": []
   },
   "F": {
    "count": 0,
@@ -39,7 +28,7 @@
  },
  "retired": {
   "claims": 0,
-  "ledger": 0
+  "ledger": 1
  },
  "truth": {
   "N_agents": 4,

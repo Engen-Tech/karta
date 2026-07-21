@@ -18,7 +18,11 @@ Optionally add a plain nudge about what to watch (it is **not** a task list and 
 { "enabled": true, "focus": "watch the billing items and the auth rules" }
 ```
 
-Remove the file, or set `"enabled": false`, to turn it off. **Off means kaizen never runs — even when you invoke the `karta-kaizen` skill directly.** This is stricter than doc-gardner on purpose: doc-gardner's switch governs only its automatic delivery path, and a standalone doc-gardner run works regardless; kaizen has no such carve-out. The file shape is gated by `skills/karta-kaizen/references/kaizen-schema.json`, and the plugin validator schema-checks the file when your repo commits one.
+Remove the file, or set `"enabled": false`, to turn it off. **Off means kaizen never runs — even when you invoke the `karta-kaizen` skill directly.** This is stricter than doc-gardner on purpose: doc-gardner's switch governs only its automatic delivery path, and a standalone doc-gardner run works regardless; kaizen has no such carve-out. The file's shape is defined by `skills/karta-kaizen/references/kaizen-schema.json`, which ships with the karta-kaizen skill. karta's plugin validator gates only karta's own committed copy of this file — it never sees the one in your repo. To check yours, run this from your repo root:
+
+```bash
+python3 -c "import json; d=json.load(open('.karta/kaizen.json')); assert type(d.get('enabled')) is bool, 'enabled must be true or false'; assert set(d) <= {'enabled', 'focus'}, 'unknown keys (allowed: enabled, focus)'; assert d.get('focus') is None or type(d.get('focus')) is str, 'focus must be a string'; print('kaizen.json OK')"
+```
 
 With the switch on, kaizen runs after the doc-gardner phase of every delivery, and the delivery report carries its outcome next to doc-gardner's.
 
