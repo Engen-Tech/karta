@@ -407,6 +407,15 @@ def self_test() -> int:
         check("a missing consumer directory is a clear error (exit 3) in live mode",
               proc.returncode == 3 and "no-such-repo" in proc.stdout + proc.stderr,
               f"rc={proc.returncode}")
+        # a consumers value naming no paths must refuse, never audit nothing
+        for bad in (",", ""):  # set-but-empty in either spelling must refuse
+            proc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()), "--target", str(fk),
+                 "--consumers", bad],
+                capture_output=True, text=True, timeout=120)
+            check(f"--consumers {bad!r} is refused, never a vacuous empty audit",
+                  proc.returncode != 0 and "names no paths" in proc.stderr,
+                  f"rc={proc.returncode}")
 
     passed = sum(1 for _, ok, _ in checks if ok)
     for name, ok, detail in checks:
@@ -444,8 +453,11 @@ def main() -> int:
             print(f"MANIFEST-GATE: {v}")
         return 2
 
-    if args.consumers:
-        consumers = [Path(p).resolve() for p in args.consumers.split(",") if p.strip()]
+    if args.consumers is not None:  # set-but-empty refuses; only unset falls back
+        consumers = [Path(p.strip()).resolve()
+                     for p in args.consumers.split(",") if p.strip()]
+        if not consumers:  # ""/","/" " must refuse, never a vacuous empty audit
+            ap.error(f"--consumers is set but names no paths: {args.consumers!r}")
     else:
         consumers = [target.parent / name for name in DEFAULT_CONSUMERS]
     for repo in consumers:

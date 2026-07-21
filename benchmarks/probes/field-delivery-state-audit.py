@@ -35,7 +35,7 @@ probe itself crashed). Stdlib only; every path derives from --target.
   field-delivery-state-audit.py --self-test                # embedded, [PASS]/[FAIL] N/N
 """
 from __future__ import annotations
-import argparse, datetime, json, os, sys
+import argparse, datetime, json, os, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "flow"))
@@ -191,6 +191,13 @@ def _run_self_test(target: Path) -> int:
     check("a missing consumer is recorded as evidence, not a gate failure",
           any(f["finding_id"] == "consumer-missing:ghost-repo" for f in ev))
 
+    for bad in (",", ""):  # set-but-empty in either spelling must refuse
+        proc = subprocess.run([sys.executable, __file__, "--consumers", bad],
+                              capture_output=True, text=True, timeout=30)
+        check(f"--consumers {bad!r} is refused, never a vacuous empty sweep",
+              proc.returncode != 0 and "names no paths" in proc.stderr,
+              f"exit {proc.returncode}: {proc.stderr.strip()[-120:]}")
+
     total, passed = len(results), sum(results)
     print(f"\n{passed}/{total} checks passed")
     return 0 if passed == total else 1
@@ -202,7 +209,7 @@ def main() -> int:
                     help="karta repo root (run_gate passes this)")
     ap.add_argument("--fixture-only", action="store_true",
                     help="run the detection matrix against the fixture, skip the live sweep")
-    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV) or None,
+    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV),
                     help=f"comma-separated repo paths for the live sweep "
                          f"(default: ${CONSUMERS_ENV} if set, else siblings)")
     ap.add_argument("--write-snapshots", action="store_true",
@@ -220,9 +227,12 @@ def main() -> int:
 
     audit_ts_iso = args.audit_timestamp or \
         datetime.datetime.now(datetime.timezone.utc).isoformat()
-    if args.consumers:
-        consumers = [(Path(p).name, Path(p).resolve())
-                     for p in args.consumers.split(",") if p.strip()]
+    if args.consumers is not None:  # set-but-empty refuses; only unset falls back
+        names = [p.strip() for p in args.consumers.split(",") if p.strip()]
+        if not names:  # ""/","/" " must refuse, never a vacuous empty sweep
+            ap.error(f"--consumers / {CONSUMERS_ENV} is set but names no paths: "
+                     f"{args.consumers!r}")
+        consumers = [(Path(p).name, Path(p).resolve()) for p in names]
     else:
         consumers = _default_consumers(target)
 

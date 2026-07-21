@@ -137,12 +137,20 @@ def main() -> int:
                     help="run only these comma-separated vector ids")
     ap.add_argument("--strict", action="store_true",
                     help="also exit 1 when any vector is SKIPPED (full-coverage mode)")
-    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV) or None,
+    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV),
                     metavar="PATH,PATH",
                     help="enrolled consumer repo paths for consumer-aware probes "
                          "(default: each probe's sibling-directory guess, which is "
                          "wrong whenever this checkout is a worktree)")
     args = ap.parse_args()
+    # A provided value that names no paths ("", ",", " " — e.g. an interpolation
+    # of unset shell vars) must refuse loudly — never degrade into the sibling
+    # guess or an empty sweep the consumer-aware probes would vacuously pass.
+    # Only a genuinely unset env/flag (None) falls back to the probes' defaults.
+    if args.consumers is not None and \
+            not [s for s in args.consumers.split(",") if s.strip()]:
+        ap.error(f"--consumers / {CONSUMERS_ENV} is set but names no paths: "
+                 f"{args.consumers!r}")
 
     spec = json.loads(SPEC.read_text())
     vector_ids = [v["id"] for v in spec["vectors"]]

@@ -467,6 +467,13 @@ def _run_self_test() -> int:
                       "d.md": ["d.md: unreadable (boom)"]}
           and warns == ["b.md: warning: pack is 4000 bytes"], repr((invalid, warns)))
 
+    for bad in (",", ""):  # set-but-empty in either spelling must refuse
+        proc = subprocess.run([sys.executable, __file__, "--consumers", bad],
+                              capture_output=True, text=True, timeout=30)
+        check(f"--consumers {bad!r} is refused, never a vacuous empty sweep",
+              proc.returncode != 0 and "names no paths" in proc.stderr,
+              f"exit {proc.returncode}: {proc.stderr.strip()[-120:]}")
+
     failures = results.count(False)
     total = len(results)
     print(f"\n{total - failures}/{total} checks passed")
@@ -478,7 +485,7 @@ def main() -> int:
     ap.add_argument("--target", type=Path,
                     default=Path(__file__).resolve().parent.parent.parent,
                     help="karta repo root (default: this probe's repo)")
-    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV) or None,
+    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV),
                     metavar="PATH,PATH",
                     help=f"consumer repo roots (default: ${CONSUMERS_ENV} if set, else "
                          "consumers.json names as sibling directories of the "
@@ -488,8 +495,12 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     target = args.target.resolve()
-    if args.consumers:
-        consumer_paths = [Path(s).resolve() for s in args.consumers.split(",") if s]
+    if args.consumers is not None:  # set-but-empty refuses; only unset falls back
+        consumer_paths = [Path(s.strip()).resolve()
+                          for s in args.consumers.split(",") if s.strip()]
+        if not consumer_paths:  # ""/","/" " must refuse, never a vacuous empty sweep
+            ap.error(f"--consumers / {CONSUMERS_ENV} is set but names no paths: "
+                     f"{args.consumers!r}")
     else:
         names = json.loads((target / "benchmarks" / "sme-static" /
                             "consumers.json").read_text())["consumers"]

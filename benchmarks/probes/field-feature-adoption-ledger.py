@@ -146,6 +146,13 @@ def self_test(target: Path) -> int:
                      "metrics"} and p["partial"] is False and p["id"] == PROBE_ID,
           str(sorted(p)))
 
+    for bad in (",", ""):  # set-but-empty in either spelling must refuse
+        proc = subprocess.run([sys.executable, __file__, "--consumers", bad],
+                              capture_output=True, text=True, timeout=30)
+        check(f"--consumers {bad!r} is refused, never a vacuous empty sweep",
+              proc.returncode != 0 and "names no paths" in proc.stderr,
+              f"exit {proc.returncode}: {proc.stderr.strip()[-120:]}")
+
     passed = sum(1 for _, ok, _ in checks if ok)
     for name, ok, detail in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — {detail}"))
@@ -158,7 +165,7 @@ def main() -> int:
     ap.add_argument("--target", type=Path,
                     default=Path(__file__).resolve().parent.parent.parent,
                     help="karta repo root (default: this probe's repo)")
-    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV) or None,
+    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV),
                     metavar="PATH,PATH",
                     help=f"enrolled consumer repos, forwarded to audit_adoption.py "
                          f"(default: ${CONSUMERS_ENV} if set, else sibling "
@@ -168,6 +175,12 @@ def main() -> int:
     target = args.target.resolve()
     if args.self_test:
         return self_test(target)
+    # ""/","/" " must refuse before it reaches audit_adoption, never a vacuous
+    # sweep — set-but-empty refuses; only unset falls back to sibling defaults.
+    if args.consumers is not None and \
+            not [s for s in args.consumers.split(",") if s.strip()]:
+        ap.error(f"--consumers / {CONSUMERS_ENV} is set but names no paths: "
+                 f"{args.consumers!r}")
     print(json.dumps(run_live(target, args.consumers), indent=2))
     return 0
 

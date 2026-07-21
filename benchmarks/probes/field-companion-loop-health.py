@@ -264,6 +264,12 @@ def _self_test() -> int:
           and any(f["finding_id"] == "gringotts-malformed-row"
                   for f in p_bad["findings"]))
 
+    for bad in (",", ""):  # set-but-empty in either spelling must refuse
+        proc = subprocess.run([sys.executable, __file__, "--consumers", bad],
+                              capture_output=True, text=True, timeout=30)
+        check(f"--consumers {bad!r} is refused, never a vacuous empty sweep",
+              proc.returncode != 0 and "names no paths" in proc.stderr)
+
     passed = sum(1 for _, ok in checks if ok)
     print(f"\n{passed}/{len(checks)} checks passed")
     return 0 if passed == len(checks) else 1
@@ -274,7 +280,7 @@ def main() -> int:
     ap.add_argument("--target", type=Path,
                     default=Path(__file__).resolve().parent.parent.parent,
                     help="karta repo root (default: this probe's repo)")
-    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV) or None,
+    ap.add_argument("--consumers", default=os.environ.get(CONSUMERS_ENV),
                     metavar="PATH,PATH",
                     help=f"enrolled consumer repos (default: ${CONSUMERS_ENV} if set, "
                          "else sibling directories parchmark and gringotts)")
@@ -283,8 +289,12 @@ def main() -> int:
     if args.self_test:
         return _self_test()
     target = args.target.resolve()
-    if args.consumers:
-        consumers = [Path(s).resolve() for s in args.consumers.split(",") if s.strip()]
+    if args.consumers is not None:  # set-but-empty refuses; only unset falls back
+        consumers = [Path(s.strip()).resolve()
+                     for s in args.consumers.split(",") if s.strip()]
+        if not consumers:  # ""/","/" " must refuse, never a vacuous empty sweep
+            ap.error(f"--consumers / {CONSUMERS_ENV} is set but names no paths: "
+                     f"{args.consumers!r}")
     else:
         consumers = [target.parent / name for name in DEFAULT_CONSUMERS]
     print(json.dumps(_live(target, consumers), indent=2))
