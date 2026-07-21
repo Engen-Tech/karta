@@ -1,0 +1,84 @@
+{
+  "probes": [
+    {
+      "id": "P1-exec-bit-projection",
+      "pass": false,
+      "evidence": {
+        "target": "skills/karta-build/scripts/scan_secrets.py",
+        "canonical_mode_after_chmod": "0o775",
+        "mirror_projection": {
+          "path": "$S/.agents/skills/karta-build/scripts/scan_secrets.py",
+          "mode": "0o664"
+        },
+        "install_projection": {
+          "path": "$S/plugins/karta/skills/karta-build/scripts/scan_secrets.py",
+          "mode": "0o664"
+        },
+        "check": {
+          "exit": 0,
+          "output": [
+            "CODEX SKILLS PROJECTIONS: IN SYNC"
+          ]
+        },
+        "write": {
+          "exit": 0,
+          "output": [
+            "codex projections in sync (103 mirror files, 0 written/updated; 104 install files, 0 written/updated)"
+          ]
+        }
+      }
+    },
+    {
+      "id": "P2-lock-degradation-survival",
+      "pass": false,
+      "evidence": {
+        "external_skill": "plannotator-compound",
+        "synthesized_fixture": false,
+        "degraded_field": "computedHash",
+        "write": {
+          "exit": 1,
+          "output": [
+            "removed orphan .agents/skills/plannotator-compound",
+            "Traceback (most recent call last):",
+            "  File \"$S/scripts/sync_codex_skills.py\", line 256, in <module>",
+            "    sys.exit(main())",
+            "             ~~~~^^",
+            "  File \"$S/scripts/sync_codex_skills.py\", line 227, in main",
+            "    p.unlink()",
+            "    ~~~~~~~~^^",
+            "  File \"/usr/lib/python3.13/pathlib/_local.py\", line 748, in unlink",
+            "    os.unlink(self)",
+            "    ~~~~~~~~~^^^^^^",
+            "FileNotFoundError: [Errno 2] No such file or directory: '$S/.agents/skills/plannotator-compound/SKILL.md'"
+          ]
+        },
+        "external_dir_survived": false
+      }
+    },
+    {
+      "id": "P3-external-hash-liveness",
+      "pass": false,
+      "evidence": {
+        "external_skill": "plannotator-compound",
+        "synthesized_fixture": false,
+        "tamper": "appended 1 byte to the external skill's SKILL.md",
+        "check": {
+          "exit": 0,
+          "flagged": false,
+          "output": [
+            "CODEX SKILLS PROJECTIONS: IN SYNC"
+          ]
+        },
+        "validate_plugin": {
+          "exit": 0,
+          "flagged": false,
+          "output": [
+            "PLUGIN INTEGRITY: PASS"
+          ]
+        }
+      }
+    }
+  ],
+  "passed": 0,
+  "total": 3
+}

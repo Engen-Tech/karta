@@ -48,9 +48,10 @@
  "ledger": [
   {"id": "DG-SCHEMA",
    "check": "py-grep",
+   "scopes": ["scripts", "hooks", "skills"],
    "pattern": "doc-gardner-schema[.]json",
    "expect_min_files": 1,
-   "description": "a doc promises a doc-gardner schema gate some code executes, but no .py references doc-gardner-schema.json"},
+   "description": "a doc promises a doc-gardner schema gate some code executes, but no shipped .py references doc-gardner-schema.json"},
   {"id": "KAIZEN-USERREPO",
    "check": "py-co-grep",
    "scopes": ["scripts", "hooks", "skills"],

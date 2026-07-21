@@ -1,0 +1,1175 @@
+{
+  "schema_version": 1,
+  "run_date": "2026-07-21",
+  "karta_sha": "a116a4c2ee49dafc7830138f19e881b3c2a54175",
+  "plugin_version": "2.21.0",
+  "strict": false,
+  "only": null,
+  "vectors": [
+    {
+      "id": "flow-guard-enforcement-matrix",
+      "status": "PASS",
+      "partial": true,
+      "implemented_checks": [
+        "family-a-guard-payload-matrix",
+        "family-b-mutation-surface-cross-check"
+      ],
+      "findings_count": 20,
+      "findings": [
+        {
+          "finding_id": "gap:symlink-alias",
+          "severity": "known-gap",
+          "summary": "a write via a symlink alias dir escapes BINDER_RE \u2014 the path is matched as the tool call names it, before any resolution"
+        },
+        {
+          "finding_id": "gap:staged-not-committed",
+          "severity": "known-gap",
+          "summary": "a binder staged but not committed passes the HEAD-only check (ls-tree HEAD misses the index)"
+        },
+        {
+          "finding_id": "gap:notebookedit-on-pack",
+          "severity": "known-gap",
+          "summary": "a NotebookEdit writing an invalid pack passes \u2014 the live PreToolUse pack matcher is Write-only and the guard reads only tool_input.file_path"
+        },
+        {
+          "finding_id": "bypass:binder-write:bash",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass binder-write:bash: seeded dark area: cat >, sed -i, git checkout -- of a binder are invisible to every Write|Edit|NotebookEdit matcher"
+        },
+        {
+          "finding_id": "bypass:binder-write:codex",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass binder-write:codex: doctrine only \u2014 Codex registers no plugin hooks (docs/how-to/hooks.md runtime column)"
+        },
+        {
+          "finding_id": "bypass:binder-write:terminal",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass binder-write:terminal: plain-terminal edits run zero guards \u2014 field evidence: gringotts 1f548e5"
+        },
+        {
+          "finding_id": "bypass:pack-write:notebookedit",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass pack-write:notebookedit: seeded dark area: PreToolUse pack matcher is Write-only and the guard reads only tool_input.file_path \u2014 a NotebookEdit on a pack is never validated"
+        },
+        {
+          "finding_id": "bypass:pack-write:bash",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass pack-write:bash: seeded dark area: sed -i on a pack is invisible to the file-tool matchers"
+        },
+        {
+          "finding_id": "bypass:pack-write:codex",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass pack-write:codex: doctrine plus OS sandbox only \u2014 no Codex hooks surface yet"
+        },
+        {
+          "finding_id": "bypass:pack-write:terminal",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass pack-write:terminal: plain-terminal pack edits run zero guards"
+        },
+        {
+          "finding_id": "bypass:kaizen-write:bash",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass kaizen-write:bash: a kaizen Bash write escapes the file-tool matchers, same as every write guard"
+        },
+        {
+          "finding_id": "bypass:kaizen-write:codex",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass kaizen-write:codex: deliberate phase split: doctrine plus OS sandbox only on Codex (docs/how-to/hooks.md)"
+        },
+        {
+          "finding_id": "bypass:ref-forge:bash",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass ref-forge:bash: seeded dark area: git update-ref forging done/accepted refs runs no guard"
+        },
+        {
+          "finding_id": "bypass:ref-forge:codex",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass ref-forge:codex: no Codex hooks surface"
+        },
+        {
+          "finding_id": "bypass:ref-forge:terminal",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass ref-forge:terminal: plain-terminal update-ref runs no guard"
+        },
+        {
+          "finding_id": "bypass:git-commit:codex",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass git-commit:codex: no commit gate on Codex \u2014 .codex/rules/karta.rules covers git push only"
+        },
+        {
+          "finding_id": "bypass:git-commit:terminal",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass git-commit:terminal: plain-terminal commits run zero gates \u2014 no CI backstop"
+        },
+        {
+          "finding_id": "bypass:integration-merge:bash",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass integration-merge:bash: merge-time has no matcher; guard_delivery_stop.py nudges once per (session, state) at session Stop \u2014 advisory block-once, fail-open (dark area: purely advisory in several real states) \u2014 so the mutation-time cell stays an unwaivered bypass"
+        },
+        {
+          "finding_id": "bypass:integration-merge:codex",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass integration-merge:codex: no Codex Stop surface upstream"
+        },
+        {
+          "finding_id": "bypass:integration-merge:terminal",
+          "severity": "known-gap",
+          "summary": "unwaivered bypass integration-merge:terminal: plain-terminal merges run zero guards"
+        }
+      ],
+      "metrics": {
+        "unwaivered_bypass_count": 17,
+        "enforced_to_bypassed_flips": 0,
+        "family_a_mismatch_count": 0,
+        "manifest_version": 1,
+        "baseline": "benchmarks/flow/results/2026-07-18-flow-guard-enforcement-matrix.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "flow-spec-contradictions",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "pass1-ref-vocabulary",
+        "pass2-hooks-events",
+        "pass3-promise-probes",
+        "pass4-schema-validator-duals"
+      ],
+      "findings_count": 9,
+      "findings": [
+        {
+          "finding_id": "card:results-path-mismatch",
+          "severity": "known-open",
+          "summary": "the card's `results: benchmarks/flow/results/` frontmatter contradicts the procedure step-1 --out path `benchmarks/results/flow-spec-contradictions/<version>.json`; this item follows the procedure text and leaves the frontmatter untouched (cards are edited only to flip probe_status), recording the mismatch here"
+        },
+        {
+          "finding_id": "p1:dead-vocab:in-progress",
+          "severity": "known-open",
+          "summary": "ref state `in-progress` appears in the ref vocabulary prose but no guard reads it and the Stop-gate's REF_STATES does not track it \u2014 dead vocabulary"
+        },
+        {
+          "finding_id": "p1:written-unread:accepted",
+          "severity": "known-open",
+          "summary": "ref state `accepted` is written per prose but is absent from guard_delivery_stop.py REF_STATES=('built', 'done', 'failed') \u2014 a stranded `accepted` item is invisible to the Stop-gate"
+        },
+        {
+          "finding_id": "p3:promise:between-waves-edit",
+          "severity": "known-open",
+          "summary": "karta-deliver promises 'you can edit the binder between waves (then re-validate it)' but guard_binder_immutability.py denies every write to a committed binder unconditionally \u2014 there is no wave-in-flight distinction in the guard, so the promised between-waves edit is blocked by the running code"
+        },
+        {
+          "finding_id": "p3:promise:missing-repair-path",
+          "severity": "known-open",
+          "summary": "no sanctioned in-place repair path is documented for a committed binder that a wave proved wrong: the between-waves prose says 're-validate it' but names no mechanism, so the field workaround has been a full re-plan (gringotts 1f548e5 field-proven; parchmark 76aadba burned a re-plan). Stays open until a repair-mechanism anchor appears or re-plan-to-new-slug is documented as the sanctioned path."
+        },
+        {
+          "finding_id": "p4:dual-disagree:gringotts-browse-refinements",
+          "severity": "known-open",
+          "summary": "the vendored frozen gringotts browse-refinements binder: rejected by binder-schema.json but accepted by validate_binder.py \u2014 a real shipped consumer binder invalid per karta's published schema"
+        },
+        {
+          "finding_id": "p4:dual-disagree:shared-terms",
+          "severity": "known-open",
+          "summary": "shared_terms binder: rejected by binder-schema.json (additionalProperties:false, no shared_terms) but accepted by validate_binder.py (runtime schema injection) \u2014 every modern gringotts binder is invalid per karta's own published schema file"
+        },
+        {
+          "finding_id": "p4:orphan-schema:doc-gardner",
+          "severity": "known-open",
+          "summary": "doc-gardner-schema.json validates the shipped doc-gardner.example.json but no code in hooks/scripts, scripts/, or skills/*/scripts loads or enforces it \u2014 a published schema executed by no one"
+        },
+        {
+          "finding_id": "p4:promise-uncaught:ui-fields-non-ui",
+          "severity": "known-open",
+          "summary": "UI fields (component_map/icon_map/token_changes) on a non-UI item: accepted by BOTH binder-schema.json and validate_binder.py, though karta-plan SKILL.md promises 'the validator will catch it' \u2014 a fictional safety net"
+        }
+      ],
+      "metrics": {
+        "open_total": 9,
+        "open_on_intersection": 9,
+        "probe_set_hash": "bfcb4931689490d878b7522c189b4abb1c6fcd70175169f510f15b3a38d531ac",
+        "unknown_events": 0,
+        "baseline": "benchmarks/results/flow-spec-contradictions/2.21.0.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "dark-ledger-burndown",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "dark-status-surface-probes",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "family-S-stranded-actionability(8)",
+        "family-F-forgery-detection(4)",
+        "family-P-provenance(2)",
+        "gate-engine-ref-set-agreement",
+        "scripted-reachability-static-binary",
+        "anchor-conformance",
+        "baseline-regression-diff-by-id"
+      ],
+      "findings_count": 6,
+      "findings": [
+        {
+          "finding_id": "seed-S1-dead-end",
+          "severity": "warn",
+          "summary": "S1 built-unmerged mid-wave: karta_next renders the dead-end fallback (null command, empty warnings) in the precise state the Stop-gate exists to catch"
+        },
+        {
+          "finding_id": "seed-S5-corrupt-binder-vanishes",
+          "severity": "warn",
+          "summary": "S5 corrupt/non-dict binder: karta_next crashes instead of naming the corrupt binder \u2014 the state vanishes from status"
+        },
+        {
+          "finding_id": "seed-F-forgeries-undetected",
+          "severity": "warn",
+          "summary": "0/4 forgeries detected: the forged done ref actively silences the Stop-gate's built-without-done check (F1 stop_gate_exit 0) and no surface warns"
+        },
+        {
+          "finding_id": "seed-P1-accepted-badged-PASSED",
+          "severity": "warn",
+          "summary": "P1 accepted-done: karta_next surfaces plain 'done' and serve_status._STATE_META badges it PASSED \u2014 the waiver is invisible on the status surfaces"
+        },
+        {
+          "finding_id": "seed-refset-disagreement",
+          "severity": "warn",
+          "summary": "guard_delivery_stop.py REF_STATES disagrees with the ref names the engine writes per integration-branch.md (missing from gate: accepted, in-progress)"
+        },
+        {
+          "finding_id": "card-step8-results-path-errata",
+          "severity": "info",
+          "summary": "results are written to benchmarks/dark/results/<date>-status-truth.json per the card frontmatter and the README family-local-evidence rule, deviating from card step 8's benchmarks/results/<version>-status-truth.json \u2014 card text left untouched; recorded as row 8 of benchmarks/meta/card-errata-2026-07-17.md"
+        }
+      ],
+      "metrics": {
+        "matrix": {
+          "S1": {
+            "engine_crash": false,
+            "command_nonnull": false,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 2,
+            "actionable": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "S2": {
+            "engine_crash": false,
+            "command_nonnull": false,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "actionable": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "S3": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "actionable": true,
+            "good": true,
+            "anchor_match": true
+          },
+          "S4": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "actionable": true,
+            "good": true,
+            "anchor_match": true
+          },
+          "S5": {
+            "engine_crash": true,
+            "command_nonnull": false,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "actionable": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "S6": {
+            "engine_crash": false,
+            "command_nonnull": false,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 2,
+            "actionable": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "S7": {
+            "engine_crash": false,
+            "command_nonnull": false,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "actionable": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "S8": {
+            "engine_crash": false,
+            "command_nonnull": false,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "actionable": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "F1": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "detected": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "F2": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "detected": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "F3": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "detected": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "F4": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "detected": false,
+            "good": false,
+            "anchor_match": true
+          },
+          "P1": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "state_key": "done",
+            "badge_word": "PASSED",
+            "good": false,
+            "anchor_match": true
+          },
+          "P2": {
+            "engine_crash": false,
+            "command_nonnull": true,
+            "warnings_count": 0,
+            "warning_matched": false,
+            "stop_gate_exit": 0,
+            "reconstructible": true,
+            "good": true,
+            "anchor_match": true
+          },
+          "gate_engine_ref_agreement": {
+            "good": false,
+            "gate_ref_states": [
+              "built",
+              "done",
+              "failed"
+            ],
+            "engine_ref_states": [
+              "accepted",
+              "built",
+              "done",
+              "failed",
+              "in-progress"
+            ],
+            "missing_from_gate": [
+              "accepted",
+              "in-progress"
+            ],
+            "extra_in_gate": []
+          },
+          "scripted-reachability-check-exists": {
+            "good": false,
+            "exists": false,
+            "hits": []
+          }
+        },
+        "s_actionable": "2/8",
+        "f_detected": "0/4",
+        "baseline_file": "benchmarks/dark/results/2026-07-18-status-truth.json",
+        "regressions": [],
+        "results_file": "benchmarks/dark/results/2026-07-21-status-truth.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "dark-midwave-crash-resume",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "field-delivery-state-audit",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "lint_delivery_refs",
+        "audit_hygiene",
+        "check_markers",
+        "audit_binder_mutations",
+        "fixture-detection-matrix",
+        "doctrine-anchor-grep"
+      ],
+      "findings_count": 2,
+      "findings": [
+        {
+          "finding_id": "evidence:parchmark",
+          "severity": "info",
+          "summary": "parchmark: 37 field findings recorded as evidence (not gated)"
+        },
+        {
+          "finding_id": "evidence:gringotts",
+          "severity": "info",
+          "summary": "gringotts: 17 field findings recorded as evidence (not gated)"
+        }
+      ],
+      "metrics": {
+        "detection_rate": "13/13",
+        "negatives_clean": true,
+        "doctrine_anchors_present": true,
+        "live_findings_per_repo": {
+          "parchmark": 37,
+          "gringotts": 17
+        }
+      },
+      "detail": ""
+    },
+    {
+      "id": "field-feature-adoption-ledger",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "manifest-gate (entry or observable:false sentinel per release)",
+        "activity-event attribution (three pinned commit classes)",
+        "first-use ledger (immutable committed first_use carry-forward)",
+        "classification (ADOPTED / NOT-EXERCISED-SINCE-SHIP / AVAILABLE-BUT-UNUSED / CURRENT-STATE-ONLY)",
+        "adoption-lag (median at n>=5, pre-release-dogfood excluded)"
+      ],
+      "findings_count": 7,
+      "findings": [
+        {
+          "finding_id": "abu-parchmark-failure-path-durable-traces",
+          "severity": "warning",
+          "summary": "parchmark: failure-path-durable-traces AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        },
+        {
+          "finding_id": "abu-parchmark-karta-validate-loop",
+          "severity": "warning",
+          "summary": "parchmark: karta-validate-loop AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        },
+        {
+          "finding_id": "abu-parchmark-sme-override-markers",
+          "severity": "warning",
+          "summary": "parchmark: sme-override-markers AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        },
+        {
+          "finding_id": "abu-gringotts-smoke-oracle-type",
+          "severity": "warning",
+          "summary": "gringotts: smoke-oracle-type AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        },
+        {
+          "finding_id": "abu-gringotts-failure-path-durable-traces",
+          "severity": "warning",
+          "summary": "gringotts: failure-path-durable-traces AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        },
+        {
+          "finding_id": "abu-gringotts-karta-validate-loop",
+          "severity": "warning",
+          "summary": "gringotts: karta-validate-loop AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        },
+        {
+          "finding_id": "abu-gringotts-sme-override-markers",
+          "severity": "warning",
+          "summary": "gringotts: sme-override-markers AVAILABLE-BUT-UNUSED (activity after ship, detection never fired)"
+        }
+      ],
+      "metrics": {
+        "repos_audited": [
+          "parchmark",
+          "gringotts"
+        ],
+        "parchmark_available_but_unused": 3,
+        "parchmark_denominator": 11,
+        "parchmark_adopted": 6,
+        "parchmark_not_exercised": 1,
+        "parchmark_current_state_only": 1,
+        "parchmark_median_lag_days": "n/a",
+        "gringotts_available_but_unused": 4,
+        "gringotts_denominator": 11,
+        "gringotts_adopted": 6,
+        "gringotts_not_exercised": 0,
+        "gringotts_current_state_only": 1,
+        "gringotts_median_lag_days": 8
+      },
+      "detail": ""
+    },
+    {
+      "id": "field-companion-loop-health",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "enable-epoch-transitions",
+        "gardner-coverage-per-delivery",
+        "kaizen-additive-floor (imported validate_packs grammar)",
+        "correction-incidents-0-14d-right-censored",
+        "spawn-utility",
+        "config-staleness"
+      ],
+      "findings_count": 13,
+      "findings": [
+        {
+          "finding_id": "card-contradiction-history-walk",
+          "severity": "info",
+          "summary": "permanent card contradiction: card steps 1/3 pin first-parent-only history walks, but they contradict the card's own step 4 and seed observation on the real repos \u2014 subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (never --all); first-parent is reserved for epoch transitions and delivery enumeration; the delivery denominator is integration merges with archive-adds as the fast-forward fallback (dedupe by slug, merge wins)"
+        },
+        {
+          "finding_id": "parchmark-gardner-whiff-settings-account-summary",
+          "severity": "warning",
+          "summary": "parchmark: delivery settings-account-summary has no 'docs: gardner settings-account-summary' commit (true-whiff)"
+        },
+        {
+          "finding_id": "parchmark-gardner-whiff-settings-password-change",
+          "severity": "warning",
+          "summary": "parchmark: delivery settings-password-change has no 'docs: gardner settings-password-change' commit (true-whiff)"
+        },
+        {
+          "finding_id": "parchmark-gardner-whiff-note-create-workflow",
+          "severity": "warning",
+          "summary": "parchmark: delivery note-create-workflow has no 'docs: gardner note-create-workflow' commit (true-whiff)"
+        },
+        {
+          "finding_id": "parchmark-gardner-whiff-note-delete-workflow",
+          "severity": "warning",
+          "summary": "parchmark: delivery note-delete-workflow has no 'docs: gardner note-delete-workflow' commit (true-whiff)"
+        },
+        {
+          "finding_id": "parchmark-gardner-whiff-note-edit-save-workflow",
+          "severity": "warning",
+          "summary": "parchmark: delivery note-edit-save-workflow has no 'docs: gardner note-edit-save-workflow' commit (true-whiff)"
+        },
+        {
+          "finding_id": "parchmark-staleness-doc-gardner",
+          "severity": "info",
+          "summary": "parchmark: .karta/doc-gardner.json is 15 deliveries since last touch; focus='keep user-facing docs, architecture notes, and API references aligned with note tag editing behavior'; last 5 deliveries: ['note-tags-editing', 'notes-list-from-backend', 'deps-upgrade-latest', 'backend-service-layer-notes-auth', 'backend-hygiene']"
+        },
+        {
+          "finding_id": "parchmark-staleness-kaizen",
+          "severity": "info",
+          "summary": "parchmark: .karta/kaizen.json is 0 deliveries since last touch; focus=None; last 5 deliveries: ['note-tags-editing', 'notes-list-from-backend', 'deps-upgrade-latest', 'backend-service-layer-notes-auth', 'backend-hygiene']"
+        },
+        {
+          "finding_id": "parchmark-spawn-utility",
+          "severity": "info",
+          "summary": "parchmark: kaizen spawn utility 0 substantive edits over 0 deliveries in the kaizen epoch"
+        },
+        {
+          "finding_id": "gringotts-incident-08bc02a44",
+          "severity": "info",
+          "summary": "gringotts: correction incident (dd80e01b1, 08bc02a44, 17 min) \u2014 sme(go-htmx): scope htmx.8 to byte-identity cases, prefer view-model composition"
+        },
+        {
+          "finding_id": "gringotts-staleness-doc-gardner",
+          "severity": "info",
+          "summary": "gringotts: .karta/doc-gardner.json is 4 deliveries since last touch; focus=None; last 5 deliveries: ['upload-reliability', 'exif-persistence', 'debt-sweep', 'exif-display', 'browse-refinements']"
+        },
+        {
+          "finding_id": "gringotts-staleness-kaizen",
+          "severity": "info",
+          "summary": "gringotts: .karta/kaizen.json is 5 deliveries since last touch; focus=None; last 5 deliveries: ['upload-reliability', 'exif-persistence', 'debt-sweep', 'exif-display', 'browse-refinements']"
+        },
+        {
+          "finding_id": "gringotts-spawn-utility",
+          "severity": "info",
+          "summary": "gringotts: kaizen spawn utility 1 substantive edits over 5 deliveries in the kaizen epoch"
+        }
+      ],
+      "metrics": {
+        "consumers": [
+          "parchmark",
+          "gringotts"
+        ],
+        "parchmark_gardner": "10/15",
+        "parchmark_floor_fail": 0,
+        "parchmark_floor_warn": 0,
+        "parchmark_incidents": 0,
+        "parchmark_window_open": 0,
+        "parchmark_spawn_substantive": 0,
+        "gringotts_gardner": "4/4",
+        "gringotts_floor_fail": 0,
+        "gringotts_floor_warn": 0,
+        "gringotts_incidents": 1,
+        "gringotts_window_open": 1,
+        "gringotts_spawn_substantive": 1
+      },
+      "detail": ""
+    },
+    {
+      "id": "sme-pack-static-suite",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "pack-format-validation (validate_packs.py, exceptions applied)",
+        "mirror-parity (check_shared_copies.py)",
+        "cross-prefix collision/foreign-use audit",
+        "matching-rule sha256 guard (match_pins.py)",
+        "per-binder pin derivation table with era partitioning",
+        "seed-drift classification vs built-in git history",
+        "dead/overbroad match-token audit",
+        "baseline regression gate"
+      ],
+      "findings_count": 19,
+      "findings": [
+        {
+          "finding_id": "dead-token:gringotts:go-htmx:htmx",
+          "severity": "recorded",
+          "summary": "dead-token 'htmx' in gringotts/go-htmx"
+        },
+        {
+          "finding_id": "dead-token:gringotts:go-htmx:templ",
+          "severity": "recorded",
+          "summary": "dead-token 'templ' in gringotts/go-htmx"
+        },
+        {
+          "finding_id": "dead-token:parchmark:python-fastapi:pydantic",
+          "severity": "recorded",
+          "summary": "dead-token 'pydantic' in parchmark/python-fastapi"
+        },
+        {
+          "finding_id": "dead-token:parchmark:vue:@vue/runtime-core",
+          "severity": "recorded",
+          "summary": "dead-token '@vue/runtime-core' in parchmark/vue"
+        },
+        {
+          "finding_id": "overbroad-token:gringotts:go-htmx:go",
+          "severity": "recorded",
+          "summary": "overbroad-token 'go' in gringotts/go-htmx"
+        },
+        {
+          "finding_id": "overbroad-token:gringotts:go-naming:go",
+          "severity": "recorded",
+          "summary": "overbroad-token 'go' in gringotts/go-naming"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:backend-drop-sync-session",
+          "severity": "recorded",
+          "summary": "parchmark/backend-drop-sync-session [v1.1.0]: underivable=['python-fastapi'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:backend-hygiene",
+          "severity": "recorded",
+          "summary": "parchmark/backend-hygiene [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:backend-pyjwt-migration",
+          "severity": "recorded",
+          "summary": "parchmark/backend-pyjwt-migration [v1.1.0]: underivable=['python-fastapi'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:backend-service-layer-notes-auth",
+          "severity": "recorded",
+          "summary": "parchmark/backend-service-layer-notes-auth [v1.1.0]: underivable=['python-fastapi'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:deps-upgrade-latest",
+          "severity": "recorded",
+          "summary": "parchmark/deps-upgrade-latest [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:note-events-live-refresh",
+          "severity": "recorded",
+          "summary": "parchmark/note-events-live-refresh [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:note-tags-editing",
+          "severity": "recorded",
+          "summary": "parchmark/note-tags-editing [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:settings-account-delete",
+          "severity": "recorded",
+          "summary": "parchmark/settings-account-delete [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:settings-account-summary",
+          "severity": "recorded",
+          "summary": "parchmark/settings-account-summary [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:settings-notes-export",
+          "severity": "recorded",
+          "summary": "parchmark/settings-notes-export [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "pin-nonconformant:parchmark:settings-password-change",
+          "severity": "recorded",
+          "summary": "parchmark/settings-password-change [v1.1.0]: underivable=['python-fastapi', 'vue'] missing=[]"
+        },
+        {
+          "finding_id": "seed-drift:gringotts:go-htmx:DIVERGENT",
+          "severity": "recorded",
+          "summary": "overlay gringotts/go-htmx is DIVERGENT vs built-in history"
+        },
+        {
+          "finding_id": "seed-drift:gringotts:go-naming:DIVERGENT",
+          "severity": "recorded",
+          "summary": "overlay gringotts/go-naming is DIVERGENT vs built-in history"
+        }
+      ],
+      "metrics": {
+        "packs_checked": 15,
+        "karta_owned_failures": 0,
+        "size_warnings": 2,
+        "binders_pinned": 16,
+        "binders_smeless_excluded": 4,
+        "current_era": "v1.17.0",
+        "conformance_pct_current_era": 100.0,
+        "drift_non_identical": 2,
+        "recorded_findings": 19,
+        "baseline": "benchmarks/sme/results/2026-07-18-sme-pack-static-suite.json",
+        "results_file": "benchmarks/sme/results/2026-07-21-sme-pack-static-suite.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "sme-fixture-campaign",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "perf-context-latency-floors",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "perf-delivery-telemetry",
+      "status": "PASS",
+      "partial": true,
+      "implemented_checks": [
+        "mode-1-cost (fixture-validated)",
+        "mode-4-compliance (fixture-validated)"
+      ],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {
+        "fixture_checks_passed": 18,
+        "fixture_checks_total": 18,
+        "live_dirs_present": 3,
+        "live_dirs_absent": 0,
+        "live_sessions_scanned": 36,
+        "live_deliveries_measurable": 14,
+        "live_unmeasurable_or_skipped": 0,
+        "snapshot": "benchmarks/perf/results/2026-07-21-perf-telemetry.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "perf-fixture-cost-baseline",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "quality-oracle-discrimination",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "quality-verify-integrity-drills",
+      "status": "PASS",
+      "partial": true,
+      "implemented_checks": [
+        "layer0-tripwire-a-safety-auditor-blocked-empty-diff-clause",
+        "layer0-tripwire-b-acceptance-reviewer-empty-diff-precondition",
+        "layer0-tripwire-c-store-no-loop-state-persisted-attempt-pairing"
+      ],
+      "findings_count": 3,
+      "findings": [
+        {
+          "finding_id": "tripwire-a-blocked-empty-diff-clause-missing",
+          "severity": "known-open",
+          "summary": "agents/karta-safety-auditor.md: BLOCKED definition lacks the empty-diff clause ('readable but empty' absent from the Verdicts section) \u2014 a readable-but-empty diff fires no signal (known gap)"
+        },
+        {
+          "finding_id": "tripwire-c-loop-state-unpaired:agents/karta-safety-auditor.md",
+          "severity": "known-open",
+          "summary": "agents/karta-safety-auditor.md: 'store no loop state' present with no persisted-attempt mechanism in the same file \u2014 caps are in-memory only and reset on resume (known gap)"
+        },
+        {
+          "finding_id": "tripwire-c-loop-state-unpaired:agents/karta-acceptance-reviewer.md",
+          "severity": "known-open",
+          "summary": "agents/karta-acceptance-reviewer.md: 'store no loop state' present with no persisted-attempt mechanism in the same file \u2014 caps are in-memory only and reset on resume (known gap)"
+        }
+      ],
+      "metrics": {
+        "tripwires_passed": 1,
+        "tripwires_total": 3,
+        "tripwire_states": [
+          "a=known-open",
+          "b=pass",
+          "c=known-open"
+        ],
+        "baseline": "benchmarks/quality/results/2026-07-18-verify-drills.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "quality-doc-gardner-recall",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "parity-doc-truth-ledger",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "lane-B-count-claims",
+        "lane-C-version-pins",
+        "lane-D-skill-discoverability",
+        "lane-E-claim-ledger",
+        "lane-F-relative-links",
+        "lane-G-phase-labels"
+      ],
+      "findings_count": 14,
+      "findings": [
+        {
+          "finding_id": "B:failed-expect:claude-code-three-agents-intro",
+          "severity": "violation",
+          "summary": "claim 'three agents' in docs/how-to/claude-code.md states 3, truth is 4"
+        },
+        {
+          "finding_id": "B:failed-expect:claude-code-three-agents-registers",
+          "severity": "violation",
+          "summary": "claim 'three agents' in docs/how-to/claude-code.md states 3, truth is 4"
+        },
+        {
+          "finding_id": "B:failed-expect:marketplace-two-gate-agents-detail-desc",
+          "severity": "violation",
+          "summary": "claim 'two read-only gate agents' in .claude-plugin/marketplace.json states 2, truth is 4"
+        },
+        {
+          "finding_id": "B:failed-expect:marketplace-two-gate-agents-plugin-desc",
+          "severity": "violation",
+          "summary": "claim 'two read-only gate agents' in .claude-plugin/marketplace.json states 2, truth is 4"
+        },
+        {
+          "finding_id": "B:failed-expect:readme-five-skills-flow",
+          "severity": "violation",
+          "summary": "claim 'Five skills' in README.md states 5, truth is 10"
+        },
+        {
+          "finding_id": "B:failed-expect:readme-five-skills-heading",
+          "severity": "violation",
+          "summary": "claim 'five skills' in README.md states 5, truth is 10"
+        },
+        {
+          "finding_id": "B:failed-expect:readme-two-agents-heading",
+          "severity": "violation",
+          "summary": "claim 'two agents' in README.md states 2, truth is 4"
+        },
+        {
+          "finding_id": "C:stale-pin:docs/how-to/codex.md:1.19:1",
+          "severity": "violation",
+          "summary": "stale major-version pin 'Karta 1.19' in docs/how-to/codex.md (current major 2)"
+        },
+        {
+          "finding_id": "C:stale-pin:docs/how-to/codex.md:1.19:2",
+          "severity": "violation",
+          "summary": "stale major-version pin 'Karta 1.19' in docs/how-to/codex.md (current major 2)"
+        },
+        {
+          "finding_id": "D:undiscoverable:karta-status",
+          "severity": "violation",
+          "summary": "skill karta-status appears nowhere in README.md or docs/how-to/*.md"
+        },
+        {
+          "finding_id": "E:ledger:DG-SCHEMA",
+          "severity": "violation",
+          "summary": "DG-SCHEMA: a doc promises a doc-gardner schema gate some code executes, but no shipped .py references doc-gardner-schema.json (matching .py files: 0)"
+        },
+        {
+          "finding_id": "E:ledger:KAIZEN-USERREPO",
+          "severity": "violation",
+          "summary": "KAIZEN-USERREPO: the kaizen how-to promises config validation for user repos, but no hook/skill invokes config validation with a consumer-repo root (validate_plugin.py hard-anchors ROOT to the karta repo) (matching .py files: 0)"
+        },
+        {
+          "finding_id": "G:unregistered-root:docgardner",
+          "severity": "violation",
+          "summary": "label root 'docgardner' is in use but missing from the Roots table"
+        },
+        {
+          "finding_id": "G:unregistered-root:kaizen",
+          "severity": "violation",
+          "summary": "label root 'kaizen' is in use but missing from the Roots table"
+        }
+      ],
+      "metrics": {
+        "lane_B": 7,
+        "lane_C": 2,
+        "lane_D": 1,
+        "lane_E": 2,
+        "lane_F": 0,
+        "lane_G": 2,
+        "retired_claims": 0,
+        "retired_ledger": 0
+      },
+      "detail": ""
+    },
+    {
+      "id": "parity-mirror-sync-integrity",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "shared-copy byte parity",
+        "plugin manifest validation",
+        "P1-exec-bit-projection",
+        "P2-lock-degradation-survival",
+        "P3-external-hash-liveness"
+      ],
+      "findings_count": 3,
+      "findings": [
+        {
+          "finding_id": "P1-exec-bit-projection",
+          "severity": "error",
+          "summary": "exec bit lost in projection: write-mode sync compares bytes only, so +x on the canonical never reaches .agents/skills/ or plugins/karta/"
+        },
+        {
+          "finding_id": "P2-lock-degradation-survival",
+          "severity": "error",
+          "summary": "degraded lock entry (computedHash removed) made write-mode sync rmtree the external skill as an orphan, then crash on the stale have-set"
+        },
+        {
+          "finding_id": "P3-external-hash-liveness",
+          "severity": "error",
+          "summary": "tampered external SKILL.md passes sync --check and validate_plugin silently \u2014 computedHash is never recomputed against content"
+        }
+      ],
+      "metrics": {
+        "checks_run": 2,
+        "checks_failed": 0,
+        "probes_passed": 0,
+        "probes_total": 3,
+        "baseline": "benchmarks/parity/results/2026-07-18-sync-probes.json"
+      },
+      "detail": ""
+    },
+    {
+      "id": "sec-untrusted-input-surfaces",
+      "status": "PASS",
+      "partial": true,
+      "implemented_checks": [
+        "P1-escaped-render(byte-grep / + /state.json)",
+        "P1-bind-scope(127.0.0.1)",
+        "P1-key-gate(--key refuses keyless)",
+        "P2-injection-inertness(inert delimiter)",
+        "P2-injection-byte-budget",
+        "frozen-unescaped-sink-list",
+        "baseline-regression-diff"
+      ],
+      "findings_count": 4,
+      "findings": [
+        {
+          "finding_id": "seed-P1-unescaped-render",
+          "severity": "high",
+          "summary": "serve_status.py renders attacker-controlled binder strings unescaped (zero html.escape calls): 7 unescaped sink(s), 3 in the rendered HTML (index::archive-xss, index::img-onerror, index::inject-sentence)"
+        },
+        {
+          "finding_id": "seed-P1-frozen-sink-list",
+          "severity": "info",
+          "summary": "frozen unescaped-sink list recorded (count must reach and stay 0): index::archive-xss, index::img-onerror, index::inject-sentence, state_json::archive-xss, state_json::img-onerror, state_json::inject-sentence, state_json::script-tag"
+        },
+        {
+          "finding_id": "seed-P2-undelimited-injection",
+          "severity": "medium",
+          "summary": "inject_karta_status.py carries repo-derived text into session context with no inert delimiter (first line: 'karta: 1 binder(s) in .karta/binders'); a poisoned binder string is undelimited instruction"
+        },
+        {
+          "finding_id": "card-step6-results-path-errata",
+          "severity": "info",
+          "summary": "results are written to benchmarks/sec/results/<date>-sec-probes.json per the card frontmatter results dir and the sibling probes' date-keyed convention, deviating from card step 6's benchmarks/results/<version>-sec-probes.json (no RC version exists mid-cycle) \u2014 card text left untouched"
+        }
+      ],
+      "metrics": {
+        "unescaped_sink_count": 7,
+        "unescaped_sinks": [
+          "index::archive-xss",
+          "index::img-onerror",
+          "index::inject-sentence",
+          "state_json::archive-xss",
+          "state_json::img-onerror",
+          "state_json::inject-sentence",
+          "state_json::script-tag"
+        ],
+        "html_sink_count": 3,
+        "bind_scope": true,
+        "key_gate": true,
+        "injection_delimited": false,
+        "injection_bytes": 152,
+        "injection_budget": 4096,
+        "baseline_file": "benchmarks/sec/results/2026-07-18-sec-probes.json",
+        "regressions": [],
+        "results_file": "benchmarks/sec/results/2026-07-21-sec-probes.json",
+        "not_implemented": [
+          "P3-live-claude-p-pack-directive-noncompliance"
+        ]
+      },
+      "detail": ""
+    },
+    {
+      "id": "release-gate-blocking-smoke",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "bench-self-integrity",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "ownership-cost-ledger",
+      "status": "PASS",
+      "partial": false,
+      "implemented_checks": [
+        "machinery-counts (a)",
+        "manual-release-steps (b)",
+        "bench-spend (c)",
+        "triage-load (d)",
+        "buy-vs-build-recheck",
+        "ledger-integrity"
+      ],
+      "findings_count": 3,
+      "findings": [
+        {
+          "finding_id": "cost-growth-script_count_delta",
+          "severity": "info",
+          "summary": "script_count_delta grew by 3 since the last row (evidence for the human, never a gate failure)"
+        },
+        {
+          "finding_id": "cost-growth-bench_loc_delta",
+          "severity": "info",
+          "summary": "bench_loc_delta grew by 1298 since the last row (evidence for the human, never a gate failure)"
+        },
+        {
+          "finding_id": "card-results-dir-mismatch",
+          "severity": "info",
+          "summary": "card frontmatter results: benchmarks/meta/results/ contradicts the procedure's benchmarks/field/results/ownership-ledger.json path; the ledger follows the procedure (card left untouched, mismatch recorded)."
+        }
+      ],
+      "metrics": {
+        "rows_total": 1,
+        "integrity_errors": 0,
+        "buy_vs_build_violations": 0,
+        "fresh_row_diff": {
+          "first_row": false,
+          "against_release": "2.21.0",
+          "duplicated_bytes_delta": 0,
+          "script_count_delta": 3,
+          "bench_loc_delta": 1298,
+          "wall_clock_delta": "n/a",
+          "token_delta": "n/a",
+          "unresolved_triage": 147,
+          "buy_vs_build_no_longer_correct": 0
+        }
+      },
+      "detail": ""
+    },
+    {
+      "id": "consumer-upgrade-compat",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    },
+    {
+      "id": "model-refresh-sentinel",
+      "status": "SKIPPED",
+      "partial": null,
+      "implemented_checks": [],
+      "findings_count": 0,
+      "findings": [],
+      "metrics": {},
+      "detail": "no probe yet"
+    }
+  ],
+  "summary": {
+    "total": 24,
+    "pass": 13,
+    "fail": 0,
+    "error": 0,
+    "skipped": 11
+  }
+}

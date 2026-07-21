@@ -1,0 +1,712 @@
+{
+ "run_date": "2026-07-21",
+ "rows": [
+  {
+   "repo": "parchmark",
+   "head": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+   "caveat": "deliveries carry no plugin-version stamp, so this is loop health over calendar time, not a controlled version A/B",
+   "deliveries": [
+    {
+     "slug": "settings-account-summary",
+     "sha": "53050b7324b1273065d4193bd8de2f1bfd00fe02",
+     "ct": 1782269467,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "settings-password-change",
+     "sha": "0698b549346973f20173c00b2cd27fc22731befd",
+     "ct": 1782418144,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "settings-notes-export",
+     "sha": "ba0c464097c0d9af59d735834be460c3c56ae0ff",
+     "ct": 1782632670,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "note-events-live-refresh",
+     "sha": "796893899f102cd2f7767253a6495e383063f395",
+     "ct": 1782835957,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "settings-account-delete",
+     "sha": "649b6d9c63df2dae75ea64fe639a91198f163371",
+     "ct": 1782871333,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-pyjwt-migration",
+     "sha": "c74a6909c7d12f873f53869e2daa456637b945e0",
+     "ct": 1782882715,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-drop-sync-session",
+     "sha": "4fccfeb53e9a081d05a26ad54f2ade61f9196a24",
+     "ct": 1782938744,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "note-create-workflow",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "note-delete-workflow",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "note-edit-save-workflow",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "note-tags-editing",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "notes-list-from-backend",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "deps-upgrade-latest",
+     "sha": "b74f28c7dfe598de74538d5c5930914e1b308e64",
+     "ct": 1783010335,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-service-layer-notes-auth",
+     "sha": "7152615a664ef75c613f2ed674fe4d18efc9bfd2",
+     "ct": 1783011507,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-hygiene",
+     "sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+     "ct": 1783356245,
+     "via": "integration-merge"
+    }
+   ],
+   "epochs": {
+    ".karta/doc-gardner.json": {
+     "transitions": [
+      {
+       "sha": "8c4d8dbf96d46139e476d16b0f85437b68b48928",
+       "ct": 1782268072,
+       "to": true
+      }
+     ],
+     "intervals": [
+      {
+       "enable_sha": "8c4d8dbf96d46139e476d16b0f85437b68b48928",
+       "enable_ct": 1782268072,
+       "end_ct": null
+      }
+     ],
+     "enabled_now": true
+    },
+    ".karta/kaizen.json": {
+     "transitions": [
+      {
+       "sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+       "ct": 1783356245,
+       "to": true
+      }
+     ],
+     "intervals": [
+      {
+       "enable_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+       "enable_ct": 1783356245,
+       "end_ct": null
+      }
+     ],
+     "enabled_now": true
+    }
+   },
+   "gardner": {
+    "fraction": "10/15",
+    "covered_n": 10,
+    "denominator_N": 15,
+    "per_slug": [
+     {
+      "slug": "settings-account-summary",
+      "delivery_sha": "53050b7324b1273065d4193bd8de2f1bfd00fe02",
+      "delivery_ct": 1782269467,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782268779
+     },
+     {
+      "slug": "settings-password-change",
+      "delivery_sha": "0698b549346973f20173c00b2cd27fc22731befd",
+      "delivery_ct": 1782418144,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782312850
+     },
+     {
+      "slug": "settings-notes-export",
+      "delivery_sha": "ba0c464097c0d9af59d735834be460c3c56ae0ff",
+      "delivery_ct": 1782632670,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "4d79fa7cf0fb4c2d598f83f010bdb61895dfb7ed",
+      "gardner_ct": 1782420370,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-events-live-refresh",
+      "delivery_sha": "796893899f102cd2f7767253a6495e383063f395",
+      "delivery_ct": 1782835957,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "b9cb57b0f09901000948689594f0d66879eb1fb0",
+      "gardner_ct": 1782829436,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "settings-account-delete",
+      "delivery_sha": "649b6d9c63df2dae75ea64fe639a91198f163371",
+      "delivery_ct": 1782871333,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "eb8fcee787e432c69553e07adc9559e3bd44036a",
+      "gardner_ct": 1782856512,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-pyjwt-migration",
+      "delivery_sha": "c74a6909c7d12f873f53869e2daa456637b945e0",
+      "delivery_ct": 1782882715,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "f39a8181a04b9e993f1ca04c334076ba0b1e5857",
+      "gardner_ct": 1782882324,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-drop-sync-session",
+      "delivery_sha": "4fccfeb53e9a081d05a26ad54f2ade61f9196a24",
+      "delivery_ct": 1782938744,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "9cc696bf4d0298d3f61e44948352e164b1bee87d",
+      "gardner_ct": 1782936338,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-create-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-delete-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-edit-save-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-tags-editing",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "bc44dc16d6d6ae73778443c1ac6444afd88ec64b",
+      "gardner_ct": 1782225043,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "notes-list-from-backend",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "bb6f8fecb8bdaf29d7d31ac4cea56cf664ff83be",
+      "gardner_ct": 1781849148,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "deps-upgrade-latest",
+      "delivery_sha": "b74f28c7dfe598de74538d5c5930914e1b308e64",
+      "delivery_ct": 1783010335,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "9b0560628612635e711151687ae6c87df119773e",
+      "gardner_ct": 1783010115,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-service-layer-notes-auth",
+      "delivery_sha": "7152615a664ef75c613f2ed674fe4d18efc9bfd2",
+      "delivery_ct": 1783011507,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "dde7fd02f466a1bc9b6350ba5f66fac6e7b21b54",
+      "gardner_ct": 1783011349,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-hygiene",
+      "delivery_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+      "delivery_ct": 1783356245,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "5a6b19c0595f590a02119f8fd87b74c0ddfb8184",
+      "gardner_ct": 1783355355,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     }
+    ],
+    "whiffs": [
+     {
+      "slug": "settings-account-summary",
+      "delivery_sha": "53050b7324b1273065d4193bd8de2f1bfd00fe02",
+      "delivery_ct": 1782269467,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782268779
+     },
+     {
+      "slug": "settings-password-change",
+      "delivery_sha": "0698b549346973f20173c00b2cd27fc22731befd",
+      "delivery_ct": 1782418144,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782312850
+     },
+     {
+      "slug": "note-create-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-delete-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-edit-save-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     }
+    ],
+    "excluded_pre_enable": []
+   },
+   "kaizen": {
+    "commits": [
+     {
+      "sha": "dd26dd9a374fd5d215bb5b56af8161125a34cf72",
+      "ct": 1783355439,
+      "subject": "kaizen: seed .karta/sme/ with minimalism, python-fastapi, vue packs",
+      "seed": true,
+      "window_open": false,
+      "touched_packs": [
+       ".karta/sme/minimalism.md",
+       ".karta/sme/python-fastapi.md",
+       ".karta/sme/vue.md"
+      ]
+     }
+    ],
+    "floor": {
+     "fail": [],
+     "warn": [],
+     "checked_n": 1
+    },
+    "incidents": [],
+    "closed_denominator_n": 1,
+    "closed_denominator": [
+     "dd26dd9a374fd5d215bb5b56af8161125a34cf72"
+    ],
+    "window_open": [],
+    "spawn_utility": {
+     "substantive_kaizen_commits_n": 0,
+     "substantive_kaizen_commits": [],
+     "seed_excluded": [
+      "dd26dd9a374fd5d215bb5b56af8161125a34cf72"
+     ],
+     "deliveries_in_kaizen_epoch_n": 0,
+     "deliveries_in_kaizen_epoch": []
+    }
+   },
+   "config_staleness": [
+    {
+     "config": ".karta/doc-gardner.json",
+     "last_touch_sha": "8c4d8dbf96d46139e476d16b0f85437b68b48928",
+     "last_touch_ct": 1782268072,
+     "deliveries_since_n": 15,
+     "deliveries_since": [
+      "settings-account-summary",
+      "settings-password-change",
+      "settings-notes-export",
+      "note-events-live-refresh",
+      "settings-account-delete",
+      "backend-pyjwt-migration",
+      "backend-drop-sync-session",
+      "note-create-workflow",
+      "note-delete-workflow",
+      "note-edit-save-workflow",
+      "note-tags-editing",
+      "notes-list-from-backend",
+      "deps-upgrade-latest",
+      "backend-service-layer-notes-auth",
+      "backend-hygiene"
+     ],
+     "focus": "keep user-facing docs, architecture notes, and API references aligned with note tag editing behavior",
+     "last_5_delivery_slugs": [
+      "note-tags-editing",
+      "notes-list-from-backend",
+      "deps-upgrade-latest",
+      "backend-service-layer-notes-auth",
+      "backend-hygiene"
+     ]
+    },
+    {
+     "config": ".karta/kaizen.json",
+     "last_touch_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+     "last_touch_ct": 1783356245,
+     "deliveries_since_n": 0,
+     "deliveries_since": [],
+     "focus": null,
+     "last_5_delivery_slugs": [
+      "note-tags-editing",
+      "notes-list-from-backend",
+      "deps-upgrade-latest",
+      "backend-service-layer-notes-auth",
+      "backend-hygiene"
+     ]
+    }
+   ],
+   "findings": [
+    {
+     "finding_id": "card-contradiction-history-walk",
+     "severity": "info",
+     "summary": "permanent card contradiction: card steps 1/3 pin first-parent-only history walks, but they contradict the card's own step 4 and seed observation on the real repos \u2014 subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (never --all); first-parent is reserved for epoch transitions and delivery enumeration; the delivery denominator is integration merges with archive-adds as the fast-forward fallback (dedupe by slug, merge wins)"
+    }
+   ]
+  },
+  {
+   "repo": "gringotts",
+   "head": "20966852788a8d271f7cffc1c14e85da2eaa5002",
+   "caveat": "deliveries carry no plugin-version stamp, so this is loop health over calendar time, not a controlled version A/B",
+   "deliveries": [
+    {
+     "slug": "upload-reliability",
+     "sha": "94dde03cb153b49e8f4c64d5d3e2882905c95fe9",
+     "ct": 1784238715,
+     "via": "archive-add"
+    },
+    {
+     "slug": "exif-persistence",
+     "sha": "dcca9035c36b067d5eeb1a89f1cded9e085de381",
+     "ct": 1784242763,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "debt-sweep",
+     "sha": "3bd6815b4a627acf448a2fccfd969fe262b5547d",
+     "ct": 1784255633,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "exif-display",
+     "sha": "fc2958408ca530318ddd5e06e843c4c0fe6215e9",
+     "ct": 1784258123,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "browse-refinements",
+     "sha": "20966852788a8d271f7cffc1c14e85da2eaa5002",
+     "ct": 1784379404,
+     "via": "integration-merge"
+    }
+   ],
+   "epochs": {
+    ".karta/doc-gardner.json": {
+     "transitions": [
+      {
+       "sha": "40bd608c6e03974c0e530f63cc4d6b7a2c176473",
+       "ct": 1784239990,
+       "to": true
+      }
+     ],
+     "intervals": [
+      {
+       "enable_sha": "40bd608c6e03974c0e530f63cc4d6b7a2c176473",
+       "enable_ct": 1784239990,
+       "end_ct": null
+      }
+     ],
+     "enabled_now": true
+    },
+    ".karta/kaizen.json": {
+     "transitions": [
+      {
+       "sha": "a07cd91baeeb37eaf481805de5637f0d9325163c",
+       "ct": 1784080357,
+       "to": true
+      }
+     ],
+     "intervals": [
+      {
+       "enable_sha": "a07cd91baeeb37eaf481805de5637f0d9325163c",
+       "enable_ct": 1784080357,
+       "end_ct": null
+      }
+     ],
+     "enabled_now": true
+    }
+   },
+   "gardner": {
+    "fraction": "4/4",
+    "covered_n": 4,
+    "denominator_N": 4,
+    "per_slug": [
+     {
+      "slug": "exif-persistence",
+      "delivery_sha": "dcca9035c36b067d5eeb1a89f1cded9e085de381",
+      "delivery_ct": 1784242763,
+      "via": "integration-merge",
+      "enable_ct": 1784239990,
+      "covered": true,
+      "gardner_sha": "8f8a99bd9b47146ab8f892d1e7c80ee274134559",
+      "gardner_ct": 1784242157,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "debt-sweep",
+      "delivery_sha": "3bd6815b4a627acf448a2fccfd969fe262b5547d",
+      "delivery_ct": 1784255633,
+      "via": "integration-merge",
+      "enable_ct": 1784239990,
+      "covered": true,
+      "gardner_sha": "0b5701b173ff9b8b4daa014e02e8298227483385",
+      "gardner_ct": 1784255362,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "exif-display",
+      "delivery_sha": "fc2958408ca530318ddd5e06e843c4c0fe6215e9",
+      "delivery_ct": 1784258123,
+      "via": "integration-merge",
+      "enable_ct": 1784239990,
+      "covered": true,
+      "gardner_sha": "46a6f477b8bca22ae34962b3391eee59d3079062",
+      "gardner_ct": 1784257785,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "browse-refinements",
+      "delivery_sha": "20966852788a8d271f7cffc1c14e85da2eaa5002",
+      "delivery_ct": 1784379404,
+      "via": "integration-merge",
+      "enable_ct": 1784239990,
+      "covered": true,
+      "gardner_sha": "3c94132ce16a8b5305d9ddcac160cfb220217e54",
+      "gardner_ct": 1784334063,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     }
+    ],
+    "whiffs": [],
+    "excluded_pre_enable": [
+     {
+      "slug": "upload-reliability",
+      "delivery_ct": 1784238715,
+      "reason": "pre-enable"
+     }
+    ]
+   },
+   "kaizen": {
+    "commits": [
+     {
+      "sha": "dd80e01b1f5fc08728bba400f6f692fcce9f52d7",
+      "ct": 1784257785,
+      "subject": "kaizen: go-htmx \u2014 byte-identical templ lines need exhaustive branch chains",
+      "seed": false,
+      "window_open": true,
+      "touched_packs": [
+       ".karta/sme/go-htmx.md"
+      ]
+     }
+    ],
+    "floor": {
+     "fail": [],
+     "warn": [],
+     "checked_n": 1
+    },
+    "incidents": [
+     {
+      "kaizen_sha": "dd80e01b1f5fc08728bba400f6f692fcce9f52d7",
+      "correcting_sha": "08bc02a44712b6a76f90c41128877e7df9fd8922",
+      "delta_minutes": 17,
+      "subject": "sme(go-htmx): scope htmx.8 to byte-identity cases, prefer view-model composition"
+     }
+    ],
+    "closed_denominator_n": 0,
+    "closed_denominator": [],
+    "window_open": [
+     "dd80e01b1f5fc08728bba400f6f692fcce9f52d7"
+    ],
+    "spawn_utility": {
+     "substantive_kaizen_commits_n": 1,
+     "substantive_kaizen_commits": [
+      "dd80e01b1f5fc08728bba400f6f692fcce9f52d7"
+     ],
+     "seed_excluded": [],
+     "deliveries_in_kaizen_epoch_n": 5,
+     "deliveries_in_kaizen_epoch": [
+      "upload-reliability",
+      "exif-persistence",
+      "debt-sweep",
+      "exif-display",
+      "browse-refinements"
+     ]
+    }
+   },
+   "config_staleness": [
+    {
+     "config": ".karta/doc-gardner.json",
+     "last_touch_sha": "40bd608c6e03974c0e530f63cc4d6b7a2c176473",
+     "last_touch_ct": 1784239990,
+     "deliveries_since_n": 4,
+     "deliveries_since": [
+      "exif-persistence",
+      "debt-sweep",
+      "exif-display",
+      "browse-refinements"
+     ],
+     "focus": null,
+     "last_5_delivery_slugs": [
+      "upload-reliability",
+      "exif-persistence",
+      "debt-sweep",
+      "exif-display",
+      "browse-refinements"
+     ]
+    },
+    {
+     "config": ".karta/kaizen.json",
+     "last_touch_sha": "a07cd91baeeb37eaf481805de5637f0d9325163c",
+     "last_touch_ct": 1784080357,
+     "deliveries_since_n": 5,
+     "deliveries_since": [
+      "upload-reliability",
+      "exif-persistence",
+      "debt-sweep",
+      "exif-display",
+      "browse-refinements"
+     ],
+     "focus": null,
+     "last_5_delivery_slugs": [
+      "upload-reliability",
+      "exif-persistence",
+      "debt-sweep",
+      "exif-display",
+      "browse-refinements"
+     ]
+    }
+   ],
+   "findings": [
+    {
+     "finding_id": "card-contradiction-history-walk",
+     "severity": "info",
+     "summary": "permanent card contradiction: card steps 1/3 pin first-parent-only history walks, but they contradict the card's own step 4 and seed observation on the real repos \u2014 subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (never --all); first-parent is reserved for epoch transitions and delivery enumeration; the delivery denominator is integration merges with archive-adds as the fast-forward fallback (dedupe by slug, merge wins)"
+    }
+   ]
+  }
+ ]
+}

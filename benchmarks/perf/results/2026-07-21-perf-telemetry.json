@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "vector": "perf-delivery-telemetry",
+  "run_date": "2026-07-21",
+  "generated_by": "benchmarks/probes/perf-delivery-telemetry.py (gate live pass)",
+  "note": "live telemetry evidence over surviving raw transcripts \u2014 recorded, never asserted; the fixture run alone gates",
+  "live": {
+    "since": "2026-06-21",
+    "dirs_present": 3,
+    "dirs_absent": 0,
+    "sessions_scanned": 36,
+    "deliveries_measurable": 14,
+    "unmeasurable_or_skipped": 0,
+    "entries": [
+      {
+        "repo": "/mnt/agent-storage/vader/src/karta",
+        "present": true,
+        "dir": "/home/dev/.claude/projects/-mnt-agent-storage-vader-src-karta",
+        "project": "karta",
+        "context": {
+          "project": "karta",
+          "binder_slug": "bench-probe-buildout,codex-119-compatibility,cross-item-consistency,delivery-stop-gate,kaizen-frame,roundtable-edict,shared-terms-pending,writer-confinement",
+          "plugin_version": "2.21.0",
+          "item_count": 43,
+          "estimate_mix": {
+            "M": 21,
+            "L": 8,
+            "S": 14
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "2.1.212"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 6,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 5,
+              "denominator": 6
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 4,
+              "denominator": 6
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 14,
+        "deliveries_measurable": 6,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "/mnt/agent-storage/vader/src/parchmark",
+        "present": true,
+        "dir": "/home/dev/.claude/projects/-mnt-agent-storage-vader-src-parchmark",
+        "project": "parchmark",
+        "context": {
+          "project": "parchmark",
+          "binder_slug": "backend-hygiene,backend-drop-sync-session,backend-pyjwt-migration,backend-service-layer-notes-auth,deps-upgrade-latest,note-create-workflow,note-delete-workflow,note-edit-save-workflow,note-events-live-refresh,note-tags-editing,notes-list-from-backend,settings-account-delete,settings-account-summary,settings-notes-export,settings-password-change",
+          "plugin_version": "unknown",
+          "item_count": 36,
+          "estimate_mix": {
+            "M": 16,
+            "S": 17,
+            "L": 3
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "2.1.201"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 5,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 5,
+              "denominator": 5
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 4,
+              "denominator": 5
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 4,
+        "deliveries_measurable": 5,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "/mnt/agent-storage/vader/src/gringotts",
+        "present": true,
+        "dir": "/home/dev/.claude/projects/-mnt-agent-storage-vader-src-gringotts",
+        "project": "gringotts",
+        "context": {
+          "project": "gringotts",
+          "binder_slug": "browse-refinements,debt-sweep,exif-display,exif-persistence,upload-reliability",
+          "plugin_version": "unknown",
+          "item_count": 14,
+          "estimate_mix": {
+            "L": 4,
+            "M": 6,
+            "S": 4
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "2.1.200"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 3,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 3,
+              "denominator": 3
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 3,
+              "denominator": 3
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 18,
+        "deliveries_measurable": 3,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      }
+    ]
+  }
+}

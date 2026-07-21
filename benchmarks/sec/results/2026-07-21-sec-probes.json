@@ -1,0 +1,74 @@
+{
+  "findings": [
+    {
+      "finding_id": "seed-P1-unescaped-render",
+      "severity": "high",
+      "summary": "serve_status.py renders attacker-controlled binder strings unescaped (zero html.escape calls): 7 unescaped sink(s), 3 in the rendered HTML (index::archive-xss, index::img-onerror, index::inject-sentence)"
+    },
+    {
+      "finding_id": "seed-P1-frozen-sink-list",
+      "severity": "info",
+      "summary": "frozen unescaped-sink list recorded (count must reach and stay 0): index::archive-xss, index::img-onerror, index::inject-sentence, state_json::archive-xss, state_json::img-onerror, state_json::inject-sentence, state_json::script-tag"
+    },
+    {
+      "finding_id": "seed-P2-undelimited-injection",
+      "severity": "medium",
+      "summary": "inject_karta_status.py carries repo-derived text into session context with no inert delimiter (first line: 'karta: 1 binder(s) in .karta/binders'); a poisoned binder string is undelimited instruction"
+    },
+    {
+      "finding_id": "card-step6-results-path-errata",
+      "severity": "info",
+      "summary": "results are written to benchmarks/sec/results/<date>-sec-probes.json per the card frontmatter results dir and the sibling probes' date-keyed convention, deviating from card step 6's benchmarks/results/<version>-sec-probes.json (no RC version exists mid-cycle) \u2014 card text left untouched"
+    }
+  ],
+  "injection_verbatim": "karta: 1 binder(s) in .karta/binders\n  adversarial-fixture \u2014 not_started, 0/1 items done, packs: sme-poison\n  next: karta-deliver adversarial-fixture\n",
+  "probe_matrix": {
+    "cells": {
+      "bind-scope": {
+        "good": true,
+        "runtime_reachable": true,
+        "static_loopback": true
+      },
+      "escaped-render": {
+        "good": false,
+        "html_sink_count": 3,
+        "sink_count": 7
+      },
+      "injection-byte-budget": {
+        "budget": 4096,
+        "bytes": 152,
+        "good": true
+      },
+      "injection-inertness": {
+        "delimited": false,
+        "good": false
+      },
+      "key-gate": {
+        "good": true,
+        "keyed_status": 200,
+        "keyless_status": 403
+      }
+    },
+    "unescaped_sinks": [
+      "index::archive-xss",
+      "index::img-onerror",
+      "index::inject-sentence",
+      "state_json::archive-xss",
+      "state_json::img-onerror",
+      "state_json::inject-sentence",
+      "state_json::script-tag"
+    ]
+  },
+  "run_date": "2026-07-21",
+  "schema_version": 1,
+  "unescaped_sinks": [
+    "index::archive-xss",
+    "index::img-onerror",
+    "index::inject-sentence",
+    "state_json::archive-xss",
+    "state_json::img-onerror",
+    "state_json::inject-sentence",
+    "state_json::script-tag"
+  ],
+  "vector": "sec-untrusted-input-surfaces"
+}
