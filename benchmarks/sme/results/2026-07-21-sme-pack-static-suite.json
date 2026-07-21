@@ -2,8 +2,8 @@
   "schema_version": 1,
   "vector": "sme-pack-static-suite",
   "run_date": "2026-07-21",
-  "plugin_version": "2.21.0",
-  "karta_sha": "a116a4c2ee49dafc7830138f19e881b3c2a54175",
+  "plugin_version": "2.22.0",
+  "karta_sha": "db2aade576ea5491b2c98f3b030b892f20a53145",
   "consumer_shas": {
     "parchmark": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
     "gringotts": "20966852788a8d271f7cffc1c14e85da2eaa5002"
@@ -571,7 +571,9 @@
     "vue-tsc"
   ],
   "size_warnings": {
-    "karta": [],
+    "karta": [
+      "/mnt/agent-storage/vader/src/karta/.worktrees/bb-integration/skills/_shared/sme/go-htmx.md: warning: pack is 4030 bytes (> 3500) \u2014 packs are prompt text; trim it"
+    ],
     "consumers": [
       "/mnt/agent-storage/vader/src/gringotts/.karta/sme/go-htmx.md: warning: pack is 5028 bytes (> 3500) \u2014 packs are prompt text; trim it",
       "/mnt/agent-storage/vader/src/gringotts/.karta/sme/go-naming.md: warning: pack is 3576 bytes (> 3500) \u2014 packs are prompt text; trim it"
@@ -599,6 +601,6 @@
     "seed-drift:gringotts:go-htmx:DIVERGENT",
     "seed-drift:gringotts:go-naming:DIVERGENT"
   ],
-  "baseline_file": "benchmarks/sme/results/2026-07-18-sme-pack-static-suite.json",
+  "baseline_file": "benchmarks/sme/results/2026-07-21-sme-pack-static-suite.json",
   "status": "pass"
 }
