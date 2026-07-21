@@ -6,17 +6,12 @@
       "summary": "frozen unescaped-sink list recorded (count must reach and stay 0): none"
     },
     {
-      "finding_id": "seed-P2-undelimited-injection",
-      "severity": "medium",
-      "summary": "inject_karta_status.py carries repo-derived text into session context with no inert delimiter (first line: 'karta: 1 binder(s) in .karta/binders'); a poisoned binder string is undelimited instruction"
-    },
-    {
       "finding_id": "card-step6-results-path-errata",
       "severity": "info",
       "summary": "results are written to benchmarks/sec/results/<date>-sec-probes.json per the card frontmatter results dir and the sibling probes' date-keyed convention, deviating from card step 6's benchmarks/results/<version>-sec-probes.json (no RC version exists mid-cycle) \u2014 card text left untouched"
     }
   ],
-  "injection_verbatim": "karta: 1 binder(s) in .karta/binders\n  adversarial-fixture \u2014 not_started, 0/1 items done, packs: sme-poison\n  next: karta-deliver adversarial-fixture\n",
+  "injection_verbatim": "<karta-status>\nkarta: 1 binder(s) in .karta/binders\n  adversarial-fixture \u2014 not_started, 0/1 items done, packs: sme-poison\n  next: karta-deliver adversarial-fixture\n</karta-status>\n",
   "probe_matrix": {
     "cells": {
       "bind-scope": {
@@ -31,12 +26,12 @@
       },
       "injection-byte-budget": {
         "budget": 4096,
-        "bytes": 152,
+        "bytes": 183,
         "good": true
       },
       "injection-inertness": {
-        "delimited": false,
-        "good": false
+        "delimited": true,
+        "good": true
       },
       "key-gate": {
         "good": true,
