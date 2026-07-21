@@ -40,7 +40,7 @@
         "write": {
           "exit": 0,
           "output": [
-            "recomputed computedHash for 1 external skill(s) in skills-lock.json",
+            "recomputed computedHash for external skill 'plannotator-compound' in skills-lock.json: (none) -> 230a73ccb90e1fb22d3b7250a08e0b067b7084ed2cbd7e5193f567acf73aae41",
             "codex projections in sync (103 mirror files, 0 written/updated; 104 install files, 0 written/updated)"
           ]
         },

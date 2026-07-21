@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "Stack-agnostic orchestration skills + four agents — two read-only gates (karta-acceptance-reviewer, karta-safety-auditor) and two opt-in writers (karta-doc-gardner for docs, karta-kaizen for stack packs): synthesize a binder of work items, deliver it in parallel waves onto a per-binder integration branch, build each item in an isolated worktree, and gate it on behavioral or visual acceptance. Deep frontend support preserved.",
-    "version": "2.22.0"
+    "version": "2.23.0"
   },
   "plugins": [
     {

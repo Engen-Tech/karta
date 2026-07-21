@@ -229,6 +229,27 @@
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
+    },
+    {
+      "id": "builtin-go-packs",
+      "karta_version": "2.22.0",
+      "ship_date": "2026-07-21T10:33:39-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "go-naming",
+        "path": ".karta"
+      },
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "f9043a5a00a079df3e1f3bd9767c1df3629df278",
+        "date": "2026-07-15T11:07:41-04:00"
+      },
+      "carried_forward": false,
+      "adoption_lag_days": -6,
+      "lag_label": "pre-release-dogfood",
+      "present_now": null,
+      "days_since_last_activity": null
     }
   ],
   "headline": {
@@ -239,7 +260,7 @@
       "sme-override-markers"
     ],
     "count": 4,
-    "denominator": 11
+    "denominator": 12
   },
   "adoption_lag_n": 5,
   "adoption_lag_median_days": 8

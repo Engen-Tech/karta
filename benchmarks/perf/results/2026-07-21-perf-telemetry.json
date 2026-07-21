@@ -9,7 +9,7 @@
     "dirs_present": 3,
     "dirs_absent": 0,
     "sessions_scanned": 36,
-    "deliveries_measurable": 14,
+    "deliveries_measurable": 15,
     "unmeasurable_or_skipped": 0,
     "entries": [
       {
@@ -19,19 +19,19 @@
         "project": "karta",
         "context": {
           "project": "karta",
-          "binder_slug": "bench-probe-buildout,codex-119-compatibility,cross-item-consistency,delivery-stop-gate,kaizen-frame,roundtable-edict,shared-terms-pending,writer-confinement",
-          "plugin_version": "2.21.0",
-          "item_count": 43,
+          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,cross-item-consistency,delivery-stop-gate,kaizen-frame,roundtable-edict,shared-terms-pending,writer-confinement",
+          "plugin_version": "2.23.0",
+          "item_count": 49,
           "estimate_mix": {
-            "M": 21,
-            "L": 8,
-            "S": 14
+            "M": 24,
+            "S": 16,
+            "L": 9
           },
           "models_per_agent_type": {},
           "claude_code_version": "2.1.212"
         },
         "mode_cost": {
-          "deliveries_measurable": 6,
+          "deliveries_measurable": 7,
           "spawns_per_type": {},
           "per_item": {},
           "per_item_median": {},
@@ -59,8 +59,8 @@
             {
               "script": "validate_binder.py",
               "rule": "before the first worktree-creation Bash of the delivery",
-              "compliant": 5,
-              "denominator": 6
+              "compliant": 6,
+              "denominator": 7
             },
             {
               "script": "check_shared_terms.py",
@@ -71,14 +71,14 @@
             {
               "script": "karta_next.py --footer",
               "rule": "before session end",
-              "compliant": 4,
-              "denominator": 6
+              "compliant": 5,
+              "denominator": 7
             }
           ],
           "unmeasurable_sessions": 0
         },
         "sessions_scanned": 14,
-        "deliveries_measurable": 6,
+        "deliveries_measurable": 7,
         "unmeasurable_sessions": 0,
         "sessions_errored": 0,
         "sessions_skipped_budget": 0

@@ -229,6 +229,24 @@
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": 15
+    },
+    {
+      "id": "builtin-go-packs",
+      "karta_version": "2.22.0",
+      "ship_date": "2026-07-21T10:33:39-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "go-naming",
+        "path": ".karta"
+      },
+      "status": "NOT-EXERCISED-SINCE-SHIP",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": 15
     }
   ],
   "headline": {
@@ -238,7 +256,7 @@
       "sme-override-markers"
     ],
     "count": 3,
-    "denominator": 11
+    "denominator": 12
   },
   "adoption_lag_n": 2,
   "adoption_lag_median_days": null
