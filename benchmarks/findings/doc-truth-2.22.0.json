@@ -1,0 +1,40 @@
+{
+ "id": "parity-doc-truth-ledger",
+ "lanes": {
+  "B": {
+   "count": 0,
+   "violations": []
+  },
+  "C": {
+   "count": 0,
+   "violations": []
+  },
+  "D": {
+   "count": 0,
+   "violations": []
+  },
+  "E": {
+   "count": 0,
+   "violations": []
+  },
+  "F": {
+   "count": 0,
+   "violations": []
+  },
+  "G": {
+   "count": 0,
+   "violations": []
+  }
+ },
+ "retired": {
+  "claims": 0,
+  "ledger": 1
+ },
+ "truth": {
+  "N_agents": 4,
+  "N_skills": 10,
+  "plugin_version": "2.22.0",
+  "readonly_agents": 2,
+  "writer_agents": 2
+ }
+}

@@ -29,6 +29,8 @@ The leaf is a single lowercase word naming the thing's job. Because labels are u
 |`deliver`|`skills/karta-deliver/SKILL.md`|
 |`verify`|`skills/karta-verify/SKILL.md`|
 |`validate`|`skills/karta-validate/SKILL.md`|
+|`docgardner`|`skills/karta-doc-gardner/SKILL.md`|
+|`kaizen`|`skills/karta-kaizen/SKILL.md`|
 |`dvl`|`skills/karta-build/references/design-validation-loop.md`|
 |`ui`|`skills/karta-plan/references/ui-analysis.md`|
 

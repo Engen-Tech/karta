@@ -5,19 +5,19 @@
       "source": "backnotprop/plannotator",
       "sourceType": "github",
       "skillPath": "apps/skills/extra/plannotator-compound/SKILL.md",
-      "computedHash": "b565361cad06ac5db31940f9f0a6c18f6d3a9521b979350ae6948494d1ba0883"
+      "computedHash": "230a73ccb90e1fb22d3b7250a08e0b067b7084ed2cbd7e5193f567acf73aae41"
     },
     "plannotator-setup-goal": {
       "source": "backnotprop/plannotator",
       "sourceType": "github",
       "skillPath": "apps/skills/extra/plannotator-setup-goal/SKILL.md",
-      "computedHash": "514ee10638ba0aa245a67fffa65fceaf5983875bd57f3a074ae856e0d0702601"
+      "computedHash": "fa516f70415d017a26dbde7215c1a15326bc922078e7446c66018bfa33a9087b"
     },
     "plannotator-visual-explainer": {
       "source": "backnotprop/plannotator",
       "sourceType": "github",
       "skillPath": "apps/skills/extra/plannotator-visual-explainer/SKILL.md",
-      "computedHash": "55bee5783c1aef28c5f38872bb5bc1f59763aca23b6ac92aea2e19428815d75d"
+      "computedHash": "6d9c73f5e2fb41467fac3cdf0a90be1b4f406bec8647518362444a54a2589d19"
     }
   }
 }

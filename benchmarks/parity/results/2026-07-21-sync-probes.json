@@ -2,83 +2,77 @@
   "probes": [
     {
       "id": "P1-exec-bit-projection",
-      "pass": false,
+      "pass": true,
       "evidence": {
         "target": "skills/karta-build/scripts/scan_secrets.py",
         "canonical_mode_after_chmod": "0o775",
         "mirror_projection": {
           "path": "$S/.agents/skills/karta-build/scripts/scan_secrets.py",
-          "mode": "0o664"
+          "mode": "0o775"
         },
         "install_projection": {
           "path": "$S/plugins/karta/skills/karta-build/scripts/scan_secrets.py",
-          "mode": "0o664"
+          "mode": "0o775"
         },
         "check": {
-          "exit": 0,
+          "exit": 1,
           "output": [
-            "CODEX SKILLS PROJECTIONS: IN SYNC"
+            "CODEX SKILLS PROJECTIONS: DRIFT",
+            "  - .agents/skills/karta-build/scripts/scan_secrets.py executable bit differs from canonical \u2014 run: uv run scripts/sync_codex_skills.py",
+            "  - plugins/karta/skills/karta-build/scripts/scan_secrets.py executable bit differs from canonical \u2014 run: uv run scripts/sync_codex_skills.py"
           ]
         },
         "write": {
           "exit": 0,
           "output": [
-            "codex projections in sync (103 mirror files, 0 written/updated; 104 install files, 0 written/updated)"
+            "codex projections in sync (103 mirror files, 1 written/updated; 104 install files, 1 written/updated)"
           ]
         }
       }
     },
     {
       "id": "P2-lock-degradation-survival",
-      "pass": false,
+      "pass": true,
       "evidence": {
         "external_skill": "plannotator-compound",
         "synthesized_fixture": false,
         "degraded_field": "computedHash",
         "write": {
-          "exit": 1,
+          "exit": 0,
           "output": [
-            "removed orphan .agents/skills/plannotator-compound",
-            "Traceback (most recent call last):",
-            "  File \"$S/scripts/sync_codex_skills.py\", line 256, in <module>",
-            "    sys.exit(main())",
-            "             ~~~~^^",
-            "  File \"$S/scripts/sync_codex_skills.py\", line 227, in main",
-            "    p.unlink()",
-            "    ~~~~~~~~^^",
-            "  File \"/usr/lib/python3.13/pathlib/_local.py\", line 748, in unlink",
-            "    os.unlink(self)",
-            "    ~~~~~~~~~^^^^^^",
-            "FileNotFoundError: [Errno 2] No such file or directory: '$S/.agents/skills/plannotator-compound/SKILL.md'"
+            "recomputed computedHash for 1 external skill(s) in skills-lock.json",
+            "codex projections in sync (103 mirror files, 0 written/updated; 104 install files, 0 written/updated)"
           ]
         },
-        "external_dir_survived": false
+        "external_dir_survived": true
       }
     },
     {
       "id": "P3-external-hash-liveness",
-      "pass": false,
+      "pass": true,
       "evidence": {
         "external_skill": "plannotator-compound",
         "synthesized_fixture": false,
         "tamper": "appended 1 byte to the external skill's SKILL.md",
         "check": {
-          "exit": 0,
-          "flagged": false,
+          "exit": 1,
+          "flagged": true,
           "output": [
-            "CODEX SKILLS PROJECTIONS: IN SYNC"
+            "CODEX SKILLS PROJECTIONS: DRIFT",
+            "  - external skill 'plannotator-compound' content hash mismatch: .agents/skills/plannotator-compound/SKILL.md no longer matches skills-lock.json computedHash (tampered or modified) \u2014 run: uv run scripts/sync_codex_skills.py"
           ]
         },
         "validate_plugin": {
-          "exit": 0,
-          "flagged": false,
+          "exit": 1,
+          "flagged": true,
           "output": [
-            "PLUGIN INTEGRITY: PASS"
+            "PLUGIN INTEGRITY: FAIL",
+            "  - external skill 'plannotator-compound' content hash mismatch: .agents/skills/plannotator-compound/SKILL.md no longer matches skills-lock.json computedHash (tampered or modified)"
           ]
         }
       }
     }
   ],
-  "passed": 0,
+  "passed": 3,
   "total": 3
 }

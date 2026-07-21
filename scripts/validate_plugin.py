@@ -180,26 +180,36 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
     # unmanaged orphans. Cross-runtime skills with complete skills-lock.json
     # entries share .agents/skills but are excluded from the karta plugin.
     want, names = sync_codex_skills.expected()
-    for p, content in sorted(want.items()):
+    for p, (content, exec_bits) in sorted(want.items()):
         if not p.exists():
             errors.append(f"{p.relative_to(ROOT)}: missing from .agents/skills mirror (run sync_codex_skills.py)")
         elif p.read_bytes() != content:
             errors.append(f"{p.relative_to(ROOT)}: differs from canonical skill (run sync_codex_skills.py)")
+        elif (p.stat().st_mode & 0o111) != exec_bits:
+            errors.append(f"{p.relative_to(ROOT)}: executable bit differs from canonical skill (run sync_codex_skills.py)")
     for p in sorted(set(sync_codex_skills.mirror_files()) - set(want)):
         errors.append(f"{p.relative_to(ROOT)}: orphaned in mirror (no canonical source)")
     for name in sorted(sync_codex_skills.mirror_skill_names() - names):
         errors.append(f".agents/skills/{name}: orphaned (no skills/{name})")
     install_want = sync_codex_skills.expected_install_projection()
     install_have = set(sync_codex_skills.install_projection_files())
-    for p, content in sorted(install_want.items()):
+    for p, (content, exec_bits) in sorted(install_want.items()):
         if not p.exists():
             errors.append(f"{p.relative_to(ROOT)}: missing from Codex install projection (run sync_codex_skills.py)")
         elif p.read_bytes() != content:
             errors.append(f"{p.relative_to(ROOT)}: differs from canonical Codex install projection (run sync_codex_skills.py)")
+        elif (p.stat().st_mode & 0o111) != exec_bits:
+            errors.append(f"{p.relative_to(ROOT)}: executable bit differs from canonical Codex install projection (run sync_codex_skills.py)")
     for p in sorted(install_have - set(install_want)):
         errors.append(f"{p.relative_to(ROOT)}: orphaned in Codex install projection (no canonical source)")
     for name in sorted(sync_codex_skills.install_projection_skill_names() - names):
         errors.append(f"plugins/karta/skills/{name}: orphaned (no skills/{name})")
+
+    # 3b. External skill hash liveness — recompute each external skill's SKILL.md
+    # content hash (computedHash = sha256 of the bytes as synced locally) against
+    # skills-lock.json; a mismatch, degraded entry, or missing lock entry fails,
+    # naming the skill. Shared with sync_codex_skills --check (one truth).
+    errors.extend(sync_codex_skills.external_integrity_problems())
 
     # 4. Codex agent projections — TOML + bundled instructions match agents/*.md.
     for p, content in sorted(sync_codex_agents.projections().items()):
@@ -232,20 +242,9 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
         elif "display_name:" not in yml.read_text():
             errors.append(f"{name}: agents/openai.yaml missing interface.display_name")
 
-    # 6. doc-gardner opt-in config — if a repo commits one, it must be well-formed.
-    dg = ROOT / ".karta" / "doc-gardner.json"
-    if dg.exists():
-        try:
-            cfg = json.loads(dg.read_text())
-        except json.JSONDecodeError as e:
-            errors.append(f".karta/doc-gardner.json: invalid JSON ({e})")
-            cfg = None
-        if isinstance(cfg, dict):
-            if not isinstance(cfg.get("enabled"), bool):
-                errors.append(".karta/doc-gardner.json: 'enabled' must be a boolean")
-            for key in cfg:
-                if key not in ("enabled", "focus"):
-                    errors.append(f".karta/doc-gardner.json: unknown key '{key}' (allowed: enabled, focus)")
+    # 6. doc-gardner opt-in config — if a repo commits one, it must match the shape
+    # the shipped schema promises (docs/specs/2026-06-18-doc-gardner-design.md §5).
+    _check_doc_gardner(errors)
 
     # 7. kaizen opt-in config — if a repo commits one, it must be well-formed.
     # KARTA-SME-OVERRIDE(min.4): mirrors the proven doc-gardner block above
@@ -306,6 +305,94 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                         "(allowed: enabled, tool, providers, min_providers, focus, points)")
 
 
+DG_SCHEMA = ROOT / "skills" / "karta-doc-gardner" / "references" / "doc-gardner-schema.json"
+_TYPE_BY_NAME = {"boolean": bool, "string": str}
+
+
+def _check_doc_gardner(errors: list[str], config: Path | None = None,
+                       schema: Path | None = None) -> None:
+    """Gate a committed .karta/doc-gardner.json against the shipped schema
+    skills/karta-doc-gardner/references/doc-gardner-schema.json — a hand-rolled
+    stdlib check of the schema's semantics (required keys, per-key type,
+    additionalProperties: false), no jsonschema dependency. An absent config is
+    valid; a missing or unreadable schema is a reported integrity failure (the
+    schema ships with the plugin), never a crash. Booleans are checked with
+    `type(x) is bool` — bool subclasses int, so an isinstance-family check
+    against int would let `"enabled": 1` through."""
+    cfg_path = config if config is not None else ROOT / ".karta" / "doc-gardner.json"
+    schema_path = schema if schema is not None else DG_SCHEMA
+    if not cfg_path.exists():
+        return  # opt-in: an absent config is valid
+    label = ".karta/doc-gardner.json"
+    try:
+        sch = json.loads(schema_path.read_text())
+    except (OSError, ValueError) as e:
+        errors.append(
+            "skills/karta-doc-gardner/references/doc-gardner-schema.json: "
+            f"missing or unreadable ({e}) — cannot gate {label}")
+        return
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except (OSError, ValueError) as e:
+        errors.append(f"{label}: invalid JSON ({e})")
+        return
+    if type(cfg) is not dict:
+        errors.append(f"{label}: must be a JSON object")
+        return
+    props = sch.get("properties", {})
+    for key in sch.get("required", []):
+        if key not in cfg:
+            errors.append(f"{label}: missing required key '{key}'")
+    for key, val in cfg.items():
+        if key not in props:  # additionalProperties: false
+            errors.append(f"{label}: unknown key '{key}' (allowed: {', '.join(sorted(props))})")
+            continue
+        want = _TYPE_BY_NAME.get(props[key].get("type"))
+        if want is not None and type(val) is not want:
+            errors.append(f"{label}: '{key}' must be a {props[key].get('type')}")
+
+
+def _self_test() -> int:
+    """Fixture-driven cases for the doc-gardner schema gate (run via --self-test)."""
+    import tempfile
+    real_schema = DG_SCHEMA.read_text() if DG_SCHEMA.exists() else "{}"
+    # (name, config text, schema text or None for a missing schema, expected error substrings)
+    cases = [
+        ("valid minimal config passes", '{"enabled": true}', real_schema, []),
+        ("valid config with focus passes", '{"enabled": false, "focus": "api docs"}', real_schema, []),
+        ("missing enabled fails", '{"focus": "x"}', real_schema, ["missing required key 'enabled'"]),
+        ("enabled: 1 fails (bool, never int)", '{"enabled": 1}', real_schema, ["'enabled' must be a boolean"]),
+        ('enabled: "true" fails', '{"enabled": "true"}', real_schema, ["'enabled' must be a boolean"]),
+        ("non-string focus fails", '{"enabled": true, "focus": 3}', real_schema, ["'focus' must be a string"]),
+        ("unknown key fails", '{"enabled": true, "scope": "docs"}', real_schema, ["unknown key 'scope'"]),
+        ("invalid config JSON fails", '{"enabled": tru', real_schema, ["invalid JSON"]),
+        ("non-object config fails", '[true]', real_schema, ["must be a JSON object"]),
+        ("missing schema file is reported, not a crash", '{"enabled": true}', None, ["missing or unreadable"]),
+        ("unreadable schema is reported, not a crash", '{"enabled": true}', "{not json", ["missing or unreadable"]),
+    ]
+    failures = 0
+    with tempfile.TemporaryDirectory() as td:
+        for i, (name, cfg_text, schema_text, want) in enumerate(cases):
+            cfg = Path(td) / f"cfg{i}.json"
+            cfg.write_text(cfg_text)
+            schema = Path(td) / f"schema{i}.json"
+            if schema_text is not None:
+                schema.write_text(schema_text)
+            errors: list[str] = []
+            _check_doc_gardner(errors, config=cfg, schema=schema)
+            ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r}"))
+            failures += 0 if ok else 1
+        errors = []
+        _check_doc_gardner(errors, config=Path(td) / "absent.json", schema=Path(td) / "schema0.json")
+        ok = errors == []
+        print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
+        failures += 0 if ok else 1
+    total = len(cases) + 1
+    print(f"self-test: {total - failures}/{total} doc-gardner schema cases passed")
+    return 1 if failures else 0
+
+
 def _check_hooks(errors: list[str]) -> None:
     """Guard the plugin hook assets: the manifest parses, every script it references
     exists and is executable, no hook script is orphaned (an unreferenced script would
@@ -358,8 +445,13 @@ def _check_hooks(errors: list[str]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--self-test", action="store_true")
-    ap.parse_args()
+    ap.add_argument("--self-test", action="store_true",
+                    help="run the embedded doc-gardner schema fixtures, then the repo check")
+    args = ap.parse_args()
+    if args.self_test and _self_test() != 0:
+        print("PLUGIN INTEGRITY: FAIL")
+        print("  - embedded --self-test fixtures failed")
+        return 1
     errors = check()
     if errors:
         print("PLUGIN INTEGRITY: FAIL")

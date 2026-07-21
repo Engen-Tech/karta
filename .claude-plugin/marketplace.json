@@ -6,13 +6,13 @@
     "email": "tej@engen.tech"
   },
   "metadata": {
-    "description": "Stack-agnostic orchestration skills + two read-only gate agents: synthesize a binder of work items, deliver it in parallel waves onto a per-binder integration branch, build each item in an isolated worktree, and gate it on behavioral or visual acceptance. Deep frontend support preserved.",
+    "description": "Stack-agnostic orchestration skills + four agents — two read-only gates (karta-acceptance-reviewer, karta-safety-auditor) and two opt-in writers (karta-doc-gardner for docs, karta-kaizen for stack packs): synthesize a binder of work items, deliver it in parallel waves onto a per-binder integration branch, build each item in an isolated worktree, and gate it on behavioral or visual acceptance. Deep frontend support preserved.",
     "version": "2.22.0"
   },
   "plugins": [
     {
       "name": "karta",
-      "description": "Stack-agnostic orchestration framework. Synthesize a binder of work items (karta-plan), deliver it in parallel waves onto a per-binder integration branch (karta-deliver), build each item in an isolated git worktree (karta-build), and gate it on behavioral (karta-verify) or visual (karta-validate) acceptance — no PR, ends at the integration branch. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation). Ships two read-only gate agents (karta-acceptance-reviewer, karta-safety-auditor).",
+      "description": "Stack-agnostic orchestration framework. Synthesize a binder of work items (karta-plan), deliver it in parallel waves onto a per-binder integration branch (karta-deliver), build each item in an isolated git worktree (karta-build), and gate it on behavioral (karta-verify) or visual (karta-validate) acceptance — no PR, ends at the integration branch. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation). Ships four agents: two read-only gates (karta-acceptance-reviewer, karta-safety-auditor) and two opt-in writers that edit only what you enable (karta-doc-gardner for docs, karta-kaizen for stack packs).",
       "source": "./",
       "strict": true,
       "skills": [

@@ -10,7 +10,7 @@ karta is packaged as a Codex plugin published through the repo marketplace (`.ag
 
 1. In Codex, open the plugin browser: `/plugins`.
 2. Add this repository as a marketplace source and install **karta**.
-3. The skills are available immediately — including `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`, `karta-kaizen`, `karta-plainlanguage`, `karta-doc-gardner`, and `karta-debt`.
+3. The skills are available immediately — including `karta-plan`, `karta-deliver`, `karta-build`, `karta-verify`, `karta-validate`, `karta-kaizen`, `karta-plainlanguage`, `karta-doc-gardner`, `karta-status`, and `karta-debt`.
 
 From the CLI, the equivalent commands are:
 
@@ -36,9 +36,9 @@ karta's behavioral gate (`karta-verify`) dispatches two read-only agents — `ka
 
 You never copy a fallback instruction file. On a bare plugin install, the bundled agent says not to write; a read-only Codex sandbox makes that boundary enforceable. When registered `.codex/agents/*.toml` files are present, their read-only sandbox supplies that enforcement automatically. If you want the registered form in your own project, copy `.codex/agents/karta-acceptance-reviewer.toml` and `.codex/agents/karta-safety-auditor.toml` from this repo into your project's `.codex/agents/`.
 
-## Karta 1.19 features on Codex
+## Feature compatibility on Codex
 
-The installed Karta 1.19 plugin passed live Codex tests for fallback gates, Kaizen, and Plannotator. Read the [feature-by-feature compatibility result](../showcase/codex-1.19-compatibility/README.md) before relying on a security or write-confinement boundary.
+The installed plugin passed live, feature-by-feature Codex tests for fallback gates, Kaizen, and Plannotator. Read the [compatibility result](../showcase/codex-1.19-compatibility/README.md) before relying on a security or write-confinement boundary.
 
 - **Fallback gates:** work without repo-local registered agents by loading the agent instructions bundled with `karta-verify`. Use a read-only Codex sandbox for an enforceable no-write boundary.
 - **Kaizen:** the absent and disabled switches are no-ops. Direct mode detects packs and leaves edits uncommitted. Delivery mode uses the binder's pinned packs and can land a labeled `kaizen:` commit on the supplied integration branch.

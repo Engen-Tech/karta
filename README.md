@@ -16,7 +16,7 @@ It has deep frontend support — component, icon, and design-token mapping, DTCG
 
 ## How it works
 
-Five skills do the work, but the flow is simple: you describe the job, karta plans it, builds every piece at once (each in its own space), checks each piece against its own test, and merges the lot onto one branch.
+Ten skills ship in the plugin, but the flow is simple: you describe the job, karta plans it, builds every piece at once (each in its own space), checks each piece against its own test, and merges the lot onto one branch.
 
 ![How karta works: you describe what you want, karta makes a plan, everything is built at once, each piece is checked, and you get it all assembled](docs/images/web/how-it-works.png)
 
@@ -75,7 +75,7 @@ It holds the slug (which names the integration branch and tags), scope, the env 
 
 `validate_binder.py` checks every binder before a run: schema, dependency cycles, dangling references, opt-outs. Full field guide: [`skills/karta-plan/references/binder-reference.md`](skills/karta-plan/references/binder-reference.md).
 
-## The five skills
+## The ten skills
 
 | Skill | What it does |
 |-|-|
@@ -84,13 +84,23 @@ It holds the slug (which names the integration branch and tags), scope, the env 
 | **`karta-build`** | Builds one item end to end in an isolated worktree: implements, runs your lint/test/build plus the item's `oracle`, clears the gate, and merges. Keeps the full frontend path on UI items. Also the single-item escape hatch. |
 | **`karta-verify`** | The behavioral gate (`unit`/`integration`/`e2e`/`smoke`). Runs read-only against the diff, dispatches the two gate agents, and drives kickbacks to build. Never edits code, tests, or the binder. |
 | **`karta-validate`** | The visual gate (`type: visual`). Compares a running view against its design prototype — screenshots and DOM — and reports differences in layout, color, type, spacing, and structure. Read-only; one view per call. |
+| **`karta-plainlanguage`** | The bundled writing standard. Everything karta shows you — reports, prompts, summaries — is written to be read once and acted on. |
+| **`karta-doc-gardner`** | Opt-in doc repair. After a delivery, rewrites any prose docs that drifted from the code, as one labeled commit. |
+| **`karta-kaizen`** | Opt-in stack-pack writer. Improves the packs your project uses from what its builds keep repeating; every edit is a labeled commit you review. |
+| **`karta-debt`** | On-demand debt harvest. Collects every `KARTA-DEFER` and `KARTA-SME-OVERRIDE` marker into a one-shot ledger. Writes nothing. |
+| **`karta-status`** | Shows where a run stands and the single next action, derived fresh from git. Live browser page by default; one-shot terminal map headless. Read-only. |
 
-## The two agents
+## The four agents
 
-Both run read-only, dispatched by `karta-verify` (and by `karta-build` for the behavioral floor):
+Two are read-only gates, dispatched by `karta-verify` (and by `karta-build` for the behavioral floor):
 
 - **`karta-acceptance-reviewer`** — checks the diff against the item's `oracle`/`contract`, assertion by assertion. Verdict: `CONFORMANT | DEVIATION | BLOCKED | SPEC-SUSPECT`.
 - **`karta-safety-auditor`** — re-runs the seven review signals on the real diff, flagging anything sensitive, destructive, or outside the item's contract. Verdict: `PASS | VIOLATION`.
+
+Two are opt-in writers — off until you enable them, and each edits one surface only:
+
+- **`karta-doc-gardner`** — rewrites drifted prose docs to match the delivered code. Enabled by `.karta/doc-gardner.json`.
+- **`karta-kaizen`** — edits the stack packs under `.karta/sme/`. Enabled by `.karta/kaizen.json`.
 
 ## Plain language, built in
 
