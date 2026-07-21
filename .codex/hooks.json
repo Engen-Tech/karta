@@ -1,13 +1,53 @@
 {
+  "description": "Repo-local Codex hooks for the karta checkout (trust-gated; Codex asks you to review each hook before it runs). Two jobs: (1) give clone-and-run Codex sessions the same guards the plugin bundles — binder immutability, pack write validation, the delivery Stop-gate — by launching the Codex guard scripts from .codex-plugin/hooks/scripts/; (2) run the dev-repo commit gate on git commit, through the shell-payload adapter (scripts/hooks/codex_precommit_gate.py) that normalizes Codex shell payloads into the shape precommit_gate.py accepts. Every command is a fail-open launcher keyed off git rev-parse --show-toplevel: outside the repo, or with the scripts missing, it allows rather than wedging the session.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "apply_patch|Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/hooks/precommit_gate.py\"",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_binder_immutability.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "shell|Bash|unified_exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/codex_precommit_gate.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
             "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_delivery_stop.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "timeout": 30
           }
         ]
       }

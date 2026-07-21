@@ -22,6 +22,7 @@
     "stack-agnostic"
   ],
   "skills": "./skills/",
+  "hooks": "./.codex-plugin/hooks/hooks.json",
   "interface": {
     "displayName": "karta",
     "shortDescription": "Synthesize a binder and deliver it in parallel waves, gated by acceptance checks.",

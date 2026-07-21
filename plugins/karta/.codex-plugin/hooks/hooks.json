@@ -1,0 +1,46 @@
+{
+  "description": "karta harness enforcement for Codex: binder immutability, pack write validation, and the delivery Stop-gate — the subset of karta's Claude Code hooks that Codex's hook surface can express (docs/how-to/codex.md has the full parity table). Referenced by the 'hooks' entry in .codex-plugin/plugin.json. Codex file edits arrive as apply_patch calls whose tool_input.command is the raw patch body; the guard scripts parse that shape natively. Same contract as everywhere else: hook payload JSON on stdin; exit 0 allows, exit 2 blocks with the reason on stderr (the Stop guard also emits the JSON block decision on stdout). Each command is a fail-open launcher: if PLUGIN_ROOT does not resolve to the installed plugin on this Codex build, the hook allows rather than wedging the session.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "apply_patch|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_binder_immutability.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_delivery_stop.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -67,7 +67,8 @@
     {"rule_regex": "Committed binders are read-only", "guard": "guard_binder_immutability.py"},
     {"rule_regex": "Pack edits must validate", "guard": "guard_pack_write.py"},
     {"rule_regex": "Safety-auditor dispatch is complete", "guard": "guard_auditor_dispatch.py"},
-    {"rule_regex": "kaizen writer stays inside its surface", "guard": "guard_writer_confinement.py"},
+    {"rule_regex": "confined writers stay inside their surfaces", "guard": "guard_writer_confinement.py"},
+    {"rule_regex": "vanished build item is called out", "guard": "guard_subagent_whiff.py"},
     {"rule_regex": "binders at session start", "guard": "inject_karta_status.py"},
     {"rule_regex": "delivery may not end dirty", "guard": "guard_delivery_stop.py"}
    ],
