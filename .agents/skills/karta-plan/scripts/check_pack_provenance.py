@@ -365,12 +365,22 @@ def _run_self_test() -> int:
                    and orph_finding is not None and "no longer exists" in orph_finding))
 
     # 8: alias-table resolution — an old basename resolves to the renamed built-in (NOT
-    # orphaned), and a dead seeded_from with no alias IS orphaned.
+    # orphaned), and a dead seeded_from with no alias IS orphaned. The same alias table
+    # (exposed in the JSON output) is the single truth plan:sme uses to resolve a dangling
+    # `extends` pointer for one minor release, so an old basename used as an extends pointer
+    # resolves through resolve_key exactly as a seeded_from or a file basename does. The
+    # shipped RENAME_ALIASES is empty (no built-in has been renamed yet) — this uses the
+    # fixture alias {"oldname": "renamed"}, never a real rename.
     checks.append(("alias table: an old basename resolves to the renamed built-in",
                    st(_RENAMED, "oldname.md")[0] == "seeded cache"))
     checks.append(("alias table: seeded_from via alias does not false-orphan",
                    st(_with_frontmatter(_RENAMED, seeded_from="oldname"), "renamed.md")[0]
                    == "seeded cache"))
+    checks.append(("alias table: an old basename used as an extends pointer resolves to the "
+                   "renamed built-in",
+                   resolve_key("oldname", builtins, aliases) == "renamed"))
+    checks.append(("alias table: a dead name with no alias entry does not resolve",
+                   resolve_key("ghost", builtins, aliases) is None))
 
     # 9: FORGED / MISSING STAMP VERDICT INVARIANCE (the core guard). The verdict is a pure
     # function of the stamp-stripped bytes vs the built-ins — the stamp text cannot move it.

@@ -23,7 +23,7 @@ Checks (fail-closed):
 Packs above 3500 bytes warn (never fail) — packs are prompt text; keep them terse.
 """
 from __future__ import annotations
-import argparse, json, re, sys
+import argparse, json, os, re, sys
 from pathlib import Path
 
 # Registered per-pack rule-id prefixes. Ids in a registered pack must use exactly
@@ -39,7 +39,7 @@ PREFIXES = {
     "go-naming": "goname",
 }
 ALLOWED_KEYS = ("name", "description", "match", "always", "see_also", "disabled",
-                "seeded_from", "base_sha256")
+                "seeded_from", "base_sha256", "extends", "exclude_rules", "id_prefix")
 # The provenance stamp (frontmatter `seeded_from` + `base_sha256`, written by kaizen's
 # seed/migrate pass). Both are optional but paired — one without the other is an error.
 # The stamp is diagnostic shape only: a syntactically valid but forged stamp still
@@ -48,12 +48,56 @@ ALLOWED_KEYS = ("name", "description", "match", "always", "see_also", "disabled"
 # skills/karta-plan/scripts/check_pack_provenance.py, which produces the same 64-hex form).
 STAMP_KEYS = ("seeded_from", "base_sha256")
 BASE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# Composition keys (project packs that extend a built-in). `id_prefix` names the prefix
+# the pack's own appended checklist ids must use; it must be a valid rule prefix and must
+# not collide with a prefix any shipped built-in already registers.
+ID_PREFIX_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 SIZE_WARN_BYTES = 3500
 
 KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(\S.*?)\s*$")
 ITEM_RE = re.compile(r"^- \[ \] ([a-z][a-z0-9-]*)\.(\d+) — (\S.*)$")
 TOMBSTONE_RE = re.compile(r"^- ~~([a-z][a-z0-9-]*)\.(\d+)~~ retired: (\S.*)$")
 HEADING_RE = re.compile(r"^## Review checklist\b")
+
+
+def load_builtin_registry() -> dict[str, set[str]]:
+    """Casefolded built-in stem -> the set of its checklist rule ids (active + retired).
+
+    This is scanned from the shipped built-ins under karta-plan's `references/sme/`, the
+    single source for both the registered rule prefixes (used to reject an `id_prefix`
+    that squats a built-in's prefix) and each built-in's rule set (used to reject an
+    `exclude_rules` entry naming a rule the extended built-in never had). There is no
+    separate prefix manifest — the built-ins' own ids are the registry. Resolves via
+    CLAUDE_PLUGIN_ROOT, falling back to this validator's own plugin root; on a miss it
+    returns {} and the built-in-dependent checks fail open (structural checks still run)."""
+    roots: list[Path] = []
+    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env:
+        roots.append(Path(env))
+    roots.append(Path(__file__).resolve().parents[3])  # <plugin root>/skills/karta-kaizen/scripts/..
+    bdir: Path | None = None
+    for root in roots:
+        cand = root / "skills" / "karta-plan" / "references" / "sme"
+        if cand.is_dir():
+            bdir = cand
+            break
+    if bdir is None:
+        return {}
+    registry: dict[str, set[str]] = {}
+    for p in sorted(bdir.glob("*.md")):
+        ids: set[str] = set()
+        for ln in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            if m := ITEM_RE.match(ln):
+                ids.add(f"{m.group(1)}.{m.group(2)}")
+            elif m := TOMBSTONE_RE.match(ln):
+                ids.add(f"{m.group(1)}.{m.group(2)}")
+        registry[p.stem.casefold()] = ids
+    return registry
+
+
+def _registered_prefixes(registry: dict[str, set[str]]) -> set[str]:
+    """Every rule prefix any shipped built-in uses — derived, never a manifest."""
+    return {rid.rsplit(".", 1)[0] for ids in registry.values() for rid in ids}
 
 
 def _parse_frontmatter(lines: list[str]) -> tuple[dict[str, str] | None, int, list[str]]:
@@ -96,7 +140,8 @@ def _string_list(fields: dict[str, str], key: str, errors: list[str]) -> None:
         errors.append(f"frontmatter: '{key}' must be a non-empty JSON list of non-empty strings")
 
 
-def _check_checklist(lines: list[str], body_start: int, stem: str, errors: list[str]) -> None:
+def _check_checklist(lines: list[str], body_start: int, stem: str, errors: list[str],
+                     id_prefix: str | None = None) -> None:
     start = next((i for i in range(body_start, len(lines)) if HEADING_RE.match(lines[i])), None)
     if start is None:
         errors.append("missing '## Review checklist' section")
@@ -120,10 +165,14 @@ def _check_checklist(lines: list[str], body_start: int, stem: str, errors: list[
         errors.append("checklist: no active items — a pack with nothing to enforce "
                       "should be a suppression pack (disabled: true)")
 
-    # prefix discipline
+    # prefix discipline. A pack declaring `id_prefix` must use exactly that prefix for its
+    # own appended checklist ids; otherwise a registered pack must use its registered prefix.
     prefixes = {pid.rsplit(".", 1)[0] for pid in active + retired}
-    expected = PREFIXES.get(stem)
-    if expected:
+    declared = id_prefix if (id_prefix and ID_PREFIX_RE.match(id_prefix)) else None
+    if declared:
+        for pfx in sorted(prefixes - {declared}):
+            errors.append(f"checklist: prefix '{pfx}' is not this pack's declared id_prefix '{declared}'")
+    elif expected := PREFIXES.get(stem):
         for pfx in sorted(prefixes - {expected}):
             errors.append(f"checklist: prefix '{pfx}' is not this pack's registered prefix '{expected}'")
     elif prefixes:
@@ -163,8 +212,76 @@ def _check_stamp(fields: dict[str, str], errors: list[str]) -> None:
         errors.append("frontmatter: 'base_sha256' must be exactly 64 lowercase hex characters")
 
 
-def validate_pack(text: str, filename: str) -> tuple[list[str], list[str], bool]:
-    """Return (errors, warnings, disabled); empty errors == valid."""
+def _check_composition(fields: dict[str, str], registry: dict[str, set[str]],
+                       errors: list[str]) -> None:
+    """Validate the project-pack composition keys: `extends`, `exclude_rules`, `id_prefix`.
+
+    - `extends` is a plain built-in basename; a pack that declares it must also declare
+      `id_prefix` (extends without id_prefix is an error).
+    - `exclude_rules` is a JSON list of rule-id strings, legal only alongside `extends`;
+      each entry must name a rule that exists in the extended built-in's checklist — a
+      stale exclusion is a loud error, never a silent no-op.
+    - `id_prefix` is a valid rule prefix that must not collide with any prefix a shipped
+      built-in already registers (registry scanned from the built-ins — no manifest).
+
+    Built-in existence and exclude/collision checks fail open when the registry is empty
+    (built-ins unresolved); the structural pairing/shape checks always run."""
+    extends = fields.get("extends")
+    id_prefix = fields.get("id_prefix")
+    exclude_raw = fields.get("exclude_rules")
+
+    if exclude_raw is not None and extends is None:
+        errors.append("frontmatter: 'exclude_rules' is legal only alongside 'extends'")
+    if extends is not None and id_prefix is None:
+        errors.append("frontmatter: a pack declaring 'extends' must also declare 'id_prefix'")
+
+    if id_prefix is not None:
+        if not ID_PREFIX_RE.match(id_prefix):
+            errors.append(f"frontmatter: 'id_prefix' '{id_prefix}' is not a valid rule prefix "
+                          "(lowercase, starts with a letter, then [a-z0-9-])")
+        elif id_prefix in _registered_prefixes(registry):
+            errors.append(f"frontmatter: 'id_prefix' '{id_prefix}' collides with a rule prefix a "
+                          "shipped built-in already registers — pick a prefix no built-in uses")
+
+    excludes: list[str] | None = None
+    if exclude_raw is not None:
+        try:
+            parsed = json.loads(exclude_raw)
+        except json.JSONDecodeError:
+            errors.append("frontmatter: 'exclude_rules' must be a JSON list of rule-id strings, "
+                          'e.g. ["min.2"]')
+        else:
+            if not isinstance(parsed, list) or not parsed or not all(
+                    isinstance(x, str) and x.strip() for x in parsed):
+                errors.append("frontmatter: 'exclude_rules' must be a non-empty JSON list of "
+                              "non-empty rule-id strings")
+            else:
+                excludes = parsed
+
+    # Built-in-dependent checks: resolve `extends` against the scanned registry.
+    if extends is not None and registry:
+        key = extends.casefold()
+        key = key[:-3] if key.endswith(".md") else key
+        if key not in registry:
+            errors.append(f"frontmatter: 'extends' names '{extends}', which is not a shipped "
+                          "built-in pack")
+        elif excludes is not None:
+            known = registry[key]
+            for rid in excludes:
+                if rid not in known:
+                    errors.append(f"frontmatter: 'exclude_rules' names '{rid}', which is not a rule "
+                                  f"in the extended built-in '{extends}' — a stale exclusion, never "
+                                  "a silent no-op")
+
+
+def validate_pack(text: str, filename: str,
+                  registry: dict[str, set[str]] | None = None) -> tuple[list[str], list[str], bool]:
+    """Return (errors, warnings, disabled); empty errors == valid.
+
+    `registry` maps casefolded built-in stem -> its checklist rule ids, used for the
+    composition checks (id_prefix collision, exclude_rules existence). It defaults to
+    empty — those built-in-dependent checks then fail open; main() loads the real one."""
+    registry = registry or {}
     errors: list[str] = []
     warnings: list[str] = []
     size = len(text.encode())
@@ -192,6 +309,7 @@ def validate_pack(text: str, filename: str) -> tuple[list[str], list[str], bool]
     _string_list(fields, "match", errors)
     _string_list(fields, "see_also", errors)
     _check_stamp(fields, errors)  # legal on any pack, suppression included — before the early return
+    _check_composition(fields, registry, errors)  # structural checks legal on any pack
 
     disabled = fields.get("disabled") == "true"
     if disabled:
@@ -201,7 +319,7 @@ def validate_pack(text: str, filename: str) -> tuple[list[str], list[str], bool]
     if len(present) != 1:
         errors.append("frontmatter: exactly one of 'match' or 'always' required "
                       f"(found: {present or 'neither'})")
-    _check_checklist(lines, body_start, stem, errors)
+    _check_checklist(lines, body_start, stem, errors, id_prefix=fields.get("id_prefix"))
     return errors, warnings, False
 
 
@@ -243,6 +361,30 @@ disabled: true
 ---
 This project opts out of the vue pack.
 """
+
+# A project pack that extends a built-in: appends its own prefixed rules and drops one
+# built-in rule that does not fit. Validated against _FIXTURE_REGISTRY below.
+_EXTENDS = """\
+---
+name: acme-min
+description: Acme's extra minimalism rules on top of the built-in
+match: ["acme"]
+extends: minimalism
+id_prefix: acme
+exclude_rules: ["min.2"]
+---
+## Review checklist
+- [ ] acme.1 — Every module ships an Acme copyright header.
+- [ ] acme.2 — No direct process.env reads outside config/.
+"""
+
+# Casefolded built-in stem -> its checklist rule ids. Mirrors what load_builtin_registry()
+# scans off the shipped built-ins, but hermetic so the self-test never touches disk.
+_FIXTURE_REGISTRY = {
+    "minimalism": {"min.1", "min.2", "min.4"},
+    "python": {"py.1", "py.2"},
+    "go-htmx": {"htmx.1"},
+}
 
 
 def _run_self_test() -> int:
@@ -358,7 +500,49 @@ def _run_self_test() -> int:
     print(f"[{'PASS' if ok else 'FAIL'}] disabled flag reported only for suppression packs")
     failures += 0 if ok else 1
 
-    total = len(cases) + 2
+    # --- project-pack composition (extends / exclude_rules / id_prefix) ---
+    # These run against _FIXTURE_REGISTRY so prefix registration and exclude existence are
+    # derived by scanning built-in rule ids — no separate prefix manifest.
+    comp_cases = [
+        ("extends pack with id_prefix and own-prefix checklist validates",
+         _EXTENDS, "acme-min.md", True),
+        ("extends without id_prefix is an error",
+         sub(_EXTENDS, "id_prefix: acme\n", ""), "acme-min.md", False),
+        ("exclude_rules without extends is an error",
+         sub(_EXTENDS, "extends: minimalism\n", ""), "acme-min.md", False),
+        ("exclude_rules that is not a JSON list of strings is an error",
+         sub(_EXTENDS, 'exclude_rules: ["min.2"]', "exclude_rules: min.2"), "acme-min.md", False),
+        ("exclude_rules as a JSON list of non-strings is an error",
+         sub(_EXTENDS, 'exclude_rules: ["min.2"]', "exclude_rules: [2]"), "acme-min.md", False),
+        ("id_prefix squatting a registered built-in prefix is an error (scanned, no manifest)",
+         sub(sub(_EXTENDS, "id_prefix: acme", "id_prefix: min"), "acme.", "min."),
+         "acme-min.md", False),
+        ("exclude_rules naming a nonexistent rule in the extended built-in is an error",
+         sub(_EXTENDS, 'exclude_rules: ["min.2"]', 'exclude_rules: ["min.9"]'), "acme-min.md", False),
+        ("extends naming an unknown built-in is an error",
+         sub(_EXTENDS, "extends: minimalism", "extends: nosuchpack"), "acme-min.md", False),
+        ("id_prefix that is not a valid rule prefix is an error",
+         sub(_EXTENDS, "id_prefix: acme", "id_prefix: Acme_1"), "acme-min.md", False),
+        ("checklist ids not using the declared id_prefix is an error",
+         sub(_EXTENDS, "- [ ] acme.1", "- [ ] other.1"), "acme-min.md", False),
+    ]
+    for name, text, filename, should_pass in comp_cases:
+        errs, _, _ = validate_pack(text, filename, _FIXTURE_REGISTRY)
+        ok = (not errs) == should_pass
+        print(f"[{'PASS' if ok else 'FAIL'}] {name}: "
+              f"{'valid' if not errs else 'invalid (' + '; '.join(errs) + ')'}")
+        if not ok:
+            failures += 1
+
+    # An empty registry fails the built-in-dependent checks open: a well-formed extends pack
+    # still validates structurally, so a validator run that cannot resolve the built-ins never
+    # false-fails a legitimate project pack.
+    errs_open, _, _ = validate_pack(_EXTENDS, "acme-min.md", {})
+    ok = not errs_open
+    print(f"[{'PASS' if ok else 'FAIL'}] extends pack validates structurally under an empty registry")
+    failures += 0 if ok else 1
+
+    total = len(cases) + len(comp_cases) + 3
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 
@@ -372,6 +556,7 @@ def main() -> int:
         return _run_self_test()
     if not args.packs:
         ap.error("provide one or more pack files or --self-test")
+    registry = load_builtin_registry()
     failed = False
     for path in args.packs:
         try:
@@ -380,7 +565,7 @@ def main() -> int:
             print(f"{path}: unreadable ({e})")
             failed = True
             continue
-        errors, warnings, disabled = validate_pack(text, path.name)
+        errors, warnings, disabled = validate_pack(text, path.name, registry)
         for w in warnings:
             print(f"{path}: warning: {w}")
         if errors:
