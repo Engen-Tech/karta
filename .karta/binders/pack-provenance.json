@@ -1,0 +1,416 @@
+{
+  "slug": "pack-provenance",
+  "title": "Stack packs that know where they came from",
+  "summary": "Every local copy of a stack pack is now classified into one of four honest states against the shipped original, so an out-of-date copy quietly refreshes itself and a genuinely edited copy is loudly flagged instead of silently overriding the rules. This release warns and deters — nothing halts yet.",
+  "motivation": "Local pack copies twice in one day silently fed stale rules into planning; this makes every copy's origin visible and machine-checked.",
+  "scope": {
+    "included": [
+      "skills/karta-plan/ — new provenance classifier script plus the plan-time stack-pack step's classification, warning, and lazy auto-reseed doctrine",
+      "skills/karta-kaizen/ — pack validator schema for the provenance stamp and composition keys; seeding, eager migrate pass, and auto-reseed doctrine",
+      "hooks/scripts/guard_pack_write.py and its two Codex hook projection copies — the illegal-shadow deny rule",
+      "Generated mirrors under .agents/skills/ and plugins/karta/skills/, regenerated with scripts/sync_codex_skills.py after every canonical edit",
+      "docs/how-to/stack-packs.md, docs/how-to/kaizen.md, docs/how-to/hooks.md",
+      "benchmarks/sme/results/ — committed baseline findings data only",
+      "skills/karta-plan/references/pack-hashes.json — the shipped append-only pack-hash ledger that verifies a stamp names a genuine past built-in before auto-reseed may fire, plus scripts/validate_plugin.py's shadow check moving to stamp-stripped byte-identity"
+    ],
+    "excluded": [
+      "Phase 2 (karta 3.0.0): the plan-time HALT with its reseed/promote/rename and adopt/drop verbs, removal of overlay-wins behavior, and the KARTA_PACK_DRIFT_OK escape hatch — overlay-wins still functions this release, deprecated; phase 2 also owns retiring the rename-alias table and pruning the ledger policy",
+      "Consumer sweeps (gringotts, parchmark): reseeding and stamping their local pack caches is a post-release action, not a work item here",
+      "Plugin version bump: this additive surface owes a minor bump at the next release — recorded here, deliberately not performed in this binder",
+      "benchmarks/probes/sme-pack-static-suite.py and benchmarks/sme-static/: fixed regression oracles for this work, never edited by the items they verify",
+      "The spec's adjacent defects (precommit_gate.py cwd-blindness; a sanctioned binder amendment verb): separate fixes in the same feedback batch"
+    ]
+  },
+  "design_facts": {
+    "source": "docs/specs/2026-07-21-pack-overlay-redesign.md",
+    "stack": "Claude Code + Codex plugin repo: pure-stdlib Python hooks/scripts plus markdown skills; shipped surface mirrored byte-for-byte into .agents/ and plugins/karta/ projections guarded by scripts/validate_plugin.py"
+  },
+  "sme": [
+    "karta-house-skill-authoring",
+    "minimalism"
+  ],
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "shared_terms": [
+    {
+      "id": "stamp-field-seeded-from",
+      "canonical": "seeded_from",
+      "items": [
+        "provenance-classifier",
+        "stamp-and-reseed",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "stamp-field-base-sha256",
+      "canonical": "base_sha256",
+      "items": [
+        "provenance-classifier",
+        "stamp-and-reseed",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "state-seeded-cache",
+      "canonical": "seeded cache",
+      "items": [
+        "provenance-classifier",
+        "stamp-and-reseed",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "state-stale-cache",
+      "canonical": "stale cache",
+      "items": [
+        "provenance-classifier",
+        "stamp-and-reseed",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "state-project-pack",
+      "canonical": "project pack",
+      "items": [
+        "provenance-classifier",
+        "project-pack-composition",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "state-suppression",
+      "canonical": "suppression",
+      "items": [
+        "provenance-classifier",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "illegal-shadow-warning",
+      "canonical": "illegal shadow: a local delta over the shipped built-in",
+      "items": [
+        "provenance-classifier",
+        "guard-shadow-deny",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "term-auto-reseed",
+      "canonical": "auto-reseed",
+      "items": [
+        "provenance-classifier",
+        "stamp-and-reseed",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "term-exclude-rules",
+      "canonical": "exclude_rules",
+      "items": [
+        "project-pack-composition",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "term-id-prefix",
+      "canonical": "id_prefix",
+      "items": [
+        "project-pack-composition",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "state-orphaned-cache",
+      "canonical": "orphaned cache",
+      "items": [
+        "provenance-classifier",
+        "pack-docs-refresh"
+      ]
+    },
+    {
+      "id": "term-extends",
+      "canonical": "extends",
+      "items": [
+        "project-pack-composition",
+        "pack-docs-refresh"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "provenance-classifier",
+      "title": "Classify every local pack copy into an honest state",
+      "summary": "A new script compares each local pack copy against the shipped original and reports which of the four legal states it is in, warning loudly about a copy that carries real local edits without stopping anything.",
+      "estimate": "L",
+      "depends_on": [],
+      "contract": {
+        "exposes": "New pure-stdlib script skills/karta-plan/scripts/check_pack_provenance.py (PEP 723 header, requires-python >=3.11, argparse). Repo mode `python3 skills/karta-plan/scripts/check_pack_provenance.py <repo-root>` classifies every .karta/sme/*.md file; single-file mode `--file <pack.md>` classifies one proposed/on-disk file (consumed by guard_pack_write.py). JSON on stdout: {\"packs\": [{\"file\", \"basename\", \"state\", \"builtin\": <resolved built-in basename or null>, \"stamp\": {\"seeded_from\", \"base_sha256\"} | null, \"finding\": <string or null>}], \"warnings\": [...]}. `state` is exactly one of the user-facing strings \"seeded cache\", \"stale cache\", \"suppression\", \"project pack\", \"illegal shadow\", \"orphaned cache\". Exit 0 whenever classification ran — phase 1 never gates on findings; nonzero means the script itself failed. Built-ins resolve from CLAUDE_PLUGIN_ROOT falling back to this script's own skill root (references/sme/), the same idiom guard_pack_write.py uses today. `--stdin` classifies proposed content read from stdin (for PreToolUse call sites where the target is not yet on disk). Per-pack `finding` is the authoritative per-file result; top-level `warnings` carries only repo-level notices (e.g. a non-lowercase basename).",
+        "canonicalization": "All comparisons use canonicalized bytes: NFC normalization, LF line endings, BOM stripped, per-line trailing whitespace trimmed. The comparison is stamp-stripped local content vs the canonicalized shipped built-in resolved by casefolded basename. A non-lowercase basename resolves but draws a warning (lowercase is enforced at seed time by the kaizen item).",
+        "stamp": "The provenance stamp is two optional paired frontmatter keys: `seeded_from` (the built-in basename it was seeded from, optionally with @plugin-version) and `base_sha256` (sha256 hex of the canonicalized built-in at seed time). THE STAMP IS DIAGNOSTIC-ONLY: the byte comparison against the current shipped built-in is the sole enforcement signal. A forged or missing stamp may change which finding message is emitted, never whether local content is treated as clean — any code path gating cleanliness on the stamp is a bug.",
+        "states": "seeded cache = stamp-stripped canonical-identical to a shipped built-in. stale cache = differs from the current built-in, its stamp-stripped canonical sha256 equals the stamp's base_sha256 (no local delta), AND that base_sha256 is verifiable — it appears in the shipped pack-hash ledger as a hash this built-in genuinely shipped with; its finding names the resolution auto-reseed. An unverifiable base_sha256 falls through to illegal shadow — never eligible for auto-reseed (PANEL: a forged stamp must not be able to get a real local delta overwritten). suppression = frontmatter disabled: true; the body beyond frontmatter is free commentary, never compared. project pack = casefolded basename collides with no built-in. illegal shadow = a same-basename file carrying a genuine local delta; its WARNING finding contains exactly the substring 'illegal shadow: a local delta over the shipped built-in'. orphaned cache = seeded_from names a built-in that no longer exists after rename-alias resolution; WARNING.",
+        "plan_sme_wiring": "skills/karta-plan/SKILL.md's plan:sme step runs the classifier before matching and reports per-pack states. THE PLAN-TIME STEP IS READ-ONLY (PANEL): it classifies and reports; a stale cache is reported with one line naming the coming resolution — auto-reseed at the next kaizen pass — and plan time never writes under .karta/sme/. Auto-reseed is owned exclusively by the kaizen item. An illegal shadow is surfaced as a loud WARNING and the current overlay-wins behavior still applies, documented as deprecated — no halt in this release.",
+        "mirrored_surface": "skills/ is canonical; after editing, run `python3 scripts/sync_codex_skills.py` so the .agents/ and plugins/karta/ projections stay byte-identical — scripts/validate_plugin.py fails otherwise.",
+        "self_test": "--self-test embeds fixtures and prints [PASS]/[FAIL] lines plus an 'N/N checks passed' summary: CRLF/BOM/NFC/trailing-whitespace variants of a built-in classify as seeded cache; casefolded resolution (GO-HTMX.md finds go-htmx and warns on the basename); stamp-stripped comparison; forged-stamp verdict invariance; one fixture per state; alias-table orphan resolution. Ledger fixtures: a base_sha256 present in the ledger but not equal to the current built-in classifies as stale cache; a base_sha256 absent from the ledger classifies as illegal shadow even when it matches the local stamp-stripped hash.",
+        "hash_ledger": "skills/karta-plan/references/pack-hashes.json — an append-only shipped data file mapping each built-in basename to the list of canonical sha256 values it has shipped with. Seeded in this item with the current built-ins' canonical hashes; each future release appends its current hashes as a release step (record the duty in the release flow). The ledger verifies ONLY whether a stamp's base_sha256 names a genuine past built-in, gating the auto-reseed action; classification of clean vs shadow still rests solely on the byte comparison against the current built-in."
+      },
+      "touches": [
+        "skills/karta-plan/scripts/check_pack_provenance.py",
+        "skills/karta-plan/SKILL.md",
+        ".agents/skills/karta-plan/scripts/check_pack_provenance.py",
+        ".agents/skills/karta-plan/SKILL.md",
+        "plugins/karta/skills/karta-plan/scripts/check_pack_provenance.py",
+        "plugins/karta/skills/karta-plan/SKILL.md",
+        "skills/karta-plan/references/pack-hashes.json",
+        ".agents/skills/karta-plan/references/pack-hashes.json",
+        "plugins/karta/skills/karta-plan/references/pack-hashes.json"
+      ],
+      "shared_resources": [
+        "scripts/sync_codex_skills.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "architectural-novelty: the classification engine is the contract root of the whole phase — its state names and JSON shape anchor every other item's contract",
+          "contract: a new shipped, mirrored script plus a doctrine change to the plan-time stack-pack step"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "check_pack_provenance.py --self-test passes: CRLF, BOM, NFC, and trailing-whitespace variants of a built-in all classify as seeded cache",
+          "a same-basename copy with a genuine local delta classifies as illegal shadow, the finding contains the canonical substring 'illegal shadow: a local delta over the shipped built-in', and the exit code stays 0 (warning era, no gate)",
+          "a copy identical to the stamped base but not the current built-in classifies as stale cache with resolution auto-reseed",
+          "a forged or missing stamp changes only the finding message, never the state verdict — self-test proves verdict invariance explicitly",
+          "casefolded basename resolution works and a non-lowercase basename draws a warning",
+          "the plan skill's stack-pack step documents running the classifier, the lazy auto-reseed logged line, and the deprecated overlay-wins warning posture",
+          "validate_plugin.py --self-test stays green: projections in sync, all hook and script self-tests pass",
+          "the pack-hash ledger ships beside the classifier, seeded with every current built-in's canonical hash, and the self-test proves both ledger fixtures: verifiable-stale-cache and unverifiable-stamp-falls-to-illegal-shadow",
+          "the plan skill's stack-pack step states plan time is read-only — classification and reporting only, no writes under .karta/sme/"
+        ],
+        "command": "python3 skills/karta-plan/scripts/check_pack_provenance.py --self-test && grep -q 'illegal shadow: a local delta over the shipped built-in' skills/karta-plan/scripts/check_pack_provenance.py && grep -q 'check_pack_provenance.py' skills/karta-plan/SKILL.md && grep -q 'auto-reseed' skills/karta-plan/SKILL.md && python3 -c \"import json;d=json.load(open('skills/karta-plan/references/pack-hashes.json'));assert d\" && python3 scripts/validate_plugin.py --self-test"
+      }
+    },
+    {
+      "id": "stamp-and-reseed",
+      "title": "Stamp seeded packs and quietly refresh the stale ones",
+      "summary": "Seeded pack copies gain a provenance stamp, an eager one-time migrate pass stamps the copies that already exist, and a copy that is merely out of date refreshes itself with a visible log line instead of nagging.",
+      "estimate": "M",
+      "depends_on": [
+        "provenance-classifier"
+      ],
+      "contract": {
+        "validator_schema": "skills/karta-kaizen/scripts/validate_packs.py ALLOWED_KEYS gains `seeded_from` and `base_sha256`. Both are optional but paired — one without the other is an error. `base_sha256` must be exactly 64 lowercase hex characters; `seeded_from` must be non-empty. A stamp is legal on any pack, suppression packs included. An unstamped pack stays valid — the stamp is diagnostic, never required, and a syntactically valid but forged stamp still validates: the validator checks shape only and never gates cleanliness on the stamp.",
+        "kaizen_doctrine": "skills/karta-kaizen/SKILL.md and references/karta-kaizen.agent.md: seeding writes full files with the stamp and a lowercase basename (lowercase enforced at seed time). The first enabled run after this change performs an eager migrate pass — classify every existing .karta/sme/ file with check_pack_provenance.py, stamp each seeded cache, auto-reseed each stale cache (replace with the current built-in plus a fresh stamp), each action one visible logged line — where stale cache means the classifier's ledger-verified state: an unverifiable base_sha256 is an illegal shadow and is left in place, reported, never overwritten. The migrate pass is naturally idempotent: a stamped seeded cache classifies clean on the next run, so re-runs are no-ops with no marker file needed. An illegal shadow is left in place and reported — kaizen never destroys a local delta in the warning era. All changes land through the existing flow: labeled kaizen: commits in delivery mode, working-tree edits in direct mode, gated by the existing pre-land validate_packs check.",
+        "consumes": "The stamp field names (`seeded_from`, `base_sha256`), the state names (\"seeded cache\", \"stale cache\"), and the resolution term \"auto-reseed\" byte-identically as check_pack_provenance.py renders them.",
+        "mirrored_surface": "Run `python3 scripts/sync_codex_skills.py` after editing the canonical kaizen files.",
+        "karta_repo_shadows": "The karta repo's own .karta/sme/ shadows (minimalism) are byte-identity-pinned by scripts/validate_plugin.py today; stamping them would break that gate — the floor command of every oracle in this binder (PANEL, plan-blocking). This item therefore also updates validate_plugin.py's shadow check to STAMP-STRIPPED byte-identity: the shadow may carry the paired provenance stamp keys, and every other byte must equal the built-in. Fixtures: a stamped byte-identical shadow passes; a shadow with any content delta still fails; an unstamped legacy shadow still passes."
+      },
+      "touches": [
+        "skills/karta-kaizen/scripts/validate_packs.py",
+        "skills/karta-kaizen/SKILL.md",
+        "skills/karta-kaizen/references/karta-kaizen.agent.md",
+        ".agents/skills/karta-kaizen/scripts/validate_packs.py",
+        ".agents/skills/karta-kaizen/SKILL.md",
+        ".agents/skills/karta-kaizen/references/karta-kaizen.agent.md",
+        "plugins/karta/skills/karta-kaizen/scripts/validate_packs.py",
+        "plugins/karta/skills/karta-kaizen/SKILL.md",
+        "plugins/karta/skills/karta-kaizen/references/karta-kaizen.agent.md",
+        "scripts/validate_plugin.py"
+      ],
+      "shared_resources": [
+        "scripts/sync_codex_skills.py",
+        "skills/karta-kaizen/scripts/validate_packs.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive-zone: changes the kaizen writer's behavior inside consumer repos — the migrate pass stamps files under .karta/sme/ and the auto-reseed replaces a stale copy's bytes (only when the classifier proves it carries no local delta)",
+          "contract: the pack validator schema gains the paired stamp keys"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "validate_packs.py --self-test passes with new fixtures: a stamped pack validates; a lone seeded_from or lone base_sha256 is an error; a base_sha256 that is not 64 lowercase hex characters is an error; an unstamped legacy pack stays valid",
+          "a syntactically valid forged stamp still validates — shape checks only, no cleanliness gating on the stamp",
+          "the kaizen skill documents the eager migrate pass, the seeded cache stamping, and the stale cache auto-reseed with a visible logged line, and states that an illegal shadow's local delta is never overwritten",
+          "existing guard_pack_write.py self-test fixtures (unstamped packs) still pass unchanged",
+          "validate_plugin.py --self-test stays green (projections in sync)",
+          "validate_plugin's karta-repo shadow check accepts a stamped byte-identical .karta/sme/ shadow, still rejects a content delta, and still accepts an unstamped legacy shadow (fixtures)",
+          "the migrate pass only auto-reseeds ledger-verified stale caches and is documented as naturally idempotent"
+        ],
+        "command": "python3 skills/karta-kaizen/scripts/validate_packs.py --self-test && grep -q 'seeded_from' skills/karta-kaizen/scripts/validate_packs.py && grep -q 'base_sha256' skills/karta-kaizen/scripts/validate_packs.py && grep -q 'auto-reseed' skills/karta-kaizen/SKILL.md && grep -q 'seeded_from' scripts/validate_plugin.py && python3 hooks/scripts/guard_pack_write.py --self-test && python3 scripts/validate_plugin.py --self-test"
+      }
+    },
+    {
+      "id": "project-pack-composition",
+      "title": "Let a project add its own rules without forking a built-in",
+      "summary": "A project pack can extend a built-in pack — appending its own checklist items under a required prefix and subtracting the rules that do not fit — so one bad-fit rule no longer forces a whole-file copy or full suppression.",
+      "estimate": "L",
+      "depends_on": [
+        "provenance-classifier"
+      ],
+      "contract": {
+        "validator_schema": "skills/karta-kaizen/scripts/validate_packs.py frontmatter gains three keys: `extends` (a built-in basename, plain string), `exclude_rules` (a JSON list of rule-id strings, legal only alongside extends), and `id_prefix` (required on any pack declaring extends; a valid rule prefix that must not collide with a registered prefix, and the pack's own checklist ids must use it). extends without id_prefix is an error; exclude_rules without extends is an error. An exclude_rules entry naming a rule id that does not exist in the extended built-in's checklist is a validation error — loud, never a silent no-op (PANEL). Registered prefixes are derived from the shipped built-ins' own checklist ids (min., goname., htmx., house., ...) by scanning the built-ins at the validator's plugin root — no separate prefix manifest.",
+        "plan_sme_resolution": "skills/karta-plan/SKILL.md plan:sme: a project pack with extends appends its checklist items to the built-in's; match tokens are additive (union) for firing the combined checklist; exclude_rules subtracts the named built-in rule ids and the exclusions are reported at plan time — visible, like retired ledger entries. id_prefix uniqueness is enforced per repo at plan time: two project packs claiming the same prefix is a reported error. A dangling extends pointer (built-in renamed upstream) resolves through the rename-alias table, shipped for one minor release.",
+        "alias_table": "The rename-alias table lives once, as data inside skills/karta-plan/scripts/check_pack_provenance.py (it already needs it for orphaned cache classification), and is exposed in the script's JSON output so plan:sme and the docs cite a single truth.",
+        "mirrored_surface": "Run `python3 scripts/sync_codex_skills.py` after editing canonical files."
+      },
+      "touches": [
+        "skills/karta-kaizen/scripts/validate_packs.py",
+        "skills/karta-plan/SKILL.md",
+        "skills/karta-plan/scripts/check_pack_provenance.py",
+        ".agents/skills/karta-kaizen/scripts/validate_packs.py",
+        ".agents/skills/karta-plan/SKILL.md",
+        ".agents/skills/karta-plan/scripts/check_pack_provenance.py",
+        "plugins/karta/skills/karta-kaizen/scripts/validate_packs.py",
+        "plugins/karta/skills/karta-plan/SKILL.md",
+        "plugins/karta/skills/karta-plan/scripts/check_pack_provenance.py"
+      ],
+      "shared_resources": [
+        "scripts/sync_codex_skills.py",
+        "skills/karta-kaizen/scripts/validate_packs.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract: three new frontmatter keys and new plan-time resolution semantics — append-only checklist composition, union match-token firing, and visibly reported rule exclusions"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "validate_packs.py --self-test covers the new fixtures: an extends pack with id_prefix and own-prefix checklist validates; extends without id_prefix errors; exclude_rules without extends errors; exclude_rules that is not a JSON list of strings errors; an id_prefix squatting a registered prefix errors",
+          "the plan skill's stack-pack step documents union match-token firing, checklist appending, and plan-time reporting of excluded rule ids",
+          "check_pack_provenance.py --self-test covers the rename-alias table: an old basename in extends or seeded_from resolves to the renamed built-in for one minor release",
+          "validate_plugin.py --self-test stays green (projections in sync)",
+          "an exclude_rules entry naming a nonexistent rule id in the extended built-in is a validation error (fixture)",
+          "prefix registration is derived by scanning the shipped built-ins' checklist ids — a fixture proves a built-in prefix collision is caught without any separate manifest"
+        ],
+        "command": "python3 skills/karta-kaizen/scripts/validate_packs.py --self-test && python3 skills/karta-plan/scripts/check_pack_provenance.py --self-test && grep -q 'exclude_rules' skills/karta-kaizen/scripts/validate_packs.py && grep -q 'id_prefix' skills/karta-kaizen/scripts/validate_packs.py && grep -q 'exclude_rules' skills/karta-plan/SKILL.md && grep -q 'id_prefix' skills/karta-plan/SKILL.md && python3 scripts/validate_plugin.py --self-test"
+      }
+    },
+    {
+      "id": "guard-shadow-deny",
+      "title": "The pack write guard turns away writes that would fork a built-in",
+      "summary": "When an interactive session tries to save a pack copy that silently diverges from the shipped original, the write is refused with the same wording the planner warns with — while everything outside interactive authoring stays warning-only this release.",
+      "estimate": "M",
+      "depends_on": [
+        "provenance-classifier"
+      ],
+      "contract": {
+        "behavior": "hooks/scripts/guard_pack_write.py: on PreToolUse Write under .karta/sme/*.md, after the existing validator-clean check passes, classify the PROPOSED content via check_pack_provenance.py --stdin (the classifier resolved through CLAUDE_PLUGIN_ROOT with the same plugin-root fallback the validator lookup uses today) — the target file does not exist on disk yet at PreToolUse, so content is piped, mirroring how the existing validator-clean check already handles proposed content (PANEL: the IPC is pinned here so builders do not invent one). A state of illegal shadow denies the write (exit 2) with a message containing exactly 'illegal shadow: a local delta over the shipped built-in', naming the shadowed built-in, and offering the three ways forward: restore the seeded copy, move the delta to a project pack (fresh basename with extends and id_prefix), or take the delta upstream. On PostToolUse Edit/Write the on-disk file is classified the same way; an illegal shadow exits 2 so the finding reaches the model as feedback it must fix.",
+        "allowed": "seeded cache, stale cache, suppression, and project pack states all pass, as does any target whose built-in cannot be resolved.",
+        "honest_scope": "Per the spec's enforcement table this guard is a deterrent for interactive authoring only — git pull/merge/checkout, external editors, and sync tools bypass it by construction; the authoritative gate is plan-time, which stays a loud WARNING in this release with the halt arriving in phase 2. The deny message never claims to be the authoritative gate. This deny-vs-warn split is deliberate. The Write-preventive / Edit-corrective asymmetry mirrors the guard's existing validator-clean architecture (PreToolUse fires on Write, PostToolUse on Edit|Write, per hooks/hooks.json) — deliberate, and self-tested as such.",
+        "fail_open": "Preserved exactly: any internal error, missing classifier, or classifier crash exits 0 — the guard must never break an unrelated tool call.",
+        "mirrors": "The three copies stay byte-identical: hooks/scripts/, .codex-plugin/hooks/scripts/, plugins/karta/.codex-plugin/hooks/scripts/.",
+        "self_test": "Extend the embedded fixtures with deny/allow cases per state while keeping all existing cases green; [PASS]/[FAIL] plus 'N/N checks passed'."
+      },
+      "touches": [
+        "hooks/scripts/guard_pack_write.py",
+        ".codex-plugin/hooks/scripts/guard_pack_write.py",
+        "plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py"
+      ],
+      "shared_resources": [
+        "scripts/sync_codex_skills.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "Deliberate enforcement split: this guard denies interactive shadow writes while plan time only warns this release — the spec's enforcement table calls for exactly this posture; confirm before build",
+          "Changes the deny behavior of a live PreToolUse hook that runs on every pack write"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "guard self-test passes: a Write proposing an illegal shadow is denied exit 2 with the canonical substring 'illegal shadow: a local delta over the shipped built-in'; a byte-identical seeded cache write, a fresh-basename project pack write, and a suppression write all pass",
+          "fail-open cases stay green: missing classifier, unresolvable built-in, and internal error all exit 0",
+          "all pre-existing self-test cases still pass (validator-clean rule intact)",
+          "the three mirrored guard copies are byte-identical",
+          "validate_plugin.py --self-test stays green (it runs every hook script's --self-test)",
+          "an Edit that lands an illegal shadow is diagnosed post-write with exit-2 corrective feedback — a fixture documents this corrective (not preventive) path explicitly"
+        ],
+        "command": "python3 hooks/scripts/guard_pack_write.py --self-test && grep -q 'illegal shadow: a local delta over the shipped built-in' hooks/scripts/guard_pack_write.py && cmp -s hooks/scripts/guard_pack_write.py .codex-plugin/hooks/scripts/guard_pack_write.py && cmp -s hooks/scripts/guard_pack_write.py plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py && python3 scripts/validate_plugin.py --self-test"
+      }
+    },
+    {
+      "id": "pack-docs-refresh",
+      "title": "Tell pack authors how the new states and knobs work",
+      "summary": "The stack pack, kaizen, and hooks guides explain the four states, the provenance stamp, extending a built-in, and the write guard's new rule — and say plainly that the old override behavior is deprecated and scheduled for removal.",
+      "estimate": "M",
+      "depends_on": [
+        "provenance-classifier",
+        "stamp-and-reseed",
+        "project-pack-composition",
+        "guard-shadow-deny"
+      ],
+      "contract": {
+        "stack_packs_doc": "docs/how-to/stack-packs.md documents the four states with their exact user-facing names (\"seeded cache\", \"stale cache\", \"suppression\", \"project pack\"), the canonicalized comparison, the diagnostic-only stamp, the illegal-shadow warning (quoting 'illegal shadow: a local delta over the shipped built-in'), authoring a project pack with extends + exclude_rules + id_prefix (one worked example), and the deprecation note: overlay-wins still functions this release, is deprecated, and its removal plus the plan-time halt land in karta 3.0.0.",
+        "kaizen_doc": "docs/how-to/kaizen.md documents the stamp fields (seeded_from, base_sha256), the eager migrate pass on the first enabled run, and the stale cache auto-reseed with its visible logged line. It also explains the pack-hash ledger's role in one sentence: a stamp must name a hash the built-in genuinely shipped with before an out-of-date copy may refresh itself.",
+        "hooks_doc": "docs/how-to/hooks.md gains a guard_pack_write entry covering both rules — validator-clean and the illegal-shadow deny — with its honest deterrent-only scope stated (not the authoritative gate).",
+        "prose": "All three edits follow the karta-plainlanguage standard: lead with the reader, no kebab-case identifiers in prose outside code spans."
+      },
+      "touches": [
+        "docs/how-to/stack-packs.md",
+        "docs/how-to/kaizen.md",
+        "docs/how-to/hooks.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "note: docs-only item that renders the canonical strings the other items define — the shared-terms gate holds them byte-identical; the hooks.md row edit must keep the doc-truth parity binding coherent"
+        ]
+      },
+      "oracle": {
+        "type": "smoke",
+        "assertions": [
+          "the four state names appear in the stack packs guide exactly as the classifier renders them",
+          "the stack packs guide quotes the canonical illegal-shadow substring and describes overlay-wins as deprecated with removal scheduled for karta 3.0.0 — deprecated, not removed",
+          "the kaizen guide names both stamp fields and the auto-reseed behavior",
+          "the hooks guide documents the guard's deny rule as an interactive deterrent, not the authoritative gate",
+          "the repo-wide floor stays green"
+        ],
+        "command": "grep -q 'stale cache' docs/how-to/stack-packs.md && grep -q 'seeded cache' docs/how-to/stack-packs.md && grep -q 'exclude_rules' docs/how-to/stack-packs.md && grep -q 'id_prefix' docs/how-to/stack-packs.md && grep -qi 'deprecated' docs/how-to/stack-packs.md && grep -q 'illegal shadow: a local delta over the shipped built-in' docs/how-to/stack-packs.md && grep -q 'seeded_from' docs/how-to/kaizen.md && grep -q 'auto-reseed' docs/how-to/kaizen.md && grep -q 'guard_pack_write' docs/how-to/hooks.md && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/validate_plugin.py --self-test"
+      }
+    },
+    {
+      "id": "bench-baseline-guard",
+      "title": "Prove the bench oracle still passes and snapshot the baseline",
+      "summary": "The fixed pack bench probe runs live against both consumer repos to prove nothing regressed, and the dated findings file it writes is committed as the reference point the warning period accumulates divergence data against.",
+      "estimate": "S",
+      "depends_on": [
+        "stamp-and-reseed",
+        "project-pack-composition",
+        "guard-shadow-deny"
+      ],
+      "contract": {
+        "fixed_oracle": "benchmarks/probes/sme-pack-static-suite.py and benchmarks/sme-static/ are fixed regression oracles for this binder and are never edited here — this item is data-side only. If the schema additions (stamp keys, extends/exclude_rules/id_prefix) surface any new karta-owned finding, that is a defect in the upstream items: kick back, do not touch the probe.",
+        "run": "python3 benchmarks/probes/sme-pack-static-suite.py --target . --consumers /mnt/agent-storage/vader/src/parchmark,/mnt/agent-storage/vader/src/gringotts must report status \"pass\": karta-owned surfaces clean (built-in validation, mirror parity, cross-prefix, matching-rule hash) and no regression finding vs the committed baseline. The known consumer findings (the gringotts go-htmx DIVERGENT seed and token findings) remain recorded evidence, not failures.",
+        "exposes": "The dated results JSON the live run writes under benchmarks/sme/results/ is committed as the phase-1 baseline snapshot."
+      },
+      "touches": [
+        "benchmarks/sme/results/"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "The oracle needs the live sibling checkouts /mnt/agent-storage/vader/src/parchmark and /mnt/agent-storage/vader/src/gringotts on this host; it cannot run where those paths are absent"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "assertions": [
+          "the probe's own self-test passes untouched, and this item's diff contains no change under benchmarks/probes/ or benchmarks/sme-static/",
+          "the live run's status is pass: zero karta-owned errors and zero regression findings against the committed baseline",
+          "the dated results file for this run is committed under benchmarks/sme/results/"
+        ],
+        "command": "python3 benchmarks/probes/sme-pack-static-suite.py --self-test && python3 benchmarks/probes/sme-pack-static-suite.py --target . --consumers /mnt/agent-storage/vader/src/parchmark,/mnt/agent-storage/vader/src/gringotts | python3 -c \"import json,sys; d=json.load(sys.stdin); assert d['status']=='pass', [f['finding_id'] for f in d['findings'] if f['severity']=='error']\" && python3 scripts/validate_plugin.py --self-test"
+      }
+    }
+  ]
+}

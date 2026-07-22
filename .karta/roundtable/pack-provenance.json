@@ -1,0 +1,50 @@
+{
+  "reviewed_hash": "2d412a359c4914773686c4110e7fc16fb5fc36bb7916f42f9fc95f3cf8db254b",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "pack-provenance",
+  "run_at": "2026-07-22T14:20:28.650852+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "PLAN-BLOCKING: (1) CRITICAL forged-stamp stale-cache misclassification destroys local deltas during eager migrate \u2014 stale cache trusts base_sha256, validator accepts forged stamps, so 'kaizen never destroys a local delta' is held only by stamp honesty; fix: require base_sha256 match a known registered canonical hash, gate migrate, fixture forged-stamp-to-illegal-shadow. (2) CRITICAL .karta/sme/ shadow collision with validate_plugin byte-identity in the karta repo itself \u2014 stamping the pinned shadows breaks the integrity gate every oracle depends on; no item owns an exemption or validator update; fix: own it explicitly in scope. HIGH: (3) two wave-2 items independently add disjoint ALLOWED_KEYS to validate_packs.py with no declared ordering. (4) plan-time lazy auto-reseed contradicts warning-only doctrine \u2014 plan mutating .karta/sme/ is a substantial ungated behavior change; lock plan-time to read-only classification. (5) guard Write-vs-Edit asymmetry looks accidental \u2014 harmonize or document deliberately with a fixture. MEDIUM: (6) id_prefix 'registered prefix' registry unspecified \u2014 name the source. (7) missing shared_terms: orphaned cache, extends. (8) docs oracle invokes out-of-binder doc-truth probe \u2014 pin or move. (9) eager migrate trigger 'first enabled run' undefined event-wise \u2014 gate behind one-shot marker or flag. LOW: (10) warnings vs per-pack finding authority undistinguished. (11) rename-alias table TTL unowned \u2014 phase 2 must own retirement. (12) bench oracle host-pinned with no fallback. (13) --file mode IPC for proposed content unspecified. Summary: two plan-blocking (forged-stamp reseed trap; karta-repo shadow/validator collision), five high amendments."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "(1) CRITICAL side-effect at plan time: auto-reseed in plan:sme mutates the workspace during planning \u2014 conceptually read-only; move reseed strictly to the kaizen migrate pass or a write-time hook; plan-time should only warn. (2) HIGH missing IPC contract for proposed content in the guard: on PreToolUse Write the target does not exist on disk, so --file reads old content or crashes; define the mechanism explicitly (stdin or temp file). (3) HIGH karta's own .karta/sme/ files vs validate_plugin.py: stamping them alters bytes; if the validator is not updated, plugin validation fails and breaks the build; add an explicit contract clause updating validate_plugin.py and fixtures. (4) MEDIUM silent failure on invalid exclude_rules ids: a typo would silently fail to exclude; make nonexistent ids a validation error or loud warning. (5) MEDIUM oracle/probe status ambiguity in bench-baseline-guard: contract says known consumer findings are not failures but the oracle asserts status==pass; clarify the probe's status logic so the oracle matches actual behavior."
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": null,
+      "summary": "Request timed out after 181s."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": null,
+      "summary": "Request timed out after 181s."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": null,
+      "summary": "Request timed out after 181s."
+    }
+  ]
+}
