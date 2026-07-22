@@ -38,7 +38,16 @@ PREFIXES = {
     "go-htmx": "htmx",
     "go-naming": "goname",
 }
-ALLOWED_KEYS = ("name", "description", "match", "always", "see_also", "disabled")
+ALLOWED_KEYS = ("name", "description", "match", "always", "see_also", "disabled",
+                "seeded_from", "base_sha256")
+# The provenance stamp (frontmatter `seeded_from` + `base_sha256`, written by kaizen's
+# seed/migrate pass). Both are optional but paired — one without the other is an error.
+# The stamp is diagnostic shape only: a syntactically valid but forged stamp still
+# validates; the validator never gates a pack's cleanliness on it. `base_sha256` names
+# the canonical hash of the built-in the copy was seeded from (see
+# skills/karta-plan/scripts/check_pack_provenance.py, which produces the same 64-hex form).
+STAMP_KEYS = ("seeded_from", "base_sha256")
+BASE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SIZE_WARN_BYTES = 3500
 
 KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(\S.*?)\s*$")
@@ -137,6 +146,23 @@ def _check_checklist(lines: list[str], body_start: int, stem: str, errors: list[
         errors.append(f"checklist: retired id '{pid}' reappears as an active item")
 
 
+def _check_stamp(fields: dict[str, str], errors: list[str]) -> None:
+    """Validate the provenance stamp: paired, and shape-correct. Legal on any pack
+    (suppression packs included), never required — an unstamped pack is valid. Shape
+    only: a forged stamp whose bytes don't match its named built-in still validates,
+    because cleanliness is the classifier's job, never the validator's."""
+    present = [k for k in STAMP_KEYS if k in fields]
+    if not present:
+        return  # unstamped — the stamp is diagnostic, never required
+    if len(present) != 2:
+        missing = next(k for k in STAMP_KEYS if k not in fields)
+        errors.append(f"frontmatter: provenance stamp is paired — '{present[0]}' is set but "
+                      f"'{missing}' is missing (set both stamp keys or neither)")
+    # `seeded_from` is captured non-empty by KV_RE; `base_sha256` must be 64 lowercase hex.
+    if "base_sha256" in fields and not BASE_SHA256_RE.match(fields["base_sha256"]):
+        errors.append("frontmatter: 'base_sha256' must be exactly 64 lowercase hex characters")
+
+
 def validate_pack(text: str, filename: str) -> tuple[list[str], list[str], bool]:
     """Return (errors, warnings, disabled); empty errors == valid."""
     errors: list[str] = []
@@ -165,6 +191,7 @@ def validate_pack(text: str, filename: str) -> tuple[list[str], list[str], bool]
             errors.append(f"frontmatter: '{key}' must be exactly 'true' (omit the key otherwise)")
     _string_list(fields, "match", errors)
     _string_list(fields, "see_also", errors)
+    _check_stamp(fields, errors)  # legal on any pack, suppression included — before the early return
 
     disabled = fields.get("disabled") == "true"
     if disabled:
@@ -223,6 +250,12 @@ def _run_self_test() -> int:
         assert old in text, f"self-test fixture bug: {old!r} not found"
         return text.replace(old, new)
 
+    hex64 = "a1" * 32              # a shape-valid 64-lowercase-hex base_sha256
+    forged = "0" * 64             # equally shape-valid; the bytes needn't match anything
+
+    def stamp(seed: str, base: str) -> str:
+        return f"seeded_from: {seed}\nbase_sha256: {base}"
+
     cases = [
         ("valid always pack (with tombstone)", _GOOD_ALWAYS, "minimalism.md", True),
         ("valid match pack", _GOOD_MATCH, "python-fastapi.md", True),
@@ -277,6 +310,31 @@ def _run_self_test() -> int:
         ("disabled pack needs no match/always/checklist", _SUPPRESSED, "vue.md", True),
         ("disabled must be literally true",
          sub(_SUPPRESSED, "disabled: true", "disabled: yes"), "vue.md", False),
+        # --- provenance stamp (seeded_from + base_sha256) ---
+        ("stamped pack validates",
+         sub(_GOOD_ALWAYS, "always: true", f"always: true\n{stamp('minimalism', hex64)}"),
+         "minimalism.md", True),
+        ("forged stamp (shape-valid, bytes need not match) still validates — shape only",
+         sub(_GOOD_MATCH, "match:", f"{stamp('python-fastapi', forged)}\nmatch:"),
+         "python-fastapi.md", True),
+        ("lone seeded_from is an error",
+         sub(_GOOD_ALWAYS, "always: true", "always: true\nseeded_from: minimalism"),
+         "minimalism.md", False),
+        ("lone base_sha256 is an error",
+         sub(_GOOD_ALWAYS, "always: true", f"always: true\nbase_sha256: {hex64}"),
+         "minimalism.md", False),
+        ("base_sha256 wrong length is an error",
+         sub(_GOOD_ALWAYS, "always: true", f"always: true\n{stamp('minimalism', 'deadbeef')}"),
+         "minimalism.md", False),
+        ("base_sha256 uppercase hex is an error (must be lowercase)",
+         sub(_GOOD_ALWAYS, "always: true", f"always: true\n{stamp('minimalism', 'A' * 64)}"),
+         "minimalism.md", False),
+        ("stamp is legal on a suppression pack",
+         sub(_SUPPRESSED, "disabled: true", f"disabled: true\n{stamp('vue', hex64)}"),
+         "vue.md", True),
+        ("lone stamp key on a suppression pack is an error",
+         sub(_SUPPRESSED, "disabled: true", "disabled: true\nseeded_from: vue"),
+         "vue.md", False),
     ]
     failures = 0
     for name, text, filename, should_pass in cases:

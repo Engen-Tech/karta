@@ -24,7 +24,18 @@ Your writable surface is exactly two things: `.karta/sme/` (the project's packs)
 
 ## Seed on the first enabled run
 
-If `.karta/sme/` is missing or does not yet hold the project's packs, seed it: copy every pack in the resolved list into `.karta/sme/<id>.md` as a full, complete file — the whole pack, not a diff or an overlay. A pack the project already has under `.karta/sme/` wins on a name clash: leave it exactly as it is; never overwrite the project's own copy. From then on those files **are** the packs — the built-ins become templates that still cover only names the repo does not carry. A seeded file must pass `skills/karta-kaizen/scripts/validate_packs.py` like any pack you write — the packs you copy carry valid numbered checklists, so a full, faithful copy passes.
+If `.karta/sme/` is missing or does not yet hold the project's packs, seed it: copy every pack in the resolved list into `.karta/sme/<id>.md` as a full, complete file — the whole pack, not a diff or an overlay — using a **lowercase basename** (enforce lowercase at seed time). Write a **provenance stamp** into each seeded file's frontmatter: `seeded_from` (the built-in's id) and `base_sha256` (the canonical hash of that built-in). A pack the project already has under `.karta/sme/` wins on a name clash: leave it exactly as it is; never overwrite the project's own copy. From then on those files **are** the packs — the built-ins become templates that still cover only names the repo does not carry. A seeded file must pass `skills/karta-kaizen/scripts/validate_packs.py` like any pack you write — the packs you copy carry valid numbered checklists, and the validator accepts the paired stamp keys, so a full, faithful stamped copy passes.
+
+### Eager migrate pass on the first enabled run
+
+Copies seeded before stamps existed need bringing current, so on the first enabled run also migrate every existing `.karta/sme/` file. Classify each with `python3 skills/karta-plan/scripts/check_pack_provenance.py`, then act on its state and log one visible line per action:
+
+- **seeded cache** (stamp-stripped bytes match the current built-in) — write the provenance stamp onto it.
+- **stale cache** (byte-identical to a genuine past built-in the shipped hash ledger records) — **auto-reseed** it: replace its bytes with the current built-in plus a fresh stamp. Only a **ledger-verified** stale cache is auto-reseeded.
+- **illegal shadow** (a local delta over the shipped built-in — including an unverifiable `base_sha256`) — **leave it in place and report it; never overwrite it.** You never destroy a local delta; a genuinely edited copy is the human's to reconcile.
+- **project pack / suppression / orphaned cache** — leave as-is.
+
+The pass is **naturally idempotent**: a stamped seeded cache classifies clean next run, so a re-run is a no-op — write no marker file. Your stamps and auto-reseeds are ordinary edits under `.karta/sme/` and land through the same validator-gated flow as any pack you write.
 
 ## Editing a pack
 
@@ -56,7 +67,7 @@ summary: "1-3 line plain-language outcome"
 - **Never weaker.** No rule loosened or removed, no pack promoted to enforcing. Changing what gates a build is the human's decision, made in review of your commits — never yours.
 - **Valid per the validator.** Every pack file you write — edits and seeds alike — must pass `skills/karta-kaizen/scripts/validate_packs.py`. The orchestrating skill runs it before landing; an invalid file comes back to you once to fix, then the run fails.
 - **Ids are immutable.** Never renumber a checklist id, never reuse a retired one; a removed rule (removal is the human's call — never yours) keeps its tombstone.
-- **Seed once, full files.** First enabled run copies every used pack into `.karta/sme/` whole; an existing project copy always wins. The repo owns its packs from then on.
+- **Seed once, full files, stamped.** First enabled run copies every used pack into `.karta/sme/` whole, each with a provenance stamp (`seeded_from` + `base_sha256`) and a lowercase basename; an existing project copy always wins. That same run migrates pre-stamp copies — stamp a seeded cache, auto-reseed a ledger-verified stale cache, leave an illegal shadow untouched and reported. The repo owns its packs from then on; the migrate pass is naturally idempotent (no marker file).
 - **Reviewed, revertible.** Every change you make reaches the repo as a normal commit a human reviews. You never push and never open a PR.
 - **Phase-one honesty.** Sharpening, erosion notes, and new-pack suggestion are later phases. Never pretend to a behavior that is not built; say what you did and no more.
 - **Plain language to people, precision in packs.** Human-facing writing goes through the karta-plainlanguage skill (or the bundled fallback); pack content stays technical.
