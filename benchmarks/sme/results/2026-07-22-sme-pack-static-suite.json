@@ -1,0 +1,681 @@
+{
+  "schema_version": 1,
+  "vector": "sme-pack-static-suite",
+  "run_date": "2026-07-22",
+  "plugin_version": "2.24.0",
+  "karta_sha": "05105a277b0987307b865764cb8bd7544b56d748",
+  "consumer_shas": {
+    "parchmark": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+    "gringotts": "e2b69794e3a03baa85feafb7492e03412bed6ba8"
+  },
+  "pack_list": {
+    "builtin": [
+      "angular",
+      "go-htmx",
+      "go-naming",
+      "minimalism",
+      "python",
+      "python-fastapi",
+      "vue"
+    ],
+    "karta": [
+      "karta-house-skill-authoring",
+      "minimalism"
+    ],
+    "parchmark": [
+      "minimalism",
+      "python-fastapi",
+      "vue"
+    ],
+    "gringotts": [
+      "go-htmx",
+      "go-naming",
+      "minimalism"
+    ]
+  },
+  "probe_cards": [
+    {
+      "probe": "matching-rule-hash",
+      "outcome": "pass",
+      "file": "skills/karta-plan/SKILL.md",
+      "remediation": ""
+    },
+    {
+      "probe": "pack-integrity/validate-packs-karta",
+      "outcome": "pass",
+      "file": "",
+      "remediation": "fix the pack or add a justified exceptions.json entry"
+    },
+    {
+      "probe": "pack-integrity/validate-packs-parchmark",
+      "outcome": "pass",
+      "file": "",
+      "remediation": ""
+    },
+    {
+      "probe": "pack-integrity/validate-packs-gringotts",
+      "outcome": "pass",
+      "file": "",
+      "remediation": ""
+    },
+    {
+      "probe": "pack-integrity/mirror-parity",
+      "outcome": "pass",
+      "file": "",
+      "remediation": ""
+    },
+    {
+      "probe": "pack-integrity/cross-prefix",
+      "outcome": "pass",
+      "file": "",
+      "remediation": ""
+    },
+    {
+      "probe": "pin-derivation/parchmark",
+      "outcome": "recorded",
+      "file": "",
+      "remediation": "coverage dirs: backend, ui"
+    },
+    {
+      "probe": "pin-derivation/gringotts",
+      "outcome": "recorded",
+      "file": "",
+      "remediation": "coverage dirs: ."
+    },
+    {
+      "probe": "seed-drift",
+      "outcome": "recorded",
+      "file": "",
+      "remediation": "3 non-identical"
+    },
+    {
+      "probe": "token-audit",
+      "outcome": "recorded",
+      "file": "",
+      "remediation": "corpus size: 73"
+    }
+  ],
+  "pin_table": [
+    {
+      "binder": "parchmark/backend-hygiene",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/backend-drop-sync-session",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/backend-pyjwt-migration",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/backend-service-layer-notes-auth",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/deps-upgrade-latest",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/note-events-live-refresh",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/note-tags-editing",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/settings-account-delete",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/settings-account-summary",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/settings-notes-export",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "parchmark/settings-password-change",
+      "era": "v1.1.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [
+        "python-fastapi",
+        "vue"
+      ],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/browse-refinements",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/debt-sweep",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/deposit-and-editing",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/exif-display",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/exif-persistence",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/photo-classify",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/upload-integrity",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    },
+    {
+      "binder": "gringotts/upload-reliability",
+      "era": "v1.17.0",
+      "pinned": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_contract": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "expected_coverage": [
+        "go-htmx",
+        "go-naming",
+        "minimalism"
+      ],
+      "underivable_pins": [],
+      "missing_pins": []
+    }
+  ],
+  "binder_era_counts": {
+    "v1.1.0": 11,
+    "v1.17.0": 8
+  },
+  "smeless_excluded": [
+    "parchmark/note-create-workflow",
+    "parchmark/note-delete-workflow",
+    "parchmark/note-edit-save-workflow",
+    "parchmark/notes-list-from-backend"
+  ],
+  "current_era": "v1.17.0",
+  "conformance_pct_current_era": 100.0,
+  "unmatched_ecosystems": {
+    "parchmark": [
+      "javascript",
+      "node"
+    ],
+    "gringotts": []
+  },
+  "drift": [
+    {
+      "owner": "karta",
+      "pack": "minimalism",
+      "class": "IDENTICAL"
+    },
+    {
+      "owner": "parchmark",
+      "pack": "minimalism",
+      "class": "IDENTICAL"
+    },
+    {
+      "owner": "parchmark",
+      "pack": "python-fastapi",
+      "class": "IDENTICAL"
+    },
+    {
+      "owner": "parchmark",
+      "pack": "vue",
+      "class": "IDENTICAL"
+    },
+    {
+      "owner": "gringotts",
+      "pack": "go-htmx",
+      "class": "DIVERGENT"
+    },
+    {
+      "owner": "gringotts",
+      "pack": "go-naming",
+      "class": "DIVERGENT"
+    },
+    {
+      "owner": "gringotts",
+      "pack": "minimalism",
+      "class": "LOCAL-ADDITIVE"
+    }
+  ],
+  "token_audit_scope": "overlay packs (consumer .karta/sme + karta .karta/sme)",
+  "token_corpus": [
+    "@types/node",
+    "@vitejs/plugin-vue",
+    "@vitest/coverage-v8",
+    "@vue/test-utils",
+    "@vueuse/core",
+    "alembic",
+    "asyncpg",
+    "dompurify",
+    "fastapi",
+    "github.com/a-h/templ",
+    "github.com/anthropics/anthropic-sdk-go",
+    "github.com/bahlo/generic-list-go",
+    "github.com/buger/jsonparser",
+    "github.com/chromedp/cdproto",
+    "github.com/chromedp/chromedp",
+    "github.com/chromedp/sysutil",
+    "github.com/dustin/go-humanize",
+    "github.com/evanoberholster/imagemeta",
+    "github.com/go-json-experiment/json",
+    "github.com/gobwas/httphead",
+    "github.com/gobwas/pool",
+    "github.com/gobwas/ws",
+    "github.com/golang-jwt/jwt/v5",
+    "github.com/google/uuid",
+    "github.com/invopop/jsonschema",
+    "github.com/mattn/go-isatty",
+    "github.com/micahparks/jwkset",
+    "github.com/micahparks/keyfunc/v3",
+    "github.com/ncruces/go-strftime",
+    "github.com/oklog/ulid/v2",
+    "github.com/pb33f/ordered-map/v2",
+    "github.com/philhofer/fwd",
+    "github.com/pkg/errors",
+    "github.com/remyoudompheng/bigfft",
+    "github.com/standard-webhooks/standard-webhooks/libraries",
+    "github.com/tidwall/gjson",
+    "github.com/tidwall/match",
+    "github.com/tidwall/pretty",
+    "github.com/tidwall/sjson",
+    "github.com/tinylib/msgp",
+    "go",
+    "go.yaml.in/yaml/v4",
+    "golang.org/x/sync",
+    "golang.org/x/sys",
+    "golang.org/x/time",
+    "greenlet",
+    "happy-dom",
+    "httpx",
+    "javascript",
+    "jsdom",
+    "marked",
+    "modernc.org/libc",
+    "modernc.org/mathutil",
+    "modernc.org/memory",
+    "modernc.org/sqlite",
+    "node",
+    "ofetch",
+    "prettier",
+    "psycopg2-binary",
+    "pwdlib",
+    "pyjwt",
+    "python",
+    "python-dotenv",
+    "python-multipart",
+    "sqlalchemy",
+    "stream-zip",
+    "style-dictionary",
+    "typescript",
+    "uvicorn",
+    "vite",
+    "vitest",
+    "vue",
+    "vue-tsc"
+  ],
+  "size_warnings": {
+    "karta": [
+      "/mnt/agent-storage/vader/src/karta/.worktrees/pp-item-bench-baseline-guard/skills/_shared/sme/go-htmx.md: warning: pack is 4030 bytes (> 3500) \u2014 packs are prompt text; trim it"
+    ],
+    "consumers": [
+      "/mnt/agent-storage/vader/src/gringotts/.karta/sme/go-htmx.md: warning: pack is 5593 bytes (> 3500) \u2014 packs are prompt text; trim it",
+      "/mnt/agent-storage/vader/src/gringotts/.karta/sme/go-naming.md: warning: pack is 3576 bytes (> 3500) \u2014 packs are prompt text; trim it"
+    ]
+  },
+  "karta_owned_failures": [],
+  "recorded_finding_ids": [
+    "dead-token:gringotts:go-htmx:htmx",
+    "dead-token:gringotts:go-htmx:templ",
+    "dead-token:parchmark:python-fastapi:pydantic",
+    "dead-token:parchmark:vue:@vue/runtime-core",
+    "overbroad-token:gringotts:go-htmx:go",
+    "overbroad-token:gringotts:go-naming:go",
+    "pin-nonconformant:parchmark:backend-drop-sync-session",
+    "pin-nonconformant:parchmark:backend-hygiene",
+    "pin-nonconformant:parchmark:backend-pyjwt-migration",
+    "pin-nonconformant:parchmark:backend-service-layer-notes-auth",
+    "pin-nonconformant:parchmark:deps-upgrade-latest",
+    "pin-nonconformant:parchmark:note-events-live-refresh",
+    "pin-nonconformant:parchmark:note-tags-editing",
+    "pin-nonconformant:parchmark:settings-account-delete",
+    "pin-nonconformant:parchmark:settings-account-summary",
+    "pin-nonconformant:parchmark:settings-notes-export",
+    "pin-nonconformant:parchmark:settings-password-change",
+    "seed-drift:gringotts:go-htmx:DIVERGENT",
+    "seed-drift:gringotts:go-naming:DIVERGENT",
+    "seed-drift:gringotts:minimalism:LOCAL-ADDITIVE"
+  ],
+  "baseline_file": "benchmarks/sme/results/2026-07-22-sme-pack-static-suite.json",
+  "status": "pass"
+}

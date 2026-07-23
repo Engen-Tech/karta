@@ -95,19 +95,42 @@ def check() -> list[str]:
     return errors
 
 
-def _check_kaizen_shadow(errors: list[str]) -> None:
+def _strip_provenance_stamp(text: str) -> str:
+    """Drop the two provenance-stamp frontmatter lines (`seeded_from` + `base_sha256`),
+    byte-preserving everything else. The stamp is what kaizen's seed/migrate pass writes
+    onto a seeded copy (see skills/karta-plan/scripts/check_pack_provenance.py); the shadow
+    guard compares the *rest* of the bytes, so a stamped shadow is legal but any other
+    delta is not. A file with no frontmatter, or no stamp lines, is returned unchanged."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return text
+    close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if close is None:
+        return text
+    kept = [ln for i, ln in enumerate(lines)
+            if not (1 <= i < close and ln.split(":", 1)[0].strip() in ("seeded_from", "base_sha256"))]
+    return "\n".join(kept)
+
+
+def _check_kaizen_shadow(errors: list[str], shadow: Path | None = None,
+                         canonical: Path | None = None) -> None:
     """Kaizen dogfood guard: this repo authors the built-in packs, so its seeded
-    .karta/sme/minimalism.md is a managed shadow that must stay byte-identical to
-    the canonical skills/_shared/sme/minimalism.md. A kaizen (or hand) edit to the
-    shadow must be either discarded or promoted upstream into the canonical pack —
-    never left to drift."""
-    shadow = ROOT / ".karta/sme/minimalism.md"
-    canonical = ROOT / "skills/_shared/sme/minimalism.md"
-    if shadow.exists() and canonical.exists() and shadow.read_bytes() != canonical.read_bytes():
+    .karta/sme/minimalism.md is a managed shadow that must stay byte-identical to the
+    canonical skills/_shared/sme/minimalism.md — under STAMP-STRIPPED comparison. The
+    shadow may carry the paired provenance stamp (`seeded_from` + `base_sha256`) kaizen's
+    seed/migrate pass writes; every OTHER byte must equal the canonical pack. A real
+    content delta (or a stamp that hides one) must be either discarded or promoted upstream
+    into the canonical pack — never left to drift."""
+    shadow = shadow if shadow is not None else ROOT / ".karta/sme/minimalism.md"
+    canonical = canonical if canonical is not None else ROOT / "skills/_shared/sme/minimalism.md"
+    if not (shadow.exists() and canonical.exists()):
+        return
+    if _strip_provenance_stamp(shadow.read_text()) != _strip_provenance_stamp(canonical.read_text()):
         errors.append(
-            ".karta/sme/minimalism.md: differs from skills/_shared/sme/minimalism.md — "
-            "this repo's seeded copy is a managed shadow (kaizen dogfood policy, see AGENTS.md): "
-            "discard the shadow edit, or promote it into the canonical pack and re-copy"
+            f"{shadow.name}: differs (beyond the provenance stamp) from the canonical "
+            "skills/_shared/sme/minimalism.md — this repo's seeded copy is a managed shadow "
+            "(kaizen dogfood policy, see AGENTS.md): a stamp is allowed, but discard any other "
+            "shadow edit, or promote it into the canonical pack and re-copy"
         )
 
 
@@ -388,8 +411,33 @@ def _self_test() -> int:
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
         failures += 0 if ok else 1
-    total = len(cases) + 1
-    print(f"self-test: {total - failures}/{total} doc-gardner schema cases passed")
+
+        # --- kaizen shadow guard: STAMP-STRIPPED byte-identity ---
+        canon = ("---\nname: minimalism\ndescription: least code\nalways: true\n---\n"
+                 "## Review checklist\n- [ ] min.1 — the shipped rule.\n")
+        stamped = canon.replace("always: true\n",
+                                "always: true\nseeded_from: minimalism\n"
+                                "base_sha256: " + "a1" * 32 + "\n")
+        delta = canon.replace("the shipped rule", "a sneaky local edit")
+        stamped_delta = stamped.replace("the shipped rule", "a sneaky local edit")
+        canon_f = Path(td) / "canonical.md"
+        canon_f.write_text(canon)
+        shadow_cases = [
+            ("stamped byte-identical shadow passes", stamped, []),
+            ("unstamped legacy shadow passes", canon, []),
+            ("shadow with a content delta fails", delta, ["managed shadow"]),
+            ("a stamp cannot hide a content delta", stamped_delta, ["managed shadow"]),
+        ]
+        for name, shadow_text, want in shadow_cases:
+            shadow_f = Path(td) / "shadow.md"
+            shadow_f.write_text(shadow_text)
+            errors = []
+            _check_kaizen_shadow(errors, shadow=shadow_f, canonical=canon_f)
+            ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r}"))
+            failures += 0 if ok else 1
+    total = len(cases) + 1 + len(shadow_cases)
+    print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
 

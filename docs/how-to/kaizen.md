@@ -36,6 +36,14 @@ A pack you already put in `.karta/sme/` always wins — seeding never overwrites
 
 The one cost: once your repo owns a pack, it stops picking up changes to karta's built-in version of it. That is the trade for "what you read is what runs."
 
+## The provenance stamp and refreshing stale copies
+
+When kaizen seeds a pack, it writes a small provenance stamp into the copy: two paired frontmatter keys, `seeded_from` (the built-in the copy came from) and `base_sha256` (a fingerprint of that built-in at seed time). The stamp lets karta tell an out-of-date copy apart from one you have deliberately edited.
+
+The first time kaizen runs with the switch on, it also does an eager migrate pass over the packs already in `.karta/sme/`. It classifies every file, stamps each copy that still matches its built-in, and refreshes each out-of-date copy in place — an `auto-reseed` that replaces the copy with the current built-in plus a fresh stamp. Every action prints one visible logged line, so you can see exactly what changed. The pass is naturally idempotent: a stamped, current copy classifies as clean on the next run, so re-running does nothing.
+
+A copy only refreshes itself when its stamp names a hash the built-in genuinely shipped with — checked against a shipped ledger of past built-in hashes — so a forged stamp can never trick kaizen into overwriting a real local edit. A copy that carries a genuine edit of your own is left exactly as it is and reported, never overwritten: kaizen does not destroy your work.
+
 ## Review by commit
 
 Kaizen never opens a PR and never pushes. In a delivery, every change it makes lands as a labeled `kaizen:` commit on the integration branch — the branch you already review and merge yourself. Those commits are your review surface:

@@ -51,7 +51,20 @@ Either way, resolve ids from karta's bundled pack set (the same built-ins the ka
 
 ## Phase 3 — Dispatch the writer  `kaizen:write`
 
-Dispatch `karta-kaizen` (resolved as above) with the repo root, the resolved pack list, and the focus note. On the first enabled run the agent seeds `.karta/sme/` — every used pack copied in as a full file, existing project copies left untouched. Beyond seeding, phase one edits a pack only on a concrete instruction carried in the dispatch, and the agent never weakens a rule or promotes a pack to enforcing. It returns a terse envelope (`seeded`, `packs_changed`, `residual`, `summary`).
+Dispatch `karta-kaizen` (resolved as above) with the repo root, the resolved pack list, and the focus note. On the first enabled run the agent seeds `.karta/sme/` — every used pack copied in as a full file with a provenance stamp and a lowercase basename (lowercase enforced at seed time), existing project copies left untouched. Beyond seeding, phase one edits a pack only on a concrete instruction carried in the dispatch, and the agent never weakens a rule or promotes a pack to enforcing. It returns a terse envelope (`seeded`, `packs_changed`, `residual`, `summary`).
+
+### The provenance stamp and the eager migrate pass  `kaizen:migrate`
+
+Every file the agent seeds carries a **provenance stamp** in its frontmatter — `seeded_from` (the built-in it was copied from) and `base_sha256` (the canonical hash of that built-in) — so a later run can tell an untouched copy from an edited one. The stamp is diagnostic only: `validate_packs.py` checks its shape (paired keys; `base_sha256` is 64 lowercase hex) but never gates a pack's cleanliness on it.
+
+The **first enabled run after this change performs an eager migrate pass** over `.karta/sme/`, so copies that were seeded before stamps existed get classified and brought current in one visible sweep. It classifies every existing `.karta/sme/` file with `python3 skills/karta-plan/scripts/check_pack_provenance.py`, then acts on the classifier's state — one visible logged line per action:
+
+- **seeded cache** — stamp-stripped bytes match the current built-in: write the provenance stamp onto it (it was a faithful copy that simply predates stamping).
+- **stale cache** — byte-identical to a genuine *past* built-in the shipped hash ledger records: **auto-reseed** it — replace its bytes with the current built-in plus a fresh stamp. "stale cache" is the classifier's **ledger-verified** state; the migrate pass auto-reseeds only a ledger-verified stale cache, never a copy it merely guesses is old.
+- **illegal shadow** (a local delta over the shipped built-in, including an unverifiable `base_sha256`) — **left in place and reported, never overwritten.** Kaizen never destroys a local delta in the warning era; a genuinely edited copy is the human's to reconcile.
+- **project pack / suppression / orphaned cache** — left as-is.
+
+The migrate pass is **naturally idempotent**: a stamped seeded cache classifies clean on the next run, so re-runs are no-ops — there is no marker file to write or read.
 
 ## Phase 4 — Land or hand back  `kaizen:land`
 
@@ -68,7 +81,8 @@ Fold the envelope into the caller's report. Write everything you show a person i
 - **The switch is absolute.** Absent or disabled means kaizen never runs, direct invocation included. There is no standalone carve-out.
 - **Never weaker.** No rule loosened or removed, no pack promoted to enforcing — changing what gates a build is the human's decision, made in review of kaizen's commits.
 - **Syntax-checked before landing.** Every changed file under `.karta/sme/` must pass `skills/karta-kaizen/scripts/validate_packs.py` before Phase 4 commits (delivery) or hands back (direct); a failure lands nothing, and the validator output is the phase result. The design's promise that pack edits are syntax-checked before they land — so a bad edit can't silently break the checker that reads the pack — is now a running check, not prose.
-- **Seed once, full files.** The first enabled run copies every used pack into `.karta/sme/` whole; a project's existing copy always wins. From then on the repo owns its packs, and the built-ins cover only names the repo does not carry.
+- **Seed once, full files, stamped.** The first enabled run copies every used pack into `.karta/sme/` whole, each with its provenance stamp and a lowercase basename; a project's existing copy always wins. That same first run migrates copies seeded before stamps existed (`kaizen:migrate`): it stamps a seeded cache and auto-reseeds a ledger-verified stale cache, but leaves an illegal shadow in place, reported, never overwritten. From then on the repo owns its packs, and the built-ins cover only names the repo does not carry.
+- **The migrate pass lands through the existing flow.** The stamps it writes and the stale caches it auto-reseeds are ordinary changes under `.karta/sme/` — labeled `kaizen:` commits in delivery mode, working-tree edits in direct mode — gated by the same pre-land `validate_packs` check (Phase 4). It needs no separate path and no marker file; being naturally idempotent, a second run is a no-op.
 - **Labeled, revertible commits.** In delivery mode every change is a `kaizen:` commit on the integration branch — never pushed, never on a protected branch — reviewed and revertible like any commit.
 - **Plain language to people, precision in packs.** Human-facing output goes through the karta-plainlanguage skill; pack content stays technical.
 - **Phase-one honesty.** Sharpening, erosion notes, and new-pack suggestion are later phases. Report what ran and no more.
