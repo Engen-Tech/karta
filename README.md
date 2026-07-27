@@ -147,6 +147,6 @@ karta builds each item in isolation, so two items can word the same user-facing 
 
 ## License
 
-Proprietary and confidential. Copyright (c) 2026 Tej Gandham. All rights reserved.
+Proprietary and confidential. Copyright (c) 2026 Engen Inc. All rights reserved.
 
 The source is published for viewing only — no license, express or implied, is granted to use, copy, modify, distribute, host, or create derivative works of it. See [LICENSE](LICENSE) for the full terms. To request a license, contact the Owner at `inquiries [at] engen [dot] tech`.
