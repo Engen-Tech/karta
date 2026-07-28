@@ -2,7 +2,7 @@
 
 Kaizen is karta's second writer, after doc-gardner. Doc-gardner keeps your prose docs matching your code; kaizen keeps your stack packs matching what your project has learned. When it is on, every `karta-deliver` run ends with a kaizen pass over your packs, and every change kaizen makes is a normal commit you review before you merge. It is off until you turn it on.
 
-This guide covers what exists today — phase one, the frame: the on/off switch, the one-time seeding of your packs, and the review-by-commit loop. The behaviors that act on what your builds keep repeating arrive in later phases (see "What's coming" below).
+This guide covers what runs today — phase two: the on/off switch, the one-time seeding of your packs, the review-by-commit loop, and the sharpening pass that learns from the overrides your builds leave behind. One phase is still ahead (see "What's coming" below).
 
 ## Turn it on
 
@@ -57,18 +57,41 @@ Invoke the skill directly (with the switch on) and it leaves the pack edits in y
 
 **Kaizen writes knowledge; it never changes what gates a build.** It writes only inside `.karta/sme/` and its own config area — never your code, tests, the binder, prose docs, or karta's built-in packs. It never loosens or removes a rule. Changing what blocks a build is your decision, made in review of kaizen's commits. Nothing kaizen does can quietly make your checks weaker.
 
+## The sharpening pass
+
+When a build deliberately steps around a pack rule, it leaves a `KARTA-SME-OVERRIDE` marker at the site, naming the rule and the reason. Those markers are kaizen's signal. On every delivery run, after the seeding and migration work, kaizen reads the delivery's changes for new markers and tallies the standing markers across your repo, per rule.
+
+The threshold is deliberate. Two or more occurrences sharing a reason across two or more distinct deliveries sharpen the rule: kaizen writes the narrow, evidence-cited exception. A single occurrence is recorded as a candidate only — in the run summary and the commit body, never in a pack — so one unusual build never rewrites a rule.
+
+Sharpening only ever moves one way. A change that makes a rule sharper or clearer, kaizen writes. Anything that would loosen a rule becomes an **erosion note** instead: a plain note showing the rule, the override count, the reasons given, and what loosening would let through — so you decide with your eyes open. Erosion notes live in the kaizen commit body and the run envelope, never in a pack. Loosening a rule stays your decision alone.
+
+Inside a sharpened rule you will see the evidence cited inline as `(seen <date>, <delivery> delivery)` — where and when the lesson was learned.
+
+## Where a sharpening lands
+
+Which file kaizen edits depends on where the rule lives:
+
+- **Kaizen never edits a seeded cache in place.** A seeded copy of a built-in pack stays exactly what was seeded.
+- **A built-in rule, when the lesson is specific to your repo:** the sharpening lands in your *existing* project pack — an exclusion on the built-in rule plus a replacement rule whose text begins `Narrows <built-in-id>:`. Reading the project pack always tells you which built-in rules it replaces.
+- **A built-in rule, when the lesson would apply anywhere:** kaizen writes an **upstream candidate** note for karta's maintainers instead of editing anything locally. Improving a built-in pack is a human act in the karta repo.
+- **A rule in your own project pack:** edited in place, under the same one-way direction — a change that would loosen it becomes an erosion note, never an edit.
+
+Kaizen never creates a project pack. When a sharpening needs one that does not exist, kaizen proposes the scaffold — the pack header plus the replacement rule — in its run envelope, and you create the file.
+
+## The commit label
+
+Kaizen's commits carry the exact subject prefix `kaizen: `. The precise form matters: karta's bench auditor measures kaizen's activity by that prefix, so the `kaizen(<pack>):` variants are non-conforming — a commit labeled that way is invisible to the measurement.
+
 ## Plain language to you, precision in packs
 
 What kaizen says to a person — run summaries, commit messages — follows karta's bundled `karta-plainlanguage` standard, so it reads clearly whatever your setup. What goes inside a pack stays technical: a pack is a precision artifact for the builder and the checker, and simplifying it would blunt it.
 
 ## What's coming
 
-Phase one is the frame only. Later phases add:
+One phase is still ahead:
 
-- **Rule sharpening** — reading repeated `KARTA-SME-OVERRIDE` markers and tightening the pack where the fix is safe: a narrow exception, clearer wording, a better example.
-- **Erosion notes** — when a rule keeps getting overridden, a plain note showing the pattern, the reasons given, and what loosening would let through — so you decide with your eyes open.
 - **New-pack suggestions** — spotting a gap and drafting a new pack, plus the advisory mechanics that let it guide builders without gating builds until you promote it.
 
-None of that runs today. Today kaizen seeds your packs and lands its edits as commits you review — and it does not pretend to more.
+That does not run today, and kaizen does not pretend to it: a run with nothing it can do says so and stops.
 
 For the canonical agent and the generate-and-guard workflow, see [AGENTS.md](../../AGENTS.md).
