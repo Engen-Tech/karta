@@ -1,0 +1,45 @@
+{
+  "reviewed_hash": "82ef247ba5d29709831cc6f9fee057238953cef11785e290d108a29ca5d08537",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "kaizen-sharpening",
+  "run_at": "2026-07-28T14:54:24.203022+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "amend-first",
+      "summary": "Blocking: oracle shell redirection hazard [refuted by test]; 'not active yet' negative grep too narrow [accepted, extended to 5 real strings]; doc-truth ledger manifest missing from item 2 [reshaped: KAIZEN-LABEL-PARITY row added; no per-section registration model exists]. Advisory: section mapping [accepted], KARTA-SME-OVERRIDE grammar pin [accepted by reference], honesty-rule template [accepted verbatim]."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "amend-first",
+      "summary": "Blocking: honesty-rule wording unspecified [accepted, pinned verbatim]; prose assertions not enumerated [refuted \u2014 enumerated in the binder, condensed in the prompt]; .karta/kaizen.json focus note gating [refuted \u2014 focus is a nudge, not a phase gate]. Advisory: quoting care [verified by test], claims update step [accepted via KAIZEN-LABEL-PARITY], byte-identical copying from landed files [already the shared_terms gate]."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "amend-first",
+      "summary": "Blocking: no-pack fallback unstated [refuted \u2014 contract states scaffold-in-envelope]; project-pack in-place vs direction rule [accepted \u2014 row now cites the direction rule]; placeholder greps bless doc examples [refuted \u2014 doctrine IS the deliverable here]; post-wave byte-identity gate [refuted \u2014 check_shared_terms already is that gate]; claims/focus updates [claims accepted; focus refuted]. Advisory: pack checklist at land time [already the 6-sme self-check], honesty template [accepted], site-list format [envelope slots pinned], 'phase one' remnant greps [accepted]."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "amend-first",
+      "summary": "Blocking: grep -F pinning [already -F; verified by test]; verbatim anchors for retire/replace text [accepted for the honesty rule; retired sentences were already quoted verbatim]; define dispatch-instruction/decision-procedure/builds [accepted, all three pinned]; envelope slots + variants file placement [accepted, pinned to both files]; mirror-freshness ordering attack [refuted \u2014 regeneration from canonical makes final state correct; oracles verify state]; claims rows [accepted via KAIZEN-LABEL-PARITY]; enumerate assertions [refuted \u2014 enumerated]. Advisory: disclaimer variants [accepted as the 5-string set], focus note [declined], substance-vs-glossary [acceptance gate's job]."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "amend-first",
+      "summary": "Blocking: honesty-rule form undefined [accepted, pinned verbatim]; envelope slots unimplemented [refuted \u2014 envelope is doctrine text item 1 owns]; claims rows unowned [accepted via KAIZEN-LABEL-PARITY]. Advisory: semantic coherence beyond greps [the acceptance reviewer dispositions prose assertions \u2014 karta's two-altitude model], stale-exclusion trigger [accepted, pinned per-pass], substring collisions [grep -qF verified]."
+    }
+  ]
+}

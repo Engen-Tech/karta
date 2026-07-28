@@ -1,0 +1,143 @@
+{
+  "slug": "kaizen-sharpening",
+  "title": "Teach kaizen to sharpen rules from the overrides builds leave behind",
+  "summary": "Until now kaizen could only seed a project's packs and wait for instructions. Six days of real deliveries showed how pack rules actually fail: the enforced wording drops the condition that says when the rule applies, builders override it, and a human patches the pack later. This turns on the second phase the original design promised: new rules must carry their condition in the enforced wording, repeated overrides with a shared reason trigger a narrow, evidence-cited sharpening, anything that would loosen a rule becomes an erosion note for the human instead, and every edit lands where pack provenance allows — never in a seeded cache. The how-to guide moves sharpening from coming soon to here, so consumers read what actually runs.",
+  "motivation": "The override markers builds leave behind are a real signal that a rule overreaches, and today nothing processes them; meanwhile mislabeled fix commits are invisible to the bench that measures kaizen. Activating sharpening with a tight threshold, a one-way direction rule, and explicit surface rules turns that signal into reviewed pack improvements without ever letting kaizen weaken a gate.",
+  "scope": {
+    "included": [
+      "agents/karta-kaizen.md — retire the phase-one disclaimers that stop being true, add the first-draft scoping discipline, the sharpening pass, the surface-resolution rules, the pinned commit label, and the widened run envelope",
+      "skills/karta-kaizen/SKILL.md — the same activation mirrored in the orchestrating skill: the dispatch carries the sharpening pass, the phase wording updates, and the envelope slots are named",
+      "The regenerated projections of both canonical files — the Codex agent file, the references copies of the agent, and the skill mirrors — kept generated-identical by the sync scripts in the same change",
+      "docs/how-to/kaizen.md — sharpening, erosion notes, surface resolution, and the commit label discipline documented as active behavior; the coming-soon section shrinks to phase three only"
+    ],
+    "excluded": [
+      "Phase three stays out: new-pack suggestions and the advisory/enforcing pack flag with its gate mechanics remain a later phase, still labeled as coming",
+      "The bench auditor and the field-health probe are not edited — they are the measuring sticks this work is graded by",
+      "No hook changes and no validate_packs.py changes — this is doctrine and docs only, with no new enforcement machinery and no validator schema change",
+      "No built-in pack content changes — the discipline governs how kaizen edits a consumer repo's packs, not what karta's shipped packs say",
+      "No migrations in consumer repos — resolving existing divergent packs elsewhere (for example the gringotts overlays) is follow-on work that uses these shapes, not part of this binder",
+      "The commit-trailer enforcement hook the review panel cut stays cut — evidence discipline is doctrine, reviewable in every commit and measurable by a future bench probe if coverage slips, not a new mechanism"
+    ]
+  },
+  "design_facts": {
+    "source": "docs/specs/2026-07-28-kaizen-sharpening-activation.md",
+    "stack": "Claude Code + Codex plugin repo: markdown doctrine (skills/, agents/) with generated projections, pure-stdlib Python tooling"
+  },
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "python", "version": ">=3.11", "manager": "uv" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-skill-authoring", "minimalism"],
+  "shared_terms": [
+    {
+      "id": "narrows-prefix",
+      "canonical": "Narrows <built-in-id>:",
+      "items": ["sharpening-doctrine", "kaizen-docs-refresh"]
+    },
+    {
+      "id": "seeded-cache-never",
+      "canonical": "never edits a seeded cache in place",
+      "items": ["sharpening-doctrine", "kaizen-docs-refresh"]
+    },
+    {
+      "id": "distinct-delivery-threshold",
+      "canonical": "two or more distinct deliveries",
+      "items": ["sharpening-doctrine", "kaizen-docs-refresh"]
+    },
+    {
+      "id": "evidence-citation-form",
+      "canonical": "(seen <date>, <delivery> delivery)",
+      "items": ["sharpening-doctrine", "kaizen-docs-refresh"]
+    },
+    {
+      "id": "upstream-candidate",
+      "canonical": "upstream candidate",
+      "items": ["sharpening-doctrine", "kaizen-docs-refresh"]
+    },
+    {
+      "id": "erosion-note",
+      "canonical": "erosion note",
+      "items": ["sharpening-doctrine", "kaizen-docs-refresh"]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "sharpening-doctrine",
+      "title": "Turn on the sharpening pass in kaizen's own instructions",
+      "summary": "Both canonical kaizen files stop disclaiming sharpening and start defining it: when a rule may be sharpened, where the edit lands, what evidence it must carry, and what happens when the signal points toward loosening. The generated projections re-sync in the same change.",
+      "estimate": "L",
+      "depends_on": [],
+      "contract": "Edit the two canonical kaizen doctrine files — agents/karta-kaizen.md and skills/karta-kaizen/SKILL.md — then regenerate their projections; never hand-edit a mirror. (1) RETIRE the phase-one disclaimers where they stop being true, in every named location: in agents/karta-kaizen.md the frontmatter `description` phase sentence ('Phase one ships the frame only — sharpening rules and suggesting new packs arrive in later phases'), the '**This is phase one: the frame.**' paragraph, the 'Editing a pack' opening sentence ('Beyond seeding, phase one gives you no signal to act on by yourself'), and the '**Phase-one honesty.**' rule; in skills/karta-kaizen/SKILL.md the frontmatter `description` phase sentence, the '**This is phase one: the frame.**' paragraph, the Phase 3 dispatch sentence ('Beyond seeding, phase one edits a pack only on a concrete instruction carried in the dispatch'), and the '**Phase-one honesty.**' rule. Each replacement states that sharpening, erosion notes, and the first-draft discipline are active, while phase 3 — new-pack suggestions and the advisory/enforcing pack flag with its gate mechanics — remains explicitly a later phase. The honesty rule's replacement is pinned verbatim, byte-identical in both files: '**Phase-two honesty.** Sharpening, erosion notes, and the first-draft discipline are live; new-pack suggestions and the advisory/enforcing pack flag are not built yet — never pretend to them: when a run has nothing it can do within phase two, say so in the envelope and stop.' Section placement is pinned: in agents/karta-kaizen.md the first-draft discipline and the sharpening pass land in the 'Editing a pack' section, the envelope slots in the report/envelope section, and the direction rule restated under Rules; in skills/karta-kaizen/SKILL.md the sharpening pass lands in the kaizen:write phase step, the envelope slots in the report step, and the direction rule under Rules. After the edit NONE of these phase-one strings appears in either canonical file: 'not active yet', 'This is phase one', 'Phase one ships the frame only', 'phase one gives you no signal', 'phase one edits a pack only on'. (2) ADD the first-draft scoping discipline for new and repaired rules: the enforced checklist wording must itself name the observable condition under which the rule applies — a condition stated only in Do/Don't/Patterns prose does not count. Mandate carve-out: a checklist mandate is reserved for rules whose violation is deterministically observable in a diff; a lesson without such a signature lands as advisory guidance with a decision procedure (a stated when-to-apply condition the builder can evaluate); single-incident lessons default to advisory. Counterexample scan: before landing a new rule, kaizen scans the repo for sites the drafted wording would flag and attaches the site list to the commit body as evidence for the reviewer — never an auto-gate. New and sharpened rules cite provenance inline in the form (seen <date>, <delivery> delivery). (3) ADD the sharpening pass to delivery mode, running after the existing seed/migrate work: read the blast radius for new KARTA-SME-OVERRIDE markers and tally standing markers repo-wide per rule id (markers use the karta-build 6-sme grammar, KARTA-SME-OVERRIDE(<rule-id>): <rationale> — reference it, do not redefine it). Threshold: two or more occurrences sharing a reason across two or more distinct deliveries sharpen the rule (the narrow, evidence-cited exception); a single occurrence is recorded as a candidate in the run envelope and commit body only; an explicit concrete instruction carried in the dispatch — the same dispatch-instruction mechanism phase one already defines — may still sharpen from a single occurrence. Direction rule: a sharper or clarifying change kaizen writes; anything that would loosen becomes an erosion note instead — rule id, override count, the builds (delivery slugs), the reasons given, and what loosening would let through — recorded in the run envelope and the kaizen commit body ONLY, never in a pack. Stale-exclusion re-check, on each sharpening pass: compare each standing replacement rule whose text begins 'Narrows <built-in-id>:' against the current built-in text; when upstream has absorbed the narrowing, propose retiring the exclusion as an envelope note, never as an autonomous edit. (4) ADD the surface-resolution rules for where a sharpening lands: a built-in rule with a repo-specific lesson lands in the repo's EXISTING project pack, via exclude_rules on the built-in id plus a replacement rule under the project prefix whose text begins 'Narrows <built-in-id>:'; a built-in rule with an environment-generic lesson becomes an upstream candidate note in the envelope and commit body (promotion into the built-in stays a human act in the karta repo); a rule in the repo's own project pack is edited in place, subject to the same direction rule — a would-loosen change to a project-pack rule becomes an erosion note, never an edit; a seeded cache never — kaizen never edits a seeded cache in place; kaizen NEVER creates a project pack — when sharpening needs one that does not exist, it emits the proposed scaffold (frontmatter plus the replacement rule) in its envelope for a human to create; in karta's own dogfood repo the house pack is edited in place and the managed byte-identical minimalism shadow never. (5) PIN the commit label: the commit subject prefix is exactly 'kaizen: ' — the form the bench auditor measures — and the 'kaizen(<pack>):' variants are documented as non-conforming. (6) UNCHANGED and restated: the never-weaken core rule, writer confinement (.karta/sme/ plus .karta/kaizen.json, hook-enforced), and the envelope-shaped report all stay; the envelope gains named slots — candidates, erosion_notes, upstream_candidates, proposed_scaffolds — defined in the agent's envelope/report section and named in the skill's report step, so both canonical files carry the same slot names; doctrine text only, no code. (7) MIRRORED SURFACE: skills/ and agents/ are canonical. After editing, run python3 scripts/sync_codex_agents.py and python3 scripts/sync_codex_skills.py so .codex/agents/karta-kaizen.toml, skills/karta-kaizen/references/karta-kaizen.agent.md, .agents/skills/karta-kaizen/references/karta-kaizen.agent.md, plugins/karta/skills/karta-kaizen/references/karta-kaizen.agent.md, .agents/skills/karta-kaizen/SKILL.md, and plugins/karta/skills/karta-kaizen/SKILL.md stay generated-identical; python3 scripts/validate_plugin.py --self-test fails otherwise.",
+      "touches": [
+        "agents/karta-kaizen.md",
+        "skills/karta-kaizen/SKILL.md",
+        ".codex/agents/karta-kaizen.toml",
+        "skills/karta-kaizen/references/karta-kaizen.agent.md",
+        ".agents/skills/karta-kaizen/references/karta-kaizen.agent.md",
+        "plugins/karta/skills/karta-kaizen/references/karta-kaizen.agent.md",
+        ".agents/skills/karta-kaizen/SKILL.md",
+        "plugins/karta/skills/karta-kaizen/SKILL.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for f in agents/karta-kaizen.md skills/karta-kaizen/SKILL.md; do for s in \"Narrows <built-in-id>:\" \"never edits a seeded cache in place\" \"two or more distinct deliveries\" \"(seen <date>, <delivery> delivery)\" \"upstream candidate\" \"erosion note\" \"Phase-two honesty.\"; do grep -qF -- \"$s\" \"$f\"; done; for n in \"not active yet\" \"This is phase one\" \"Phase one ships the frame only\" \"phase one gives you no signal\" \"phase one edits a pack only on\"; do if grep -qF -- \"$n\" \"$f\"; then exit 1; fi; done; done' && python3 scripts/sync_codex_agents.py --check && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the literal string 'not active yet' appears in neither agents/karta-kaizen.md nor skills/karta-kaizen/SKILL.md, and every named phase-one disclaimer location — both frontmatter descriptions, both 'This is phase one: the frame.' paragraphs, the agent's 'Editing a pack' opening, the skill's Phase 3 dispatch sentence, and both 'Phase-one honesty' rules — is rewritten so sharpening and erosion notes read as active while new-pack suggestions and the advisory/enforcing flag stay a later phase",
+          "both canonical files state the first-draft discipline: the enforced checklist wording names its observable applicability condition (prose-only conditions do not count), mandates are reserved for diff-observable violations with single-incident lessons defaulting to advisory with a decision procedure, the counterexample site list is commit-body evidence never an auto-gate, and provenance is cited inline as (seen <date>, <delivery> delivery)",
+          "both canonical files define the delivery-mode sharpening pass after seed/migrate: new markers read from the blast radius, standing markers tallied repo-wide per rule id, the threshold of two or more occurrences sharing a reason across two or more distinct deliveries, a single occurrence recorded as an envelope candidate only, dispatch-instructed sharpening from one still allowed, and the stale-exclusion re-check proposing retirements as envelope notes",
+          "the direction rule holds in both files: sharper or clarifying is written; anything loosening becomes an erosion note (rule id, override count, builds, reasons, what loosening would let through) in the run envelope and kaizen commit body only, never in a pack",
+          "the surface-resolution rules land in both files: the existing project pack with exclude_rules plus a 'Narrows <built-in-id>:' replacement for repo-specific lessons, upstream candidate notes for environment-generic lessons, project-pack rules edited in place, kaizen never edits a seeded cache in place, kaizen never creates a project pack and instead emits the proposed scaffold in its envelope, and the karta dogfood row (house pack in place, minimalism shadow never)",
+          "the commit label is pinned to the exact subject prefix 'kaizen: ' with the 'kaizen(<pack>):' variants documented as non-conforming",
+          "the never-weaken core rule, writer confinement, and the envelope report survive unchanged, and the envelope gains named slots for candidates, erosion notes, upstream candidates, and proposed scaffolds",
+          "sync_codex_agents.py --check and sync_codex_skills.py --check both report no drift across the .codex toml, the references copies, and the skill mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "novelty:grants-a-confined-writer-a-new-autonomous-behavior-within-bounds",
+          "sensitive:doctrine-contract-root-every-other-surface-renders"
+        ]
+      }
+    },
+    {
+      "id": "kaizen-docs-refresh",
+      "title": "Move sharpening from coming soon to here in the kaizen guide",
+      "summary": "Readers of the kaizen how-to learn what the sharpening pass actually does now — the threshold, the direction rule, where edits land, and the exact commit label — and the coming-soon list shrinks to the one phase still ahead.",
+      "estimate": "M",
+      "depends_on": ["sharpening-doctrine"],
+      "contract": "docs/how-to/kaizen.md only. Move rule sharpening and erosion notes out of the 'What's coming' section into active documentation: describe what the sharpening pass does on every delivery run (reads new KARTA-SME-OVERRIDE markers in the blast radius and tallies standing markers per rule id), the threshold (two or more occurrences sharing a reason across two or more distinct deliveries sharpen the rule; a single occurrence is recorded as a candidate only), and the direction rule (a sharper or clarifying change kaizen writes; anything that would loosen becomes an erosion note showing the rule, the override count, the reasons given, and what loosening would let through — and erosion notes live in the kaizen commit body and the run envelope, never in a pack). Document the surface-resolution rules for a consumer: kaizen never edits a seeded cache in place; sharpening a built-in rule lands in the repo's existing project pack as an exclusion plus a replacement rule whose text begins 'Narrows <built-in-id>:'; an environment-generic lesson becomes an upstream candidate note for karta's maintainers rather than a local edit; kaizen never creates the project pack — it proposes the scaffold in its envelope and a human creates it. Document the evidence citation readers will see inside sharpened rules — (seen <date>, <delivery> delivery) — and the label discipline: kaizen's commits carry the exact subject prefix 'kaizen: ', and the 'kaizen(<pack>):' variants are non-conforming. 'What's coming' retains ONLY phase 3: new-pack suggestions and the advisory mechanics that let a drafted pack guide builders without gating builds. Plain language throughout per the karta-plainlanguage standard; every canonical term above stays byte-identical to the doctrine files from the sharpening-doctrine item — the shared_terms gate holds them — and the doc-truth parity binding must stay coherent (no promise the repo does not keep, no phase label that contradicts the doctrine). Additionally add ONE doc-truth claims row to benchmarks/claims.yaml, id 'KAIZEN-LABEL-PARITY', in the probe's existing check vocabulary, binding the guide's pinned label promise to the bench auditor's measuring regex: the doc promises the exact subject prefix 'kaizen: ' and the row asserts benchmarks/field/audit_companions.py still anchors its kaizen-commit regex to that prefix — so a future auditor change flags the doc instead of silently orphaning it. The row must make the live parity probe pass; the probe file itself is never edited.",
+      "touches": [
+        "docs/how-to/kaizen.md",
+        "benchmarks/claims.yaml"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"Narrows <built-in-id>:\" \"never edits a seeded cache in place\" \"two or more distinct deliveries\" \"(seen <date>, <delivery> delivery)\" \"upstream candidate\" \"erosion note\"; do grep -qF -- \"$s\" docs/how-to/kaizen.md; done' && grep -q 'KAIZEN-LABEL-PARITY' benchmarks/claims.yaml && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "rule sharpening and erosion notes appear as active behavior outside 'What's coming': the delivery-run pass, the threshold of two or more occurrences sharing a reason across two or more distinct deliveries, single occurrences as candidates only, and the direction rule are all documented",
+          "the doc states erosion notes live in the kaizen commit body and the run envelope, never in a pack",
+          "the surface-resolution rules are documented for a consumer: kaizen never edits a seeded cache in place, sharpening lands in the existing project pack with a 'Narrows <built-in-id>:' replacement, environment-generic lessons become an upstream candidate note, and kaizen never creates the project pack but proposes its scaffold for a human to create",
+          "the label discipline is documented — the exact subject prefix 'kaizen: ' with the 'kaizen(<pack>):' variants called non-conforming — and the evidence citation form (seen <date>, <delivery> delivery) is shown",
+          "'What's coming' retains only phase 3: new-pack suggestions and the advisory mechanics",
+          "benchmarks/claims.yaml gains the KAIZEN-LABEL-PARITY row binding the guide's 'kaizen: ' label promise to the auditor's regex, and the row passes the live probe — the probe file itself is untouched",
+          "the doc-truth parity probe reports status pass against the repo and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:docs-render-the-canonical-doctrine-strings-and-keep-doc-truth-parity"
+        ]
+      }
+    }
+  ]
+}
