@@ -48,6 +48,8 @@ The validator also runs the two `--check` paths itself, so a green `validate_plu
 
 karta's own binders and deliveries may not proceed without a recorded multi-model review. This is a house rule for the karta repo building itself — consumer repos never carry it. It matches karta's standing doctrine: enforced checks over skippable prose.
 
+**Standing direction (2026-07-28): the review is not optional workflow — every karta binder is roundtabled before commit, always.** The stakes are the framework itself: a flawed binder propagates into every consumer repo. The escape hatch below exists for a down review environment only, never as a convenience; a hatch-committed binder gets its panel retroactively as soon as the environment is back.
+
 The gate is deterministic. It enforces one fact — *a fresh recorded review of this exact content exists* — never the panel's verdict. The review is nondeterministic (different models, different runs), so disagreeing with the findings never blocks; skipping the review is what blocks. You still read the findings and decide what to act on.
 
 ### The four points
