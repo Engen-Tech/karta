@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "d928069a4d5e07c1d073d7f7ed6e5a6d885cc2ae4ea3e719a485c2f3dfc0b7bf",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "karta-watch-hub",
+  "run_at": "2026-07-29T04:07:36.415382+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "COMMITTABLE",
+      "summary": "watch-store: sound. hub-server: sound. hub-lifecycle: sound. revive-integration: sound. watch-docs: sound. COMMITTABLE."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "COMMITTABLE",
+      "summary": "All five round-2 amendments are sound. Merge-on-write, snapshot-at-startup identity, probe-and-kill-as-one-step, explicit kill()+wait(), banner-or-nudge surface, and the self-contained-page Referer argument all hold up to scrutiny. Four short notes for the builder (not blockers): pin the next-derived-candidate stepping algorithm, define the atomic-write temp-file naming scheme, state the PID-reuse trust window explicitly, and pin what --ensure does in a non-git CWD. The spec/binder hash6 vs hash8 mismatch resolves to the binder (hash8). Verdict: COMMITTABLE."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "COMMITTABLE",
+      "summary": "All five amendment clusters fully reflected; contract precision tight; trade-offs explicitly documented. Two low-severity builder notes: keep the merge-on-write re-read as late as possible before os.replace; pass close_fds=True explicitly on Windows alongside creationflags. Verdict: COMMITTABLE."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": ""
+    }
+  ]
+}

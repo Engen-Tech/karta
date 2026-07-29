@@ -76,8 +76,9 @@ One JSON state file in the platform state dir — `$XDG_STATE_HOME/karta/` (defa
 - `port` — the derived, recorded port.
 - `token` — the hub auth token (file kept 0600).
 - `repos` — map keyed by absolute repo root: `{slug, opted_in, last_seen}`. Every karta touch
-  upserts `last_seen` (self-registration). `slug` is `<basename>-<hash6-of-abspath>` — unique by
-  construction, human-readable first.
+  upserts `last_seen` (self-registration). `slug` is `<sanitized-basename>-<hash8-of-abspath>` — URL-safe, human-readable
+  first (widened from six digest chars to eight, and pinned URL-safe, by the binder's review
+  panel).
 
 Writes are atomic (temp file + rename) because concurrent sessions upsert. The roster is state,
 not config: regenerable, never committed, never inside a repo.

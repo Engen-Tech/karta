@@ -1,0 +1,267 @@
+{
+  "slug": "karta-watch-hub",
+  "title": "A persistent Karta Watch page for every repo you opt in",
+  "summary": "Karta Watch today dies with the session that started it. This adds a per-user hub: opt a repo in and one stable local page shows every opted-in repo at a glance — status chip, binder counts, next action — with drill-down into each repo's full live page, revived automatically by ordinary karta activity, protected by a token on every route, and never reachable off the machine.",
+  "motivation": "The status page's real value is checking on runs you are not sitting in, and a server that dies with its session can never serve that.",
+  "scope": {
+    "included": [
+      "skills/karta-status/scripts/serve_status.py — the per-user store (state dir, derived port, token, roster), the hub server mode, and the ensure/opt-in/opt-out lifecycle entry points, all in the one existing script, plus its self-test extensions",
+      "skills/karta-status/scripts/karta_next.py — a fire-and-forget ensure call at its entry, so every plan, build, deliver, and status touch revives the hub",
+      "hooks/scripts/inject_karta_status.py — the same ensure call plus the persistent-watch banner line for opted-in repos, inside its existing line and byte budget",
+      "skills/karta-status/SKILL.md — rewritten around the two modes and the two gates",
+      "docs/how-to/karta-watch.md (new), the parity-table row in docs/how-to/codex.md, and a README touch",
+      "The generated skill mirrors under .agents/skills/karta-status/ and plugins/karta/skills/karta-status/, kept byte-identical by sync_codex_skills.py in the same change"
+    ],
+    "excluded": [
+      "No MCP server, bundled or separate — the consumer is a human in a browser, and agents already have zero-config status through the status engine's JSON output",
+      "No OS service files (systemd, launchd, Windows services) — the reboot gap is documented honestly and covered by the terminal one-liner instead",
+      "No static HTML fallback when the hub cannot start — resilience surface this version does not need",
+      "No shell-profile autostart or ping helpers — nothing touches user shell config",
+      "No exposure beyond loopback — the bind stays hardcoded to 127.0.0.1 with no interface knob of any kind",
+      "No committed in-repo opt-in — persistence is stored per person in the user's own state file, never inside a repo",
+      "The serve script's self-test is not wired into validate_plugin.py — it stays a standalone check",
+      "Validators (validate_binder.py and friends) stay pure — no ensure side effects are added to them",
+      "No per-repo daemons and no static snapshots — one hub process fronts every opted-in repo's live engine"
+    ]
+  },
+  "design_facts": {
+    "source": "docs/specs/2026-07-28-karta-watch-hub-design.md",
+    "stack": "stdlib-Python plugin (skills + hooks), zero-dependency scripts"
+  },
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": [
+    "karta-house-skill-authoring",
+    "minimalism"
+  ],
+  "shared_terms": [
+    {
+      "id": "watch-banner-prefix",
+      "canonical": "Karta Watch:",
+      "items": [
+        "revive-integration",
+        "watch-docs"
+      ]
+    },
+    {
+      "id": "watch-off-phrase",
+      "canonical": "turn off karta watch",
+      "items": [
+        "revive-integration",
+        "watch-docs"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "watch-store",
+      "title": "Per-user state store for the watch hub",
+      "summary": "The serve script learns to keep one small per-user state file — platform state dir, derived port, auth token, and a roster of known repos — with atomic writes and self-test coverage, while ephemeral mode stays byte-for-byte the same behavior as today.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "All inside skills/karta-status/scripts/serve_status.py — no new script file (the spec keeps one script unless the mode balloons). Add a store layer, exercised by nothing user-visible yet: (1) STATE DIR resolution per platform — $XDG_STATE_HOME/karta (default ~/.local/state/karta) on Linux, ~/Library/Application Support/karta on macOS, %LOCALAPPDATA%\\karta on Windows — created on first use. (2) DERIVED PORT — 8765 + (uid % 1000) on POSIX; on Windows 8765 + (first 8 hex chars of sha256 of the UTF-8 username, as an integer, % 1000) — the algorithm is pinned exactly, never Python's salted hash(); the derived value is recorded in the state file, and a later occupant of the port steps to the next derived candidate and records what it got (the stepping itself is lifecycle work, but the store records whatever port is current). (3) TOKEN — generated with the secrets module on first need, stored in the state dir with 0600 permissions (POSIX; best-effort on Windows). (4) ROSTER — one JSON state file holding port, token reference, and a repos map keyed by absolute repo root: {slug, opted_in, last_seen}; slug is <sanitized-basename>-<hash8-of-abspath> — the basename sanitized to [A-Za-z0-9._-] (any other byte becomes '-'), the digest the first 8 hex chars of sha256(abspath), extended in length on the vanishing chance of collision until unique — URL-safe by construction, human-readable first; an upsert API refreshes last_seen for a given repo root (self-registration); non-opted entries age out 30 days after last_seen, opted-in entries are never pruned. (5) ATOMIC WRITES — temp file in the same directory + os.replace, because concurrent sessions upsert; upserts are merge-on-write: a writer re-reads the file at write time and only merges its own field changes, so an ensure refreshing last_seen can never rewrite opted_in from stale memory — a racing opt-in is never silently reverted, and a lost race costs at most a last_seen refresh; store startup sweeps stale temp files a crashed writer left behind. (5b) PERMISSIONS — the state dir is created 0o700 and the state JSON is chmod 0o600 on POSIX (it holds absolute repo paths), best-effort on Windows. (5c) TESTABILITY SEAMS — the state dir honors a KARTA_WATCH_STATE_DIR environment override, and every self-test sets it to a temp dir: no self-test may ever read or write the real per-user state dir; port derivation is a pure function taking an injected identity (uid or username string), so both the POSIX and the Windows derivation are exercised on any platform. (6) NO BEHAVIOR CHANGE to ephemeral mode: serve_status.py without new flags binds, serves, and self-tests exactly as before; the store is written only when store APIs are invoked. (7) SELF-TEST — extend the existing in-process [PASS]/[FAIL] self-test: state-dir resolution per platform (via patched environment), port derivation determinism (same input, same port, two calls), token file created 0600 on POSIX, roster upsert creates then refreshes last_seen, slug format and uniqueness for distinct paths sharing a basename, age-out removes only non-opted stale entries, atomic write leaves no partial file, and every pre-existing self-test invariant still passes. Mirrors: after editing, run scripts/sync_codex_skills.py so the .agents and plugins/karta copies stay byte-identical.",
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "the state dir resolves to $XDG_STATE_HOME/karta (default ~/.local/state/karta) on Linux, ~/Library/Application Support/karta on macOS, and %LOCALAPPDATA%\\karta on Windows, verified in self-test via patched environment",
+          "the derived port is 8765 + (uid % 1000) on POSIX and on Windows 8765 + (first 8 hex of sha256 of the UTF-8 username as an integer) % 1000, and two derivations for the same identity agree",
+          "the token is generated with the secrets module and its file carries 0600 permissions on POSIX",
+          "the roster maps absolute repo root to {slug, opted_in, last_seen}, slug is <sanitized-basename>-<hash8-of-abspath>, URL-safe, upsert refreshes last_seen, and two distinct paths with the same basename get distinct slugs",
+          "age-out removes non-opted entries older than 30 days and never removes an opted-in entry",
+          "state writes go through a same-directory temp file + os.replace",
+          "ephemeral mode is unchanged: no new flags means no store writes, and every pre-existing self-test check still passes",
+          "validate_plugin --self-test passes, which also confirms the .agents and plugins/karta mirrors are in sync",
+          "the state dir is created 0o700 and the state JSON file 0o600 on POSIX",
+          "port derivation is a pure function of an injected identity: the POSIX and Windows derivations are both exercised in self-test on the running platform",
+          "self-test sets KARTA_WATCH_STATE_DIR to a temp dir and the real per-user state dir is never touched by any self-test",
+          "upserts merge on write: a concurrent last_seen refresh can never revert an opted_in flip"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "escalation:new-per-user-state-dir-io-and-a-0600-secret",
+          "novelty:first-state-outside-any-repo-in-karta",
+          "blast-radius:serve_status.py-edited-by-three-items-in-this-binder"
+        ]
+      }
+    },
+    {
+      "id": "hub-server",
+      "title": "The hub mode: one landing page, every opted-in repo",
+      "summary": "A new hub mode serves a landing page of opted-in repos as live cards, mounts each repo's existing watch page under its slug, and answers an identity probe — with the token required on every single route, a Host-header allowlist, per-repo timeouts and caching so one wedged repo cannot stall the page, and a rotating log in the state dir.",
+      "estimate": "L",
+      "depends_on": [
+        "watch-store"
+      ],
+      "contract": "serve_status.py grows a --hub mode (still the one script), runnable in the foreground for testing — daemonization is the next item's job. ROUTES: '/' is the landing page — one card per opted-in repo (status chip, binder counts, next action) linking into its repo view; repos not opted in never appear. '/r/<slug>/' and '/r/<slug>/state.json' serve the existing Karta Watch page and its state feed for that repo, backed by the same per-repo engine used today; slugs resolve only through the store roster, and anything that does not resolve is a 404 — no path or filesystem derivation from the URL, so traversal is structurally impossible. '/identity' returns JSON with the hub version — a VERSION constant in serve_status.py plus a sha256 digest of the script file's bytes, both captured once at process startup and served from memory (never re-read per request, so a plugin update under a running hub always reads as skew), the digest being what skew comparison uses — along with PID, uptime, and roster count. AUTH: the token is required on EVERY route — landing, repo views, state feeds, /identity, and the disk assets that are exempt from --key today must be key-gated in hub mode; token comparison uses hmac.compare_digest. A Host-header allowlist accepts only 127.0.0.1:<port> and localhost:<port> and rejects everything else, defeating DNS rebinding. The bind stays hardcoded loopback. ROBUSTNESS: per-repo git derivation runs via subprocess with timeouts — Popen with an explicit kill()+wait() on the timeout branch, because Python 3.11's run(timeout=) does not kill the child — and a ~5 s per-repo cache; a wedged repo greys its own card with an error note while every other card stays live; an opted-in repo whose path has vanished greys to unavailable, never silently pruned. LOGGING: a small rotating log (logging.handlers.RotatingFileHandler, about 256 KB x 3 backups, backups also 0o600) in the state dir, because the eventual detached daemon has stdio on /dev/null; the log file is chmod 0o600, and access-log lines redact the key parameter — the token never appears in any log line. SELF-TEST extensions, deterministic and loopback-only: every hub route rejects a missing and a wrong token; a disallowed Host header is rejected; /identity carries the version and PID fields; slug traversal attempts (dotted, slashed, unknown) 404; cache TTL honored and a wedged fake engine isolates to its own card; all pre-existing invariants unchanged. Mirrors: regenerate with scripts/sync_codex_skills.py.",
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "oracle": {
+        "type": "integration",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "every hub route — landing, repo page, state feed, /identity, and assets — rejects a request with a missing or wrong token, and the asset key-exemption of ephemeral mode does not survive into hub mode",
+          "a request whose Host header is not 127.0.0.1:<port> or localhost:<port> is rejected",
+          "/identity returns plugin version, PID, uptime, and roster count, token-gated like everything else",
+          "the landing page lists only opted-in repos, each card carrying a status chip, binder counts, and the next action, linking to /r/<slug>/",
+          "slugs resolve only through the store: unknown, dotted, and slashed slug attempts all 404",
+          "per-repo derivation uses subprocess timeouts with a ~5 s cache, and a wedged fake engine greys only its own card while others stay live",
+          "a rotating log is written in the per-user state dir",
+          "the bind remains hardcoded loopback with no interface option, and all pre-existing self-test invariants plus validate_plugin --self-test pass",
+          "/identity carries a VERSION constant plus a sha256 digest of the script bytes, and the digest is the skew-comparison value",
+          "an authenticated request's access-log line contains no token, and the log file carries 0o600 on POSIX",
+          "the version and digest served by /identity are captured at process startup, not re-read per request",
+          "a timed-out per-repo git child is explicitly killed and reaped"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract:new-hub-http-surface-and-hub-flag-additive",
+          "sensitive:auth-surface-token-host-allowlist-and-traversal-defense",
+          "blast-radius:serve_status.py-edited-by-three-items-in-this-binder"
+        ]
+      }
+    },
+    {
+      "id": "hub-lifecycle",
+      "title": "Daemon lifecycle: ensure, opt-in, opt-out, self-exit",
+      "summary": "The hub becomes self-managing: an idempotent ensure entry point revives it when needed and never blocks karta work, opt-in and opt-out are one-flag script actions, version skew triggers an identity-confirmed respawn, a foreign process on the port is stepped around and never killed, and the hub exits on its own when the plugin updates under it or the last repo opts out.",
+      "estimate": "L",
+      "depends_on": [
+        "hub-server"
+      ],
+      "contract": "Still all in serve_status.py. DAEMONIZATION: POSIX spawns detached via double-fork + setsid with stdio on /dev/null (the rotating log is the only output); Windows uses DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP creation flags (the process group so a Ctrl+C in the parent console never reaches the hub). ENSURE: a --ensure flag implements the idempotent decision table — (1) no opted-in repos anywhere: do nothing, gate two stays closed; (2) probe GET /identity?key=… with a short timeout; healthy and version matches: done; (3) version mismatch: probe-and-kill as one step — kill only the PID a fresh, immediately-preceding token-authenticated /identity confirmation reported, never a stale PID, then respawn; (4) anything on the candidate port that does not answer our /identity as ours: a foreign process — step to the next derived candidate port, record it in the store, and NEVER kill, with stepping capped at 5 candidates per invocation before failing open and a pinned per-attempt probe timeout (~500 ms) so a stalling responder cannot burn unbounded wall-clock; a connection refused on the probe is NOT classified foreign — after a spawn loses the bind race (EADDRINUSE), the loser re-probes /identity with brief retries (about 3 attempts over 2 seconds) because the winner may still be starting, and exits quietly on refusal after retries; (5) nothing listening: spawn detached; (6) any failure at any step — sandbox denial, no bindable candidate, step cap reached — fails open with exactly one plain line on stdout and exit 0, so the karta work invoking it is never blocked; on every success path --ensure prints zero bytes to stdout — the failure line is the only output it may ever produce. --ensure runs upsert-first, decide-second: it first upserts the invoking repo's roster entry — the repo root resolved by walking up from the working directory to the nearest .git root, the same discovery the engine uses — so every karta touch self-registers last_seen even when gate two then says do nothing; a failed ensure also records its failure reason in the state dir, best-effort, for the banner surface to read. OPT-IN/OPT-OUT: --opt-in and --opt-out flip the current repo's flag by default and accept an optional explicit path-or-slug argument, so a moved or deleted repo's orphaned opted-in entry can still be opted out from anywhere — agent/CLI actions only; the web surface stays GET-only with no mutation endpoint. RACES: bind is the mutex — when two revivals race, whoever binds wins and the loser exits quietly; no lock files. SELF-EXIT: the running hub checks its own script file's mtime about once a minute and exits when the plugin updated under it (the next touch revives the new version) — mtime is the fast path and coarse-granularity filesystems are tolerated because the digest comparison at the next ensure is the truth; a deleted script file (FileNotFoundError on the check) is a clean self-exit, never a crash; when a state read shows the last repo opted out, the hub exits — the state re-read shares the same roughly once-a-minute timer as the mtime check. SELF-TEST: the decision table is covered with fakes and injected probes — no real detached daemon needs to spawn in self-test: no opt-ins is a no-op, healthy match is a no-op, version skew selects kill-and-respawn with the identity-reported PID only, a dead port selects spawn, a foreign responder selects step-to-next-candidate and never a kill; the mtime self-exit and last-opt-out exit decisions are unit-tested as functions; ensure's failure path emits one line and exits 0. Mirrors: regenerate with scripts/sync_codex_skills.py.",
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "oracle": {
+        "type": "integration",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "--ensure with zero opted-in repos does nothing at all",
+          "--ensure against a healthy hub whose /identity version matches is a no-op; against a version mismatch it kills only a freshly re-confirmed identity-reported PID (probe-and-kill as one step) and respawns",
+          "--ensure against a port occupant that does not answer as our hub steps to the next derived candidate and records it — no kill path is reachable for a foreign process",
+          "--ensure against a dead port selects a detached spawn (double-fork/setsid on POSIX, detached-process flags on Windows), and concurrent revivals resolve by bind: the loser exits, no lock files exist",
+          "any ensure failure fails open: one plain line, exit 0, never blocking the invoking karta work",
+          "--ensure upserts the invoking repo's last_seen; --opt-in and --opt-out flip only the current repo's flag, and no hub HTTP route can mutate the store",
+          "the hub self-exits on script mtime change (checked about once a minute) and when the last repo opts out, both covered as unit-tested decisions",
+          "all pre-existing self-test invariants plus validate_plugin --self-test pass",
+          "foreign-port stepping stops at the 5-candidate cap and fails open",
+          "a connection-refused probe after losing the bind race is retried briefly and then exits quietly — it is never classified as a foreign process",
+          "--ensure produces zero bytes on stdout on every success path; the single plain line appears only on failure",
+          "a deleted script file makes the running hub self-exit cleanly",
+          "--ensure upserts before it decides, resolving the repo root by walking up to the nearest .git root",
+          "--opt-out with an explicit path-or-slug argument clears an entry whose path no longer exists"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "destructive:kill-path-bounded-to-an-identity-confirmed-pid",
+          "novelty:detached-daemon-lifecycle-in-a-plugin-that-had-none",
+          "contract:new-ensure-opt-in-opt-out-flags-additive",
+          "blast-radius:serve_status.py-edited-by-three-items-in-this-binder"
+        ]
+      }
+    },
+    {
+      "id": "revive-integration",
+      "title": "Every karta touch revives the hub and shows the URL",
+      "summary": "The status engine's entry point and the session-start hook each fire a short, fail-open ensure call, and the hook prints the persistent watch banner with the working URL in every opted-in repo — so revival rides code paths every platform already runs, not prose an agent might skip.",
+      "estimate": "M",
+      "depends_on": [
+        "hub-lifecycle"
+      ],
+      "contract": "Two small embeds, both fail-open. (1) skills/karta-status/scripts/karta_next.py: at main() entry, fire-and-forget a subprocess running serve_status.py --ensure — spawned without waiting via Popen with stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True on POSIX and the detached-process creation flags on Windows, so the child can never inherit a pipe fd (a hook capturing karta_next's output must never block on, or read bytes from, the ensure child), every exception swallowed; karta_next's own output, JSON shape, and exit code are never altered by ensure in any way. Because plan, build, deliver, and status already shell out to karta_next (--footer/--json), this single embed covers every karta touch on both platforms with no dependence on hooks. Validators are not touched — no ensure side effects anywhere in validate_* scripts. (2) hooks/scripts/inject_karta_status.py: the same fire-and-forget ensure, plus — only when the current repo is opted in, read from the per-user store — exactly one appended line: when the hub is reachable (a fast probe confirms), the banner of the exact shape: Karta Watch: http://127.0.0.1:<port>/?key=<token> — persistent; say \"turn off karta watch\" to disable. — and when it is not, a one-line nudge naming the --ensure terminal one-liner and, when the store holds one, the recorded failure reason; this banner-or-nudge surface is how a fail-open ensure reaches the user, since the embedded spawns discard the child's stdio. The engine's human-facing footer carries the same nudge under the same condition; --json output is never altered. The line must fit inside the hook's existing budget (at most 10 lines and 4096 bytes total); when the budget would overflow, body detail lines are trimmed — never the banner, never the fence lines, never the banner's key material — the hook still always exits 0, and a repo that is not opted in produces byte-identical hook output to today. The literal prefix 'Karta Watch:' and the literal phrase 'turn off karta watch' are canonical shared terms rendered exactly. Mirrors: karta_next.py is under skills/karta-status/, so regenerate with scripts/sync_codex_skills.py; the hook file has no mirror.",
+      "touches": [
+        "skills/karta-status/scripts/karta_next.py",
+        ".agents/skills/karta-status/scripts/karta_next.py",
+        "plugins/karta/skills/karta-status/scripts/karta_next.py",
+        "hooks/scripts/inject_karta_status.py"
+      ],
+      "oracle": {
+        "type": "integration",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "karta_next.py fires serve_status.py --ensure as a fire-and-forget subprocess at entry, and an ensure failure (or its complete absence) never changes karta_next's stdout, JSON shape, or exit code",
+          "no validator script gains an ensure call or any other side effect",
+          "inject_karta_status.py fires the same fail-open ensure and still always exits 0",
+          "in an opted-in repo the hook appends the banner line carrying the literal prefix 'Karta Watch:', the full working URL with port and key, and the literal phrase 'turn off karta watch', within the 10-line/4096-byte budget",
+          "in a repo that is not opted in, hook output is byte-identical to pre-change behavior — no banner, no ensure-caused difference",
+          "validate_plugin --self-test and the serve script self-test both pass, confirming the karta_next mirrors are in sync",
+          "the ensure child is spawned with stdout and stderr on DEVNULL and close_fds on POSIX, so a parent capturing karta_next's output can neither block on nor receive bytes from it",
+          "on budget overflow the hook trims body detail lines and never the banner or the fences",
+          "in an opted-in repo with an unreachable hub, the hook (and the human-facing footer) print the one-line nudge naming the --ensure one-liner instead of the URL banner, and --json output is unchanged"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract:session-start-hook-output-gains-an-additive-banner-and-must-stay-exit-0-inside-its-line-and-byte-budget"
+        ]
+      }
+    },
+    {
+      "id": "watch-docs",
+      "title": "Tell the story: two modes, two gates, one honest gap",
+      "summary": "The status skill, a new how-to page, the Codex parity table, and the README all describe the watch hub as it actually behaves — how to opt in, the one URL, the off switch, the reboot gap and its terminal one-liner, and what the Codex sandbox may require.",
+      "estimate": "M",
+      "depends_on": [
+        "revive-integration"
+      ],
+      "contract": "Docs only; plain language per the karta-plainlanguage standard throughout. (1) skills/karta-status/SKILL.md: rewritten around the two modes — ephemeral by default (unchanged today-behavior) and the persistent hub behind the per-repo opt-in — and the two gates: you ask for status at all, and you explicitly opt a repo into persistence; the launch/key/self-test section covers the hub flags (--hub, --ensure, --opt-in, --opt-out), the token-on-every-route rule, and the loopback-only bind. (2) NEW docs/how-to/karta-watch.md: what the hub is, how to opt a repo in (the spoken request and the flag it runs), the stable URL shape with port and key, the loud banner shown while on, the off switch, the honest reboot gap — no OS services means the URL is dead after reboot until karta runs once — with the standalone --ensure one-liner for any terminal, the Codex sandbox story (a denied ensure fails open; the banner surface shows the nudge naming the one-liner to run yourself), and the security model in one short section: token required everywhere, loopback hardcoded, Host-header allowlist, the page fully self-contained (no off-site loads, so no Referer can carry the token) — stated honestly, including that the token rides the URL and therefore lands in browser history (use a private window on a shared machine), and that the bind is IPv4-only, so a browser resolving localhost to ::1 should use http://127.0.0.1:<port>/ directly. The page renders the banner example carrying the literal prefix 'Karta Watch:' and the literal disable phrase 'turn off karta watch' exactly as the hook prints them. (3) docs/how-to/codex.md: add the parity row — rule 'Karta Watch hub auto-revives'; Claude Code: 'SessionStart hook + script-embedded ensure'; Codex: 'Script-embedded ensure only; sandbox may require the terminal one-liner'. (4) README.md: a short touch naming Karta Watch's persistent mode and linking the how-to page. (5) Regenerate skill mirrors with scripts/sync_codex_skills.py and leave the full gate suite green.",
+      "touches": [
+        "skills/karta-status/SKILL.md",
+        ".agents/skills/karta-status/SKILL.md",
+        "plugins/karta/skills/karta-status/SKILL.md",
+        "docs/how-to/karta-watch.md",
+        "docs/how-to/codex.md",
+        "README.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "the status skill describes both modes and both gates, documents the hub flags, and states the token-on-every-route and loopback-only rules",
+          "docs/how-to/karta-watch.md exists and covers opt-in, the stable URL with port and key, the off switch, the reboot gap with the --ensure terminal one-liner, the Codex sandbox nudge, and the security model",
+          "the how-to renders the banner example with the literal prefix 'Karta Watch:' and the literal phrase 'turn off karta watch' byte-identical to the hook's output",
+          "docs/how-to/codex.md carries the new parity row: Karta Watch hub auto-revives — SessionStart hook + script-embedded ensure on Claude Code; script-embedded ensure only, sandbox may require the terminal one-liner, on Codex",
+          "README.md mentions Karta Watch's persistent mode and links the how-to page",
+          "all four gate commands pass: validate_plugin --self-test, check_shared_copies --self-test, sync_codex_agents --check, sync_codex_skills --check",
+          "the how-to's security section names the token-in-browser-history tradeoff and the IPv4-only localhost caveat"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": []
+      }
+    }
+  ]
+}
