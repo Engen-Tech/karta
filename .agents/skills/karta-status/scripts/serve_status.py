@@ -10,12 +10,22 @@ from the CWD's `.karta/binders` + git, so running it from a repo renders that re
   uv run --script serve_status.py                 # http://127.0.0.1:8765
   uv run --script serve_status.py --port 9000     # a different port
   uv run --script serve_status.py --key s3cret    # gate behind ?key=s3cret
+  uv run --script serve_status.py --hub           # the persistent multi-repo hub
 
 Routes:
   GET /            the app HTML shell (a self-contained document; renders via Vue)
   GET /state.json  the enriched engine state as JSON (recomputed each request)
   GET /assets/<f>  the brand bytes + the vendored Vue (mascot.png, icon.png,
                    vendor/vue.global.prod.js) — same-origin only
+
+Hub mode (--hub) serves every opted-in repo from the per-user store instead of
+the CWD, in the foreground (the detached daemon lifecycle is separate). The
+token is REQUIRED on every hub route — assets included — and the Host header
+must be exactly 127.0.0.1:<port> or localhost:<port>:
+  GET /                     landing page — one live card per opted-in repo
+  GET /r/<slug>/            that repo's full Karta Watch page
+  GET /r/<slug>/state.json  that repo's state feed
+  GET /identity             version + script digest + pid + uptime + roster count
 
 The page is "Karta Watch": a read-only mirror of git. A thin stdlib server hands the
 browser the current state inline (for a correct first paint, and so a file:// snapshot
@@ -33,14 +43,22 @@ same-origin file.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
+import hmac
+import html
+import http.client
 import json
+import logging
+import logging.handlers
 import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,6 +70,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import karta_next  # noqa: E402
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+_SCRIPT_PATH = Path(__file__).resolve()
+
+# The hub's version label, served by /identity next to a sha256 digest of this
+# script's bytes. The DIGEST is what skew comparison uses; the constant is the
+# human-readable label. Keep it in step with .claude-plugin/plugin.json.
+VERSION = "2.25.0"
 
 # ---------------------------------------------------------------------------
 # Per-user watch store — the persistent hub's state layer. Nothing user-visible
@@ -874,7 +898,9 @@ const app = createApp({
       try { localStorage.setItem('karta-theme', this.theme); } catch (e) {}
     },
     poll() {
-      fetch('/state.json', { cache: 'no-store' })
+      // Relative + query-preserving: at / this resolves to /state.json; under
+      // the hub's /r/<slug>/ it is that repo's own feed — and ?key= rides along.
+      fetch('state.json' + location.search, { cache: 'no-store' })
         .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(s => { this.state = s; this.reconnecting = false; this.polls += 1; })
         .catch(() => { this.reconnecting = true; });
@@ -897,7 +923,7 @@ const app = createApp({
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <img class="brand__mascot" src="/assets/mascot.png" alt="karta mascot" width="40" height="40">
+      <img class="brand__mascot" src="/assets/mascot.png__ASSET_QS__" alt="karta mascot" width="40" height="40">
       <div class="brand__txt">
         <span class="brand__word">karta</span>
         <div class="brand__live" :class="{ 'brand__live--recon': reconnecting }">
@@ -1011,7 +1037,7 @@ const app = createApp({
 
   <!-- empty state -->
   <section class="panel empty" aria-label="no binders" v-else>
-    <img class="empty__mascot" src="/assets/mascot.png" alt="" width="64" height="64">
+    <img class="empty__mascot" src="/assets/mascot.png__ASSET_QS__" alt="" width="64" height="64">
     <div class="empty__title">no binders planned yet</div>
     <p class="empty__hint">add a binder under <span class="mono">.karta/binders/</span>
       (try <span class="mono">karta-plan</span>) and the delivery will chart itself here.</p>
@@ -1030,8 +1056,10 @@ def _theme_attr(theme: str | None) -> str:
     return theme if theme in ("light", "dark") else "dark"
 
 
-def _build_app_js(state: dict) -> str:
-    """Substitute the Python-owned data tables into the Vue app source."""
+def _build_app_js(state: dict, asset_qs: str = "") -> str:
+    """Substitute the Python-owned data tables into the Vue app source.
+    `asset_qs` is the hub's ?key=<token> suffix for asset URLs ("" in
+    ephemeral mode, whose assets stay key-exempt)."""
     return (
         _APP_JS
         .replace("__ICONS__", json.dumps(_ICONS, separators=(",", ":")))
@@ -1039,6 +1067,7 @@ def _build_app_js(state: dict) -> str:
         .replace("__PHASE_META__", json.dumps(_PHASE_META, separators=(",", ":")))
         .replace("__PHASE_DEFS__", json.dumps(_PHASE_DEFS, separators=(",", ":")))
         .replace("__ORACLE_ICON__", json.dumps(_ORACLE_ICON, separators=(",", ":")))
+        .replace("__ASSET_QS__", asset_qs)
     )
 
 
@@ -1077,15 +1106,17 @@ def _inert_json(obj) -> str:
             .replace("/", "\\/"))
 
 
-def render_app_html(state: dict, theme: str | None = None) -> str:
+def render_app_html(state: dict, theme: str | None = None, key_qs: str = "") -> str:
     """One self-contained document: the theme CSS, the inlined initial state (for a
     correct first paint and file:// snapshots), the vendored Vue, and the app. No
-    external URLs — only same-origin /assets and /state.json."""
+    external URLs — only same-origin /assets and state.json. In hub mode every
+    asset URL carries `key_qs` (?key=<token>), because hub assets are key-gated;
+    ephemeral mode passes "" and stays byte-identical."""
     theme_attr = _theme_attr(theme)
     # _inert_json keeps raw markup bytes (and any `</script>` breakout) out of
     # the inline block; the JS engine decodes the escapes to identical strings.
     state_json = _inert_json(state)
-    app_js = _build_app_js(state)
+    app_js = _build_app_js(state, key_qs)
     return (
         "<!doctype html>"
         f'<html lang="en" data-theme="{theme_attr}">'
@@ -1093,7 +1124,7 @@ def render_app_html(state: dict, theme: str | None = None) -> str:
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>Karta Watch</title>"
-        '<link rel="icon" type="image/png" href="/assets/mascot.png">'
+        f'<link rel="icon" type="image/png" href="/assets/mascot.png{key_qs}">'
         f"<style>{_CSS}</style>"
         "</head>"
         "<body>"
@@ -1102,7 +1133,7 @@ def render_app_html(state: dict, theme: str | None = None) -> str:
         f"window.__KARTA_STATE__ = {state_json};"
         f'window.__KARTA_THEME__ = "{theme_attr}";'
         "</script>"
-        '<script src="/assets/vendor/vue.global.prod.js"></script>'
+        f'<script src="/assets/vendor/vue.global.prod.js{key_qs}"></script>'
         f"<script>{app_js}</script>"
         "</body></html>"
     )
@@ -1120,6 +1151,272 @@ def _content_type(path: Path) -> str:
     if suffix == ".js":
         return "text/javascript"
     return "application/octet-stream"
+
+
+# ---------------------------------------------------------------------------
+# Hub mode (--hub) — one process fronting every opted-in repo from the per-user
+# store. Routes/auth live in _HubHandler further down; this section is the
+# machinery: per-repo engines (a child process per derivation, killed on
+# timeout, cached ~5 s), the startup identity snapshot, the rotating state-dir
+# log with key redaction, and the landing-page card models + HTML.
+# ---------------------------------------------------------------------------
+
+ENGINE_CACHE_SECS = 5.0     # per-repo state cache TTL
+ENGINE_TIMEOUT_SECS = 10.0  # per-repo child derivation timeout
+LOG_FILENAME = "hub.log"
+LOG_MAX_BYTES = 256 * 1024
+LOG_BACKUP_COUNT = 3
+
+_KEY_QS_RE = re.compile(r"(key=)[^&\s\"]+")
+
+
+def _redact_key(line: str) -> str:
+    """Access-log hygiene: the token never appears in any log line."""
+    return _KEY_QS_RE.sub(r"\1REDACTED", line)
+
+
+def _run_child(cmd: list[str], *, cwd: str, timeout: float) -> str:
+    """Run a child with a hard timeout. Python 3.11's run(timeout=) does not
+    kill the child on expiry, so the timeout branch kills and reaps explicitly
+    (kill() + wait()) before surfacing the error."""
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise TimeoutError(f"derivation timed out after {timeout:.0f}s") from None
+    if proc.returncode != 0:
+        tail = (err or "").strip().splitlines()
+        raise RuntimeError(tail[-1] if tail else f"engine exited {proc.returncode}")
+    return out
+
+
+def _derive_repo_state(root: str, timeout: float) -> dict:
+    """One repo's enriched state, derived by a child process running this same
+    script with --print-state in that repo's root (the engine is CWD-based)."""
+    out = _run_child([sys.executable, str(_SCRIPT_PATH), "--print-state"],
+                     cwd=root, timeout=timeout)
+    return json.loads(out)
+
+
+class RepoEngine:
+    """Per-repo derivation with a ~5 s cache. The runner and clock are
+    injectable so the self-test drives wedged/live fakes deterministically.
+    Errors are cached like successes, so a wedged repo is re-probed at most
+    once per TTL and greys only its own card."""
+
+    def __init__(self, root: str, *, ttl: float = ENGINE_CACHE_SECS,
+                 timeout: float = ENGINE_TIMEOUT_SECS, runner=None,
+                 clock=time.monotonic):
+        self.root = root
+        self.ttl = ttl
+        self._runner = runner or (lambda: _derive_repo_state(root, timeout))
+        self._clock = clock
+        self._cached: tuple[float, dict] | None = None
+
+    def state(self) -> dict:
+        """{ok, state, error} — cached until the TTL lapses."""
+        now = self._clock()
+        if self._cached and now < self._cached[0]:
+            return self._cached[1]
+        try:
+            result = {"ok": True, "state": self._runner(), "error": None}
+        except Exception as exc:  # a wedged repo must never take the hub down
+            result = {"ok": False, "state": None,
+                      "error": str(exc) or type(exc).__name__}
+        self._cached = (now + self.ttl, result)
+        return result
+
+
+def _script_digest() -> str:
+    return hashlib.sha256(_SCRIPT_PATH.read_bytes()).hexdigest()
+
+
+def _identity_snapshot() -> dict:
+    """Captured ONCE at process startup and served from memory — never re-read
+    per request — so a plugin update under a running hub always reads as skew.
+    The digest is the skew-comparison value; VERSION is the label."""
+    return {"version": VERSION, "digest": _script_digest(),
+            "pid": os.getpid(), "started": time.time()}
+
+
+class _OwnerOnlyRotatingHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler whose files land 0o600 (POSIX; best-effort on
+    Windows). Backups are renames of the base file, so pinning the base on
+    every (re)open covers them too."""
+
+    def _open(self):
+        stream = super()._open()
+        _chmod_if_posix(self.baseFilename, 0o600)
+        return stream
+
+
+def _hub_logger(state_dir: Path, max_bytes: int = LOG_MAX_BYTES,
+                backups: int = LOG_BACKUP_COUNT) -> logging.Logger:
+    """The hub's rotating state-dir log (~256 KB x 3). The eventual detached
+    daemon runs with stdio on /dev/null, so this file is the only trace."""
+    logger = logging.Logger("karta-watch-hub")  # standalone — never the global registry
+    logger.setLevel(logging.INFO)
+    handler = _OwnerOnlyRotatingHandler(state_dir / LOG_FILENAME,
+                                        maxBytes=max_bytes, backupCount=backups,
+                                        encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    logger.addHandler(handler)
+    return logger
+
+
+def _repo_card(slug: str, root: str, engine_result: dict | None) -> dict:
+    """One landing-page card model. engine_result None = the opted-in path has
+    vanished: the card greys to UNAVAILABLE, never silently pruned."""
+    card = {"slug": slug, "root": root,
+            "name": os.path.basename(root.rstrip("/\\")) or root,
+            "counts": "", "next": "", "note": ""}
+    if engine_result is None:
+        card["word"] = "UNAVAILABLE"
+        card["note"] = "repo path no longer exists — opt it out to drop this card"
+        return card
+    if not engine_result["ok"]:
+        card["word"] = "WEDGED"
+        card["note"] = engine_result["error"]
+        return card
+    st = engine_result["state"] or {}
+    binders = st.get("binders") or []
+    merged = sum(1 for b in binders if b.get("status") == "merged")
+    if any(b.get("status") == "in_flight" for b in binders):
+        card["word"] = "IN FLIGHT"
+    elif merged < len(binders):
+        card["word"] = "QUEUED"
+    else:
+        card["word"] = "CLEAR"
+    card["counts"] = (f"{len(binders)} binder{'' if len(binders) == 1 else 's'}"
+                      f" · {merged} delivered")
+    card["next"] = (st.get("next_action") or {}).get("human") or ""
+    return card
+
+
+def hub_cards(repos: dict, engine_for) -> list[dict]:
+    """Card models for every opted-in roster entry (non-opted never appear).
+    Engines run in parallel threads so one cold wedged repo delays the landing
+    by at most its own timeout, not the sum."""
+    opted = sorted(((root, rec) for root, rec in repos.items()
+                    if rec.get("opted_in")),
+                   key=lambda kv: kv[1].get("slug") or "")
+    if not opted:
+        return []
+
+    def build(pair):
+        root, rec = pair
+        res = engine_for(root).state() if os.path.isdir(root) else None
+        return _repo_card(rec.get("slug") or "", root, res)
+
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(8, len(opted))) as ex:
+        return list(ex.map(build, opted))
+
+
+# chip colors per card word — the same CSS variables the repo page uses
+_HUB_CHIP = {
+    "IN FLIGHT":   ("var(--amber)", "var(--amber-soft)"),
+    "QUEUED":      ("var(--steel)", "var(--steel-soft)"),
+    "CLEAR":       ("var(--green)", "var(--green-soft)"),
+    "WEDGED":      ("var(--block)", "var(--block-soft)"),
+    "UNAVAILABLE": ("var(--block)", "var(--block-soft)"),
+}
+
+_HUB_CSS = """
+.hub{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:14px; }
+.repo{ border:1px solid var(--line); background:var(--panel); padding:16px 20px;
+  display:flex; flex-direction:column; gap:7px; }
+.repo--dim{ opacity:.55; }
+.repo__head{ display:flex; align-items:center; gap:10px; }
+a.repo__name{ font-family:var(--mono); font-weight:700; font-size:16px;
+  color:var(--ink); text-decoration:none; }
+a.repo__name:hover{ text-decoration:underline; }
+.repo__chip{ font-family:var(--mono); font-size:9px; font-weight:700;
+  letter-spacing:.5px; padding:2px 7px; margin-left:auto; flex:none; }
+.repo__counts{ font-size:12px; color:var(--mut); font-family:var(--mono); }
+.repo__next{ font-size:12.5px; color:var(--ink); opacity:.8; }
+.repo__note{ font-size:12px; color:var(--block); }
+.repo__root{ font-size:11px; color:var(--mut); font-family:var(--mono);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+""".strip()
+
+
+def render_hub_html(cards: list[dict], key_qs: str = "",
+                    theme: str | None = None) -> str:
+    """The hub landing page: server-rendered, no JS beyond a periodic refresh.
+    Every dynamic string is html-escaped — repo names, paths, and engine errors
+    are untrusted bytes. Styling reuses the Karta Watch CSS; links carry the
+    key so drill-down just works."""
+    theme_attr = _theme_attr(theme)
+    esc = html.escape
+    if cards:
+        rows = []
+        for c in cards:
+            color, soft = _HUB_CHIP.get(c["word"], _HUB_CHIP["QUEUED"])
+            dim = " repo--dim" if c["word"] in ("WEDGED", "UNAVAILABLE") else ""
+            bits = [
+                f'<article class="repo{dim}">',
+                '<div class="repo__head">',
+                f'<a class="repo__name" href="/r/{esc(c["slug"], quote=True)}/'
+                f'{esc(key_qs, quote=True)}">{esc(c["name"])}</a>',
+                f'<span class="repo__chip" style="color:{color};background:{soft}">'
+                f'{esc(c["word"])}</span>',
+                "</div>",
+            ]
+            if c["counts"]:
+                bits.append(f'<div class="repo__counts">{esc(c["counts"])}</div>')
+            if c["next"]:
+                bits.append(f'<div class="repo__next">next: {esc(c["next"])}</div>')
+            if c["note"]:
+                bits.append(f'<div class="repo__note">{esc(c["note"])}</div>')
+            bits.append(f'<div class="repo__root">{esc(c["root"])}</div>')
+            bits.append("</article>")
+            rows.append("".join(bits))
+        body = f'<div class="hub">{"".join(rows)}</div>'
+    else:
+        body = ('<section class="panel empty" aria-label="no repos">'
+                '<div class="empty__title">no repos opted in</div>'
+                '<p class="empty__hint">opt a repo into the persistent watch '
+                "and its live card appears here.</p></section>")
+    count = len(cards)
+    return (
+        "<!doctype html>"
+        f'<html lang="en" data-theme="{theme_attr}">'
+        "<head>"
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<meta http-equiv="refresh" content="10">'
+        "<title>Karta Watch</title>"
+        f'<link rel="icon" type="image/png" href="/assets/mascot.png{esc(key_qs, quote=True)}">'
+        f"<style>{_CSS}\n{_HUB_CSS}</style>"
+        "</head>"
+        "<body>"
+        '<div class="wrap">'
+        '<header class="top"><div class="brand">'
+        f'<img class="brand__mascot" src="/assets/mascot.png{esc(key_qs, quote=True)}" '
+        'alt="karta mascot" width="40" height="40">'
+        '<div class="brand__txt"><span class="brand__word">karta</span>'
+        '<div class="brand__live"><span class="brand__dot" aria-hidden="true"></span>'
+        f"watch hub · {count} repo{'' if count == 1 else 's'} · read-only</div>"
+        "</div></div></header>"
+        f"{body}"
+        '<footer class="foot">karta · every card derives fresh from its '
+        "repo&#39;s git · read-only</footer>"
+        "</div>"
+        "</body></html>"
+    )
+
+
+def _degraded_state(error: str) -> dict:
+    """What /r/<slug>/ serves when the repo's engine fails: the page renders
+    its empty state and carries the error as the next-action line."""
+    return {"repo": {"default_branch": ""}, "order": None, "binders": [],
+            "next_action": {"level": "blocked", "command": None,
+                            "human": f"engine unavailable — {error}"},
+            "warnings": [], "errors": [error]}
 
 
 # ---------------------------------------------------------------------------
@@ -1192,6 +1489,142 @@ class _Handler(BaseHTTPRequestHandler):
         except OSError:
             return self._text(404, "not found", "text/plain")
         self._send(200, data, _content_type(target), cache=True)
+
+
+_REPO_ROUTE = re.compile(r"/r/([^/]+)/(state\.json)?")
+
+
+class _HubServer(ThreadingHTTPServer):
+    """The hub's server: loopback-bound, carrying the context the handler
+    reads (token, state dir, startup identity, rotating logger, engines)."""
+    daemon_threads = True
+
+    def __init__(self, addr, handler, *, token: str, state_dir: Path,
+                 identity: dict, logger: logging.Logger):
+        super().__init__(addr, handler)
+        self.hub_token = token
+        self.hub_state_dir = state_dir
+        self.hub_identity = identity
+        self.hub_logger = logger
+        self.hub_engines: dict[str, RepoEngine] = {}
+
+    def engine_for(self, root: str) -> RepoEngine:
+        eng = self.hub_engines.get(root)
+        if eng is None:
+            eng = self.hub_engines.setdefault(root, RepoEngine(root))
+        return eng
+
+
+class _HubHandler(_Handler):
+    """Hub-mode requests. Every route — landing, repo pages, state feeds,
+    /identity, and the disk assets that ephemeral mode exempts — requires the
+    token (compared with hmac.compare_digest), and the Host header must be
+    exactly 127.0.0.1:<port> or localhost:<port> (DNS-rebinding defense).
+    Slugs resolve only through the store roster: unknown, dotted, slashed, or
+    non-opted slugs 404 with no filesystem derivation from URL bytes."""
+
+    def log_message(self, fmt: str, *args) -> None:
+        self.server.hub_logger.info(
+            _redact_key("%s %s" % (self.address_string(), fmt % args)))
+
+    def _host_ok(self) -> bool:
+        host = self.headers.get("Host", "")
+        port = self.server.server_port
+        return host in (f"127.0.0.1:{port}", f"localhost:{port}")
+
+    def _hub_key_ok(self, qs: dict) -> bool:
+        supplied = qs.get("key", [""])[0] or ""
+        return hmac.compare_digest(supplied.encode("utf-8"),
+                                   self.server.hub_token.encode("utf-8"))
+
+    def do_GET(self) -> None:
+        parts = urlsplit(self.path)
+        path = parts.path
+        qs = parse_qs(parts.query)
+        if not self._host_ok():
+            return self._text(403, "forbidden — host not allowed", "text/plain")
+        if not self._hub_key_ok(qs):
+            return self._text(403, "forbidden — add ?key=<token>", "text/plain")
+        if path.startswith("/assets/"):
+            return self._serve_asset(path)
+        theme = qs.get("theme", [None])[0]
+        theme = theme if theme in ("light", "dark") else None
+        key_qs = "?key=" + self.server.hub_token
+        if path == "/identity":
+            return self._text(200, json.dumps(self._identity_payload()),
+                              "application/json")
+        if path in ("/", "/index.html"):
+            repos = load_state(self.server.hub_state_dir)["repos"]
+            cards = hub_cards(repos, self.server.engine_for)
+            return self._text(200, render_hub_html(cards, key_qs, theme),
+                              "text/html")
+        m = _REPO_ROUTE.fullmatch(path)
+        if m:
+            root = self._root_for_slug(m.group(1))
+            if root is None:
+                return self._text(404, "not found", "text/plain")
+            res = self.server.engine_for(root).state()
+            state = res["state"] if res["ok"] else _degraded_state(res["error"])
+            if m.group(2):
+                return self._text(200, _inert_json(state), "application/json")
+            return self._text(200, render_app_html(state, theme, key_qs=key_qs),
+                              "text/html")
+        return self._text(404, "not found", "text/plain")
+
+    def _identity_payload(self) -> dict:
+        ident = self.server.hub_identity  # version+digest: startup snapshot
+        return {"version": ident["version"], "digest": ident["digest"],
+                "pid": ident["pid"],
+                "uptime_secs": round(time.time() - ident["started"], 1),
+                "roster_count": len(load_state(self.server.hub_state_dir)["repos"])}
+
+    def _root_for_slug(self, slug: str) -> str | None:
+        """Slugs resolve ONLY through the store roster (opted-in entries) —
+        never from the URL's bytes — so traversal is structurally impossible."""
+        repos = load_state(self.server.hub_state_dir)["repos"]
+        for root, rec in repos.items():
+            if rec.get("opted_in") and rec.get("slug") == slug:
+                return root
+        return None
+
+
+def _hub_port(state_dir: Path) -> int:
+    """The store's recorded port when it has one, else the derived default."""
+    recorded = load_state(state_dir).get("port")
+    if recorded:
+        return int(recorded)
+    if hasattr(os, "getuid"):
+        return derive_port(os.getuid())
+    return derive_port(os.environ.get("USERNAME") or "user")
+
+
+def _run_hub(port_arg: int | None) -> int:
+    """Foreground hub (daemonization is the lifecycle's job). Loopback only —
+    the bind is hardcoded; there is no interface option of any kind."""
+    state_dir = ensure_state_dir()
+    token = get_token(state_dir)
+    port = port_arg if port_arg is not None else _hub_port(state_dir)
+    logger = _hub_logger(state_dir)
+    try:
+        httpd = _HubServer(("127.0.0.1", port), _HubHandler, token=token,
+                           state_dir=state_dir, identity=_identity_snapshot(),
+                           logger=logger)
+    except OSError as exc:
+        print(f"karta-watch hub: cannot bind 127.0.0.1:{port} — {exc}",
+              file=sys.stderr)
+        return 1
+    record_port(httpd.server_port, state_dir)
+    print("karta-watch hub serving "
+          f"http://127.0.0.1:{httpd.server_port}/?key={token}")
+    print("  (foreground; Ctrl-C to stop; read-only — every card derives fresh from git)")
+    logger.info("hub started on 127.0.0.1:%s pid=%s", httpd.server_port, os.getpid())
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nkarta-watch hub stopped.")
+    finally:
+        httpd.server_close()
+    return 0
 
 
 def _dir_snapshot(path: Path):
@@ -1375,6 +1808,303 @@ def _store_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """Hub-mode checks: real loopback HTTP against a hub server wired with
+    fake engines, plus the engine/log/render seams directly. Every state dir
+    used here lives under `scratch` — never the real per-user one."""
+    checks: list[tuple[str, bool]] = []
+    posix = os.name == "posix"
+
+    # --- engine seams: cache TTL, wedged isolation, timeout kill+reap -------
+    clk = {"t": 0.0}
+    calls = {"n": 0}
+
+    def counting_runner():
+        calls["n"] += 1
+        return {"binders": []}
+
+    eng = RepoEngine("/nowhere", runner=counting_runner, ttl=5.0,
+                     clock=lambda: clk["t"])
+    eng.state()
+    eng.state()
+    within_ttl = calls["n"]
+    clk["t"] = 5.1
+    eng.state()
+    checks += [
+        ("engine: the ~5 s cache serves repeat reads without re-deriving",
+         within_ttl == 1),
+        ("engine: a lapsed TTL re-derives", calls["n"] == 2),
+    ]
+
+    wedged_calls = {"n": 0}
+
+    def wedged_runner():
+        wedged_calls["n"] += 1
+        raise RuntimeError("git wedged")
+
+    weng = RepoEngine("/nowhere", runner=wedged_runner, ttl=5.0,
+                      clock=lambda: 0.0)
+    wedged_first = weng.state()
+    weng.state()
+    checks += [
+        ("engine: a wedged derivation degrades to an error result, cached too",
+         wedged_first["ok"] is False and "git wedged" in wedged_first["error"]
+         and wedged_calls["n"] == 1),
+    ]
+
+    # the timeout branch kills AND reaps: after TimeoutExpired the child gets
+    # kill()+wait(), so its returncode is set (reaped, no zombie)
+    spawned: list = []
+    orig_popen = subprocess.Popen
+
+    def spying_popen(*a, **k):
+        proc = orig_popen(*a, **k)
+        spawned.append(proc)
+        return proc
+
+    subprocess.Popen = spying_popen
+    try:
+        timed_out = False
+        try:
+            _run_child([sys.executable, "-c", "import time; time.sleep(60)"],
+                       cwd=str(scratch), timeout=0.3)
+        except TimeoutError:
+            timed_out = True
+    finally:
+        subprocess.Popen = orig_popen
+    checks += [
+        ("engine: a timed-out child raises TimeoutError and is killed + reaped",
+         timed_out and len(spawned) == 1
+         and spawned[0].returncode is not None),
+        ("engine: a healthy child's stdout comes back",
+         _run_child([sys.executable, "-c", "print('{\"binders\": []}')"],
+                    cwd=str(scratch), timeout=30).strip() == '{"binders": []}'),
+    ]
+
+    # --- card models: only opted-in appear; wedged/vanished grey alone ------
+    hub_dir = scratch / "hub-case"
+    live_root = scratch / "repo-live"
+    live_root.mkdir()
+    wedged_root = scratch / "repo-wedged"
+    wedged_root.mkdir()
+    gone_root = scratch / "repo-gone"          # never created on disk
+    plain_root = scratch / "repo-plain"        # rostered but NOT opted in
+    plain_root.mkdir()
+    rec_live = upsert_repo(live_root, opted_in=True, state_dir=hub_dir)
+    rec_wedged = upsert_repo(wedged_root, opted_in=True, state_dir=hub_dir)
+    rec_gone = upsert_repo(gone_root, opted_in=True, state_dir=hub_dir)
+    rec_plain = upsert_repo(plain_root, state_dir=hub_dir)
+    fixture = {
+        "repo": {"default_branch": "main"},
+        "binders": [
+            {"slug": "b-done", "status": "merged",
+             "items": {"total": 1, "done": 1, "detail": []}},
+            {"slug": "b-live", "status": "in_flight",
+             "items": {"total": 2, "done": 1, "detail": []}},
+        ],
+        "next_action": {"level": "item", "command": "karta-deliver b-live",
+                        "human": "resume b-live (1/2 done)"},
+        "warnings": [], "errors": [],
+    }
+    engines = {
+        str(live_root): RepoEngine(str(live_root), runner=lambda: fixture),
+        str(wedged_root): RepoEngine(str(wedged_root), runner=wedged_runner),
+    }
+    cards = hub_cards(load_state(hub_dir)["repos"], lambda root: engines[root])
+    by_slug = {c["slug"]: c for c in cards}
+    live_card = by_slug.get(rec_live["slug"])
+    wedged_card = by_slug.get(rec_wedged["slug"])
+    gone_card = by_slug.get(rec_gone["slug"])
+    checks += [
+        ("cards: only opted-in repos appear",
+         len(cards) == 3 and rec_plain["slug"] not in by_slug),
+        ("cards: a live repo carries chip word, binder counts, and next action",
+         live_card is not None and live_card["word"] == "IN FLIGHT"
+         and live_card["counts"] == "2 binders · 1 delivered"
+         and live_card["next"] == "resume b-live (1/2 done)"),
+        ("cards: a wedged engine greys only its own card — others stay live",
+         wedged_card is not None and wedged_card["word"] == "WEDGED"
+         and "git wedged" in wedged_card["note"]
+         and live_card is not None and live_card["word"] == "IN FLIGHT"),
+        ("cards: a vanished opted-in repo greys to UNAVAILABLE, never pruned",
+         gone_card is not None and gone_card["word"] == "UNAVAILABLE"
+         and str(gone_root) in load_state(hub_dir)["repos"]),
+    ]
+
+    # --- the hub server over real loopback HTTP -----------------------------
+    token = get_token(hub_dir)
+    logger = _hub_logger(hub_dir)
+    srv = _HubServer(("127.0.0.1", 0), _HubHandler, token=token,
+                     state_dir=hub_dir, identity=_identity_snapshot(),
+                     logger=logger)
+    srv.hub_engines.update(engines)
+    port = srv.server_port
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+
+    def req(path: str, key: str | None, host: str | None = None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        url = path + (("?key=" + key) if key is not None else "")
+        try:
+            conn.request("GET", url, headers={"Host": host} if host else {})
+            resp = conn.getresponse()
+            return resp.status, resp.read().decode("utf-8", "replace")
+        finally:
+            conn.close()
+
+    slug_live = rec_live["slug"]
+    routes = ["/", "/identity", f"/r/{slug_live}/",
+              f"/r/{slug_live}/state.json", "/assets/mascot.png",
+              "/assets/vendor/vue.global.prod.js"]
+    checks += [
+        ("hub: every route — assets included — rejects a missing token",
+         all(req(p, None)[0] == 403 for p in routes)),
+        ("hub: every route — assets included — rejects a wrong token",
+         all(req(p, "wrong-" + token)[0] == 403 for p in routes)),
+        ("hub: every route serves 200 with the right token",
+         all(req(p, token)[0] == 200 for p in routes)),
+        ("hub: a disallowed Host header is rejected even with a valid token",
+         req("/", token, host=f"evil.example:{port}")[0] == 403
+         and req("/", token, host="127.0.0.1")[0] == 403),
+        ("hub: localhost:<port> passes the Host allowlist",
+         req("/", token, host=f"localhost:{port}")[0] == 200),
+    ]
+
+    ident_status, ident_body = req("/identity", token)
+    ident = json.loads(ident_body)
+    real_digest = hashlib.sha256(_SCRIPT_PATH.read_bytes()).hexdigest()
+    # startup capture: swap the digest function AFTER boot — /identity must
+    # keep serving the snapshot from memory, not re-read the script bytes.
+    orig_digest_fn = globals()["_script_digest"]
+    globals()["_script_digest"] = lambda: "tampered-post-boot"
+    try:
+        tampered = json.loads(req("/identity", token)[1])
+    finally:
+        globals()["_script_digest"] = orig_digest_fn
+    checks += [
+        ("identity: carries VERSION, the script sha256, pid, uptime, roster count",
+         ident_status == 200 and ident.get("version") == VERSION
+         and ident.get("digest") == real_digest
+         and ident.get("pid") == os.getpid()
+         and isinstance(ident.get("uptime_secs"), (int, float))
+         and ident.get("uptime_secs") >= 0
+         and ident.get("roster_count") == 4),
+        ("identity: version + digest are captured at startup, not per request",
+         tampered.get("digest") == real_digest
+         and tampered.get("version") == VERSION),
+    ]
+
+    bad_paths = ["/r/absent-00000000/", "/r/../", "/r/..%2f..%2f/",
+                 "/r/a/b/",                     # slashed
+                 f"/r/{rec_plain['slug']}/",    # rostered but not opted in
+                 f"/r/{slug_live}"]             # no trailing slash
+    checks += [
+        ("hub: unknown, dotted, encoded, slashed, and non-opted slugs all 404",
+         all(req(p, token)[0] == 404 for p in bad_paths)),
+    ]
+
+    page_status, page = req(f"/r/{slug_live}/", token)
+    feed_status, feed = req(f"/r/{slug_live}/state.json", token)
+    feed_state = json.loads(feed)
+    land_status, landing = req("/", token)
+    checks += [
+        ("hub: /r/<slug>/ serves the existing Karta Watch page for that repo",
+         page_status == 200 and "window.__KARTA_STATE__" in page
+         and "b-live" in page),
+        ("hub: the repo page's assets and poll carry the key",
+         'src="/assets/mascot.png?key=' in page
+         and "fetch('state.json' + location.search" in page),
+        ("hub: /r/<slug>/state.json is that repo's live feed (inert-encoded)",
+         feed_status == 200 and any(b.get("slug") == "b-live"
+                                    for b in feed_state.get("binders", []))),
+        ("hub: a wedged repo's feed degrades instead of failing",
+         json.loads(req(f"/r/{rec_wedged['slug']}/state.json", token)[1])
+         .get("binders") == []),
+        ("hub: the landing lists opted-in cards with chip/counts/next, links by slug",
+         land_status == 200 and f'href="/r/{slug_live}/?key=' in landing
+         and "IN FLIGHT" in landing and "2 binders · 1 delivered" in landing
+         and "resume b-live (1/2 done)" in landing),
+        ("hub: the landing greys wedged + vanished cards, hides non-opted repos",
+         "WEDGED" in landing and "UNAVAILABLE" in landing
+         and rec_plain["slug"] not in landing),
+    ]
+
+    log_path = hub_dir / LOG_FILENAME
+    log_text = log_path.read_text(encoding="utf-8")
+    checks += [
+        ("log: a rotating access log is written in the state dir",
+         log_path.exists() and "GET" in log_text),
+        ("log: the token never appears in any log line; key= is redacted",
+         token not in log_text and "key=REDACTED" in log_text),
+        ("log: the log file carries 0o600 on POSIX",
+         (log_path.stat().st_mode & 0o777) == 0o600 if posix else True),
+        ("log: _redact_key strips the key value, keeps the rest",
+         _redact_key("GET /?key=abc123&theme=dark HTTP/1.1")
+         == "GET /?key=REDACTED&theme=dark HTTP/1.1"),
+    ]
+
+    roll_dir = ensure_state_dir(scratch / "log-roll")
+    roll = _hub_logger(roll_dir, max_bytes=300, backups=2)
+    for _ in range(20):
+        roll.info("x" * 120)
+    for h in roll.handlers:
+        h.close()
+    backups = sorted(roll_dir.glob(LOG_FILENAME + ".*"))
+    checks += [
+        ("log: rotation produces backups and they carry 0o600 on POSIX",
+         bool(backups) and (all((b.stat().st_mode & 0o777) == 0o600
+                                for b in backups) if posix else True)),
+    ]
+
+    tiny = {"repo": {"default_branch": "main"}, "binders": [],
+            "next_action": {}, "warnings": [], "errors": []}
+    keyed = render_app_html(tiny, "dark", key_qs="?key=T")
+    plain = render_app_html(tiny, "dark")
+    checks += [
+        ("render: hub key_qs reaches the favicon, mascot, and vendored Vue URLs",
+         'href="/assets/mascot.png?key=T"' in keyed
+         and 'src="/assets/mascot.png?key=T"' in keyed
+         and 'src="/assets/vendor/vue.global.prod.js?key=T"' in keyed),
+        ("render: ephemeral mode still emits bare asset URLs (no placeholder leak)",
+         'src="/assets/mascot.png"' in plain and "__ASSET_QS__" not in plain),
+        ("render: the poll is relative + query-preserving (per-repo feeds under /r/)",
+         "fetch('state.json' + location.search" in plain),
+    ]
+
+    evil_card = {"slug": "x-00000000", "root": "/tmp/<script>evil</script>",
+                 "name": "<img src=x onerror=alert(1)>", "word": "WEDGED",
+                 "counts": "", "next": "", "note": "<script>alert('n')</script>"}
+    evil_html = render_hub_html([evil_card], "?key=T")
+    checks += [
+        ("hub landing: untrusted names/paths/errors are escaped, never raw",
+         "<img src=x" not in evil_html and "<script>alert" not in evil_html
+         and "&lt;img src=x" in evil_html),
+        ("hub landing: an empty roster renders the no-repos empty state",
+         "no repos opted in" in render_hub_html([], "?key=T")),
+    ]
+
+    # the bind stays hardcoded loopback: no interface option exists, and the
+    # server constructions all name 127.0.0.1 (literals assembled dynamically
+    # so this check does not match itself)
+    src = _SCRIPT_PATH.read_text(encoding="utf-8")
+    bind_flag = "--" + "bind"
+    host_flag = "--" + "host"
+    iface_flag = "--" + "interface"
+    loop_lit = '("' + "127.0.0.1" + '", '
+    checks += [
+        ("bind: hardcoded loopback — no bind/host/interface option exists",
+         bind_flag not in src and host_flag not in src
+         and iface_flag not in src and src.count(loop_lit) >= 2),
+    ]
+
+    srv.shutdown()
+    thread.join(timeout=5)
+    srv.server_close()
+    for h in logger.handlers:
+        h.close()
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -1550,6 +2280,7 @@ def _run_self_test() -> int:
          not (scratch / "default-store").exists()),
     ]
     checks += _store_self_test_checks(scratch)
+    checks += _hub_self_test_checks(scratch)
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
@@ -1569,23 +2300,37 @@ def _run_self_test() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="karta-status live poll server")
-    ap.add_argument("--port", type=int, default=8765, help="port to bind (default 8765)")
+    ap.add_argument("--port", type=int, default=None,
+                    help="port to bind (default 8765; hub mode derives per user)")
     ap.add_argument("--key", type=str, default=None, help="if set, require ?key=TOKEN")
     ap.add_argument("--root", type=str, default=None,
                     help="repo root to serve (chdir here so .karta/binders + git resolve); default CWD")
+    ap.add_argument("--hub", action="store_true",
+                    help="serve the persistent multi-repo hub in the foreground")
+    ap.add_argument("--print-state", action="store_true",
+                    help="print the CWD repo's enriched state as JSON and exit "
+                         "(the hub's per-repo derivation child)")
     ap.add_argument("--self-test", action="store_true", help="render fixtures, check invariants, exit 0/1")
     args = ap.parse_args()
 
     if args.self_test:
         return _run_self_test()
 
+    if args.print_state:
+        print(json.dumps(current_state()))
+        return 0
+
+    if args.hub:
+        return _run_hub(args.port)
+
     if args.root:
         import os
         os.chdir(args.root)
 
+    port = args.port if args.port is not None else 8765
     _Handler.required_key = args.key
-    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), _Handler)
-    url = f"http://127.0.0.1:{args.port}/"
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
+    url = f"http://127.0.0.1:{port}/"
     print(f"karta-status serving {url}")
     print(f"  state:    {url}state.json")
     if args.key:
