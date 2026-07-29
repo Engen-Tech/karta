@@ -16,6 +16,20 @@ binder summary when it is not invocable. Output stays within 10 lines total;
 silence when there are no binders. Always exits 0 — a status hint must never
 surface as a session error.
 
+Karta Watch (revive-integration): hook mode also fires a fail-open,
+fire-and-forget `serve_status.py --ensure` (hub revival), and — only when the
+current repo is opted in per the per-user watch store — appends exactly one
+line inside the fence: the persistent-watch URL banner when the hub answers,
+or the one-line revive nudge when it does not. A repo that is not opted in
+produces byte-identical hook output to the pre-watch behavior — and pays
+nothing beyond a stat/read of the small state JSON (neither karta_next nor
+serve_status is imported on that cold path). Because the ensure was just
+fired, a down hub is re-probed up to 2 more times ~250 ms apart before the
+nudge: the detached hub needs ~1 s to bind, and nudging about a hub that is
+coming up reads as broken. On budget
+overflow, body detail lines are trimmed — never the fences, never the
+appended watch line or its key material. The hook still always exits 0.
+
 The emitted block is fenced in an inert delimiter pair (`<karta-status>` ...
 `</karta-status>`) so repo-derived text — binder slugs and friends are
 attacker-writable — arrives in session context as data, not instruction. Any
@@ -53,6 +67,7 @@ _TRUNCATION_NOTE = "  [status truncated to fit the injection byte budget]"
 _SLASH_FORMS = r"(?:/|\\+/|\\+u0*2f|\\+u\{0*2f\}|\\+x0*2f|\\+0*57|&#0*47;|&#x0*2f;|&sol;|%2f)"
 _CLOSE_MARKER_RE = re.compile(r"<" + _SLASH_FORMS + r"\s*karta-status", re.IGNORECASE)
 STATUS_REL = Path("skills") / "karta-status" / "scripts" / "karta_next.py"
+WATCH_REL = Path("skills") / "karta-status" / "scripts" / "serve_status.py"
 
 
 def _neutralize(text: str) -> str:
@@ -86,11 +101,25 @@ def _neutralize(text: str) -> str:
     return "".join(out)
 
 
-def wrap(lines: list[str]) -> str:
+def wrap(lines: list[str], protected: str | None = None) -> str:
     """Fence the summary lines in the inert delimiter pair.
 
     Over BYTE_BUDGET, truncate the payload — never the wrapper — and append a
-    note saying so; the block always stays within MAX_LINES total lines."""
+    note saying so; the block always stays within MAX_LINES total lines.
+
+    `protected` is the one Karta Watch banner/nudge line: appended inside the
+    fence and never trimmed. On overflow, body detail lines are dropped from
+    the end instead — the fences, the protected line, and its key material
+    always survive intact."""
+    if protected is not None:
+        kept = list(lines)
+        while True:
+            body = _neutralize("\n".join(kept + [protected]))
+            block = f"{_DELIM_OPEN}\n{body}\n{_DELIM_CLOSE}"
+            if not kept or (len(block.encode("utf-8")) <= BYTE_BUDGET
+                            and len(block.splitlines()) <= MAX_LINES):
+                return block
+            kept.pop()
     body = _neutralize("\n".join(lines))
     block = f"{_DELIM_OPEN}\n{body}\n{_DELIM_CLOSE}"
     if len(block.encode("utf-8")) > BYTE_BUDGET:
@@ -101,17 +130,124 @@ def wrap(lines: list[str]) -> str:
     return block
 
 
-def _status_script() -> Path | None:
+def _plugin_file(rel: Path) -> Path | None:
     roots: list[Path] = []
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:
         roots.append(Path(env))
     roots.append(Path(__file__).resolve().parent.parent.parent)  # <plugin root>/hooks/scripts/..
     for root in roots:
-        cand = root / STATUS_REL
+        cand = root / rel
         if cand.is_file():
             return cand
     return None
+
+
+def _status_script() -> Path | None:
+    return _plugin_file(STATUS_REL)
+
+
+def _watch_state_path() -> Path:
+    """The per-user watch state file, resolved without importing serve_status
+    or karta_next — the cold-path gate below must stay a bare stat/read.
+    Mirrors serve_status.resolve_state_dir (KARTA_WATCH_STATE_DIR override
+    first, then the platform dir); serve_status's self-test pins that
+    resolution, this copy only ever reads."""
+    override = os.environ.get("KARTA_WATCH_STATE_DIR")
+    if override:
+        return Path(override) / "state.json"
+    home = Path(os.environ["HOME"]) if os.environ.get("HOME") else Path.home()
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else home / "AppData" / "Local"
+    elif sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    else:
+        xdg = os.environ.get("XDG_STATE_HOME")
+        base = Path(xdg) if xdg else home / ".local" / "state"
+    return base / "karta" / "state.json"
+
+
+def _opted_in(cwd: str) -> bool:
+    """The cold-path gate: True only when the repo root above `cwd` (nearest
+    `.git`, walking up) is opted in per the per-user store — decided from a
+    stat/read of the small state JSON alone, so a repo with no store file or
+    no opt-in imports nothing (not karta_next, not serve_status) and creates
+    nothing on disk. Fail-open: any error is 'not opted in'."""
+    try:
+        state_path = _watch_state_path()
+        if not state_path.is_file():
+            return False
+        d = os.path.abspath(cwd)
+        while not os.path.exists(os.path.join(d, ".git")):
+            parent = os.path.dirname(d)
+            if parent == d:
+                return False
+            d = parent
+        doc = json.loads(state_path.read_text(encoding="utf-8"))
+        repos = doc.get("repos") if isinstance(doc, dict) else None
+        rec = repos.get(d) if isinstance(repos, dict) else None
+        return bool(isinstance(rec, dict) and rec.get("opted_in"))
+    except Exception:
+        return False
+
+
+def _fire_ensure(cwd: str | None = None, popen=None,
+                 os_name: str | None = None) -> None:
+    """Fire-and-forget Karta Watch hub revival: spawn `serve_status.py
+    --ensure` with its stdio on DEVNULL plus close_fds (POSIX) or the
+    detached-process creation flags (Windows), so the harness capturing this
+    hook's stdout can never block on, or receive bytes from, the ensure child.
+    Every failure is swallowed — the embed is fail-open and the hook's own
+    output and exit code are never changed by it. The popen/os_name seams
+    exist for the self-test."""
+    try:
+        script = _plugin_file(WATCH_REL)
+        if script is None:
+            return
+        kwargs: dict = {"stdin": subprocess.DEVNULL,
+                        "stdout": subprocess.DEVNULL,
+                        "stderr": subprocess.DEVNULL,
+                        "close_fds": True}
+        if cwd:
+            kwargs["cwd"] = cwd
+        if (os_name or os.name) != "posix":
+            kwargs["creationflags"] = (
+                getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+        (popen or subprocess.Popen)(
+            [sys.executable, str(script), "--ensure"], **kwargs)
+    except Exception:
+        pass
+
+
+def _watch_line(cwd: str) -> str | None:
+    """The one appended Karta Watch line for an opted-in repo — the exact URL
+    banner when the hub answers, the revive nudge (naming the --ensure
+    one-liner plus any recorded failure reason) when it does not. None when
+    this repo is not opted in per the per-user store — decided by the cheap
+    _opted_in gate BEFORE any engine import, so hook output stays
+    byte-identical to pre-watch behavior and the cold path never pays the
+    karta_next/serve_status import — and None on any error (fail open).
+    The wording comes from the engine's watch_line: one source for the
+    canonical 'Karta Watch:' / 'turn off karta watch' terms. Because this
+    hook just fired the ensure, the line rides watch_line's bounded re-probe
+    window (retries=2, ~250 ms apart): the detached hub needs ~1 s to bind,
+    and nudging about a hub that is coming up reads as broken."""
+    try:
+        if not _opted_in(cwd):
+            return None
+        script = _status_script()
+        if script is None:
+            return None
+        d = str(script.resolve().parent)
+        if d not in sys.path:
+            sys.path.insert(0, d)
+        import karta_next
+        return karta_next.watch_line(cwd, banner=True, retries=2)
+    except Exception:
+        return None
 
 
 def load_binders(binders_dir: Path) -> list[dict]:
@@ -182,8 +318,241 @@ def _binder_fixture(slug: str, packs: list[str], items: int = 1) -> dict:
                             "oracle": {"type": "unit"}} for n in range(items)]}
 
 
+def _watch_self_test_checks() -> list[tuple[str, bool]]:
+    """Karta Watch surface (revive-integration): the fire-and-forget ensure
+    spawn args, the protected banner/nudge line inside the fence and its
+    budget, byte-identical output for a repo that is not opted in, and — end
+    to end against a real loopback /identity responder — the exact banner.
+    Every check points KARTA_WATCH_STATE_DIR at a scratch dir, and no real hub
+    daemon is ever spawned: the healthy-hub e2e answers with the expected
+    digest, so the detached ensure child no-ops."""
+    import contextlib, http.server, tempfile, threading, time
+    checks: list[tuple[str, bool]] = []
+    # Pin the plugin root at this repo checkout so both this process and the
+    # hook subprocesses resolve the watch scripts beside this file — never an
+    # installed plugin cache a live session may point CLAUDE_PLUGIN_ROOT at.
+    saved_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    os.environ["CLAUDE_PLUGIN_ROOT"] = str(
+        Path(__file__).resolve().parent.parent.parent)
+
+    @contextlib.contextmanager
+    def temp_store():
+        saved = os.environ.get("KARTA_WATCH_STATE_DIR")
+        with tempfile.TemporaryDirectory() as sd:
+            os.environ["KARTA_WATCH_STATE_DIR"] = sd
+            try:
+                yield Path(sd)
+            finally:
+                if saved is None:
+                    os.environ.pop("KARTA_WATCH_STATE_DIR", None)
+                else:
+                    os.environ["KARTA_WATCH_STATE_DIR"] = saved
+
+    try:
+        # -- spawn args: DEVNULL stdio + close_fds / detached creation flags --
+        calls: list[tuple[list[str], dict]] = []
+        _fire_ensure("/anywhere",
+                     popen=lambda argv, **kw: calls.append((argv, kw)),
+                     os_name="posix")
+        ok = bool(calls)
+        if ok:
+            argv, kw = calls[0]
+            ok = (argv[0] == sys.executable and argv[-1] == "--ensure"
+                  and argv[1].endswith("serve_status.py")
+                  and kw.get("stdin") is subprocess.DEVNULL
+                  and kw.get("stdout") is subprocess.DEVNULL
+                  and kw.get("stderr") is subprocess.DEVNULL
+                  and kw.get("close_fds") is True
+                  and kw.get("cwd") == "/anywhere"
+                  and "creationflags" not in kw)
+        checks.append(("ensure spawn (POSIX): --ensure argv, DEVNULL stdio, close_fds", ok))
+        calls.clear()
+        _fire_ensure(popen=lambda argv, **kw: calls.append((argv, kw)),
+                     os_name="nt")
+        flags = calls[0][1].get("creationflags", 0) if calls else 0
+        checks.append(("ensure spawn (Windows): detached creation flags",
+                       bool(flags & 0x00000008) and bool(flags & 0x00000200)))
+
+        def _boom(argv, **kw):
+            raise OSError("spawn denied")
+        try:
+            _fire_ensure(popen=_boom)
+            swallowed = True
+        except Exception:                                      # noqa: BLE001
+            swallowed = False
+        checks.append(("ensure spawn failure is swallowed", swallowed))
+
+        # -- the protected watch line inside the fence --
+        banner = ('Karta Watch: http://127.0.0.1:9001/?key=tok — persistent; '
+                  'say "turn off karta watch" to disable.')
+        pw = wrap(["a", "b"], protected=banner)
+        checks.append(("watch line is appended inside the fence",
+                       pw.splitlines() == [_DELIM_OPEN, "a", "b", banner,
+                                           _DELIM_CLOSE]))
+        big = wrap([f"line{n} " + "x" * 600 for n in range(8)], protected=banner)
+        checks.append(("overflow trims body lines — never fences, banner, or key",
+                       len(big.encode("utf-8")) <= BYTE_BUDGET
+                       and len(big.splitlines()) <= MAX_LINES
+                       and big.startswith(_DELIM_OPEN + "\n")
+                       and big.endswith("\n" + _DELIM_CLOSE)
+                       and banner in big and "?key=tok" in big))
+        checks.append(("watch line alone still emits a fenced block",
+                       wrap([], protected=banner).splitlines()
+                       == [_DELIM_OPEN, banner, _DELIM_CLOSE]))
+        full = wrap([f"b{n}" for n in range(_BODY_LINES)], protected=banner)
+        checks.append(("watch line + a full body stays within MAX_LINES",
+                       len(full.splitlines()) <= MAX_LINES and banner in full))
+
+        # -- the hook surface through the engine's watch_line --
+        script = _status_script()
+        d = str(script.resolve().parent) if script else ""
+        if d and d not in sys.path:
+            sys.path.insert(0, d)
+        try:
+            import karta_next as _kn
+            import serve_status as _watch
+        except Exception:                                      # noqa: BLE001
+            _kn = _watch = None
+        checks.append(("engine + watch store import for the hook surface",
+                       _kn is not None and _watch is not None))
+        if _kn is None or _watch is None:
+            return checks
+
+        with temp_store() as sd:
+            repo = sd / "r"
+            (repo / ".git").mkdir(parents=True)
+            checks.append(("not opted in -> no watch line (byte-identical path)",
+                           _watch_line(str(repo)) is None))
+            # cold path: not opted in decides from the bare state JSON — a
+            # fresh process must import neither karta_next nor serve_status
+            code = ("import importlib.util, json, sys\n"
+                    "spec = importlib.util.spec_from_file_location("
+                    "'hk', sys.argv[1])\n"
+                    "mod = importlib.util.module_from_spec(spec)\n"
+                    "spec.loader.exec_module(mod)\n"
+                    "line = mod._watch_line(sys.argv[2])\n"
+                    "print(json.dumps({'line': line,"
+                    " 'kn': 'karta_next' in sys.modules,"
+                    " 'ss': 'serve_status' in sys.modules}))\n")
+            proc = subprocess.run([sys.executable, "-c", code,
+                                   str(Path(__file__).resolve()), str(repo)],
+                                  capture_output=True, text=True, timeout=60)
+            try:
+                cold = json.loads(proc.stdout)
+            except ValueError:
+                cold = {}
+            checks.append(("cold path: not opted in imports neither karta_next"
+                           " nor serve_status",
+                           proc.returncode == 0 and cold.get("line") is None
+                           and cold.get("kn") is False
+                           and cold.get("ss") is False))
+            _watch.upsert_repo(str(repo), opted_in=True)
+            got = _kn.watch_line(str(repo), banner=True,
+                                 probe=lambda p: ("dead", None))
+            checks.append(("unreachable hub -> the nudge, never the URL banner",
+                           got is not None
+                           and got.startswith("Karta Watch: hub not running")
+                           and "--ensure" in got and "?key=" not in got))
+            # the hook's watch line rides the bounded re-probe window
+            recorded: dict = {}
+            orig_wl = _kn.watch_line
+            _kn.watch_line = (lambda c, **kw: recorded.update(kw)
+                              or "sentinel-line")
+            try:
+                relayed = _watch_line(str(repo))
+            finally:
+                _kn.watch_line = orig_wl
+            checks.append(("hook watch line: banner surface with the bounded"
+                           " re-probe window (retries=2)",
+                           relayed == "sentinel-line"
+                           and recorded.get("banner") is True
+                           and recorded.get("retries") == 2))
+
+        # -- e2e: not opted in — output byte-identical to the pure pipeline --
+        with temp_store(), tempfile.TemporaryDirectory() as td:
+            bd = Path(td) / ".karta" / "binders"
+            bd.mkdir(parents=True)
+            (bd / "s-a.json").write_text(
+                json.dumps(_binder_fixture("s-a", ["minimalism"])))
+            me = str(Path(__file__).resolve())
+            proc = subprocess.run([sys.executable, me],
+                                  input=json.dumps({"cwd": td}),
+                                  capture_output=True, text=True, timeout=120)
+            expected = wrap(summarize(load_binders(bd), derive_state(td)))
+            checks.append(("hook e2e: not-opted-in output is byte-identical",
+                           proc.returncode == 0
+                           and proc.stdout == expected + "\n"
+                           and proc.stderr == ""))
+            garbage = subprocess.run([sys.executable, me], input="not json",
+                                     capture_output=True, text=True,
+                                     timeout=120)
+            checks.append(("hook e2e: garbage stdin still exits 0, silently",
+                           garbage.returncode == 0 and garbage.stdout == ""))
+
+        # -- e2e: opted in + healthy hub — the exact banner; the detached
+        # ensure child sees the matching digest and no-ops (clears the
+        # pre-dropped breadcrumb, our completion signal) --
+        with temp_store() as sd:
+            repo = sd / "repo"
+            (repo / ".git").mkdir(parents=True)
+            _watch.upsert_repo(str(repo), opted_in=True)
+            token = _watch.get_token()
+            body = json.dumps({"digest": _watch._script_digest(),
+                               "pid": 999999}).encode("utf-8")
+
+            class _Identity(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+                def log_message(self, *args):
+                    pass
+
+            httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Identity)
+            port = httpd.server_address[1]
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            _watch.record_port(port)
+            _watch._record_ensure_failure("pending")
+            me = str(Path(__file__).resolve())
+            proc = subprocess.run([sys.executable, me],
+                                  input=json.dumps({"cwd": str(repo)}),
+                                  capture_output=True, text=True, timeout=120)
+            expect = (f'Karta Watch: http://127.0.0.1:{port}/?key={token} — '
+                      f'persistent; say "turn off karta watch" to disable.')
+            out = proc.stdout.splitlines()
+            checks.append(("hook e2e: opted-in repo gets the exact banner in the fence",
+                           proc.returncode == 0 and len(out) >= 3
+                           and out[0] == _DELIM_OPEN and out[-1] == _DELIM_CLOSE
+                           and out[-2] == expect and len(out) <= MAX_LINES
+                           and len(proc.stdout.encode("utf-8")) <= BYTE_BUDGET + 1))
+            crumb = _watch.ensure_state_dir() / _watch.ENSURE_FAILURE_FILENAME
+            deadline = time.time() + 30
+            cleared = False
+            while time.time() < deadline:
+                if not crumb.is_file():
+                    cleared = True
+                    break
+                time.sleep(0.2)
+            checks.append(("hook e2e: the ensure child confirmed the healthy hub",
+                           cleared))
+            httpd.shutdown()
+        return checks
+    finally:
+        if saved_root is None:
+            os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+        else:
+            os.environ["CLAUDE_PLUGIN_ROOT"] = saved_root
+
+
 def _run_self_test() -> int:
     import tempfile
+    # Keep every subprocess this test spawns — and the ensure children those
+    # fire — off the real per-user watch store.
+    _watch_sd = tempfile.TemporaryDirectory()
+    _saved_sd = os.environ.get("KARTA_WATCH_STATE_DIR")
+    os.environ["KARTA_WATCH_STATE_DIR"] = _watch_sd.name
     checks: list[tuple[str, bool]] = []
 
     # silence when there are no binders
@@ -279,6 +648,14 @@ def _run_self_test() -> int:
         checks.append(("end-to-end summary emits and stays capped",
                        0 < len(e2e) <= MAX_LINES and "s-a" in e2e[1]))
 
+    checks.extend(_watch_self_test_checks())
+
+    if _saved_sd is None:
+        os.environ.pop("KARTA_WATCH_STATE_DIR", None)
+    else:
+        os.environ["KARTA_WATCH_STATE_DIR"] = _saved_sd
+    _watch_sd.cleanup()
+
     failures = 0
     for name, ok in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}")
@@ -297,11 +674,14 @@ def main() -> int:
         payload = json.load(sys.stdin)
         cwd = payload.get("cwd") if isinstance(payload, dict) else None
         cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+        _fire_ensure(cwd)  # fire-and-forget hub revival on every session start
         binders = load_binders(Path(cwd) / ".karta" / "binders")
-        if binders:
-            lines = summarize(binders, derive_state(cwd))
-            if lines:
-                print(wrap(lines))
+        lines = summarize(binders, derive_state(cwd)) if binders else []
+        watch = _watch_line(cwd)
+        if watch is not None:
+            print(wrap(lines, protected=watch))
+        elif lines:
+            print(wrap(lines))
     except Exception:  # noqa: BLE001
         pass  # fail open and silent: a status hint must never surface as a session error
     return 0
