@@ -682,6 +682,7 @@ body{
 .binder__header{
   display:flex; align-items:center; gap:11px; padding:14px 18px; cursor:pointer;
   width:100%; text-align:left; background:transparent; border:0;
+  appearance:none; -webkit-appearance:none;
   font:inherit; color:inherit;
 }
 .binder__header--now{ background:var(--amber-soft); }
@@ -731,6 +732,7 @@ body{
 .item__row{
   display:flex; align-items:flex-start; gap:10px; padding:12px 14px; min-width:0;
   width:100%; text-align:left; background:transparent; border:0;
+  appearance:none; -webkit-appearance:none;
   font:inherit; color:inherit; cursor:pointer;
 }
 .item__badge{
@@ -823,6 +825,7 @@ FEED_PAUSE_AFTER = 2   # consecutive poll failures before the label flips
 
 def _feed_transition(state: dict, ok: bool) -> dict:
     """Python mirror of the page's feedTransition(): state in, state out."""
+    # MIRROR: change together with feedTransition() in _APP_JS and the feed self-test.
     if ok:
         return {"failures": 0, "paused": False}
     failures = state["failures"] + 1
@@ -866,6 +869,7 @@ const FEED_PAUSE_AFTER = __FEED_PAUSE_AFTER__;
 // failure never flickers); the first success after a pause recovers. Mirrored
 // by _feed_transition() in serve_status.py, which the self-test drives —
 // keep the two in lockstep.
+// MIRROR: change together with _feed_transition() in serve_status.py and the feed self-test.
 function feedTransition(state, ok) {
   if (ok) return { failures: 0, paused: false };
   const failures = state.failures + 1;
@@ -1156,7 +1160,7 @@ const app = createApp({
             <div class="binder" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
               <button type="button" class="binder__header" :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
                 @click="toggleBinder(b.slug, b.key)"
-                :aria-pressed="b.open ? 'true' : 'false'">
+                :aria-expanded="b.open ? 'true' : 'false'">
                 <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-accent)" /></span>
                 <span class="binder__title">{{ b.title }}</span>
                 <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
@@ -1184,7 +1188,7 @@ const app = createApp({
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
                     <div class="item" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
                       <button type="button" class="item__row" @click="toggleItem(b.slug, it.id)"
-                        :aria-pressed="isExpanded(b.slug, it.id) ? 'true' : 'false'">
+                        :aria-expanded="isExpanded(b.slug, it.id) ? 'true' : 'false'">
                         <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-accent)" :spin="it.building" /></span>
                         <div class="item__main">
                           <div class="item__title">{{ it.title }}</div>
@@ -1426,9 +1430,14 @@ def _repo_last_activity(root: str) -> int | None:
 
 def _activity_stamp(commit_ts: int, now: float) -> str:
     """Humane last-activity bucket: the same calendar day (local time) reads
-    'active today'; any earlier day reads 'active N days ago'."""
-    days = (datetime.date.fromtimestamp(now)
-            - datetime.date.fromtimestamp(commit_ts)).days
+    'active today'; any earlier day reads 'active N days ago'. A corrupted
+    git-supplied timestamp (overflow / out of platform range) yields the
+    absent stamp '' — it must never error a card."""
+    try:
+        days = (datetime.date.fromtimestamp(now)
+                - datetime.date.fromtimestamp(commit_ts)).days
+    except (OverflowError, ValueError, OSError):
+        return ""
     if days <= 0:
         return "active today"
     return f"active {days} day{'' if days == 1 else 's'} ago"
@@ -1529,9 +1538,11 @@ def _repo_card(slug: str, root: str, engine_result: dict | None,
     level = (st.get("next_action") or {}).get("level")
     if any(b.get("status") == "in_flight" for b in binders):
         card["word"] = "NOW"
-    elif level == "done" or merged == len(binders):
+    elif level == "done" or (binders and merged == len(binders)):
         # the engine's calm all-merged derive (level "done") always gets the
-        # CLEAR treatment — never blocked or error styling
+        # CLEAR treatment — never blocked or error styling. The count clause
+        # requires a non-empty binder set: an empty repo (0 == 0 vacuously)
+        # derives blocked in the engine and must never read CLEAR here.
         card["word"] = "CLEAR"
     else:
         card["word"] = "NEXT"
@@ -2750,6 +2761,22 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and ".repo__arrow{ color:var(--amber); }" in sorted_html),
     ]
 
+    # an empty repo — no live binders, no archive — derives blocked in the
+    # engine; the card must agree (0 == 0 must never vacuously read CLEAR)
+    empty_state = {"repo": {"default_branch": "main"}, "binders": [],
+                   "next_action": {"level": "blocked", "command": None,
+                                   "human": "no binder is ready to run —"
+                                            " check the warnings/errors above"},
+                   "warnings": [], "errors": []}
+    empty_card = _repo_card("s-empty", "/empty",
+                            {"ok": True, "state": empty_state, "activity": None})
+    checks += [
+        ("landing: an empty repo (no live binders, no archive; engine derives"
+         " blocked) never renders the CLEAR chip",
+         empty_card["word"] != "CLEAR" and empty_card["word"] == "NEXT"
+         and empty_card["counts"] == "0 binders · 0 delivered"),
+    ]
+
     # --- last-activity stamp: humane buckets, absent on failure, and at most
     # one git call per repo per ~5 s cache window ----------------------------
     base_noon = datetime.datetime(2026, 3, 10, 12, 0).timestamp()
@@ -2795,6 +2822,13 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          unstamped["activity"] == ""
          and "1 binder · 1 delivered</div>" in unstamped_html
          and _repo_last_activity(str(scratch / "no-such-dir")) is None),
+        ("stamp: an absurd git-supplied epoch (overflow / out of range)"
+         " yields the absent stamp, never an errored card",
+         _activity_stamp(10**18, base_noon) == ""
+         and _activity_stamp(-(10**18), base_noon) == ""
+         and _repo_card("sz", "/z", {"ok": True, "state": done_state,
+                                     "activity": 10**18},
+                        now=base_noon)["activity"] == ""),
         ("stamp: derives from `git log -1 --format=%ct` under the pinned"
          " ~1 s timeout — the subprocess spy sees the exact argv",
          ACTIVITY_TIMEOUT_SECS == 1.0 and bool(git_cmds)
@@ -3638,6 +3672,10 @@ def _run_self_test() -> int:
         ("chips: the word BLOCKED appears nowhere in the rendered repo page"
          " (delivered history included, chip vocabulary scoped)",
          "BLOCKED" not in wait_page and '"word":"BLOCKED"' not in hub_page),
+        ("chips: every badge in _STATE_META and every mark in _PHASE_META"
+         " resolves to an _ICONS entry (a WAITING chip never renders blank)",
+         all(m["badge"] in _ICONS for m in _STATE_META.values())
+         and all(m["mark"] in _ICONS for m in _PHASE_META.values())),
         ("delivered: the green check treatment — gutter mark, green binder"
          " border and header",
          _PHASE_META["past"]["color"] == "var(--green)"
@@ -3647,13 +3685,16 @@ def _run_self_test() -> int:
          and "'binder--done': b.done" in hub_page
          and "'binder__header--done': b.done" in hub_page
          and "done: key === 'past'" in hub_page),
-        ("expanders: binder + work-item toggles are real <button>s carrying the"
-         " show-delivered toggle's aria-pressed pattern",
+        ("expanders: binder + work-item toggles are real <button>s carrying"
+         " aria-expanded disclosure semantics; the show-delivered toggle (a"
+         " genuine toggle, not a disclosure) keeps aria-pressed",
          '<button type="button" class="binder__header"' in hub_page
-         and ':aria-pressed="b.open ? \'true\' : \'false\'"' in hub_page
+         and ':aria-expanded="b.open ? \'true\' : \'false\'"' in hub_page
          and '<button type="button" class="item__row"' in hub_page
-         and ':aria-pressed="isExpanded(b.slug, it.id) ? \'true\' : \'false\'"' in hub_page
-         and ':aria-pressed="showDelivered ? \'true\' : \'false\'"' in hub_page),
+         and ':aria-expanded="isExpanded(b.slug, it.id) ? \'true\' : \'false\'"' in hub_page
+         and ':aria-pressed="showDelivered ? \'true\' : \'false\'"' in hub_page
+         and ':aria-pressed="b.open' not in hub_page
+         and ':aria-pressed="isExpanded' not in hub_page),
     ]
 
     # Untrusted-text neutralization (see _inert_json): hostile binder-derived
