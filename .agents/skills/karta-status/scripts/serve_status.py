@@ -84,7 +84,7 @@ _SCRIPT_PATH = Path(__file__).resolve()
 # The hub's version label, served by /identity next to a sha256 digest of this
 # script's bytes. The DIGEST is what skew comparison uses; the constant is the
 # human-readable label. Keep it in step with .claude-plugin/plugin.json.
-VERSION = "2.25.0"
+VERSION = "2.26.0"
 
 # ---------------------------------------------------------------------------
 # Per-user watch store — the persistent hub's state layer. Nothing user-visible
