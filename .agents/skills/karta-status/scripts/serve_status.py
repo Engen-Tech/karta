@@ -11,6 +11,9 @@ from the CWD's `.karta/binders` + git, so running it from a repo renders that re
   uv run --script serve_status.py --port 9000     # a different port
   uv run --script serve_status.py --key s3cret    # gate behind ?key=s3cret
   uv run --script serve_status.py --hub           # the persistent multi-repo hub
+  uv run --script serve_status.py --ensure        # revive the hub if needed (silent)
+  uv run --script serve_status.py --opt-in        # persistent watch for this repo
+  uv run --script serve_status.py --opt-out       # turn it off (path or slug accepted)
 
 Routes:
   GET /            the app HTML shell (a self-contained document; renders via Vue)
@@ -19,9 +22,11 @@ Routes:
                    vendor/vue.global.prod.js) — same-origin only
 
 Hub mode (--hub) serves every opted-in repo from the per-user store instead of
-the CWD, in the foreground (the detached daemon lifecycle is separate). The
-token is REQUIRED on every hub route — assets included — and the Host header
-must be exactly 127.0.0.1:<port> or localhost:<port>:
+the CWD. `--ensure` revives it as a detached daemon when needed (the daemon
+lifecycle section below); the running hub retires itself when the plugin
+updates under it or the last repo opts out. The token is REQUIRED on every hub
+route — assets included — and the Host header must be exactly 127.0.0.1:<port>
+or localhost:<port>:
   GET /                     landing page — one live card per opted-in repo
   GET /r/<slug>/            that repo's full Karta Watch page
   GET /r/<slug>/state.json  that repo's state feed
@@ -44,10 +49,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
+import errno
 import hashlib
 import hmac
 import html
 import http.client
+import io
 import json
 import logging
 import logging.handlers
@@ -55,6 +63,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1599,8 +1608,11 @@ def _hub_port(state_dir: Path) -> int:
 
 
 def _run_hub(port_arg: int | None) -> int:
-    """Foreground hub (daemonization is the lifecycle's job). Loopback only —
-    the bind is hardcoded; there is no interface option of any kind."""
+    """The hub server: foreground when run by hand, and the same entry the
+    detached spawn execs with stdio on /dev/null. Loopback only — the bind is
+    hardcoded; there is no interface option of any kind. Bind is also the
+    mutex between concurrent revivals: the loser exits quietly, no lock
+    files."""
     state_dir = ensure_state_dir()
     token = get_token(state_dir)
     port = port_arg if port_arg is not None else _hub_port(state_dir)
@@ -1610,6 +1622,15 @@ def _run_hub(port_arg: int | None) -> int:
                            state_dir=state_dir, identity=_identity_snapshot(),
                            logger=logger)
     except OSError as exc:
+        if exc.errno == errno.EADDRINUSE:
+            # Lost the bind race. The winner may still be starting, so a
+            # refused probe gets brief retries — and is NEVER classified
+            # foreign. Either way the loser's exit is quiet and clean.
+            outcome = lost_bind_race(lambda: _probe_hub(port, token))
+            logger.info("lost the bind race on 127.0.0.1:%s (%s) — exiting quietly",
+                        port, outcome)
+            return 0
+        logger.info("cannot bind 127.0.0.1:%s — %s", port, exc)
         print(f"karta-watch hub: cannot bind 127.0.0.1:{port} — {exc}",
               file=sys.stderr)
         return 1
@@ -1619,12 +1640,395 @@ def _run_hub(port_arg: int | None) -> int:
     print("  (foreground; Ctrl-C to stop; read-only — every card derives fresh from git)")
     logger.info("hub started on 127.0.0.1:%s pid=%s", httpd.server_port, os.getpid())
     try:
+        baseline = _SCRIPT_PATH.stat().st_mtime_ns
+    except OSError:
+        baseline = None
+    exit_reason: list[str] = []
+    threading.Thread(target=_self_exit_watch,
+                     args=(httpd, state_dir, baseline, exit_reason),
+                     daemon=True).start()
+    try:
         httpd.serve_forever()
+        if exit_reason:  # the self-exit watch shut us down
+            print(f"karta-watch hub: {exit_reason[0]} — exiting.")
     except KeyboardInterrupt:
         print("\nkarta-watch hub stopped.")
     finally:
         httpd.server_close()
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Daemon lifecycle — ensure / opt-in / opt-out / self-exit. The hub is
+# self-managing: `--ensure` is the idempotent revival every karta touch can
+# run (upsert FIRST, decide SECOND; silent on success; one plain line + exit 0
+# on failure, so the invoking karta work is never blocked). `--opt-in` /
+# `--opt-out` are the only mutation surface for the persistence flag — the
+# hub's web routes stay GET-only. Concurrent revivals resolve by bind: whoever
+# binds wins, the loser exits quietly, no lock files exist. The running hub
+# retires itself (~once-a-minute checks) when its script file changes or
+# vanishes under it, or when the last repo opts out.
+# ---------------------------------------------------------------------------
+
+PROBE_TIMEOUT_SECS = 0.5     # pinned per-attempt /identity probe cap (~500 ms)
+ENSURE_STEP_CAP = 5          # candidate ports probed per --ensure invocation
+BIND_RACE_ATTEMPTS = 3       # loser re-probes: ~3 attempts over ~2 s
+BIND_RACE_TOTAL_SECS = 2.0
+SELF_CHECK_SECS = 60.0       # one timer: script mtime + state re-read
+ENSURE_FAILURE_FILENAME = "ensure-failure.json"
+
+# Windows creation-flag values, pinned so the composition is testable on any
+# platform (subprocess only defines the names on Windows).
+_WIN_DETACHED_PROCESS = 0x00000008
+_WIN_CREATE_NO_WINDOW = 0x08000000
+_WIN_CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+
+def _probe_hub(port: int, token: str,
+               timeout: float = PROBE_TIMEOUT_SECS) -> tuple[str, dict | None]:
+    """Classify a candidate port's occupant via GET /identity?key=…:
+
+      ("ours", identity)   a token-authenticated identity answer
+      ("dead", None)       nothing listening (connection refused)
+      ("foreign", None)    listening but not answering as our hub — a wrong
+                           status (another user's hub 403s our token), a
+                           garbled body, a reset, or a stall past the pinned
+                           timeout (so a stalling responder can never burn
+                           unbounded wall-clock)
+    """
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+    try:
+        conn.request("GET", "/identity?key=" + token,
+                     headers={"Host": f"127.0.0.1:{port}"})
+        resp = conn.getresponse()
+        body = resp.read(65536)
+        if resp.status != 200:
+            return ("foreign", None)
+        ident = json.loads(body)
+        if (not isinstance(ident, dict) or "digest" not in ident
+                or "pid" not in ident):
+            return ("foreign", None)
+        return ("ours", ident)
+    except ConnectionRefusedError:
+        return ("dead", None)
+    except (OSError, ValueError):
+        return ("foreign", None)
+    finally:
+        conn.close()
+
+
+def next_candidate_port(port: int) -> int:
+    """The next derived candidate after a foreign occupant — steps within the
+    same derived span, wrapping at its end."""
+    return PORT_BASE + ((port - PORT_BASE + 1) % PORT_SPAN)
+
+
+def ensure_plan(port: int, probe, expected_digest: str,
+                max_candidates: int = ENSURE_STEP_CAP) -> tuple:
+    """Walk the ensure decision table over derived candidates. Returns
+    (action, candidate, pid) with action one of:
+
+      "noop"          healthy occupant, digest matches — nothing to do
+      "spawn"         nothing listening on `candidate` — spawn detached there
+      "kill-respawn"  our hub answered with a stale digest (the pid is
+                      advisory only — the kill executor re-confirms it fresh)
+      "fail"          every candidate up to the cap was foreign — fail open
+
+    A foreign occupant only ever steps the candidate; no kill action is
+    reachable from the foreign branch."""
+    candidate = port
+    for _ in range(max_candidates):
+        kind, ident = probe(candidate)
+        if kind == "dead":
+            return ("spawn", candidate, None)
+        if kind == "ours":
+            if (ident or {}).get("digest") == expected_digest:
+                return ("noop", candidate, None)
+            return ("kill-respawn", candidate, (ident or {}).get("pid"))
+        candidate = next_candidate_port(candidate)
+    return ("fail", None, None)
+
+
+def _kill_skewed_hub(port: int, probe, expected_digest: str,
+                     kill=os.kill) -> tuple[bool, str]:
+    """Probe-and-kill as ONE step: re-confirm /identity immediately before the
+    kill and signal only the PID that fresh answer reports — never a PID from
+    an earlier probe. Any changed answer aborts the kill. Returns
+    (killed, why) with why in {"killed", "healthy", "dead", "foreign",
+    "bad-pid"}."""
+    kind, ident = probe(port)
+    if kind != "ours":
+        return (False, kind)          # vanished or turned foreign — never kill blind
+    if (ident or {}).get("digest") == expected_digest:
+        return (False, "healthy")     # healed between probes — nothing to do
+    pid = (ident or {}).get("pid")
+    if not isinstance(pid, int) or pid <= 1 or pid == os.getpid():
+        return (False, "bad-pid")
+    kill(pid, signal.SIGTERM)
+    return (True, "killed")
+
+
+def _stdio_to_devnull() -> None:
+    """Point fds 0/1/2 at /dev/null — the rotating state-dir log is the
+    detached daemon's only output."""
+    fd = os.open(os.devnull, os.O_RDWR)
+    for target in (0, 1, 2):
+        os.dup2(fd, target)
+    if fd > 2:
+        os.close(fd)
+
+
+def _spawn_detached_posix(argv: list[str], *, fork=None, setsid=None,
+                          waitpid=None, execv=None, exit_=None,
+                          redirect=None, chdir=None) -> None:
+    """Classic POSIX daemonization — double-fork + setsid, stdio on /dev/null.
+    The primitives are injectable because the self-test must never fork for
+    real; production uses the os module defaults."""
+    fork = fork or os.fork
+    setsid = setsid or os.setsid
+    waitpid = waitpid or os.waitpid
+    execv = execv or os.execv
+    exit_ = exit_ or os._exit
+    redirect = redirect or _stdio_to_devnull
+    chdir = chdir or os.chdir
+    pid = fork()
+    if pid > 0:
+        waitpid(pid, 0)      # reap the short-lived intermediate — no zombie
+        return
+    # Intermediate child: new session, then fork again so the daemon can
+    # never re-acquire a controlling terminal.
+    setsid()
+    if fork() > 0:
+        exit_(0)
+    # Grandchild — the daemon: null stdio, unpin the cwd (repos are always
+    # addressed by explicit child cwd), become the hub.
+    redirect()
+    chdir("/")
+    execv(argv[0], argv)
+
+
+def _windows_creationflags() -> int:
+    """DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP — the
+    new process group so a Ctrl+C in the parent console never reaches the
+    hub."""
+    return (getattr(subprocess, "DETACHED_PROCESS", _WIN_DETACHED_PROCESS)
+            | getattr(subprocess, "CREATE_NO_WINDOW", _WIN_CREATE_NO_WINDOW)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP",
+                      _WIN_CREATE_NEW_PROCESS_GROUP))
+
+
+def spawn_detached_hub(port: int) -> None:
+    """Launch `--hub --port <port>` detached from this process — POSIX via
+    double-fork + setsid, Windows via the detached-process creation flags.
+    The spawned hub's own bind settles any race. The self-test never calls
+    this for real: every ensure test injects a spawner spy."""
+    argv = [sys.executable, str(_SCRIPT_PATH), "--hub", "--port", str(port)]
+    if os.name == "posix":
+        _spawn_detached_posix(argv)
+        return
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, close_fds=True,
+                     creationflags=_windows_creationflags())
+
+
+def find_repo_root(start: str | os.PathLike | None = None) -> str | None:
+    """Walk up from `start` (default: the CWD) to the nearest directory
+    containing `.git` — the same nearest-root discovery the engine's git
+    commands resolve by (a `.git` file counts: worktrees). None when the walk
+    reaches the filesystem root without a hit — not a git checkout."""
+    d = os.path.abspath(os.fspath(start) if start is not None else os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def _record_ensure_failure(reason: str, state_dir: Path | None = None) -> None:
+    """Best-effort breadcrumb for the banner surface to read — never raises
+    (it runs inside the fail-open path)."""
+    try:
+        sd = ensure_state_dir(state_dir)
+        _atomic_write(sd / ENSURE_FAILURE_FILENAME,
+                      json.dumps({"when": int(time.time()), "reason": reason}))
+    except Exception:
+        pass
+
+
+def _clear_ensure_failure(state_dir: Path | None = None) -> None:
+    """A successful ensure retires the breadcrumb so the banner never nags
+    about a failure that has since healed."""
+    try:
+        (ensure_state_dir(state_dir) / ENSURE_FAILURE_FILENAME).unlink(
+            missing_ok=True)
+    except Exception:
+        pass
+
+
+def _ensure_fail(reason: str, state_dir: Path | None = None) -> int:
+    """Every ensure failure fails open: record the reason best-effort, say
+    exactly one plain line on stdout, exit 0 — the karta work that invoked us
+    is never blocked."""
+    reason = " ".join(reason.split()) or "unknown error"
+    _record_ensure_failure(reason, state_dir)
+    print(f"karta watch: hub not started ({reason}) — start it manually: "
+          f"uv run --script {_SCRIPT_PATH} --hub")
+    return 0
+
+
+def run_ensure(*, state_dir: Path | None = None, cwd=None, probe=None,
+               spawner=None, kill=None, sleep=time.sleep) -> int:
+    """The idempotent `--ensure` entry — upsert FIRST, decide SECOND. Every
+    success path prints zero bytes; every failure path prints exactly one
+    plain line and still exits 0. The probe/spawner/kill/sleep seams are
+    injectable so the self-test drives the whole decision table without ever
+    spawning a real daemon."""
+    try:
+        root = find_repo_root(cwd)
+        if root is not None:      # self-register last_seen on every karta touch
+            upsert_repo(root, state_dir=state_dir)
+        repos = load_state(state_dir)["repos"]
+        if not any(rec.get("opted_in") for rec in repos.values()):
+            return 0              # (1) gate two closed — nothing to revive
+        token = get_token(state_dir)
+        expected = _script_digest()
+        probe_fn = probe or (lambda p: _probe_hub(p, token))
+        spawn_fn = spawner or spawn_detached_hub
+        kill_fn = kill or os.kill
+        port = _hub_port(ensure_state_dir(state_dir))
+        action, candidate, _pid = ensure_plan(port, probe_fn, expected)
+        if action == "fail":      # (4) cap reached — every candidate foreign
+            return _ensure_fail(
+                f"no usable port within {ENSURE_STEP_CAP} candidates",
+                state_dir)
+        if candidate != port:     # (4) a foreign occupant stepped us here
+            record_port(candidate, state_dir)
+        if action == "noop":      # (2) healthy + digest match
+            _clear_ensure_failure(state_dir)
+            return 0
+        if action == "kill-respawn":  # (3) probe-and-kill as ONE step
+            killed, why = _kill_skewed_hub(candidate, probe_fn, expected,
+                                           kill=kill_fn)
+            if why == "healthy":
+                _clear_ensure_failure(state_dir)
+                return 0
+            if why in ("foreign", "bad-pid"):
+                return _ensure_fail(
+                    f"port occupant changed during respawn ({why})", state_dir)
+            if killed:
+                for _ in range(10):   # let the old hub release the port
+                    if probe_fn(candidate)[0] == "dead":
+                        break
+                    sleep(0.2)
+                else:
+                    return _ensure_fail("the stale hub did not release its port",
+                                        state_dir)
+            # why == "dead": the skewed hub vanished on its own — just spawn
+        spawn_fn(candidate)       # (5) nothing listening — spawn detached
+        _clear_ensure_failure(state_dir)
+        return 0
+    except Exception as exc:      # (6) any failure at any step fails open
+        return _ensure_fail(str(exc) or type(exc).__name__, state_dir)
+
+
+def _resolve_opt_target(target: str | None, cwd=None,
+                        state_dir: Path | None = None) -> tuple[str | None, str]:
+    """Resolve what --opt-in/--opt-out should flip. Default (no argument) is
+    the current repo root. An explicit argument is a path or a roster slug —
+    a non-existent path or a bare slug resolves through the roster, so an
+    orphaned (moved/deleted) entry can still be cleared from anywhere.
+    Returns (repo_root, error_message); exactly one side is meaningful."""
+    if not target:
+        root = find_repo_root(cwd)
+        if root is None:
+            return (None, "karta watch: not inside a git checkout — "
+                          "pass an explicit path or slug")
+        return (root, "")
+    repos = load_state(state_dir)["repos"]
+    if os.path.exists(target):
+        return (find_repo_root(target) or os.path.abspath(target), "")
+    abspath = os.path.abspath(target)
+    if abspath in repos:
+        return (abspath, "")
+    for root, rec in repos.items():
+        if rec.get("slug") == target:
+            return (root, "")
+    return (None, f"karta watch: nothing rostered matches {target!r}")
+
+
+def run_opt(target: str | None, opted_in: bool, *,
+            state_dir: Path | None = None, cwd=None) -> int:
+    """`--opt-in` / `--opt-out`: flip one repo's opted_in flag. This is the
+    only mutation surface for the flag — the hub's web routes are GET-only
+    and never touch the store."""
+    root, err = _resolve_opt_target(target, cwd=cwd, state_dir=state_dir)
+    if root is None:
+        print(err)
+        return 1
+    rec = upsert_repo(root, opted_in=opted_in, state_dir=state_dir)
+    print(f"karta watch: opted {'in' if opted_in else 'out'} — {root} "
+          f"(slug {rec['slug']})")
+    return 0
+
+
+def lost_bind_race(probe, attempts: int = BIND_RACE_ATTEMPTS,
+                   total_secs: float = BIND_RACE_TOTAL_SECS,
+                   sleep=time.sleep) -> str:
+    """After losing the bind race (EADDRINUSE), decide how to exit — always
+    quietly. A refused probe is retried briefly because the winner may still
+    be starting, and is NEVER classified foreign: this path never steps a
+    candidate or records anything — the next ensure re-decides from scratch.
+    Returns "winner-up" when something answered, "nothing-listening" on
+    persistent refusal."""
+    delay = total_secs / max(1, attempts - 1)
+    for i in range(attempts):
+        kind, _ = probe()
+        if kind != "dead":
+            return "winner-up"
+        if i < attempts - 1:
+            sleep(delay)
+    return "nothing-listening"
+
+
+def _self_exit_reason(baseline_mtime_ns: int | None,
+                      state_dir: Path | None = None,
+                      script_path: Path = _SCRIPT_PATH) -> str | None:
+    """The hub's ~once-a-minute self-check, as a pure decision: the exit
+    reason, or None to keep serving. The script mtime is the fast path —
+    coarse-granularity filesystems are tolerated because the digest
+    comparison at the next ensure is the truth. A deleted script file is a
+    clean exit, never a crash."""
+    try:
+        mtime = script_path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return "script deleted (plugin removed or replaced)"
+    except OSError:
+        return None               # a transient stat error is not an exit
+    if baseline_mtime_ns is not None and mtime != baseline_mtime_ns:
+        return "script updated (the next karta touch revives the new version)"
+    repos = load_state(state_dir)["repos"]
+    if not any(rec.get("opted_in") for rec in repos.values()):
+        return "last repo opted out"
+    return None
+
+
+def _self_exit_watch(httpd, state_dir: Path | None,
+                     baseline_mtime_ns: int | None, reason_out: list,
+                     interval: float = SELF_CHECK_SECS,
+                     sleep=time.sleep) -> None:
+    """One ~60 s timer drives both self-exit checks — the script-mtime check
+    and the state re-read. On a reason: record it, log it, shut the server
+    down cleanly."""
+    while True:
+        sleep(interval)
+        reason = _self_exit_reason(baseline_mtime_ns, state_dir)
+        if reason:
+            reason_out.append(reason)
+            httpd.hub_logger.info("self-exit: %s", reason)
+            httpd.shutdown()
+            return
 
 
 def _dir_snapshot(path: Path):
@@ -2105,6 +2509,429 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """Daemon-lifecycle checks: the whole ensure decision table with injected
+    probes and spawner/kill spies — NO real detached daemon ever spawns here —
+    plus the detach choreography via fake primitives, the bind-race loser, the
+    self-exit decisions, and opt-in/opt-out. Every state dir lives under
+    `scratch`."""
+    checks: list[tuple[str, bool]] = []
+
+    # --- detach mechanics, without a single real fork/spawn -----------------
+    checks += [
+        ("detach: Windows flags are DETACHED_PROCESS | CREATE_NO_WINDOW"
+         " | CREATE_NEW_PROCESS_GROUP",
+         _windows_creationflags() == 0x00000008 | 0x08000000 | 0x00000200),
+    ]
+
+    class _Exit(Exception):
+        pass
+
+    def _exit_now(code):
+        raise _Exit()
+
+    def run_forks(returns):
+        """Drive _spawn_detached_posix with fakes; record the call order."""
+        events: list = []
+        seq = iter(returns)
+
+        def fork():
+            events.append("fork")
+            return next(seq)
+
+        try:
+            _spawn_detached_posix(
+                ["/py", "serve", "--hub"],
+                fork=fork,
+                setsid=lambda: events.append("setsid"),
+                waitpid=lambda pid, flags: events.append(("waitpid", pid)),
+                execv=lambda prog, argv: events.append(("execv", prog,
+                                                        tuple(argv))),
+                exit_=_exit_now,
+                redirect=lambda: events.append("devnull"),
+                chdir=lambda d: events.append(("chdir", d)))
+        except _Exit:
+            events.append("exit")
+        return events
+
+    checks += [
+        ("detach: the parent reaps the intermediate and never daemonizes itself",
+         run_forks([42]) == ["fork", ("waitpid", 42)]),
+        ("detach: the intermediate setsids, forks again, and exits",
+         run_forks([0, 7]) == ["fork", "setsid", "fork", "exit"]),
+        ("detach: the grandchild nulls stdio, unpins the cwd, and execs the hub",
+         run_forks([0, 0]) == ["fork", "setsid", "fork", "devnull",
+                               ("chdir", "/"),
+                               ("execv", "/py", ("/py", "serve", "--hub"))]),
+        ("step: the next candidate is derived and wraps inside the span",
+         next_candidate_port(PORT_BASE) == PORT_BASE + 1
+         and next_candidate_port(PORT_BASE + PORT_SPAN - 1) == PORT_BASE),
+    ]
+
+    # --- probe classification against a real loopback hub -------------------
+    lc_dir = scratch / "lifecycle-probe"
+    lc_token = get_token(lc_dir)
+    lc_logger = _hub_logger(lc_dir)
+    lc_srv = _HubServer(("127.0.0.1", 0), _HubHandler, token=lc_token,
+                        state_dir=lc_dir, identity=_identity_snapshot(),
+                        logger=lc_logger)
+    lc_port = lc_srv.server_port
+    threading.Thread(target=lc_srv.serve_forever, daemon=True).start()
+    ours_kind, ours_ident = _probe_hub(lc_port, lc_token)
+    foreign_probe = _probe_hub(lc_port, "wrong-" + lc_token)
+    lc_srv.shutdown()
+    lc_srv.server_close()
+    for h in lc_logger.handlers:
+        h.close()
+    dead_probe = _probe_hub(lc_port, lc_token)
+    real_digest = _script_digest()
+    checks += [
+        ("probe: a token-authenticated /identity answer classifies as ours",
+         ours_kind == "ours" and (ours_ident or {}).get("pid") == os.getpid()
+         and (ours_ident or {}).get("digest") == real_digest),
+        ("probe: a listener that rejects our token classifies foreign",
+         foreign_probe == ("foreign", None)),
+        ("probe: connection refused classifies dead — nothing listening",
+         dead_probe == ("dead", None)),
+    ]
+
+    # --- the decision table, row by row (pure plan) --------------------------
+    ok_ident = {"digest": real_digest, "pid": 4242}
+    p0 = 9100
+    stepped = ensure_plan(
+        p0, lambda p: ("dead", None) if p != p0 else ("foreign", None),
+        real_digest)
+    cap_calls: list[int] = []
+
+    def always_foreign(p):
+        cap_calls.append(p)
+        return ("foreign", None)
+
+    checks += [
+        ("plan: a healthy digest match is a no-op",
+         ensure_plan(p0, lambda p: ("ours", ok_ident), real_digest)
+         == ("noop", p0, None)),
+        ("plan: a digest mismatch selects kill-respawn on that candidate",
+         ensure_plan(p0, lambda p: ("ours", {"digest": "stale", "pid": 111}),
+                     real_digest) == ("kill-respawn", p0, 111)),
+        ("plan: a dead port selects a detached spawn there",
+         ensure_plan(p0, lambda p: ("dead", None), real_digest)
+         == ("spawn", p0, None)),
+        ("plan: a foreign occupant steps to the next derived candidate — no kill",
+         stepped == ("spawn", next_candidate_port(p0), None)),
+        ("plan: stepping stops at the 5-candidate cap and reports failure",
+         ensure_plan(p0, always_foreign, real_digest) == ("fail", None, None)
+         and cap_calls[0] == p0
+         and len(cap_calls) == len(set(cap_calls)) == ENSURE_STEP_CAP),
+    ]
+
+    # --- probe-and-kill as ONE step ------------------------------------------
+    kill_log: list = []
+
+    def spy_kill(pid, sig):
+        kill_log.append((pid, sig))
+
+    fresh = iter([("ours", {"digest": "stale", "pid": 222})])
+    killed, why = _kill_skewed_hub(p0, lambda p: next(fresh), real_digest,
+                                   kill=spy_kill)
+    checks += [
+        ("kill: only the freshly re-confirmed identity-reported PID is signaled",
+         killed is True and why == "killed"
+         and kill_log == [(222, signal.SIGTERM)]),
+        ("kill: a hub that healed, vanished, or turned foreign between probes"
+         " is never killed",
+         _kill_skewed_hub(p0, lambda p: ("ours", ok_ident), real_digest,
+                          kill=spy_kill) == (False, "healthy")
+         and _kill_skewed_hub(p0, lambda p: ("dead", None), real_digest,
+                              kill=spy_kill) == (False, "dead")
+         and _kill_skewed_hub(p0, lambda p: ("foreign", None), real_digest,
+                              kill=spy_kill) == (False, "foreign")
+         and len(kill_log) == 1),
+    ]
+
+    # --- run_ensure: every path, spies only, zero real spawns ----------------
+    repo = scratch / "ensure-repo"
+    (repo / ".git").mkdir(parents=True)
+    deep = repo / "pkg" / "sub"
+    deep.mkdir(parents=True)
+    plain = scratch / "ensure-plain"
+    plain.mkdir()
+
+    def ensure_quiet(**kw):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = run_ensure(**kw)
+        return rc, buf.getvalue()
+
+    ne = scratch / "ensure-none"
+    ne_probes: list[int] = []
+    ne_spawns: list[int] = []
+    rc, out = ensure_quiet(state_dir=ne, cwd=deep,
+                           probe=lambda p: ne_probes.append(p)
+                           or ("dead", None),
+                           spawner=ne_spawns.append)
+    ne_roster = load_state(ne)["repos"]
+    expected_plain_root = find_repo_root(plain)
+    nu = scratch / "ensure-nonupsert"
+    ensure_quiet(state_dir=nu, cwd=plain, probe=lambda p: ("dead", None),
+                 spawner=lambda p: None)
+    checks += [
+        ("ensure: zero opted-in repos does nothing — no probe, no spawn,"
+         " zero bytes, exit 0",
+         rc == 0 and out == "" and ne_probes == [] and ne_spawns == []),
+        ("ensure: the invoking repo is upserted FIRST — root walked up to the"
+         " nearest .git",
+         str(repo) in ne_roster
+         and ne_roster[str(repo)]["opted_in"] is False),
+        ("ensure: a cwd outside any git checkout upserts nothing",
+         set(load_state(nu)["repos"])
+         == ({expected_plain_root} if expected_plain_root else set())),
+    ]
+
+    hd = scratch / "ensure-healthy"
+    upsert_repo(str(repo), opted_in=True, state_dir=hd)
+    hd_spawns: list[int] = []
+    hd_kills: list = []
+    rc, out = ensure_quiet(state_dir=hd, cwd=deep,
+                           probe=lambda p: ("ours", ok_ident),
+                           spawner=hd_spawns.append,
+                           kill=lambda pid, sig: hd_kills.append(pid))
+    checks += [
+        ("ensure: a healthy digest-matched hub is a silent no-op",
+         rc == 0 and out == "" and hd_spawns == [] and hd_kills == []),
+    ]
+
+    sk = scratch / "ensure-skew"
+    upsert_repo(str(repo), opted_in=True, state_dir=sk)
+    sk_port = _hub_port(ensure_state_dir(sk))
+    sk_seq = iter([("ours", {"digest": "stale", "pid": 111}),  # plan probe
+                   ("ours", {"digest": "stale", "pid": 222}),  # fresh kill probe
+                   ("dead", None)])                            # port released
+    sk_kills: list = []
+    sk_spawns: list[int] = []
+    rc, out = ensure_quiet(state_dir=sk, cwd=deep,
+                           probe=lambda p: next(sk_seq),
+                           spawner=sk_spawns.append,
+                           kill=lambda pid, sig: sk_kills.append((pid, sig)),
+                           sleep=lambda s: None)
+    checks += [
+        ("ensure: version skew kills only the freshly re-confirmed PID,"
+         " then respawns — silent",
+         rc == 0 and out == "" and sk_kills == [(222, signal.SIGTERM)]
+         and sk_spawns == [sk_port]),
+    ]
+
+    fo = scratch / "ensure-foreign"
+    upsert_repo(str(repo), opted_in=True, state_dir=fo)
+    fo_port = _hub_port(ensure_state_dir(fo))
+    fo_kills: list = []
+    fo_spawns: list[int] = []
+    rc, out = ensure_quiet(
+        state_dir=fo, cwd=deep,
+        probe=lambda p: ("foreign", None) if p == fo_port else ("dead", None),
+        spawner=fo_spawns.append,
+        kill=lambda pid, sig: fo_kills.append(pid))
+    checks += [
+        ("ensure: a foreign occupant steps to the next candidate, records it,"
+         " never kills — silent",
+         rc == 0 and out == "" and fo_kills == []
+         and fo_spawns == [next_candidate_port(fo_port)]
+         and load_state(fo)["port"] == next_candidate_port(fo_port)),
+    ]
+
+    cp = scratch / "ensure-cap"
+    upsert_repo(str(repo), opted_in=True, state_dir=cp)
+    cp_spawns: list[int] = []
+    rc, out = ensure_quiet(state_dir=cp, cwd=deep,
+                           probe=lambda p: ("foreign", None),
+                           spawner=cp_spawns.append)
+    cp_fail_path = ensure_state_dir(cp) / ENSURE_FAILURE_FILENAME
+    cp_fail = (json.loads(cp_fail_path.read_text(encoding="utf-8"))
+               if cp_fail_path.exists() else {})
+    checks += [
+        ("ensure: the step cap fails open — exactly one plain line, exit 0,"
+         " no spawn",
+         rc == 0 and out.endswith("\n") and out.count("\n") == 1
+         and cp_spawns == []),
+        ("ensure: a failed ensure records its reason in the state dir for"
+         " the banner",
+         "candidate" in cp_fail.get("reason", "")
+         and isinstance(cp_fail.get("when"), int)),
+    ]
+
+    sb = scratch / "ensure-sandbox"
+    upsert_repo(str(repo), opted_in=True, state_dir=sb)
+
+    def denied(port):
+        raise PermissionError("operation not permitted")
+
+    rc, out = ensure_quiet(state_dir=sb, cwd=deep,
+                           probe=lambda p: ("dead", None), spawner=denied)
+    sb_fail = ensure_state_dir(sb) / ENSURE_FAILURE_FILENAME
+    had_failure = sb_fail.exists()
+    rc2, out2 = ensure_quiet(state_dir=sb, cwd=deep,
+                             probe=lambda p: ("dead", None),
+                             spawner=lambda p: None)
+    checks += [
+        ("ensure: sandbox denial fails open — one line, exit 0, never blocking",
+         rc == 0 and out.count("\n") == 1 and "not permitted" in out),
+        ("ensure: the next successful ensure clears the recorded failure",
+         had_failure and rc2 == 0 and out2 == "" and not sb_fail.exists()),
+    ]
+
+    # --- bind is the mutex ---------------------------------------------------
+    naps: list[float] = []
+    refused = lost_bind_race(lambda: ("dead", None), sleep=naps.append)
+    naps2: list[float] = []
+    winner_seq = iter([("dead", None), ("ours", ok_ident)])
+    winner = lost_bind_race(lambda: next(winner_seq), sleep=naps2.append)
+    checks += [
+        ("race: refusal after a lost bind race is retried ~3 times over ~2 s,"
+         " then a quiet exit — never classified foreign",
+         refused == "nothing-listening" and len(naps) == BIND_RACE_ATTEMPTS - 1
+         and abs(sum(naps) - BIND_RACE_TOTAL_SECS) < 0.01
+         and "foreign" not in (refused, winner)),
+        ("race: the winner answering ends the loser's wait — a quiet exit",
+         winner == "winner-up" and len(naps2) == 1),
+    ]
+
+    occ_dir = scratch / "race-occupant"
+    occ_token = get_token(occ_dir)
+    occ_logger = _hub_logger(occ_dir)
+    occupant = _HubServer(("127.0.0.1", 0), _HubHandler, token=occ_token,
+                          state_dir=occ_dir, identity=_identity_snapshot(),
+                          logger=occ_logger)
+    threading.Thread(target=occupant.serve_forever, daemon=True).start()
+    race_buf = io.StringIO()
+    with contextlib.redirect_stdout(race_buf):
+        race_rc = _run_hub(occupant.server_port)
+    occupant.shutdown()
+    occupant.server_close()
+    for h in occ_logger.handlers:
+        h.close()
+    checks += [
+        ("race: a real bind-race loser exits 0 with nothing on stdout —"
+         " bind is the mutex, no lock files",
+         race_rc == 0 and race_buf.getvalue() == ""),
+    ]
+
+    # --- self-exit decisions -------------------------------------------------
+    se = scratch / "selfexit-store"
+    upsert_repo(str(repo), opted_in=True, state_dir=se)
+    fake_script = scratch / "fake-serve.py"
+    fake_script.write_text("print('hub')", encoding="utf-8")
+    base = fake_script.stat().st_mtime_ns
+    steady = _self_exit_reason(base, se, fake_script)
+    os.utime(fake_script, ns=(base + 5_000_000_000, base + 5_000_000_000))
+    updated = _self_exit_reason(base, se, fake_script)
+    base2 = fake_script.stat().st_mtime_ns
+    empty_store = scratch / "selfexit-empty"
+    last_out = _self_exit_reason(base2, empty_store, fake_script)
+    fake_script.unlink()
+    deleted = _self_exit_reason(base2, se, fake_script)
+    checks += [
+        ("self-exit: steady state (same mtime, an opted-in repo) keeps serving",
+         steady is None),
+        ("self-exit: a changed script mtime exits — the next touch revives"
+         " the new version",
+         updated is not None and "updated" in updated),
+        ("self-exit: the last repo opting out exits on the same ~60 s"
+         " state re-read",
+         last_out is not None and "opted out" in last_out),
+        ("self-exit: a deleted script file is a clean exit decision,"
+         " never a crash",
+         deleted is not None and "deleted" in deleted),
+    ]
+
+    watch_logger = _hub_logger(ensure_state_dir(scratch / "selfexit-watch"))
+    watch_fired: list = []
+
+    class _FakeHub:
+        hub_logger = watch_logger
+
+        def shutdown(self) -> None:
+            watch_fired.append(True)
+
+    watch_reasons: list[str] = []
+    _self_exit_watch(_FakeHub(), empty_store, None, watch_reasons,
+                     interval=0.0, sleep=lambda s: None)
+    for h in watch_logger.handlers:
+        h.close()
+    checks += [
+        ("self-exit: one timer drives the watch — it records the reason and"
+         " shuts the server down",
+         watch_fired == [True] and watch_reasons == ["last repo opted out"]),
+    ]
+
+    # --- opt-in / opt-out ----------------------------------------------------
+    od = scratch / "opt-case"
+    orphan = str(scratch / "opt-vanished")   # never created on disk
+    upsert_repo(orphan, opted_in=True, state_dir=od)
+    orphan_slug = load_state(od)["repos"][orphan]["slug"]
+    opt_buf = io.StringIO()
+    with contextlib.redirect_stdout(opt_buf):
+        rc_in = run_opt(None, True, state_dir=od, cwd=deep)
+        after_in = load_state(od)["repos"]
+        rc_orph = run_opt(orphan_slug, False, state_dir=od, cwd=deep)
+        after_orph = load_state(od)["repos"]
+        rc_path = run_opt(orphan, True, state_dir=od, cwd=deep)
+        path_flip = load_state(od)["repos"][orphan]["opted_in"]
+        rc_path_off = run_opt(orphan, False, state_dir=od, cwd=deep)
+        after_path = load_state(od)["repos"]
+        rc_unknown = run_opt("no-such-slug-or-path", False, state_dir=od,
+                             cwd=deep)
+    checks += [
+        ("opt: --opt-in flips only the current repo's flag (walked up"
+         " from cwd)",
+         rc_in == 0 and after_in[str(repo)]["opted_in"] is True
+         and after_in[orphan]["opted_in"] is True),
+        ("opt: an orphaned entry whose path no longer exists is cleared"
+         " by slug from anywhere",
+         rc_orph == 0 and after_orph[orphan]["opted_in"] is False
+         and after_orph[str(repo)]["opted_in"] is True),
+        ("opt: an orphaned entry is addressable by its old path too",
+         rc_path == 0 and path_flip is True and rc_path_off == 0
+         and after_path[orphan]["opted_in"] is False),
+        ("opt: an unknown target is a one-line error, not a store mutation",
+         rc_unknown == 1),
+    ]
+
+    # --- the flags through the real CLI entry (no daemon can result) ---------
+    cli_env = dict(os.environ)
+    cli_env["KARTA_WATCH_STATE_DIR"] = str(scratch / "cli-ensure")
+    cli = subprocess.run([sys.executable, str(_SCRIPT_PATH), "--ensure"],
+                         cwd=str(plain), capture_output=True, text=True,
+                         timeout=60, env=cli_env)
+    cli_env2 = dict(os.environ)
+    cli_env2["KARTA_WATCH_STATE_DIR"] = str(scratch / "cli-opt")
+    cli_opt = subprocess.run([sys.executable, str(_SCRIPT_PATH),
+                              "--opt-in", str(repo)], cwd=str(plain),
+                             capture_output=True, text=True, timeout=60,
+                             env=cli_env2)
+    cli_opted = (load_state(scratch / "cli-opt")["repos"]
+                 .get(str(repo), {}).get("opted_in"))
+    checks += [
+        ("cli: --ensure through the real entry point is silent and exits 0"
+         " (zero opt-ins → no-op)",
+         cli.returncode == 0 and cli.stdout == ""),
+        ("cli: --opt-in <path> flips the flag through the real entry point",
+         cli_opt.returncode == 0 and cli_opted is True),
+    ]
+
+    # --- the web surface stays GET-only; no lock-file machinery --------------
+    src = _SCRIPT_PATH.read_text(encoding="utf-8")
+    checks += [
+        ("web: the hub surface is GET-only — no HTTP handler can mutate"
+         " the store",
+         all(not hasattr(cls, "do_" + m) for cls in (_Handler, _HubHandler)
+             for m in ("POST", "PUT", "DELETE", "PATCH"))),
+        ("races: bind is the mutex — no lock-file machinery exists",
+         ("f" + "lock") not in src and ("lock" + "f(") not in src
+         and ("msv" + "crt") not in src),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -2281,6 +3108,7 @@ def _run_self_test() -> int:
     ]
     checks += _store_self_test_checks(scratch)
     checks += _hub_self_test_checks(scratch)
+    checks += _lifecycle_self_test_checks(scratch)
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
@@ -2310,6 +3138,17 @@ def main() -> int:
     ap.add_argument("--print-state", action="store_true",
                     help="print the CWD repo's enriched state as JSON and exit "
                          "(the hub's per-repo derivation child)")
+    ap.add_argument("--ensure", action="store_true",
+                    help="idempotently revive the persistent hub (silent on "
+                         "success; one plain line + exit 0 on any failure)")
+    ap.add_argument("--opt-in", nargs="?", const="", default=None,
+                    metavar="PATH_OR_SLUG",
+                    help="opt a repo into the persistent watch "
+                         "(default: the current repo)")
+    ap.add_argument("--opt-out", nargs="?", const="", default=None,
+                    metavar="PATH_OR_SLUG",
+                    help="opt a repo out; accepts a path or slug so a moved or "
+                         "deleted repo's entry can be cleared from anywhere")
     ap.add_argument("--self-test", action="store_true", help="render fixtures, check invariants, exit 0/1")
     args = ap.parse_args()
 
@@ -2319,6 +3158,15 @@ def main() -> int:
     if args.print_state:
         print(json.dumps(current_state()))
         return 0
+
+    if args.ensure:
+        return run_ensure()
+
+    if args.opt_in is not None:
+        return run_opt(args.opt_in or None, True)
+
+    if args.opt_out is not None:
+        return run_opt(args.opt_out or None, False)
 
     if args.hub:
         return _run_hub(args.port)
