@@ -74,6 +74,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+try:                        # POSIX: the store lock rides fcntl.flock
+    import fcntl
+except ImportError:
+    fcntl = None
+try:                        # Windows: msvcrt.locking is the counterpart
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
 # Import the sibling engine regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import karta_next  # noqa: E402
@@ -98,12 +107,18 @@ VERSION = "2.26.0"
 # seam: tests always point it at a temp dir, never the real per-user state dir.
 # Writes are atomic (same-directory temp file + os.replace) and merge-on-write:
 # every writer re-reads the file at write time and applies only its own field
-# changes, so a concurrent last_seen refresh can never revert an opted_in flip;
-# a lost race costs at most a last_seen refresh. Ephemeral mode is untouched:
-# no store file is created unless a store API runs.
+# changes, and the whole read-modify-write holds an exclusive inter-process
+# lock on the sibling state.lock file (fcntl.flock on POSIX, msvcrt.locking on
+# Windows), so a concurrent last_seen refresh can never revert an opted_in
+# flip — across processes, not just within one. The lock is best-effort by
+# contract: where locking is unavailable or raises, the write proceeds
+# unlocked and merge-on-write still bounds a lost race to a last_seen refresh.
+# Ephemeral mode is untouched: no store file is created unless a store API
+# runs.
 # ---------------------------------------------------------------------------
 
 STATE_FILENAME = "state.json"
+LOCK_FILENAME = "state.lock"
 TOKEN_FILENAME = "token"
 PORT_BASE = 8765
 PORT_SPAN = 1000
@@ -207,14 +222,58 @@ def load_state(state_dir: Path | None = None) -> dict:
     return _read_state_file(sd / STATE_FILENAME)
 
 
+@contextlib.contextmanager
+def _store_lock(state_dir: Path):
+    """Exclusive inter-process lock spanning a store read-modify-write, held
+    on the sibling LOCK_FILENAME file — fcntl.flock (POSIX) or msvcrt.locking
+    (Windows). Best-effort by contract: when the platform lock module is
+    missing or locking raises, the write proceeds unlocked — a store write is
+    never crashed by the lock, and merge-on-write still bounds an unlocked
+    race to a lost last_seen refresh."""
+    fh = None
+    locked = False
+    try:
+        try:
+            fh = open(state_dir / LOCK_FILENAME, "ab")
+            if fcntl is not None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                locked = True
+            elif msvcrt is not None:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                locked = True
+        except OSError:
+            locked = False
+        yield
+    finally:
+        if fh is not None:
+            try:
+                if locked:
+                    if fcntl is not None:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    elif msvcrt is not None:
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            try:
+                fh.close()
+            except OSError:
+                pass
+
+
 def _mutate_state(state_dir: Path | None, mutate) -> dict:
     """Merge-on-write: re-read the file at write time, apply only this writer's
-    own field changes, write atomically."""
+    own field changes, write atomically. The whole read-modify-write — the
+    atomic temp+replace included — holds the inter-process store lock, so two
+    processes can never interleave their read/mutate/replace and lose a flip
+    (best-effort where locking is unavailable — see _store_lock)."""
     sd = ensure_state_dir(state_dir)
     path = sd / STATE_FILENAME
-    state = _read_state_file(path)
-    mutate(state)
-    _atomic_write(path, json.dumps(state, indent=1, sort_keys=True))
+    with _store_lock(sd):
+        state = _read_state_file(path)
+        mutate(state)
+        _atomic_write(path, json.dumps(state, indent=1, sort_keys=True))
     return state
 
 
@@ -1753,9 +1812,12 @@ def _kill_skewed_hub(port: int, probe, expected_digest: str,
                      kill=os.kill) -> tuple[bool, str]:
     """Probe-and-kill as ONE step: re-confirm /identity immediately before the
     kill and signal only the PID that fresh answer reports — never a PID from
-    an earlier probe. Any changed answer aborts the kill. Returns
-    (killed, why) with why in {"killed", "healthy", "dead", "foreign",
-    "bad-pid"}."""
+    an earlier probe. Any changed answer aborts the kill. A kill that raises
+    (the process died between the fresh probe and the signal, or turned
+    unsignalable) is the clean already-dead outcome — (False, "dead") — so the
+    ensure plan proceeds to the spawn path instead of tripping the fail-open
+    line. Returns (killed, why) with why in {"killed", "healthy", "dead",
+    "foreign", "bad-pid"}."""
     kind, ident = probe(port)
     if kind != "ours":
         return (False, kind)          # vanished or turned foreign — never kill blind
@@ -1764,7 +1826,10 @@ def _kill_skewed_hub(port: int, probe, expected_digest: str,
     pid = (ident or {}).get("pid")
     if not isinstance(pid, int) or pid <= 1 or pid == os.getpid():
         return (False, "bad-pid")
-    kill(pid, signal.SIGTERM)
+    try:
+        kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        return (False, "dead")        # gone between probe and kill — spawn path
     return (True, "killed")
 
 
@@ -2175,6 +2240,70 @@ def _store_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         ("store: the state JSON file is 0o600 on POSIX",
          ((atomic / STATE_FILENAME).stat().st_mode & 0o777) == 0o600
          if posix else True),
+    ]
+
+    # cross-process lock — the whole read-modify-write (atomic replace
+    # included) runs under an exclusive lock on the sibling state.lock file;
+    # a lock failure degrades to an unlocked write, never a crash
+    lock_case = scratch / "lock-case"
+    lock_events: list[str] = []
+    orig_replace_lk = os.replace
+
+    def _replace_probe(src, dst):
+        lock_events.append("replace")
+        return orig_replace_lk(src, dst)
+
+    if fcntl is not None:
+        orig_lock = fcntl.flock
+
+        def _lock_probe(fd, op):
+            lock_events.append("lock" if op == fcntl.LOCK_EX else "unlock")
+            return orig_lock(fd, op)
+
+        fcntl.flock, os.replace = _lock_probe, _replace_probe
+        try:
+            upsert_repo(str(scratch / "lock" / "repo"), state_dir=lock_case)
+        finally:
+            fcntl.flock, os.replace = orig_lock, orig_replace_lk
+    else:
+        orig_lock = msvcrt.locking
+
+        def _lock_probe(fd, mode, nbytes):
+            lock_events.append("lock" if mode == msvcrt.LK_LOCK else "unlock")
+            return orig_lock(fd, mode, nbytes)
+
+        msvcrt.locking, os.replace = _lock_probe, _replace_probe
+        try:
+            upsert_repo(str(scratch / "lock" / "repo"), state_dir=lock_case)
+        finally:
+            msvcrt.locking, os.replace = orig_lock, orig_replace_lk
+    checks += [
+        ("store: a mutate holds the inter-process lock across the whole"
+         " read-modify-write (atomic replace inside)",
+         lock_events == ["lock", "replace", "unlock"]
+         and (lock_case / LOCK_FILENAME).exists()),
+    ]
+
+    def _lock_denied(*args):
+        raise OSError("locking unsupported here")
+
+    if fcntl is not None:
+        fcntl.flock = _lock_denied
+    else:
+        msvcrt.locking = _lock_denied
+    try:
+        unlocked = upsert_repo(str(scratch / "lock" / "unlocked"),
+                               state_dir=lock_case)
+    finally:
+        if fcntl is not None:
+            fcntl.flock = orig_lock
+        else:
+            msvcrt.locking = orig_lock
+    checks += [
+        ("store: a lock failure degrades to an unlocked write — never a crash",
+         unlocked.get("slug", "").startswith("unlocked-")
+         and str(scratch / "lock" / "unlocked")
+         in load_state(lock_case)["repos"]),
     ]
 
     # port record — merge-on-write of the current port, roster preserved
@@ -2649,6 +2778,23 @@ def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and len(kill_log) == 1),
     ]
 
+    def _kill_gone(pid, sig):
+        raise ProcessLookupError(3, "no such process")
+
+    def _kill_denied(pid, sig):
+        raise PermissionError(1, "operation not permitted")
+
+    gone_seq = iter([("ours", {"digest": "stale", "pid": 333})])
+    denied_seq = iter([("ours", {"digest": "stale", "pid": 444})])
+    checks += [
+        ("kill: a PID that dies (or turns unsignalable) between the fresh"
+         " probe and the signal is the clean already-dead outcome",
+         _kill_skewed_hub(p0, lambda p: next(gone_seq), real_digest,
+                          kill=_kill_gone) == (False, "dead")
+         and _kill_skewed_hub(p0, lambda p: next(denied_seq), real_digest,
+                              kill=_kill_denied) == (False, "dead")),
+    ]
+
     # --- run_ensure: every path, spies only, zero real spawns ----------------
     repo = scratch / "ensure-repo"
     (repo / ".git").mkdir(parents=True)
@@ -2719,6 +2865,25 @@ def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          " then respawns — silent",
          rc == 0 and out == "" and sk_kills == [(222, signal.SIGTERM)]
          and sk_spawns == [sk_port]),
+    ]
+
+    kd = scratch / "ensure-kill-dead"
+    upsert_repo(str(repo), opted_in=True, state_dir=kd)
+    kd_port = _hub_port(ensure_state_dir(kd))
+    kd_seq = iter([("ours", {"digest": "stale", "pid": 111}),  # plan probe
+                   ("ours", {"digest": "stale", "pid": 222})])  # fresh kill probe
+    kd_spawns: list[int] = []
+
+    def kd_kill(pid, sig):
+        raise ProcessLookupError(3, "no such process")
+
+    rc, out = ensure_quiet(state_dir=kd, cwd=deep,
+                           probe=lambda p: next(kd_seq),
+                           spawner=kd_spawns.append, kill=kd_kill)
+    checks += [
+        ("ensure: a skewed hub that died between probe and kill proceeds to"
+         " the spawn path — silent, never the fail-open line",
+         rc == 0 and out == "" and kd_spawns == [kd_port]),
     ]
 
     fo = scratch / "ensure-foreign"
@@ -2918,16 +3083,20 @@ def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          cli_opt.returncode == 0 and cli_opted is True),
     ]
 
-    # --- the web surface stays GET-only; no lock-file machinery --------------
+    # --- the web surface stays GET-only; the store lock stays out of the
+    # daemon lifecycle -------------------------------------------------------
     src = _SCRIPT_PATH.read_text(encoding="utf-8")
     checks += [
         ("web: the hub surface is GET-only — no HTTP handler can mutate"
          " the store",
          all(not hasattr(cls, "do_" + m) for cls in (_Handler, _HubHandler)
              for m in ("POST", "PUT", "DELETE", "PATCH"))),
-        ("races: bind is the mutex — no lock-file machinery exists",
-         ("f" + "lock") not in src and ("lock" + "f(") not in src
-         and ("msv" + "crt") not in src),
+        ("races: bind is the hub mutex — the store lock is confined to the"
+         " store write path, never the daemon lifecycle (no pid file)",
+         ("pid" + "file") not in src and ("pid" + "_file") not in src
+         # the def + _mutate_state's `with` — nowhere else (split literal so
+         # this check's own source line never self-matches)
+         and src.count("_store_" + "lock(") == 2),
     ]
     return checks
 

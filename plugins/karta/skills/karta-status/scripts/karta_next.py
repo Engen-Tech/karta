@@ -18,7 +18,7 @@ Every real invocation also fires a fail-open, fire-and-forget `serve_status.py -
 (Karta Watch hub revival), and the human renders — footer/terminal, never --json — carry one
 nudge line when this repo is opted in but the hub is unreachable."""
 from __future__ import annotations
-import argparse, json, os, subprocess, sys
+import argparse, json, os, subprocess, sys, time
 from pathlib import Path
 
 BINDERS_DIR = Path(".karta/binders")
@@ -270,31 +270,83 @@ def _load_watch():
         return None
 
 
-def watch_line(cwd: str | None = None, *, banner: bool = False,
-               probe=None) -> str | None:
+def _watch_state_path() -> Path:
+    """The per-user watch state file, resolved WITHOUT importing serve_status
+    — the cold-path gate below must stay a bare stat/read. Mirrors
+    serve_status.resolve_state_dir (KARTA_WATCH_STATE_DIR override first, then
+    the platform dir); serve_status's self-test pins that resolution, this
+    copy only ever reads."""
+    override = os.environ.get("KARTA_WATCH_STATE_DIR")
+    if override:
+        return Path(override) / "state.json"
+    home = Path(os.environ["HOME"]) if os.environ.get("HOME") else Path.home()
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else home / "AppData" / "Local"
+    elif sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    else:
+        xdg = os.environ.get("XDG_STATE_HOME")
+        base = Path(xdg) if xdg else home / ".local" / "state"
+    return base / "karta" / "state.json"
+
+
+def _opted_in_root(cwd: str | None = None) -> str | None:
+    """The cold-path gate: the repo root above `cwd` when that root is opted
+    in per the per-user store, else None — decided from a stat/read of the
+    small state JSON alone. A repo with no store file or no opt-in pays
+    nothing beyond that read: serve_status is never imported here, and
+    nothing is created on disk. Fail-open: any error is 'not opted in'."""
+    try:
+        state_path = _watch_state_path()
+        if not state_path.is_file():
+            return None
+        d = os.path.abspath(os.fspath(cwd) if cwd is not None else os.getcwd())
+        while not os.path.exists(os.path.join(d, ".git")):  # nearest .git, as
+            parent = os.path.dirname(d)                     # find_repo_root does
+            if parent == d:
+                return None
+            d = parent
+        doc = json.loads(state_path.read_text(encoding="utf-8"))
+        repos = doc.get("repos") if isinstance(doc, dict) else None
+        rec = repos.get(d) if isinstance(repos, dict) else None
+        return d if isinstance(rec, dict) and rec.get("opted_in") else None
+    except Exception:
+        return None
+
+
+def watch_line(cwd: str | None = None, *, banner: bool = False, probe=None,
+               retries: int = 0, retry_delay: float = 0.25,
+               sleep=time.sleep) -> str | None:
     """The one Karta Watch line for the human surfaces, or None.
 
-    None unless the repo at `cwd` is opted in per the per-user watch store.
-    Opted in with the hub answering our token: the persistent-watch URL banner
-    — only when `banner` is set (the session-start hook's surface; this
-    script's own renders stay quiet while the hub is healthy). Opted in with
-    the hub unreachable: the one-line nudge naming the --ensure one-liner plus
-    any failure reason the ensure path recorded in the state dir. Fail-open:
-    any error returns None. Never called on the --json path."""
+    None unless the repo at `cwd` is opted in per the per-user watch store —
+    decided by the cheap _opted_in_root read BEFORE the watch module loads, so
+    a non-opted repo never pays the serve_status import. Opted in with the hub
+    answering our token: the persistent-watch URL banner — only when `banner`
+    is set (the session-start hook's surface; this script's own renders stay
+    quiet while the hub is healthy). Opted in with the hub unreachable: up to
+    `retries` re-probes ~retry_delay s apart first (the hook passes 2 — its
+    just-fired ensure needs ~1 s to bind, and nudging about a hub that is
+    coming up reads as broken), then the one-line nudge naming the --ensure
+    one-liner plus any failure reason the ensure path recorded in the state
+    dir. Fail-open: any error returns None. Never called on the --json path."""
     try:
+        if _opted_in_root(cwd) is None:
+            return None
         watch = _load_watch()
         if watch is None:
-            return None
-        root = watch.find_repo_root(cwd)
-        if root is None:
-            return None
-        rec = watch.load_state()["repos"].get(root)
-        if not rec or not rec.get("opted_in"):
             return None
         sd = watch.ensure_state_dir()
         port = watch._hub_port(sd)
         token = watch.get_token()
-        kind = (probe or (lambda p: watch._probe_hub(p, token)))(port)[0]
+        probe_fn = probe or (lambda p: watch._probe_hub(p, token))
+        kind = probe_fn(port)[0]
+        for _ in range(retries):
+            if kind == "ours":
+                break
+            sleep(retry_delay)
+            kind = probe_fn(port)[0]
         if kind == "ours":
             return WATCH_BANNER.format(port=port, token=token) if banner else None
         reason = ""
@@ -467,6 +519,60 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
                        nudge2 is not None and "(no bindable port)" in nudge2))
         checks.append(("outside any git checkout -> no watch line",
                        watch_line(str(sd / "nowhere")) is None))
+
+        # -- the hook's bounded retry window (a just-fired ensure needs ~1 s
+        # to bind): re-probe up to `retries` times ~250 ms apart, banner on a
+        # late success, nudge only after the window exhausts --
+        rp_probes: list[int] = []
+        rp_naps: list[float] = []
+        late = iter([("dead", None), ("dead", None), ("ours", {})])
+        got_late = watch_line(str(repo), banner=True,
+                              probe=lambda p: rp_probes.append(p) or next(late),
+                              retries=2, sleep=rp_naps.append)
+        checks.append(("retry: a hub that binds during the re-probe window"
+                       " still yields the banner",
+                       got_late == expect and len(rp_probes) == 3
+                       and rp_naps == [0.25, 0.25]))
+        rp_probes.clear(); rp_naps.clear()
+        got_down = watch_line(str(repo), banner=True,
+                              probe=lambda p: rp_probes.append(p)
+                              or ("dead", None),
+                              retries=2, sleep=rp_naps.append)
+        checks.append(("retry: the window is bounded — 2 re-probes, then the"
+                       " nudge",
+                       got_down is not None
+                       and got_down.startswith("Karta Watch: hub not running")
+                       and len(rp_probes) == 3 and len(rp_naps) == 2))
+        rp_probes.clear(); rp_naps.clear()
+        got_up = watch_line(str(repo), banner=True,
+                            probe=lambda p: rp_probes.append(p) or ("ours", {}),
+                            retries=2, sleep=rp_naps.append)
+        checks.append(("retry: a first-probe success never sleeps",
+                       got_up == expect and len(rp_probes) == 1
+                       and rp_naps == []))
+
+    # -- cold path: a repo not opted in decides from the bare state JSON and
+    # never imports the watch module --
+    with temp_store() as sd:
+        cold_repo = sd / "cold"
+        (cold_repo / ".git").mkdir(parents=True)
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1])\n"
+                "import karta_next\n"
+                "line = karta_next.watch_line(sys.argv[2])\n"
+                "print(json.dumps({'line': line,"
+                " 'imported': 'serve_status' in sys.modules}))\n")
+        proc = subprocess.run(
+            [sys.executable, "-c", code,
+             str(Path(__file__).resolve().parent), str(cold_repo)],
+            capture_output=True, text=True, timeout=60)
+        try:
+            cold = json.loads(proc.stdout)
+        except ValueError:
+            cold = {}
+        checks.append(("cold path: a non-opted repo never imports serve_status",
+                       proc.returncode == 0 and cold.get("line") is None
+                       and cold.get("imported") is False))
 
     # -- e2e: opted-in repo, every candidate port foreign — the detached child
     # fails open (never spawns), the footer ends on the nudge, --json is

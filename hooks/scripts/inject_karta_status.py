@@ -21,7 +21,12 @@ fire-and-forget `serve_status.py --ensure` (hub revival), and — only when the
 current repo is opted in per the per-user watch store — appends exactly one
 line inside the fence: the persistent-watch URL banner when the hub answers,
 or the one-line revive nudge when it does not. A repo that is not opted in
-produces byte-identical hook output to the pre-watch behavior. On budget
+produces byte-identical hook output to the pre-watch behavior — and pays
+nothing beyond a stat/read of the small state JSON (neither karta_next nor
+serve_status is imported on that cold path). Because the ensure was just
+fired, a down hub is re-probed up to 2 more times ~250 ms apart before the
+nudge: the detached hub needs ~1 s to bind, and nudging about a hub that is
+coming up reads as broken. On budget
 overflow, body detail lines are trimmed — never the fences, never the
 appended watch line or its key material. The hook still always exits 0.
 
@@ -142,6 +147,51 @@ def _status_script() -> Path | None:
     return _plugin_file(STATUS_REL)
 
 
+def _watch_state_path() -> Path:
+    """The per-user watch state file, resolved without importing serve_status
+    or karta_next — the cold-path gate below must stay a bare stat/read.
+    Mirrors serve_status.resolve_state_dir (KARTA_WATCH_STATE_DIR override
+    first, then the platform dir); serve_status's self-test pins that
+    resolution, this copy only ever reads."""
+    override = os.environ.get("KARTA_WATCH_STATE_DIR")
+    if override:
+        return Path(override) / "state.json"
+    home = Path(os.environ["HOME"]) if os.environ.get("HOME") else Path.home()
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else home / "AppData" / "Local"
+    elif sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    else:
+        xdg = os.environ.get("XDG_STATE_HOME")
+        base = Path(xdg) if xdg else home / ".local" / "state"
+    return base / "karta" / "state.json"
+
+
+def _opted_in(cwd: str) -> bool:
+    """The cold-path gate: True only when the repo root above `cwd` (nearest
+    `.git`, walking up) is opted in per the per-user store — decided from a
+    stat/read of the small state JSON alone, so a repo with no store file or
+    no opt-in imports nothing (not karta_next, not serve_status) and creates
+    nothing on disk. Fail-open: any error is 'not opted in'."""
+    try:
+        state_path = _watch_state_path()
+        if not state_path.is_file():
+            return False
+        d = os.path.abspath(cwd)
+        while not os.path.exists(os.path.join(d, ".git")):
+            parent = os.path.dirname(d)
+            if parent == d:
+                return False
+            d = parent
+        doc = json.loads(state_path.read_text(encoding="utf-8"))
+        repos = doc.get("repos") if isinstance(doc, dict) else None
+        rec = repos.get(d) if isinstance(repos, dict) else None
+        return bool(isinstance(rec, dict) and rec.get("opted_in"))
+    except Exception:
+        return False
+
+
 def _fire_ensure(cwd: str | None = None, popen=None,
                  os_name: str | None = None) -> None:
     """Fire-and-forget Karta Watch hub revival: spawn `serve_status.py
@@ -176,11 +226,18 @@ def _watch_line(cwd: str) -> str | None:
     """The one appended Karta Watch line for an opted-in repo — the exact URL
     banner when the hub answers, the revive nudge (naming the --ensure
     one-liner plus any recorded failure reason) when it does not. None when
-    this repo is not opted in per the per-user store, so hook output stays
-    byte-identical to pre-watch behavior — and None on any error (fail open).
+    this repo is not opted in per the per-user store — decided by the cheap
+    _opted_in gate BEFORE any engine import, so hook output stays
+    byte-identical to pre-watch behavior and the cold path never pays the
+    karta_next/serve_status import — and None on any error (fail open).
     The wording comes from the engine's watch_line: one source for the
-    canonical 'Karta Watch:' / 'turn off karta watch' terms."""
+    canonical 'Karta Watch:' / 'turn off karta watch' terms. Because this
+    hook just fired the ensure, the line rides watch_line's bounded re-probe
+    window (retries=2, ~250 ms apart): the detached hub needs ~1 s to bind,
+    and nudging about a hub that is coming up reads as broken."""
     try:
+        if not _opted_in(cwd):
+            return None
         script = _status_script()
         if script is None:
             return None
@@ -188,7 +245,7 @@ def _watch_line(cwd: str) -> str | None:
         if d not in sys.path:
             sys.path.insert(0, d)
         import karta_next
-        return karta_next.watch_line(cwd, banner=True)
+        return karta_next.watch_line(cwd, banner=True, retries=2)
     except Exception:
         return None
 
@@ -366,6 +423,29 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
             (repo / ".git").mkdir(parents=True)
             checks.append(("not opted in -> no watch line (byte-identical path)",
                            _watch_line(str(repo)) is None))
+            # cold path: not opted in decides from the bare state JSON — a
+            # fresh process must import neither karta_next nor serve_status
+            code = ("import importlib.util, json, sys\n"
+                    "spec = importlib.util.spec_from_file_location("
+                    "'hk', sys.argv[1])\n"
+                    "mod = importlib.util.module_from_spec(spec)\n"
+                    "spec.loader.exec_module(mod)\n"
+                    "line = mod._watch_line(sys.argv[2])\n"
+                    "print(json.dumps({'line': line,"
+                    " 'kn': 'karta_next' in sys.modules,"
+                    " 'ss': 'serve_status' in sys.modules}))\n")
+            proc = subprocess.run([sys.executable, "-c", code,
+                                   str(Path(__file__).resolve()), str(repo)],
+                                  capture_output=True, text=True, timeout=60)
+            try:
+                cold = json.loads(proc.stdout)
+            except ValueError:
+                cold = {}
+            checks.append(("cold path: not opted in imports neither karta_next"
+                           " nor serve_status",
+                           proc.returncode == 0 and cold.get("line") is None
+                           and cold.get("kn") is False
+                           and cold.get("ss") is False))
             _watch.upsert_repo(str(repo), opted_in=True)
             got = _kn.watch_line(str(repo), banner=True,
                                  probe=lambda p: ("dead", None))
@@ -373,6 +453,20 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
                            got is not None
                            and got.startswith("Karta Watch: hub not running")
                            and "--ensure" in got and "?key=" not in got))
+            # the hook's watch line rides the bounded re-probe window
+            recorded: dict = {}
+            orig_wl = _kn.watch_line
+            _kn.watch_line = (lambda c, **kw: recorded.update(kw)
+                              or "sentinel-line")
+            try:
+                relayed = _watch_line(str(repo))
+            finally:
+                _kn.watch_line = orig_wl
+            checks.append(("hook watch line: banner surface with the bounded"
+                           " re-probe window (retries=2)",
+                           relayed == "sentinel-line"
+                           and recorded.get("banner") is True
+                           and recorded.get("retries") == 2))
 
         # -- e2e: not opted in — output byte-identical to the pure pipeline --
         with temp_store(), tempfile.TemporaryDirectory() as td:
