@@ -33,8 +33,16 @@ same-origin file.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import re
+import secrets
+import shutil
 import sys
+import tempfile
+import time
+from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -44,6 +52,211 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import karta_next  # noqa: E402
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+# ---------------------------------------------------------------------------
+# Per-user watch store — the persistent hub's state layer. Nothing user-visible
+# invokes it yet; the hub server and lifecycle build on these APIs. One small
+# JSON state file ({port, token_file, repos}) plus a token file live in the
+# platform state dir:
+#   Linux    $XDG_STATE_HOME/karta   (default ~/.local/state/karta)
+#   macOS    ~/Library/Application Support/karta
+#   Windows  %LOCALAPPDATA%\karta
+# KARTA_WATCH_STATE_DIR overrides the resolution everywhere — the self-test
+# seam: tests always point it at a temp dir, never the real per-user state dir.
+# Writes are atomic (same-directory temp file + os.replace) and merge-on-write:
+# every writer re-reads the file at write time and applies only its own field
+# changes, so a concurrent last_seen refresh can never revert an opted_in flip;
+# a lost race costs at most a last_seen refresh. Ephemeral mode is untouched:
+# no store file is created unless a store API runs.
+# ---------------------------------------------------------------------------
+
+STATE_FILENAME = "state.json"
+TOKEN_FILENAME = "token"
+PORT_BASE = 8765
+PORT_SPAN = 1000
+ROSTER_MAX_AGE_DAYS = 30
+_TMP_SWEEP_AGE_SECS = 300  # a .tmp older than this is a crashed writer's leftover
+
+
+def resolve_state_dir(platform: str | None = None,
+                      environ: Mapping[str, str] | None = None) -> Path:
+    """Resolve the per-user state dir. Pure: platform + environ are injectable
+    so the self-test exercises every branch via a patched environment. Never
+    creates anything on disk."""
+    env = os.environ if environ is None else environ
+    override = env.get("KARTA_WATCH_STATE_DIR")
+    if override:
+        return Path(override)
+    plat = sys.platform if platform is None else platform
+    home = Path(env["HOME"]) if env.get("HOME") else Path.home()
+    if plat == "win32":
+        local = env.get("LOCALAPPDATA")
+        return (Path(local) if local else home / "AppData" / "Local") / "karta"
+    if plat == "darwin":
+        return home / "Library" / "Application Support" / "karta"
+    xdg = env.get("XDG_STATE_HOME")
+    return (Path(xdg) if xdg else home / ".local" / "state") / "karta"
+
+
+def _chmod_if_posix(path: Path | str, mode: int) -> None:
+    """chmod — required on POSIX, best-effort on Windows (per the contract)."""
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        if os.name == "posix":
+            raise
+
+
+def ensure_state_dir(state_dir: Path | None = None) -> Path:
+    """Store startup: create the state dir 0o700 (POSIX; best-effort elsewhere)
+    and sweep stale temp files a crashed writer left behind."""
+    sd = Path(state_dir) if state_dir is not None else resolve_state_dir()
+    sd.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _chmod_if_posix(sd, 0o700)
+    now = time.time()
+    for tmp in sd.glob("*.tmp"):
+        try:  # age guard: never sweep a live concurrent writer's fresh temp file
+            if now - tmp.stat().st_mtime > _TMP_SWEEP_AGE_SECS:
+                tmp.unlink()
+        except OSError:
+            pass
+    return sd
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Same-directory temp file + os.replace; the file lands 0o600 (POSIX)."""
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".",
+                               suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        _chmod_if_posix(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def derive_port(identity: int | str) -> int:
+    """The hub port — a pure function of an injected identity. POSIX passes the
+    uid (int): PORT_BASE + uid % PORT_SPAN. Windows passes the username (str):
+    PORT_BASE + (first 8 hex chars of sha256 of the UTF-8 username, as an
+    integer) % PORT_SPAN. Pinned exactly — never Python's salted hash()."""
+    if isinstance(identity, int):
+        return PORT_BASE + (identity % PORT_SPAN)
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return PORT_BASE + (int(digest[:8], 16) % PORT_SPAN)
+
+
+def _read_state_file(path: Path) -> dict:
+    """Parse the state file into the {port, token_file, repos} skeleton. A
+    missing or corrupt file degrades to the empty skeleton — the store is
+    regenerable state, never config."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    raw.setdefault("port", None)
+    raw.setdefault("token_file", TOKEN_FILENAME)
+    if not isinstance(raw.get("repos"), dict):
+        raw["repos"] = {}
+    return raw
+
+
+def load_state(state_dir: Path | None = None) -> dict:
+    """Read the per-user state, fresh every call."""
+    sd = ensure_state_dir(state_dir)
+    return _read_state_file(sd / STATE_FILENAME)
+
+
+def _mutate_state(state_dir: Path | None, mutate) -> dict:
+    """Merge-on-write: re-read the file at write time, apply only this writer's
+    own field changes, write atomically."""
+    sd = ensure_state_dir(state_dir)
+    path = sd / STATE_FILENAME
+    state = _read_state_file(path)
+    mutate(state)
+    _atomic_write(path, json.dumps(state, indent=1, sort_keys=True))
+    return state
+
+
+def get_token(state_dir: Path | None = None) -> str:
+    """The hub auth token: generated with the secrets module on first need,
+    stored in the state dir with 0600 permissions (POSIX; best-effort on
+    Windows)."""
+    sd = ensure_state_dir(state_dir)
+    path = sd / load_state(sd)["token_file"]
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+        if token:
+            return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    _atomic_write(path, token)
+    return token
+
+
+def record_port(port: int, state_dir: Path | None = None) -> dict:
+    """Record whatever port the hub actually bound. The store keeps the current
+    value; stepping between busy candidates is the lifecycle's work."""
+    def mutate(state: dict) -> None:
+        state["port"] = int(port)
+    return _mutate_state(state_dir, mutate)
+
+
+def _slug_for(abspath: str, repos: dict) -> str:
+    """<sanitized-basename>-<hash8-of-abspath>: basename bytes outside
+    [A-Za-z0-9._-] become '-'; the digest is the first 8 hex chars of
+    sha256(abspath), extended on the vanishing chance of collision until
+    unique. URL-safe by construction, human-readable first."""
+    base = re.sub(r"[^A-Za-z0-9._-]", "-",
+                  os.path.basename(abspath.rstrip("/\\")) or "repo")
+    digest = hashlib.sha256(abspath.encode("utf-8")).hexdigest()
+    length = 8
+    while True:  # terminates: full-length digests differ for distinct paths
+        slug = f"{base}-{digest[:length]}"
+        if not any(rec.get("slug") == slug
+                   for root, rec in repos.items() if root != abspath):
+            return slug
+        length += 1
+
+
+def upsert_repo(repo_root: str | os.PathLike, opted_in: bool | None = None,
+                state_dir: Path | None = None, now: float | None = None) -> dict:
+    """Self-registration: refresh last_seen for a repo root (creating the entry
+    when new), flipping opted_in only when explicitly passed — a bare refresh
+    re-reads at write time and so can never revert a racing opt-in. Prunes
+    non-opted entries not seen for ROSTER_MAX_AGE_DAYS; opted-in entries are
+    never pruned. Returns the written record."""
+    root = os.path.abspath(os.fspath(repo_root))
+    ts = int(time.time() if now is None else now)
+    result: dict = {}
+
+    def mutate(state: dict) -> None:
+        repos = state["repos"]
+        rec = repos.get(root)
+        if rec is None:
+            rec = repos[root] = {"slug": _slug_for(root, repos),
+                                 "opted_in": False, "last_seen": ts}
+        rec["last_seen"] = ts
+        if opted_in is not None:
+            rec["opted_in"] = bool(opted_in)
+        cutoff = ts - ROSTER_MAX_AGE_DAYS * 86400
+        for stale in [r for r, entry in repos.items()
+                      if not entry.get("opted_in")
+                      and entry.get("last_seen", 0) < cutoff]:
+            del repos[stale]
+        result.update(rec)
+
+    _mutate_state(state_dir, mutate)
+    return result
+
 
 # ---------------------------------------------------------------------------
 # State + the data join (engine status  x  binder work_item detail)
@@ -981,10 +1194,202 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, data, _content_type(target), cache=True)
 
 
+def _dir_snapshot(path: Path):
+    """A comparable fingerprint of a directory's contents (None when absent)."""
+    if not path.exists():
+        return None
+    return sorted((p.name, p.stat().st_size, p.stat().st_mtime_ns)
+                  for p in path.iterdir())
+
+
+def _store_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """The watch-store checks. Every state dir used here lives under `scratch`
+    (a temp dir); KARTA_WATCH_STATE_DIR already points into it, set by
+    _run_self_test before any check ran."""
+    checks: list[tuple[str, bool]] = []
+    posix = os.name == "posix"
+
+    # state-dir resolution per platform, via a patched (injected) environment
+    checks += [
+        ("state dir: $XDG_STATE_HOME/karta wins on Linux",
+         resolve_state_dir("linux", {"XDG_STATE_HOME": "/xdg"}) == Path("/xdg/karta")),
+        ("state dir: Linux default is ~/.local/state/karta",
+         resolve_state_dir("linux", {"HOME": "/home/u"})
+         == Path("/home/u/.local/state/karta")),
+        ("state dir: macOS is ~/Library/Application Support/karta",
+         resolve_state_dir("darwin", {"HOME": "/Users/u"})
+         == Path("/Users/u/Library/Application Support/karta")),
+        ("state dir: Windows is %LOCALAPPDATA%\\karta",
+         resolve_state_dir("win32", {"LOCALAPPDATA": r"C:\Users\u\AppData\Local"})
+         == Path(r"C:\Users\u\AppData\Local") / "karta"),
+        ("state dir: KARTA_WATCH_STATE_DIR override beats every platform",
+         all(resolve_state_dir(p, {"KARTA_WATCH_STATE_DIR": "/ov", "HOME": "/h",
+                                   "XDG_STATE_HOME": "/x", "LOCALAPPDATA": "C:\\L"})
+             == Path("/ov") for p in ("linux", "darwin", "win32"))),
+    ]
+
+    # derived port — a pure function of an injected identity; the POSIX (uid)
+    # and Windows (username) derivations both run here, whatever the platform.
+    win_expect = PORT_BASE + (int(hashlib.sha256("alice".encode("utf-8"))
+                                  .hexdigest()[:8], 16) % PORT_SPAN)
+    checks += [
+        ("port: POSIX derivation is 8765 + uid % 1000",
+         derive_port(0) == 8765 and derive_port(1000) == 8765
+         and derive_port(4321) == 8765 + 321),
+        ("port: Windows derivation is 8765 + sha256(username)[:8] as int % 1000",
+         derive_port("alice") == win_expect),
+        ("port: the same identity derives the same port twice (both flavors)",
+         derive_port(1234) == derive_port(1234)
+         and derive_port("bob") == derive_port("bob")),
+    ]
+
+    # token — secrets-module generation, 0600, stable across reads
+    tok_dir = scratch / "token-case"
+    orig_token_urlsafe = secrets.token_urlsafe
+    secrets.token_urlsafe = lambda nbytes=32: "karta-selftest-sentinel"
+    try:
+        first = get_token(tok_dir)
+    finally:
+        secrets.token_urlsafe = orig_token_urlsafe
+    token_path = tok_dir / TOKEN_FILENAME
+    checks += [
+        ("token: generated with the secrets module on first need",
+         first == "karta-selftest-sentinel"),
+        ("token: stored once, returned unchanged on the next read",
+         get_token(tok_dir) == first),
+        ("token: file carries 0600 permissions on POSIX",
+         (token_path.stat().st_mode & 0o777) == 0o600 if posix else True),
+    ]
+
+    # roster — schema, slug shape, refresh, same-basename uniqueness
+    ros = scratch / "roster-case"
+    t0 = 1_700_000_000
+    dirty = str(scratch / "dirty" / "my repo!")
+    rec = upsert_repo(dirty, state_dir=ros, now=t0)
+    expect_slug = ("my-repo--"
+                   + hashlib.sha256(dirty.encode("utf-8")).hexdigest()[:8])
+    repos = load_state(ros)["repos"]
+    rec2 = upsert_repo(dirty, state_dir=ros, now=t0 + 9)
+    pa = upsert_repo(str(scratch / "a" / "proj"), state_dir=ros, now=t0)
+    pb = upsert_repo(str(scratch / "b" / "proj"), state_dir=ros, now=t0)
+    checks += [
+        ("roster: keyed by absolute repo root holding {slug, opted_in, last_seen}",
+         repos.get(dirty) == {"slug": expect_slug, "opted_in": False,
+                              "last_seen": t0}),
+        ("roster: slug is <sanitized-basename>-<hash8-of-abspath>, URL-safe",
+         rec["slug"] == expect_slug
+         and re.fullmatch(r"[A-Za-z0-9._-]+", rec["slug"]) is not None),
+        ("roster: upsert refreshes last_seen and keeps the slug stable",
+         rec2["last_seen"] == t0 + 9 and rec2["slug"] == expect_slug),
+        ("roster: two distinct paths sharing a basename get distinct slugs",
+         pa["slug"] != pb["slug"] and pa["slug"].startswith("proj-")
+         and pb["slug"].startswith("proj-")),
+    ]
+
+    # merge-on-write — a bare last_seen refresh re-reads at write time, so it
+    # can never revert an opted_in flip it did not make
+    upsert_repo(dirty, opted_in=True, state_dir=ros, now=t0 + 10)
+    after = upsert_repo(dirty, state_dir=ros, now=t0 + 11)
+    checks += [
+        ("roster: a last_seen refresh never reverts an opted_in flip (merge-on-write)",
+         after["opted_in"] is True and after["last_seen"] == t0 + 11),
+    ]
+
+    # 30-day age-out — prunes only non-opted stale entries
+    age = scratch / "age-case"
+    stale_root = str(scratch / "age" / "stale")
+    opted_root = str(scratch / "age" / "kept")
+    upsert_repo(stale_root, state_dir=age, now=t0)
+    upsert_repo(opted_root, opted_in=True, state_dir=age, now=t0)
+    upsert_repo(str(scratch / "age" / "new"), state_dir=age,
+                now=t0 + 31 * 86400)
+    aged = load_state(age)["repos"]
+    checks += [
+        ("roster: age-out prunes a non-opted entry stale past 30 days",
+         stale_root not in aged),
+        ("roster: age-out never prunes an opted-in entry",
+         opted_root in aged and aged[opted_root]["opted_in"] is True),
+    ]
+
+    # atomic writes — same-directory temp + os.replace, no partial left behind
+    atomic = scratch / "atomic-case"
+    replaces: list[tuple[str, str]] = []
+    orig_replace = os.replace
+
+    def _spy(src, dst):
+        replaces.append((os.fspath(src), os.fspath(dst)))
+        return orig_replace(src, dst)
+
+    os.replace = _spy
+    try:
+        upsert_repo(str(scratch / "atomic" / "repo"), state_dir=atomic)
+    finally:
+        os.replace = orig_replace
+    checks += [
+        ("store: every write goes through a same-directory temp file + os.replace",
+         bool(replaces) and all(
+             os.path.dirname(s) == os.path.dirname(d) and s.endswith(".tmp")
+             for s, d in replaces)
+         and any(os.path.basename(d) == STATE_FILENAME for _, d in replaces)),
+        ("store: an atomic write leaves no partial (.tmp) file behind",
+         not list(atomic.glob("*.tmp"))),
+        ("store: the state dir is created 0o700 on POSIX",
+         (atomic.stat().st_mode & 0o777) == 0o700 if posix else True),
+        ("store: the state JSON file is 0o600 on POSIX",
+         ((atomic / STATE_FILENAME).stat().st_mode & 0o777) == 0o600
+         if posix else True),
+    ]
+
+    # port record — merge-on-write of the current port, roster preserved
+    ported = record_port(9001, state_dir=ros)
+    checks += [
+        ("store: records the current port without clobbering the roster",
+         ported["port"] == 9001 and dirty in ported["repos"]),
+    ]
+
+    # stale-tmp sweep — startup clears a crashed writer's leftover, spares a
+    # live writer's fresh temp file
+    sweep = scratch / "sweep-case"
+    ensure_state_dir(sweep)
+    dead = sweep / (STATE_FILENAME + ".dead0000.tmp")
+    dead.write_text("partial", encoding="utf-8")
+    long_ago = time.time() - 3600
+    os.utime(dead, (long_ago, long_ago))
+    live = sweep / (STATE_FILENAME + ".live0000.tmp")
+    live.write_text("in flight", encoding="utf-8")
+    ensure_state_dir(sweep)
+    checks += [
+        ("store: startup sweeps a crashed writer's stale temp file, sparing a live one",
+         not dead.exists() and live.exists()),
+    ]
+
+    # KARTA_WATCH_STATE_DIR is honored end-to-end: a default-resolution store
+    # call lands in the temp override dir this self-test set.
+    upsert_repo(str(scratch / "via-default"))
+    override_dir = Path(os.environ["KARTA_WATCH_STATE_DIR"])
+    checks += [
+        ("state dir: KARTA_WATCH_STATE_DIR is honored by default resolution",
+         resolve_state_dir() == override_dir
+         and (override_dir / STATE_FILENAME).exists()),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
-    same-origin, and ships NO external URLs (self-contained)."""
+    same-origin, and ships NO external URLs (self-contained). Store checks run
+    against a temp state dir (KARTA_WATCH_STATE_DIR) — never the real one."""
+    # Store isolation (the self-test seam): point KARTA_WATCH_STATE_DIR at a
+    # fresh temp dir for the WHOLE run — no self-test may ever read or write
+    # the real per-user state dir — and fingerprint the real dir to prove it.
+    prev_override = os.environ.get("KARTA_WATCH_STATE_DIR")
+    scratch = Path(tempfile.mkdtemp(prefix="karta-watch-selftest-"))
+    os.environ["KARTA_WATCH_STATE_DIR"] = str(scratch / "default-store")
+    real_state_dir = resolve_state_dir(environ={
+        k: v for k, v in os.environ.items() if k != "KARTA_WATCH_STATE_DIR"})
+    real_before = _dir_snapshot(real_state_dir)
+
     def _u(assertion, otype="unit"):
         return {"type": otype, "assertions": [assertion], "command": "npm run lint && npm test"}
     binders = [
@@ -1138,6 +1543,23 @@ def _run_self_test() -> int:
          "<" not in nested_out and ">" not in nested_out
          and json.loads(nested_out) == nested),
     ]
+    # Ephemeral mode never touches the store: everything above rendered pages
+    # and serialized state without ever creating the (overridden) state dir.
+    checks += [
+        ("ephemeral mode writes no store state (no state dir after render checks)",
+         not (scratch / "default-store").exists()),
+    ]
+    checks += _store_self_test_checks(scratch)
+    checks += [
+        ("no self-test touched the real per-user state dir",
+         _dir_snapshot(real_state_dir) == real_before),
+    ]
+    if prev_override is None:
+        os.environ.pop("KARTA_WATCH_STATE_DIR", None)
+    else:
+        os.environ["KARTA_WATCH_STATE_DIR"] = prev_override
+    shutil.rmtree(scratch, ignore_errors=True)
+
     failures = sum(1 for _, ok in checks if not ok)
     for name, ok in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}")
