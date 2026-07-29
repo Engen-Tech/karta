@@ -173,6 +173,15 @@ Extend `serve_status.py --self-test`, deterministic and loopback-only:
   covers the gap without touching user shell config.
 - **OS service files, even optional** — three platform recipes to build and support; revisit
   only if the reboot gap proves painful in practice.
+- **Shipping the hub as an MCP server, bundled or separate** — MCP does not solve the actual
+  problem: a stdio MCP server dies with its session (the ephemerality being eliminated), and an
+  HTTP MCP server needs the same daemon lifecycle the hub already builds, plus a protocol. It
+  also serves the wrong consumer — MCP is agent-facing, this feature's consumer is a human in a
+  browser, and agents already have zero-config status via `karta_next.py --json`. A separate
+  package would additionally break the ships-in-the-plugin requirement and add cross-package
+  version skew. If cross-repo status as agent context outside karta repos ever becomes a real
+  need, the shape is a thin MCP facade over the same state engine, in the same plugin — v2 at
+  the earliest, and only once a consumer exists.
 
 ## Scope of change
 
