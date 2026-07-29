@@ -94,7 +94,7 @@ _SCRIPT_PATH = Path(__file__).resolve()
 # The hub's version label, served by /identity next to a sha256 digest of this
 # script's bytes. The DIGEST is what skew comparison uses; the constant is the
 # human-readable label. Keep it in step with .claude-plugin/plugin.json.
-VERSION = "2.27.0"
+VERSION = "2.27.1"
 
 # ---------------------------------------------------------------------------
 # Per-user watch store — the persistent hub's state layer. Nothing user-visible
@@ -1618,6 +1618,10 @@ a.repo:hover{ border-color:var(--steel); }
 .repo__note{ font-size:12px; color:var(--block); }
 .repo__root{ font-size:11px; color:var(--mut); font-family:var(--mono);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.top__theme{ appearance:none; -webkit-appearance:none; background:transparent;
+  border:0; cursor:pointer; color:var(--mut); font-size:15px; padding:4px 6px; }
+:root[data-theme="dark"] .top__moon{ display:none; }
+:root[data-theme="light"] .top__sun{ display:none; }
 """.strip()
 
 
@@ -1672,6 +1676,11 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         '<meta http-equiv="refresh" content="10">'
         "<title>Karta Watch</title>"
+        # Apply the stored preference before first paint — same key, same
+        # precedence as the repo page: localStorage overrides the baked default.
+        '<script>try{var t=localStorage.getItem("karta-theme");'
+        'if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}'
+        "catch(e){}</script>"
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{esc(key_qs, quote=True)}">'
         f"<style>{_CSS}\n{_HUB_CSS}</style>"
         "</head>"
@@ -1683,7 +1692,14 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         '<div class="brand__txt"><span class="brand__word">karta</span>'
         '<div class="brand__live"><span class="brand__dot" aria-hidden="true"></span>'
         f"watch hub · {count} repo{'' if count == 1 else 's'} · read-only</div>"
-        "</div></div></header>"
+        "</div></div>"
+        '<button type="button" class="top__theme" aria-label="toggle theme" '
+        "onclick=\"var r=document.documentElement,"
+        "n=r.dataset.theme==='dark'?'light':'dark';r.dataset.theme=n;"
+        "try{localStorage.setItem('karta-theme',n)}catch(e){}\">"
+        '<span class="top__sun" aria-hidden="true">☀</span>'
+        '<span class="top__moon" aria-hidden="true">☽</span></button>'
+        "</header>"
         f"{body}"
         '<footer class="foot">karta · every card derives fresh from its '
         "repo&#39;s git · read-only</footer>"
@@ -2996,6 +3012,24 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and "&lt;img src=x" in evil_html),
         ("hub landing: an empty roster renders the no-repos empty state",
          "no repos opted in" in render_hub_html([], "?key=T")),
+    ]
+
+    # theme parity: the landing must honor the same stored preference the repo
+    # page honors (shared key, applied before first paint), and offer a toggle.
+    hub_themed = render_hub_html([], "?key=T")
+    app_themed = render_app_html(tiny, "dark", key_qs="?key=T")
+    checks += [
+        ("theme: the landing applies the stored karta-theme preference in <head>,"
+         " before the body paints",
+         "karta-theme" in hub_themed
+         and hub_themed.index("karta-theme") < hub_themed.index("<body>")),
+        ("theme: the landing carries a toggle that flips data-theme and persists"
+         " the same karta-theme key",
+         'aria-label="toggle theme"' in hub_themed
+         and hub_themed.count("karta-theme") >= 2
+         and "setItem" in hub_themed),
+        ("theme: landing and repo page share the storage key literal",
+         "karta-theme" in app_themed and "karta-theme" in hub_themed),
     ]
 
     # the bind stays hardcoded loopback: no interface option exists, and the
