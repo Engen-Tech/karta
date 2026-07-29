@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import contextlib
+import datetime
 import errno
 import hashlib
 import hmac
@@ -487,7 +488,8 @@ _STATE_META = {
     "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED"},
     "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "BUILT"},
     "building": {"color": "var(--amber)", "soft": "var(--amber-soft)", "badge": "building", "word": "RUNNING"},
-    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "QUEUED"},
+    # ready renders NEXT — the same word the phase rail and the hub landing use.
+    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT"},
     # dep-waiting is calm, not alarming: the engine's `blocked` status renders
     # as a soft steel WAITING chip (an item waiting its turn is normal flow).
     "blocked":  {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "hourglass", "word": "WAITING"},
@@ -1371,6 +1373,7 @@ def _content_type(path: Path) -> str:
 
 ENGINE_CACHE_SECS = 5.0     # per-repo state cache TTL
 ENGINE_TIMEOUT_SECS = 10.0  # per-repo child derivation timeout
+ACTIVITY_TIMEOUT_SECS = 1.0  # pinned cap on the per-repo last-activity git probe
 LOG_FILENAME = "hub.log"
 LOG_MAX_BYTES = 256 * 1024
 LOG_BACKUP_COUNT = 3
@@ -1409,23 +1412,48 @@ def _derive_repo_state(root: str, timeout: float) -> dict:
     return json.loads(out)
 
 
+def _repo_last_activity(root: str) -> int | None:
+    """Unix time of the repo's newest commit (`git log -1 --format=%ct`), or
+    None when git is absent, fails, or exceeds the pinned ~1 s timeout — the
+    landing stamp is then simply absent, never an error."""
+    try:
+        out = _run_child(["git", "log", "-1", "--format=%ct"],
+                         cwd=root, timeout=ACTIVITY_TIMEOUT_SECS)
+        return int(out.strip().splitlines()[0])
+    except Exception:
+        return None
+
+
+def _activity_stamp(commit_ts: int, now: float) -> str:
+    """Humane last-activity bucket: the same calendar day (local time) reads
+    'active today'; any earlier day reads 'active N days ago'."""
+    days = (datetime.date.fromtimestamp(now)
+            - datetime.date.fromtimestamp(commit_ts)).days
+    if days <= 0:
+        return "active today"
+    return f"active {days} day{'' if days == 1 else 's'} ago"
+
+
 class RepoEngine:
-    """Per-repo derivation with a ~5 s cache. The runner and clock are
-    injectable so the self-test drives wedged/live fakes deterministically.
-    Errors are cached like successes, so a wedged repo is re-probed at most
-    once per TTL and greys only its own card."""
+    """Per-repo derivation with a ~5 s cache. The runner, activity probe, and
+    clock are injectable so the self-test drives wedged/live fakes
+    deterministically. Errors are cached like successes, so a wedged repo is
+    re-probed at most once per TTL and greys only its own card. The
+    last-activity stamp rides the same cache: at most one git call per repo
+    per cache window."""
 
     def __init__(self, root: str, *, ttl: float = ENGINE_CACHE_SECS,
                  timeout: float = ENGINE_TIMEOUT_SECS, runner=None,
-                 clock=time.monotonic):
+                 clock=time.monotonic, activity=None):
         self.root = root
         self.ttl = ttl
         self._runner = runner or (lambda: _derive_repo_state(root, timeout))
+        self._activity = activity or (lambda: _repo_last_activity(root))
         self._clock = clock
         self._cached: tuple[float, dict] | None = None
 
     def state(self) -> dict:
-        """{ok, state, error} — cached until the TTL lapses."""
+        """{ok, state, error, activity} — cached until the TTL lapses."""
         now = self._clock()
         if self._cached and now < self._cached[0]:
             return self._cached[1]
@@ -1434,6 +1462,7 @@ class RepoEngine:
         except Exception as exc:  # a wedged repo must never take the hub down
             result = {"ok": False, "state": None,
                       "error": str(exc) or type(exc).__name__}
+        result["activity"] = self._activity()  # int ts or None; never raises
         self._cached = (now + self.ttl, result)
         return result
 
@@ -1475,16 +1504,21 @@ def _hub_logger(state_dir: Path, max_bytes: int = LOG_MAX_BYTES,
     return logger
 
 
-def _repo_card(slug: str, root: str, engine_result: dict | None) -> dict:
+def _repo_card(slug: str, root: str, engine_result: dict | None,
+               now: float | None = None) -> dict:
     """One landing-page card model. engine_result None = the opted-in path has
-    vanished: the card greys to UNAVAILABLE, never silently pruned."""
+    vanished: the card greys to UNAVAILABLE, never silently pruned. `now` is
+    the activity-stamp clock, injectable for tests (defaults to wall time)."""
     card = {"slug": slug, "root": root,
             "name": os.path.basename(root.rstrip("/\\")) or root,
-            "counts": "", "next": "", "note": ""}
+            "counts": "", "next": "", "note": "", "activity": ""}
     if engine_result is None:
         card["word"] = "UNAVAILABLE"
         card["note"] = "repo path no longer exists — opt it out to drop this card"
         return card
+    ts = engine_result.get("activity")
+    if ts is not None:
+        card["activity"] = _activity_stamp(ts, time.time() if now is None else now)
     if not engine_result["ok"]:
         card["word"] = "WEDGED"
         card["note"] = engine_result["error"]
@@ -1492,22 +1526,32 @@ def _repo_card(slug: str, root: str, engine_result: dict | None) -> dict:
     st = engine_result["state"] or {}
     binders = st.get("binders") or []
     merged = sum(1 for b in binders if b.get("status") == "merged")
+    level = (st.get("next_action") or {}).get("level")
     if any(b.get("status") == "in_flight" for b in binders):
-        card["word"] = "IN FLIGHT"
-    elif merged < len(binders):
-        card["word"] = "QUEUED"
-    else:
+        card["word"] = "NOW"
+    elif level == "done" or merged == len(binders):
+        # the engine's calm all-merged derive (level "done") always gets the
+        # CLEAR treatment — never blocked or error styling
         card["word"] = "CLEAR"
+    else:
+        card["word"] = "NEXT"
     card["counts"] = (f"{len(binders)} binder{'' if len(binders) == 1 else 's'}"
                       f" · {merged} delivered")
     card["next"] = (st.get("next_action") or {}).get("human") or ""
     return card
 
 
+# card word -> actionability rank: what needs you NOW sorts first, broken
+# cards (WEDGED/UNAVAILABLE) next, queued work (NEXT) after, CLEAR last.
+_HUB_ORDER = {"NOW": 0, "WEDGED": 1, "UNAVAILABLE": 1, "NEXT": 2, "CLEAR": 3}
+
+
 def hub_cards(repos: dict, engine_for) -> list[dict]:
-    """Card models for every opted-in roster entry (non-opted never appear).
-    Engines run in parallel threads so one cold wedged repo delays the landing
-    by at most its own timeout, not the sum."""
+    """Card models for every opted-in roster entry (non-opted never appear),
+    sorted by actionability — every NOW card before every NEXT card before
+    every CLEAR card (slug breaks ties). Engines run in parallel threads so
+    one cold wedged repo delays the landing by at most its own timeout, not
+    the sum."""
     opted = sorted(((root, rec) for root, rec in repos.items()
                     if rec.get("opted_in")),
                    key=lambda kv: kv[1].get("slug") or "")
@@ -1521,7 +1565,9 @@ def hub_cards(repos: dict, engine_for) -> list[dict]:
 
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(8, len(opted))) as ex:
-        return list(ex.map(build, opted))
+        cards = list(ex.map(build, opted))
+    cards.sort(key=lambda c: (_HUB_ORDER.get(c["word"], 1), c["slug"]))
+    return cards
 
 
 def switcher_entries(repos: dict, current_slug: str) -> list[dict]:
@@ -1536,8 +1582,8 @@ def switcher_entries(repos: dict, current_slug: str) -> list[dict]:
 
 # chip colors per card word — the same CSS variables the repo page uses
 _HUB_CHIP = {
-    "IN FLIGHT":   ("var(--amber)", "var(--amber-soft)"),
-    "QUEUED":      ("var(--steel)", "var(--steel-soft)"),
+    "NOW":         ("var(--amber)", "var(--amber-soft)"),
+    "NEXT":        ("var(--steel)", "var(--steel-soft)"),
     "CLEAR":       ("var(--green)", "var(--green-soft)"),
     "WEDGED":      ("var(--block)", "var(--block-soft)"),
     "UNAVAILABLE": ("var(--block)", "var(--block-soft)"),
@@ -1545,17 +1591,19 @@ _HUB_CHIP = {
 
 _HUB_CSS = """
 .hub{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:14px; }
-.repo{ border:1px solid var(--line); background:var(--panel); padding:16px 20px;
-  display:flex; flex-direction:column; gap:7px; }
+a.repo{ border:1px solid var(--line); background:var(--panel); padding:16px 20px;
+  display:flex; flex-direction:column; gap:7px; color:inherit;
+  text-decoration:none; }
+a.repo:hover{ border-color:var(--steel); }
 .repo--dim{ opacity:.55; }
 .repo__head{ display:flex; align-items:center; gap:10px; }
-a.repo__name{ font-family:var(--mono); font-weight:700; font-size:16px;
-  color:var(--ink); text-decoration:none; }
-a.repo__name:hover{ text-decoration:underline; }
+.repo__name{ font-family:var(--mono); font-weight:700; font-size:16px;
+  color:var(--ink); }
 .repo__chip{ font-family:var(--mono); font-size:9px; font-weight:700;
   letter-spacing:.5px; padding:2px 7px; margin-left:auto; flex:none; }
 .repo__counts{ font-size:12px; color:var(--mut); font-family:var(--mono); }
 .repo__next{ font-size:12.5px; color:var(--ink); opacity:.8; }
+.repo__arrow{ color:var(--amber); }
 .repo__note{ font-size:12px; color:var(--block); }
 .repo__root{ font-size:11px; color:var(--mut); font-family:var(--mono);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1565,6 +1613,8 @@ a.repo__name:hover{ text-decoration:underline; }
 def render_hub_html(cards: list[dict], key_qs: str = "",
                     theme: str | None = None) -> str:
     """The hub landing page: server-rendered, no JS beyond a periodic refresh.
+    Each card is exactly one <a> wrapping the head row, the next-action line
+    (the engine's human copy verbatim behind an amber arrow), and the foot.
     Every dynamic string is html-escaped — repo names, paths, and engine errors
     are untrusted bytes. Styling reuses the Karta Watch CSS; links carry the
     key so drill-down just works."""
@@ -1573,25 +1623,28 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
     if cards:
         rows = []
         for c in cards:
-            color, soft = _HUB_CHIP.get(c["word"], _HUB_CHIP["QUEUED"])
+            color, soft = _HUB_CHIP.get(c["word"], _HUB_CHIP["NEXT"])
             dim = " repo--dim" if c["word"] in ("WEDGED", "UNAVAILABLE") else ""
+            meta = " · ".join(x for x in (c["counts"], c["activity"]) if x)
             bits = [
-                f'<article class="repo{dim}">',
+                f'<a class="repo{dim}" href="/r/{esc(c["slug"], quote=True)}/'
+                f'{esc(key_qs, quote=True)}">',
                 '<div class="repo__head">',
-                f'<a class="repo__name" href="/r/{esc(c["slug"], quote=True)}/'
-                f'{esc(key_qs, quote=True)}">{esc(c["name"])}</a>',
+                f'<span class="repo__name">{esc(c["name"])}</span>',
                 f'<span class="repo__chip" style="color:{color};background:{soft}">'
                 f'{esc(c["word"])}</span>',
                 "</div>",
             ]
-            if c["counts"]:
-                bits.append(f'<div class="repo__counts">{esc(c["counts"])}</div>')
+            if meta:
+                bits.append(f'<div class="repo__counts">{esc(meta)}</div>')
             if c["next"]:
-                bits.append(f'<div class="repo__next">next: {esc(c["next"])}</div>')
+                bits.append('<div class="repo__next">'
+                            '<span class="repo__arrow" aria-hidden="true">▸ </span>'
+                            f'{esc(c["next"])}</div>')
             if c["note"]:
                 bits.append(f'<div class="repo__note">{esc(c["note"])}</div>')
             bits.append(f'<div class="repo__root">{esc(c["root"])}</div>')
-            bits.append("</article>")
+            bits.append("</a>")
             rows.append("".join(bits))
         body = f'<div class="hub">{"".join(rows)}</div>'
     else:
@@ -2521,7 +2574,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         return {"binders": []}
 
     eng = RepoEngine("/nowhere", runner=counting_runner, ttl=5.0,
-                     clock=lambda: clk["t"])
+                     clock=lambda: clk["t"], activity=lambda: None)
     eng.state()
     eng.state()
     within_ttl = calls["n"]
@@ -2540,7 +2593,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         raise RuntimeError("git wedged")
 
     weng = RepoEngine("/nowhere", runner=wedged_runner, ttl=5.0,
-                      clock=lambda: 0.0)
+                      clock=lambda: 0.0, activity=lambda: None)
     wedged_first = weng.state()
     weng.state()
     checks += [
@@ -2604,8 +2657,10 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         "warnings": [], "errors": [],
     }
     engines = {
-        str(live_root): RepoEngine(str(live_root), runner=lambda: fixture),
-        str(wedged_root): RepoEngine(str(wedged_root), runner=wedged_runner),
+        str(live_root): RepoEngine(str(live_root), runner=lambda: fixture,
+                                   activity=lambda: None),
+        str(wedged_root): RepoEngine(str(wedged_root), runner=wedged_runner,
+                                     activity=lambda: None),
     }
     cards = hub_cards(load_state(hub_dir)["repos"], lambda root: engines[root])
     by_slug = {c["slug"]: c for c in cards}
@@ -2616,16 +2671,137 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         ("cards: only opted-in repos appear",
          len(cards) == 3 and rec_plain["slug"] not in by_slug),
         ("cards: a live repo carries chip word, binder counts, and next action",
-         live_card is not None and live_card["word"] == "IN FLIGHT"
+         live_card is not None and live_card["word"] == "NOW"
          and live_card["counts"] == "2 binders · 1 delivered"
          and live_card["next"] == "resume b-live (1/2 done)"),
         ("cards: a wedged engine greys only its own card — others stay live",
          wedged_card is not None and wedged_card["word"] == "WEDGED"
          and "git wedged" in wedged_card["note"]
-         and live_card is not None and live_card["word"] == "IN FLIGHT"),
+         and live_card is not None and live_card["word"] == "NOW"),
         ("cards: a vanished opted-in repo greys to UNAVAILABLE, never pruned",
          gone_card is not None and gone_card["word"] == "UNAVAILABLE"
          and str(gone_root) in load_state(hub_dir)["repos"]),
+    ]
+
+    # --- landing v2: actionability sort, calm CLEAR for level 'done',
+    # whole-card anchors, the amber next-action arrow ------------------------
+    sort_dir = scratch / "hub-sort"
+    done_state = {"repo": {"default_branch": "main"},
+                  "binders": [{"slug": "s-done", "status": "merged"}],
+                  "next_action": {"level": "done", "command": None,
+                                  "human": karta_next.DONE_HUMAN},
+                  "warnings": [], "errors": []}
+    # dir names chosen so alphabetical order (a-clear, b-next, c-now) is the
+    # REVERSE of actionability — a passing sort cannot be the slug sort
+    sort_states = {
+        "a-clear": done_state,
+        "b-next": {"repo": {"default_branch": "main"},
+                   "binders": [{"slug": "s-up", "status": "not_started"}],
+                   "next_action": {"level": "binder", "command": None,
+                                   "human": "start s-up"},
+                   "warnings": [], "errors": []},
+        "c-now": {"repo": {"default_branch": "main"},
+                  "binders": [{"slug": "s-run", "status": "in_flight"}],
+                  "next_action": {"level": "item", "command": None,
+                                  "human": "resume s-run"},
+                  "warnings": [], "errors": []},
+    }
+    sort_engines = {}
+    for dirname, sstate in sort_states.items():
+        r = scratch / dirname
+        r.mkdir()
+        upsert_repo(r, opted_in=True, state_dir=sort_dir)
+        sort_engines[str(r)] = RepoEngine(str(r), runner=lambda s=sstate: s,
+                                          activity=lambda: None)
+    sorted_cards = hub_cards(load_state(sort_dir)["repos"],
+                             lambda root: sort_engines[root])
+    clear_card = sorted_cards[-1] if sorted_cards else None
+    sorted_html = render_hub_html(sorted_cards, "?key=T")
+    clear_pos = sorted_html.find(">CLEAR</span>")
+    clear_chunk = sorted_html[sorted_html.rfind("<a ", 0, clear_pos):
+                              sorted_html.find("</a>", clear_pos)]
+    checks += [
+        ("landing: cards sort by actionability — every NOW before every NEXT"
+         " before every CLEAR (not alphabetically)",
+         [c["word"] for c in sorted_cards] == ["NOW", "NEXT", "CLEAR"]
+         and sorted_cards[0]["name"] == "c-now"
+         and sorted_cards[-1]["name"] == "a-clear"),
+        ("landing: an engine-level 'done' repo renders the calm CLEAR"
+         " treatment — green chip, no blocked/error styling, no dimming",
+         clear_card is not None and clear_card["word"] == "CLEAR"
+         and "color:var(--green)" in clear_chunk
+         and "var(--block)" not in clear_chunk
+         and "repo--dim" not in clear_chunk),
+        ("landing: the all-merged copy flows verbatim from the engine —"
+         " next_action.human rendered, never hardcoded by the landing",
+         clear_card is not None and clear_card["next"] == karta_next.DONE_HUMAN
+         and ("▸ </span>" + html.escape(karta_next.DONE_HUMAN)) in clear_chunk),
+        ("landing: each card is exactly one <a> wrapping the head row, the"
+         " next-action line, and the foot, href /r/<slug>/ carrying the key",
+         sorted_html.count("<a ") == 3
+         and sorted_html.count('<a class="repo"') == 3
+         and all(f'href="/r/{c["slug"]}/?key=T"' in sorted_html
+                 for c in sorted_cards)
+         and clear_chunk.count("<a ") == 1
+         and '<div class="repo__next">' in clear_chunk
+         and 'class="repo__root"' in clear_chunk),
+        ("landing: the next-action line is prefixed with the amber '▸ '",
+         '<span class="repo__arrow" aria-hidden="true">▸ </span>' in sorted_html
+         and ".repo__arrow{ color:var(--amber); }" in sorted_html),
+    ]
+
+    # --- last-activity stamp: humane buckets, absent on failure, and at most
+    # one git call per repo per ~5 s cache window ----------------------------
+    base_noon = datetime.datetime(2026, 3, 10, 12, 0).timestamp()
+    same_day = int(datetime.datetime(2026, 3, 10, 9, 0).timestamp())
+    yesterday = int(datetime.datetime(2026, 3, 9, 23, 0).timestamp())
+    nine_days = int(datetime.datetime(2026, 3, 1, 12, 0).timestamp())
+    stamped = _repo_card("sx", "/x", {"ok": True, "state": done_state,
+                                      "activity": yesterday}, now=base_noon)
+    unstamped = _repo_card("sy", "/y", {"ok": True, "state": done_state,
+                                        "activity": None}, now=base_noon)
+    unstamped_html = render_hub_html([unstamped], "?key=T")
+    git_cmds: list = []
+    orig_popen_act = subprocess.Popen
+
+    def git_spy_popen(cmd, *a, **k):
+        if cmd and cmd[0] == "git":
+            git_cmds.append(list(cmd))
+        return orig_popen_act(cmd, *a, **k)
+
+    aclk = {"t": 100.0}
+    aeng = RepoEngine(str(scratch), runner=lambda: done_state,
+                      ttl=5.0, clock=lambda: aclk["t"])
+    subprocess.Popen = git_spy_popen
+    try:
+        aeng.state()
+        aeng.state()
+        aeng.state()
+        stamp_calls_within_ttl = len(git_cmds)
+        aclk["t"] = 105.1
+        aeng.state()
+    finally:
+        subprocess.Popen = orig_popen_act
+    checks += [
+        ("stamp: humane buckets under an injected clock — today / 1 day / N days",
+         _activity_stamp(same_day, base_noon) == "active today"
+         and _activity_stamp(yesterday, base_noon) == "active 1 day ago"
+         and _activity_stamp(nine_days, base_noon) == "active 9 days ago"),
+        ("stamp: rendered on the card next to the binder counts",
+         stamped["activity"] == "active 1 day ago"
+         and "1 binder · 1 delivered · active 1 day ago"
+         in render_hub_html([stamped], "?key=T")),
+        ("stamp: absent when git fails or times out — never an error",
+         unstamped["activity"] == ""
+         and "1 binder · 1 delivered</div>" in unstamped_html
+         and _repo_last_activity(str(scratch / "no-such-dir")) is None),
+        ("stamp: derives from `git log -1 --format=%ct` under the pinned"
+         " ~1 s timeout — the subprocess spy sees the exact argv",
+         ACTIVITY_TIMEOUT_SECS == 1.0 and bool(git_cmds)
+         and git_cmds[0] == ["git", "log", "-1", "--format=%ct"]),
+        ("stamp: at most one git call per repo within the ~5 s cache window,"
+         " re-probed only after the TTL lapses",
+         stamp_calls_within_ttl == 1 and len(git_cmds) == 2),
     ]
 
     # --- the hub server over real loopback HTTP -----------------------------
@@ -2719,7 +2895,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          .get("binders") == []),
         ("hub: the landing lists opted-in cards with chip/counts/next, links by slug",
          land_status == 200 and f'href="/r/{slug_live}/?key=' in landing
-         and "IN FLIGHT" in landing and "2 binders · 1 delivered" in landing
+         and ">NOW</span>" in landing and "2 binders · 1 delivered" in landing
          and "resume b-live (1/2 done)" in landing),
         ("hub: the landing greys wedged + vanished cards, hides non-opted repos",
          "WEDGED" in landing and "UNAVAILABLE" in landing
@@ -2777,7 +2953,8 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
 
     evil_card = {"slug": "x-00000000", "root": "/tmp/<script>evil</script>",
                  "name": "<img src=x onerror=alert(1)>", "word": "WEDGED",
-                 "counts": "", "next": "", "note": "<script>alert('n')</script>"}
+                 "counts": "", "next": "", "note": "<script>alert('n')</script>",
+                 "activity": ""}
     evil_html = render_hub_html([evil_card], "?key=T")
     checks += [
         ("hub landing: untrusted names/paths/errors are escaped, never raw",
@@ -2799,6 +2976,16 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         ("bind: hardcoded loopback — no bind/host/interface option exists",
          bind_flag not in src and host_flag not in src
          and iface_flag not in src and src.count(loop_lit) >= 2),
+    ]
+
+    # the retired chip word (NEXT replaced it) is gone source-level: it appears
+    # nowhere in this script, so no rendered output can carry it (the literal
+    # is assembled dynamically so this check does not match itself)
+    queued_lit = "QUE" + "UED"
+    checks += [
+        (f"vocabulary: the retired word {queued_lit} appears nowhere in this"
+         " script's source",
+         queued_lit not in src),
     ]
 
     srv.shutdown()
