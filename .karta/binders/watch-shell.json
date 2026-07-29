@@ -1,0 +1,192 @@
+{
+  "slug": "watch-shell",
+  "title": "Karta Watch gets clearer navigation and calmer status words",
+  "summary": "Sharpen the watch dashboard from the approved artboards: the landing sorts repos by what needs attention now and links each whole card through, the repo page gains a proper header with a way home and a live-feed indicator, and the engine stops calling a finished repo blocked.",
+  "motivation": "The dashboard misleads at rest — a fully merged repo reads as blocked, the landing chips use a different word than the repo page, and the repo page has no way back to the hub.",
+  "scope": {
+    "included": [
+      "skills/karta-status/scripts/karta_next.py — the next-action derive for the all-merged case",
+      "skills/karta-status/scripts/serve_status.py — hub landing cards and the repo page shell",
+      "docs/how-to/karta-watch.md — navigation story and status vocabulary",
+      "generated script mirrors under .agents/skills/karta-status/ and plugins/karta/skills/karta-status/"
+    ],
+    "excluded": [
+      "no rethink of the two-page model (hub landing plus per-repo page)",
+      "no repo-page redesign beyond the header shell, feed indicator, chip word, delivered styling, and expander buttons",
+      "no change to the landing liveness mechanism — the meta-refresh stays this release",
+      "no keyboard shortcuts",
+      "no token or auth changes",
+      "no engine changes beyond the named all-merged derive fix",
+      "the dep-waiting 'no binder is ready to run' message is deliberately unchanged this release — only the all-merged and zero-live-binder derives gain the calm copy"
+    ]
+  },
+  "design_facts": {
+    "source": "https://claude.ai/design/p/b16dc968-49b0-4ef3-9055-1f1b13000419 — files 'Hub landing v2.dc.html' (approved as written) and 'Repo view shell v2.dc.html' (approved with user tweaks)",
+    "stack": "Python stdlib HTTP server emitting inline HTML/CSS/JS strings; vendored Vue on the repo page; server-rendered landing with meta-refresh; no build step, no component library"
+  },
+  "sme": [
+    "karta-house-skill-authoring",
+    "minimalism"
+  ],
+  "shared_terms": [
+    {
+      "id": "feed-paused-label",
+      "canonical": "snapshot — feed paused",
+      "items": [
+        "repo-shell",
+        "watch-ux-docs"
+      ]
+    }
+  ],
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "engine-next-action",
+      "title": "A finished repo says so instead of claiming it is blocked",
+      "summary": "Fix the status engine so a repo whose binders are all merged or archived derives the calm all-merged next action instead of the blocked warning message.",
+      "estimate": "S",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": "EXPOSES: next_action {level, command, human}: a repo whose binders are all merged or archived, with warnings and errors both empty, yields level 'done', command null, human 'all binders merged — nothing left to run'; the genuinely blocked derive (dangling after edges, real warnings or errors) is unchanged The calm derive also covers the zero-live-binder case: a repo whose .karta/binders/ holds no live binder (everything archived), with warnings and errors both empty exactly as the all-merged derive requires, derives the same done result, never blocked. Because level 'done' is a new enum value, this item locates every consumer of next_action.level by grep (serve_status.py rendering, the hook, the footer, mirrors), updates the consumers INSIDE karta_next.py itself (the footer and terminal renders) to treat 'done' calmly, and records the full consumer list — including the ones it must not touch — in its build report; serve_status.py stays unmodified here, and its 'done' handling is landing-refresh's contract. The grep bounds the audit to this repo; out-of-tree consumers are out of scope and the build report says so.",
+      "touches": [
+        "skills/karta-status/scripts/karta_next.py",
+        ".agents/skills/karta-status/scripts/karta_next.py",
+        "plugins/karta/skills/karta-status/scripts/karta_next.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract:engine-output-copy-change — next_action.human for the all-merged/archived case is consumer-visible text the hub landing renders verbatim"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "a fixture repo whose binders are all merged or archived, with warnings and errors both empty, derives next_action level 'done', command null, human 'all binders merged — nothing left to run'",
+          "the genuinely blocked derive is untouched: a fixture with dangling after edges or real warnings still yields level 'blocked' and 'no binder is ready to run — check the warnings/errors above'",
+          "karta_next.py --self-test passes with new checks covering both derives — the check count rises by at least 4 over the current 32",
+          "serve_status.py is not modified by this item",
+          "a fixture repo with zero live binders (all archived), warnings and errors both empty, also derives the calm done result, never blocked",
+          "the grep-located consumer list of next_action.level lands in the build report; the consumers inside karta_next.py (footer, terminal render) treat 'done' calmly; consumers in other files are listed, not modified"
+        ],
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run --script skills/karta-status/scripts/karta_next.py --self-test"
+      }
+    },
+    {
+      "id": "repo-shell",
+      "title": "Repo page header shell with a way home and an honest feed light",
+      "summary": "Give the repo page the approved header shell — hub links, loud repo name, page title — plus a stateful feed indicator, the WAITING chip word, formalized delivered styling, and keyboard-operable expanders.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "Repo view shell v2.dc.html",
+      "contract": "CONSUMES: the page's own /r/<slug>/state.json poll results in the Vue app — success and failure drive the feed indicator EXPOSES: repo page title '<repo> — Karta Watch'; header k-mark and '← home' button both link to the hub landing carrying the key; feed labels 'live from git — read-only' and 'snapshot — feed paused'; 'also watching:' switcher links to the other opted-in repos' pages; dependency-waiting chip word WAITING in steel, BLOCKED retired from the repo page FEED DEBOUNCE: the indicator flips to paused only after 2 consecutive poll failures and recovers on the first success — a single transient failure never flickers the label. TESTABILITY: the transition is a pure function in the page source (state in, state out), exercised deterministically by the self-test without a browser; visual qualities (focus ring, exact pixel sizes) are carried by the shell's CSS classes, and the self-test asserts structure (button elements, aria-pressed, the shell class names present), not rendered pixels. Hub-bound links (k-mark, home button, switcher) all carry the key; the switcher lists only the OTHER opted-in repos, never the current one.",
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "blast-radius:serve_status.py-also-edited-by-landing-refresh-serialized-via-depends_on",
+          "contract:page-title-and-header-shape-additive"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "the served repo page <title> is '<repo> — Karta Watch' with the actual repo name",
+          "the header shell renders the k-mark square and a bordered '← home' button, both anchors to the hub landing carrying the key, then the repo name inside the shell's repo-name class (the class carries the mono/amber/size styling) — and no breadcrumb path text",
+          "for a roster of three opted-in repos, the 'also watching:' line links exactly the other two repos (keys carried) and never the current repo",
+          "the feed transition is a pure function: success yields the live label; only 2 consecutive failures yield 'snapshot — feed paused' (a single failure does not flip); the first success after a pause recovers the live label",
+          "the literal label 'snapshot — feed paused' is present as a constant in the page source and wired to the poll-failure path",
+          "for a fixture with a dependency-waiting item, the chip word is WAITING in a soft steel chip; the word BLOCKED appears nowhere in the rendered repo page",
+          "the Delivered phase keeps its green check treatment — gutter mark, green binder border and header — as formalized in the artboard",
+          "binder and work-item expand/collapse toggles are real <button> elements carrying the aria-pressed pattern of the show-delivered toggle; the self-test asserts the button elements and attributes structurally",
+          "for a fixture where the current binder set includes delivered history, the BLOCKED-absence assertion is scoped to chip vocabulary of rendered work items — archived prose is out of scope"
+        ],
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run --script skills/karta-status/scripts/karta_next.py --self-test"
+      }
+    },
+    {
+      "id": "landing-refresh",
+      "title": "Landing cards that sort by what needs you now",
+      "summary": "Rework the hub landing to the approved artboard: NOW, NEXT, CLEAR chips replacing the old queued word, actionability sort, whole-card links, the amber next-action arrow, and a humane last-activity stamp per repo.",
+      "estimate": "M",
+      "depends_on": [
+        "repo-shell"
+      ],
+      "design_reference": "Hub landing v2.dc.html",
+      "contract": "CONSUMES: the engine's next_action.human, rendered verbatim on each card — the landing hardcodes no engine copy, including the all-merged message EXPOSES: landing chip vocabulary NOW (delivery in flight), NEXT (formerly QUEUED, matching the repo page's phase name), CLEAR (all merged); each card is one anchor to /r/<slug>/ carrying the key The git subprocess for the activity stamp uses a pinned ~1 s timeout; the QUEUED retirement is source-level — the word leaves serve_status.py entirely, not just the rendered output. This item owns serve_status.py's handling of the engine's new level 'done': the landing styles a done repo calmly (the CLEAR chip treatment), never as blocked or error.",
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "blast-radius:serve_status.py-also-edited-by-repo-shell-which-lands-first"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "with a fixture roster containing all three states, cards sort by actionability: every NOW card before every NEXT card before every CLEAR card",
+          "the string QUEUED appears nowhere in serve_status.py source (mirrors follow), which implies no rendered output can carry it",
+          "each card is exactly one <a> element wrapping the row, next-action line, and foot, with href /r/<slug>/ carrying the key",
+          "the next-action line is prefixed with an amber '▸ '",
+          "the last-activity stamp derives from git log -1 --format=%ct in a per-repo subprocess with a pinned ~1 s timeout, and a subprocess spy shows at most one git call per repo within the ~5 s cache window",
+          "with an injected clock, the stamp renders humane buckets — 'active today' for a same-day commit, 'active N days ago' otherwise",
+          "when git fails or times out the stamp is simply absent from the card — never an error",
+          "the landing renders next_action.human verbatim from the engine, so the all-merged copy flows from the engine fix without the landing hardcoding it",
+          "a fixture repo whose engine state carries level 'done' renders with the calm CLEAR treatment — no blocked or error styling anywhere on its card"
+        ],
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run --script skills/karta-status/scripts/karta_next.py --self-test"
+      }
+    },
+    {
+      "id": "watch-ux-docs",
+      "title": "The watch guide tells the new navigation and vocabulary story",
+      "summary": "Update the Karta Watch how-to with the home navigation, the repo switcher, the feed-paused meaning, and the new landing vocabulary, then confirm the full gate suite is green.",
+      "estimate": "S",
+      "depends_on": [
+        "landing-refresh"
+      ],
+      "design_reference": "none",
+      "contract": "Docs only, plain language per the karta-plainlanguage standard. docs/how-to/karta-watch.md gains the navigation story — the '← home' button and the k-mark both return to the hub, the 'also watching' switcher jumps straight between repos — plus what a paused feed means, quoting the literal label 'snapshot — feed paused' exactly as the page renders it, and the landing vocabulary NOW, NEXT, CLEAR (QUEUED is retired). skills/karta-status/SKILL.md is checked for QUEUED and touched only if it names it. Mirrors regenerated when SKILL.md changes; the full four-command gate suite stays green. The vocabulary audit is repo-wide: git grep -i queued across docs/ and skills/karta-status/ returns nothing (hits elsewhere are reviewed and whitelisted in the build report with reasons).",
+      "touches": [
+        "docs/how-to/karta-watch.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": []
+      },
+      "oracle": {
+        "type": "smoke",
+        "assertions": [
+          "docs/how-to/karta-watch.md describes the '← home' button and k-mark hub link, the 'also watching' switcher, and what the paused feed means, quoting the label 'snapshot — feed paused' verbatim",
+          "the docs use the landing vocabulary NOW, NEXT, and CLEAR; git grep -i queued over docs/ and skills/karta-status/ returns nothing unreviewed",
+          "skills/karta-status/SKILL.md is checked for the word QUEUED — it stays untouched unless the check finds it",
+          "all four gate commands pass, confirming any regenerated mirrors are in sync"
+        ],
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check"
+      }
+    }
+  ]
+}
