@@ -52,6 +52,9 @@ status engine failed in that repo, and **UNAVAILABLE** when the repo path no lon
 The old chip word for planned work is retired; that chip now reads NEXT — the same word the
 repo page's phase rail uses.)
 
+Each card also shows when the repo last saw activity — **active today**, or **active N days
+ago** — read from its newest commit. The stamp is simply absent if git can't answer in time.
+
 ## Getting around
 
 From a repo page, two controls return you to the hub landing: the small **k** mark in the
