@@ -36,6 +36,45 @@ Karta Watch: http://127.0.0.1:8842/?key=wJ0aPqTt3XanY2vN8dKfLw — persistent; s
 
 (Your port and key will differ; the shape will not.)
 
+## Reading the landing
+
+Each opted-in repo gets one card, and the chip word on the card tells you what that repo needs
+from you:
+
+- **NOW** — a delivery is in flight. Work is happening in this repo right now.
+- **NEXT** — work is planned and ready to run once someone picks it up.
+- **CLEAR** — every binder is merged. Nothing left to run.
+
+Cards sort by that word — every NOW card above every NEXT card above every CLEAR card — so the
+top of the page is always the repo that needs you soonest. Each card is one link: click anywhere
+on it to open that repo's watch page. (Two rarer words cover broken cards: **WEDGED** when the
+status engine failed in that repo, and **UNAVAILABLE** when the repo path no longer exists.
+The old chip word for planned work is retired; that chip now reads NEXT — the same word the
+repo page's phase rail uses.)
+
+Each card also shows when the repo last saw activity — **active today**, or **active N days
+ago** — read from its newest commit. The stamp is simply absent if git can't answer in time.
+
+## Getting around
+
+From a repo page, two controls return you to the hub landing: the small **k** mark in the
+top-left corner and the **← home** button next to it. Both carry your key, so either click just
+works. To jump straight to another repo without going home first, use the **also watching:**
+line under the header — it lists every other opted-in repo, never the one you are on.
+
+On the repo page itself the vocabulary stays calm: a work item waiting on a dependency shows a
+steel **WAITING** chip — waiting its turn is normal flow, not an alarm.
+
+## When the feed pauses
+
+The repo page header carries a feed light. While the page can reach the hub it reads
+**live from git — read-only**: every poll re-derives the state fresh from git, and nothing on
+the page can change anything. If two polls in a row fail — the hub died, or your machine slept —
+the label flips to **snapshot — feed paused**: the page keeps showing the last state it fetched,
+but it is no longer updating. One missed poll never flips the label, and the first successful
+poll flips it back to live. To revive a dead hub, run the ensure one-liner in "After a reboot"
+below.
+
 ## Turn it off
 
 Say **"turn off karta watch"** — the agent runs `--opt-out` for the current repo. Or run it

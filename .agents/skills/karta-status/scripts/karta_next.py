@@ -123,7 +123,7 @@ def derive_state(binders: list[dict], git_facts: dict,
                          and all(status_by_slug.get(p) == "merged" for p in ob["after"]))
 
     order_view = order if order is not None else sorted(by_slug)
-    next_action = _next_action(out_binders, order_view)
+    next_action = _next_action(out_binders, order_view, warnings, errors, archived)
     return {
         "repo": {"default_branch": default_branch},
         "order": order,                      # None on cycle — derived, never stored
@@ -139,7 +139,13 @@ def _in_order(out_binders: list[dict], order_view: list[str]) -> list[dict]:
     return sorted(out_binders, key=lambda ob: pos.get(ob["slug"], len(pos)))
 
 
-def _next_action(out_binders: list[dict], order_view: list[str]) -> dict:
+# The calm end-state copy. One constant, shared by the derive and the self-test —
+# the hub landing renders next_action.human verbatim, so this string is contract.
+DONE_HUMAN = "all binders merged — nothing left to run"
+
+
+def _next_action(out_binders: list[dict], order_view: list[str], warnings: list[str],
+                 errors: list[str], archived: frozenset[str] = frozenset()) -> dict:
     by_slug = {ob["slug"]: ob for ob in out_binders}
     ordered = [by_slug[s] for s in order_view if s in by_slug]
 
@@ -160,10 +166,13 @@ def _next_action(out_binders: list[dict], order_view: list[str]) -> dict:
         if ob.get("is_next"):
             return {"level": "binder", "command": f"karta-deliver {ob['slug']}",
                     "human": f"start {ob['slug']} (its predecessors are merged)"}
-    # 4) everything merged
-    if ordered and all(ob["status"] == "merged" for ob in ordered):
-        return {"level": "done", "command": None,
-                "human": "all binders merged — nothing left to run"}
+    # 4) everything merged or archived (zero live binders included) on a clean
+    #    derive — done. Warnings/errors keep the blocked message so a dangling
+    #    edge or cycle is never papered over; an empty repo with no archive has
+    #    nothing delivered, so it stays on the blocked derive too.
+    if ((ordered or archived) and not warnings and not errors
+            and all(ob["status"] == "merged" for ob in ordered)):
+        return {"level": "done", "command": None, "human": DONE_HUMAN}
     # 5) work remains but nothing is runnable (blocked / cycle bottleneck)
     return {"level": "blocked", "command": None,
             "human": "no binder is ready to run — check the warnings/errors above"}
@@ -718,6 +727,43 @@ def _run_self_test() -> int:
                    x_row["after"] == ["dup"] and x_row["is_next"] is False))
     checks.append(("the shadowed archived namesake draws a warning",
                    len(dup["warnings"]) == 1 and "reuses the slug" in dup["warnings"][0]))
+
+    # the calm end state (watch-shell): all merged or archived + clean derive -> done,
+    # while every genuinely blocked derive keeps the blocked copy
+    done_action = {"level": "done", "command": None, "human": DONE_HUMAN}
+    all_merged = derive_state(
+        [{"slug": "m1", "motivation": "x", "scope": {"included": ["x"]},
+          "work_items": [{"id": "a", "title": "A", "oracle": {"type": "unit"}}]}],
+        {"default_branch": "main", "binders": {
+            "m1": {"items": {"a": {"done": True, "done_in_default": True}}}}})
+    checks.append(("all binders merged -> done, no command, the calm copy",
+                   all_merged["next_action"] == done_action))
+    all_archived = derive_state([], {"default_branch": "main", "binders": {}},
+                                archived=frozenset({"shipped"}))
+    checks.append(("zero live binders (all archived) -> the same calm done",
+                   all_archived["next_action"] == done_action))
+    checks.append(("genuinely blocked (cycle) derive is unchanged",
+                   cyc["next_action"] == {"level": "blocked", "command": None,
+                                          "human": "no binder is ready to run — "
+                                                   "check the warnings/errors above"}))
+    warn_merged = derive_state(
+        [{"slug": "wm", "after": ["ghost"], "motivation": "x", "scope": {"included": ["x"]},
+          "work_items": [{"id": "a", "title": "A", "oracle": {"type": "unit"}}]}],
+        {"default_branch": "main", "binders": {
+            "wm": {"items": {"a": {"done": True, "done_in_default": True}}}}})
+    checks.append(("all merged but a dangling-after warning -> still blocked, never done",
+                   warn_merged["warnings"] != []
+                   and warn_merged["next_action"]["level"] == "blocked"))
+    checks.append(("no binders and no archive -> unchanged blocked derive",
+                   derive_state([], {"default_branch": "main", "binders": {}})
+                   ["next_action"]["level"] == "blocked"))
+    done_foot = render_footer(all_merged, "m1")
+    done_term = render_terminal(all_archived)
+    checks.append(("footer and terminal render the done state calmly",
+                   done_foot == f"m1 1/1 · complete  ▶ {DONE_HUMAN}"
+                   and done_term.splitlines()[-1] == f"▶ {DONE_HUMAN}"
+                   and "warning:" not in done_term and "error:" not in done_term
+                   and "karta-deliver" not in done_term))
 
     # the renderers must not raise on a real state
     try:
