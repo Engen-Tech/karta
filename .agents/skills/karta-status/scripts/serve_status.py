@@ -488,7 +488,9 @@ _STATE_META = {
     "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "BUILT"},
     "building": {"color": "var(--amber)", "soft": "var(--amber-soft)", "badge": "building", "word": "RUNNING"},
     "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "QUEUED"},
-    "blocked":  {"color": "var(--block)", "soft": "var(--block-soft)", "badge": "blocked",  "word": "BLOCKED"},
+    # dep-waiting is calm, not alarming: the engine's `blocked` status renders
+    # as a soft steel WAITING chip (an item waiting its turn is normal flow).
+    "blocked":  {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "hourglass", "word": "WAITING"},
     "failed":   {"color": "var(--block)", "soft": "var(--block-soft)", "badge": "blocked",  "word": "FAILED"},
 }
 
@@ -592,8 +594,6 @@ body{
   width:6px; height:6px; border-radius:50%; background:var(--live);
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
-.brand__live--recon{ color:var(--amber); }
-.brand__live--recon .brand__dot{ background:var(--amber); }
 .hdr-right{ display:flex; align-items:center; gap:2px; flex:none; }
 .hctl{
   display:flex; align-items:center; gap:6px; border:none; cursor:pointer;
@@ -602,6 +602,46 @@ body{
 }
 .hctl--on{ color:var(--ink); }
 .hctl__icon{ display:flex; }
+
+/* repo-page header shell: k-mark home anchor, home button, loud repo name */
+.shell{ display:flex; align-items:center; gap:12px; min-width:0; }
+.shell__kmark{
+  width:40px; height:40px; flex:none;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--amber); color:var(--on-accent);
+  font-family:var(--mono); font-weight:700; font-size:20px;
+  text-decoration:none;
+}
+.shell__home{
+  flex:none; font-family:var(--mono); font-size:12px; color:var(--mut);
+  background:var(--panel); border:1px solid var(--line); padding:6px 10px;
+  text-decoration:none; white-space:nowrap;
+}
+.shell__home:hover{ color:var(--amber); border-color:var(--amber); }
+.shell__txt{ min-width:0; }
+.shell__repo-name{
+  display:block; font-family:var(--mono); font-weight:700; font-size:26px;
+  letter-spacing:-0.5px; color:var(--amber);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.shell__feed{
+  font-size:12px; color:var(--mut); margin-top:1px;
+  display:flex; align-items:center; gap:6px;
+}
+.shell__feed-dot{
+  width:6px; height:6px; border-radius:50%; background:var(--live);
+  animation:karta-breathe 2s ease-in-out infinite; flex:none;
+}
+.shell__feed--paused{ color:var(--steel); }
+.shell__feed--paused .shell__feed-dot{ background:var(--steel); animation:none; }
+
+/* the "also watching:" repo switcher — quiet mono anchors to the other repos */
+.also{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  font-family:var(--mono); font-size:11px; color:var(--mut);
+}
+.also__link{ color:var(--mut); text-decoration:none; border-bottom:1px solid var(--line); }
+.also__link:hover{ color:var(--amber); border-color:var(--amber); }
 
 /* delivery panel */
 .panel{ background:var(--panel); border:1px solid var(--line); padding:24px 30px 16px; }
@@ -635,8 +675,15 @@ body{
 /* a binder card */
 .binder{ border:1px solid var(--line); background:var(--bg); }
 .binder--now{ border-color:var(--amber); }
-.binder__header{ display:flex; align-items:center; gap:11px; padding:14px 18px; cursor:pointer; }
+.binder--done{ border-color:var(--green); }
+/* a real <button> (keyboard-operable expander) styled to the existing look */
+.binder__header{
+  display:flex; align-items:center; gap:11px; padding:14px 18px; cursor:pointer;
+  width:100%; text-align:left; background:transparent; border:0;
+  font:inherit; color:inherit;
+}
 .binder__header--now{ background:var(--amber-soft); }
+.binder__header--done{ background:var(--green-soft); }
 .binder__icon{
   display:flex; align-items:center; justify-content:center; width:25px; height:25px;
   flex:none; color:var(--on-accent);
@@ -676,9 +723,14 @@ body{
 .wave{ display:grid; gap:11px; margin-bottom:2px; }
 
 /* a work item */
-.item{ border:1px solid var(--line); background:var(--panel); cursor:pointer; }
+.item{ border:1px solid var(--line); background:var(--panel); }
 .item--building{ border-color:var(--amber); }
-.item__row{ display:flex; align-items:flex-start; gap:10px; padding:12px 14px; min-width:0; }
+/* the row is a real <button> (keyboard-operable expander), existing look kept */
+.item__row{
+  display:flex; align-items:flex-start; gap:10px; padding:12px 14px; min-width:0;
+  width:100%; text-align:left; background:transparent; border:0;
+  font:inherit; color:inherit; cursor:pointer;
+}
 .item__badge{
   display:flex; align-items:center; justify-content:center; width:22px; height:22px;
   flex:none; color:var(--on-accent);
@@ -751,6 +803,31 @@ body{
 
 
 # ---------------------------------------------------------------------------
+# The feed indicator — the repo page's honest "is this live?" light. Two states
+# only: live (green dot) and paused (steel dot). The transition is a PURE
+# function of (state, poll outcome): a success is always live; only
+# FEED_PAUSE_AFTER *consecutive* poll failures flip to paused (one transient
+# failure never flickers the label); the first success after a pause recovers.
+# The page's feedTransition() below is the same function in JS — the Python
+# mirror here is the deterministic seam the self-test drives. Keep in lockstep.
+# FEED_PAUSED_LABEL is a binder-declared shared term (byte-identical in the
+# watch docs) — this constant is its single definition.
+# ---------------------------------------------------------------------------
+
+FEED_LIVE_LABEL = "live from git — read-only"
+FEED_PAUSED_LABEL = "snapshot — feed paused"
+FEED_PAUSE_AFTER = 2   # consecutive poll failures before the label flips
+
+
+def _feed_transition(state: dict, ok: bool) -> dict:
+    """Python mirror of the page's feedTransition(): state in, state out."""
+    if ok:
+        return {"failures": 0, "paused": False}
+    failures = state["failures"] + 1
+    return {"failures": failures, "paused": failures >= FEED_PAUSE_AFTER}
+
+
+# ---------------------------------------------------------------------------
 # The Vue 3 app. Uses the vendored global build (Vue.createApp), an in-document
 # template (no build step). Mounts from the inlined initial state for a correct
 # first paint, then — only off file:// — polls /state.json every 2.6s as the live
@@ -771,6 +848,27 @@ const PHASE_META = __PHASE_META__;
 const PHASE_DEFS = __PHASE_DEFS__;
 const ORACLE_ICON = __ORACLE_ICON__;
 const POLL_MS = 2600;
+
+// The header shell, handed over from the server: the repo display name, the
+// hub-landing href (null in ephemeral mode — no hub to go home to), and the
+// OTHER opted-in repos for the "also watching:" switcher (never this one).
+const SHELL = __SHELL__;
+
+// The feed indicator's two labels + debounce threshold, from the same Python
+// constants the self-test asserts (FEED.paused is the shared feed-paused term).
+const FEED = __FEED_LABELS__;
+const FEED_PAUSE_AFTER = __FEED_PAUSE_AFTER__;
+
+// Pure feed transition — state in, state out, no I/O. A success is always
+// live; only FEED_PAUSE_AFTER consecutive failures pause (a single transient
+// failure never flickers); the first success after a pause recovers. Mirrored
+// by _feed_transition() in serve_status.py, which the self-test drives —
+// keep the two in lockstep.
+function feedTransition(state, ok) {
+  if (ok) return { failures: 0, paused: false };
+  const failures = state.failures + 1;
+  return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
+}
 
 // A render helper for inline <svg> icons, matching the design's icon() factory.
 const Icon = {
@@ -833,7 +931,8 @@ const app = createApp({
       state: window.__KARTA_STATE__ || { binders: [], repo: { default_branch: 'main' }, next_action: {} },
       expanded: {},      // 'slug/itemId' -> bool
       open: {},          // slug -> bool (binder open/collapse; default-open for `now`)
-      reconnecting: false,
+      shell: SHELL,
+      feed: { failures: 0, paused: false },
       polls: 0,
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
@@ -844,6 +943,7 @@ const app = createApp({
   computed: {
     binders() { return this.state.binders || []; },
     hasBinders() { return this.binders.length > 0; },
+    feedLabel() { return this.feed.paused ? FEED.paused : FEED.live; },
 
     // common `-`-split slug prefix across binders (fallback to the first slug).
     deliveryName() {
@@ -949,6 +1049,7 @@ const app = createApp({
         title: b.title || titleCase(b.slug),
         blurb: b.summary || b.motivation || '',
         now: key === 'now',
+        done: key === 'past',
         pctLabel: pct + '%', fillW: pct + '%',
         countLabel: dc + '/' + tot + (tot === 1 ? ' run' : ' runs'),
         open: this.isOpen(b.slug, key),
@@ -970,8 +1071,8 @@ const app = createApp({
       // the hub's /r/<slug>/ it is that repo's own feed — and ?key= rides along.
       fetch('state.json' + location.search, { cache: 'no-store' })
         .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(s => { this.state = s; this.reconnecting = false; this.polls += 1; })
-        .catch(() => { this.reconnecting = true; });
+        .then(s => { this.state = s; this.feed = feedTransition(this.feed, true); this.polls += 1; })
+        .catch(() => { this.feed = feedTransition(this.feed, false); });
     },
   },
   mounted() {
@@ -990,12 +1091,14 @@ const app = createApp({
   template: `
 <div class="wrap">
   <header class="top">
-    <div class="brand">
-      <img class="brand__mascot" src="/assets/mascot.png__ASSET_QS__" alt="karta mascot" width="40" height="40">
-      <div class="brand__txt">
-        <span class="brand__word">karta</span>
-        <div class="brand__live" :class="{ 'brand__live--recon': reconnecting }">
-          <span class="brand__dot" aria-hidden="true"></span>{{ reconnecting ? 'reconnecting… — read-only' : 'live from git — read-only' }}
+    <div class="shell">
+      <a v-if="shell.home" class="shell__kmark" :href="shell.home" aria-label="karta watch hub">k</a>
+      <span v-else class="shell__kmark" aria-hidden="true">k</span>
+      <a v-if="shell.home" class="shell__home" :href="shell.home">← home</a>
+      <div class="shell__txt">
+        <span class="shell__repo-name">{{ shell.name }}</span>
+        <div class="shell__feed" :class="{ 'shell__feed--paused': feed.paused }">
+          <span class="shell__feed-dot" aria-hidden="true"></span>{{ feedLabel }}
         </div>
       </div>
     </div>
@@ -1014,6 +1117,11 @@ const app = createApp({
       </button>
     </div>
   </header>
+
+  <nav class="also" v-if="shell.others.length" aria-label="also watching">
+    <span>also watching:</span>
+    <a class="also__link" v-for="o in shell.others" :key="o.slug" :href="o.href">{{ o.name }}</a>
+  </nav>
 
   <template v-if="hasBinders">
     <section class="panel" aria-label="delivery">
@@ -1043,8 +1151,10 @@ const app = createApp({
           <div class="phase__empty" v-if="p.empty">— no binders</div>
 
           <div class="phase__binders">
-            <div class="binder" :class="{ 'binder--now': b.now }" v-for="b in p.binders" :key="b.slug">
-              <div class="binder__header" :class="{ 'binder__header--now': b.now }" @click="toggleBinder(b.slug, b.key)">
+            <div class="binder" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
+              <button type="button" class="binder__header" :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
+                @click="toggleBinder(b.slug, b.key)"
+                :aria-pressed="b.open ? 'true' : 'false'">
                 <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-accent)" /></span>
                 <span class="binder__title">{{ b.title }}</span>
                 <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
@@ -1052,7 +1162,7 @@ const app = createApp({
                 <span class="binder__pct">{{ b.pctLabel }}</span>
                 <span class="binder__count">{{ b.countLabel }}</span>
                 <span class="binder__caret" :class="{ 'binder__caret--open': b.open }"><icon name="arrowdown" :size="13" color="var(--mut)" /></span>
-              </div>
+              </button>
               <div class="binder__blurb" v-if="b.blurb">{{ b.blurb }}</div>
               <div class="binder__bar"><div class="binder__fill" :style="{ width: b.fillW, background: b.color }"></div></div>
 
@@ -1070,8 +1180,9 @@ const app = createApp({
                     <span class="parallel__icon"><icon name="fork" :size="11" color="var(--mut)" /></span>{{ w.parallelLabel }}
                   </div>
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
-                    <div class="item" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id" @click="toggleItem(b.slug, it.id)">
-                      <div class="item__row">
+                    <div class="item" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
+                      <button type="button" class="item__row" @click="toggleItem(b.slug, it.id)"
+                        :aria-pressed="isExpanded(b.slug, it.id) ? 'true' : 'false'">
                         <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-accent)" :spin="it.building" /></span>
                         <div class="item__main">
                           <div class="item__title">{{ it.title }}</div>
@@ -1084,7 +1195,7 @@ const app = createApp({
                           </div>
                           <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
                         </div>
-                      </div>
+                      </button>
                       <div class="item__shim" v-if="it.building"><div class="item__shim-fill"></div></div>
                       <div class="item__detail" v-if="isExpanded(b.slug, it.id)">
                         <div class="item__detail-head"><icon :name="it.oracleIcon" :size="12" color="var(--mut)" /><span>passes its {{ it.oracle }} check when:</span></div>
@@ -1124,10 +1235,19 @@ def _theme_attr(theme: str | None) -> str:
     return theme if theme in ("light", "dark") else "dark"
 
 
-def _build_app_js(state: dict, asset_qs: str = "") -> str:
+def _repo_display_name(root: str | os.PathLike) -> str:
+    """The repo's display name: the basename of its root (the roster's own
+    naming), falling back to the raw path for a bare root like '/'."""
+    root = str(root)
+    return os.path.basename(root.rstrip("/\\")) or root
+
+
+def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) -> str:
     """Substitute the Python-owned data tables into the Vue app source.
     `asset_qs` is the hub's ?key=<token> suffix for asset URLs ("" in
-    ephemeral mode, whose assets stay key-exempt)."""
+    ephemeral mode, whose assets stay key-exempt); `shell` is the header
+    model built in render_app_html."""
+    shell = shell or {"name": "", "home": None, "others": []}
     return (
         _APP_JS
         .replace("__ICONS__", json.dumps(_ICONS, separators=(",", ":")))
@@ -1135,6 +1255,10 @@ def _build_app_js(state: dict, asset_qs: str = "") -> str:
         .replace("__PHASE_META__", json.dumps(_PHASE_META, separators=(",", ":")))
         .replace("__PHASE_DEFS__", json.dumps(_PHASE_DEFS, separators=(",", ":")))
         .replace("__ORACLE_ICON__", json.dumps(_ORACLE_ICON, separators=(",", ":")))
+        .replace("__SHELL__", _inert_json(shell))
+        .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
+                                                 "paused": FEED_PAUSED_LABEL}))
+        .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
         .replace("__ASSET_QS__", asset_qs)
     )
 
@@ -1174,24 +1298,40 @@ def _inert_json(obj) -> str:
             .replace("/", "\\/"))
 
 
-def render_app_html(state: dict, theme: str | None = None, key_qs: str = "") -> str:
+def render_app_html(state: dict, theme: str | None = None, key_qs: str = "",
+                    repo_name: str = "", roster: list[dict] | None = None) -> str:
     """One self-contained document: the theme CSS, the inlined initial state (for a
     correct first paint and file:// snapshots), the vendored Vue, and the app. No
     external URLs — only same-origin /assets and state.json. In hub mode every
     asset URL carries `key_qs` (?key=<token>), because hub assets are key-gated;
-    ephemeral mode passes "" and stays byte-identical."""
+    ephemeral mode passes "" and stays byte-identical.
+
+    `repo_name` is the repo's display name (roster basename) — it titles the tab
+    and heads the page. `roster` distinguishes the two modes: a list (possibly
+    empty) of the OTHER opted-in repos ({slug, name}) means hub mode — the shell
+    renders the k-mark + '← home' anchors to the hub landing and the
+    "also watching:" switcher, every hub-bound href carrying `key_qs`; None
+    means ephemeral mode — no hub exists, so no hub links render."""
     theme_attr = _theme_attr(theme)
+    shell = {
+        "name": repo_name,
+        "home": ("/" + key_qs) if roster is not None else None,
+        "others": [{"slug": e["slug"], "name": e["name"],
+                    "href": f"/r/{e['slug']}/{key_qs}"} for e in (roster or [])],
+    }
+    title = (f"{html.escape(repo_name)} — Karta Watch" if repo_name
+             else "Karta Watch")
     # _inert_json keeps raw markup bytes (and any `</script>` breakout) out of
     # the inline block; the JS engine decodes the escapes to identical strings.
     state_json = _inert_json(state)
-    app_js = _build_app_js(state, key_qs)
+    app_js = _build_app_js(state, key_qs, shell)
     return (
         "<!doctype html>"
         f'<html lang="en" data-theme="{theme_attr}">'
         "<head>"
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        "<title>Karta Watch</title>"
+        f"<title>{title}</title>"
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{key_qs}">'
         f"<style>{_CSS}</style>"
         "</head>"
@@ -1384,6 +1524,16 @@ def hub_cards(repos: dict, engine_for) -> list[dict]:
         return list(ex.map(build, opted))
 
 
+def switcher_entries(repos: dict, current_slug: str) -> list[dict]:
+    """The "also watching:" switcher model: every OTHER opted-in repo — never
+    the current one — as {slug, name} pairs sorted by slug."""
+    return sorted(({"slug": rec["slug"], "name": _repo_display_name(root)}
+                   for root, rec in repos.items()
+                   if rec.get("opted_in") and rec.get("slug")
+                   and rec["slug"] != current_slug),
+                  key=lambda e: e["slug"])
+
+
 # chip colors per card word — the same CSS variables the repo page uses
 _HUB_CHIP = {
     "IN FLIGHT":   ("var(--amber)", "var(--amber-soft)"),
@@ -1541,7 +1691,9 @@ class _Handler(BaseHTTPRequestHandler):
             return self._text(200, _inert_json(current_state()), "application/json")
 
         if path in ("/", "/index.html"):
-            return self._text(200, render_app_html(current_state(), theme), "text/html")
+            return self._text(200, render_app_html(
+                current_state(), theme,
+                repo_name=_repo_display_name(os.getcwd())), "text/html")
 
         return self._text(404, "not found", "text/plain")
 
@@ -1628,15 +1780,19 @@ class _HubHandler(_Handler):
                               "text/html")
         m = _REPO_ROUTE.fullmatch(path)
         if m:
-            root = self._root_for_slug(m.group(1))
+            slug = m.group(1)
+            root = self._root_for_slug(slug)
             if root is None:
                 return self._text(404, "not found", "text/plain")
             res = self.server.engine_for(root).state()
             state = res["state"] if res["ok"] else _degraded_state(res["error"])
             if m.group(2):
                 return self._text(200, _inert_json(state), "application/json")
-            return self._text(200, render_app_html(state, theme, key_qs=key_qs),
-                              "text/html")
+            repos = load_state(self.server.hub_state_dir)["repos"]
+            return self._text(200, render_app_html(
+                state, theme, key_qs=key_qs,
+                repo_name=_repo_display_name(root),
+                roster=switcher_entries(repos, slug)), "text/html")
         return self._text(404, "not found", "text/plain")
 
     def _identity_payload(self) -> dict:
@@ -2097,10 +2253,18 @@ def _self_exit_watch(httpd, state_dir: Path | None,
 
 
 def _dir_snapshot(path: Path):
-    """A comparable fingerprint of a directory's contents (None when absent)."""
+    """A comparable fingerprint of a directory's contents (None when absent).
+
+    The rotating hub log (hub.log*) counts by NAME only: a LIVE hub — plus any
+    open watch tab polling it — keeps appending to its own log while a
+    self-test runs, and that concurrent append is background activity, not a
+    self-test write. A self-test that *creates* a real log file still trips
+    the guard (the name appears); every other file keeps its full size+mtime
+    fingerprint."""
     if not path.exists():
         return None
-    return sorted((p.name, p.stat().st_size, p.stat().st_mtime_ns)
+    return sorted((p.name, None, None) if p.name.startswith(LOG_FILENAME)
+                  else (p.name, p.stat().st_size, p.stat().st_mtime_ns)
                   for p in path.iterdir())
 
 
@@ -2560,6 +2724,13 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         ("hub: the landing greys wedged + vanished cards, hides non-opted repos",
          "WEDGED" in landing and "UNAVAILABLE" in landing
          and rec_plain["slug"] not in landing),
+        ("hub: the served repo page carries the shell — its own name in the"
+         " title, the other opted-in repos in the switcher, never itself",
+         "<title>repo-live — Karta Watch</title>" in page
+         and ('"href":"\\/r\\/%s\\/?key=' % rec_wedged["slug"]) in page
+         and ('"href":"\\/r\\/%s\\/?key=' % rec_gone["slug"]) in page
+         and ('"\\/r\\/%s\\/' % slug_live) not in page
+         and rec_plain["slug"] not in page),
     ]
 
     log_path = hub_dir / LOG_FILENAME
@@ -3198,6 +3369,105 @@ def _run_self_test() -> int:
             (f"{theme}: the headline fallback is wired to the slug (not just the helper present)",
                 "titleCase(b.slug)" in h),
         ]
+
+    # --- the repo-page header shell, feed indicator, and chip vocabulary ----
+    others = switcher_entries({
+        "/x/gringotts": {"slug": "gringotts-aaaaaaaa", "opted_in": True},
+        "/x/alpha": {"slug": "alpha-bbbbbbbb", "opted_in": True},
+        "/x/beta": {"slug": "beta-cccccccc", "opted_in": True},
+        "/x/plain": {"slug": "plain-dddddddd", "opted_in": False},
+    }, "gringotts-aaaaaaaa")
+    hub_page = render_app_html(state, "dark", key_qs="?key=T",
+                               repo_name="gringotts", roster=others)
+    eph_page = render_app_html(state, "dark", repo_name="karta")
+    live0 = {"failures": 0, "paused": False}
+    fail1 = _feed_transition(live0, False)
+    fail2 = _feed_transition(fail1, False)
+    checks += [
+        ("shell: the page <title> is '<repo> — Karta Watch' with the actual repo name",
+         "<title>gringotts — Karta Watch</title>" in hub_page
+         and "<title>karta — Karta Watch</title>" in eph_page),
+        ("shell: the k-mark square and the bordered '← home' button are both"
+         " anchors to the hub landing carrying the key",
+         '<a v-if="shell.home" class="shell__kmark" :href="shell.home"' in hub_page
+         and '<a v-if="shell.home" class="shell__home" :href="shell.home">← home</a>' in hub_page
+         and '"home":"\\/?key=T"' in hub_page),
+        ("shell: the repo name renders inside the shell repo-name class — no"
+         " breadcrumb path text",
+         'class="shell__repo-name">{{ shell.name }}</span>' in hub_page
+         and '"name":"gringotts"' in hub_page
+         and "crumb" not in hub_page and "gringotts\\/" not in hub_page),
+        ("shell: ephemeral mode has no hub, so no hub links and no switcher render",
+         '"home":null' in eph_page and '"others":[]' in eph_page),
+        ("switcher: a three-repo roster links exactly the other two — keys"
+         " carried, never self, non-opted hidden",
+         others == [{"slug": "alpha-bbbbbbbb", "name": "alpha"},
+                    {"slug": "beta-cccccccc", "name": "beta"}]
+         and '"href":"\\/r\\/alpha-bbbbbbbb\\/?key=T"' in hub_page
+         and '"href":"\\/r\\/beta-cccccccc\\/?key=T"' in hub_page
+         and "gringotts-aaaaaaaa" not in hub_page
+         and "plain-dddddddd" not in hub_page
+         and 'class="also"' in hub_page and "also watching:" in hub_page),
+        ("feed: the transition is pure — success live; one failure stays live;"
+         " two consecutive failures pause; the first success recovers",
+         _feed_transition(live0, True) == live0
+         and fail1 == {"failures": 1, "paused": False}
+         and fail2 == {"failures": 2, "paused": True}
+         and _feed_transition(fail2, False)["paused"] is True
+         and _feed_transition(fail2, True) == live0),
+        ("feed: the paused label constant is present and wired to the"
+         " poll-failure path",
+         FEED_PAUSED_LABEL == "snapshot — feed paused"
+         and _inert_json({"live": FEED_LIVE_LABEL,
+                          "paused": FEED_PAUSED_LABEL}) in hub_page
+         and "function feedTransition" in hub_page
+         and "feedTransition(this.feed, false)" in hub_page
+         and "feedTransition(this.feed, true)" in hub_page
+         and "{{ feedLabel }}" in hub_page
+         and "FEED.paused : FEED.live" in hub_page),
+    ]
+
+    wait_state = {
+        "repo": {"default_branch": "main"}, "order": None,
+        "binders": [{"slug": "w-binder", "after": [], "status": "in_flight",
+                     "is_next": True,
+                     "items": {"total": 2, "done": 0, "built": 0, "failed": 0,
+                               "building": 1, "ready": 0, "blocked": 1,
+                               "detail": [{"id": "w1", "status": "building"},
+                                          {"id": "w2", "status": "blocked",
+                                           "deps": ["w1"]}]}}],
+        "next_action": {"level": "item", "command": "karta-deliver w-binder",
+                        "human": "w1 is building"},
+        "warnings": [], "errors": [],
+    }
+    wait_page = render_app_html(wait_state, "dark", repo_name="karta")
+    checks += [
+        ("chips: a dependency-waiting item renders the soft steel WAITING chip",
+         _STATE_META["blocked"]["word"] == "WAITING"
+         and _STATE_META["blocked"]["color"] == "var(--steel)"
+         and _STATE_META["blocked"]["soft"] == "var(--steel-soft)"
+         and '"status":"blocked"' in wait_page
+         and '"word":"WAITING"' in wait_page),
+        ("chips: the word BLOCKED appears nowhere in the rendered repo page"
+         " (delivered history included, chip vocabulary scoped)",
+         "BLOCKED" not in wait_page and '"word":"BLOCKED"' not in hub_page),
+        ("delivered: the green check treatment — gutter mark, green binder"
+         " border and header",
+         _PHASE_META["past"]["color"] == "var(--green)"
+         and _PHASE_META["past"]["mark"] == "check"
+         and ".binder--done{ border-color:var(--green); }" in hub_page
+         and ".binder__header--done{ background:var(--green-soft); }" in hub_page
+         and "'binder--done': b.done" in hub_page
+         and "'binder__header--done': b.done" in hub_page
+         and "done: key === 'past'" in hub_page),
+        ("expanders: binder + work-item toggles are real <button>s carrying the"
+         " show-delivered toggle's aria-pressed pattern",
+         '<button type="button" class="binder__header"' in hub_page
+         and ':aria-pressed="b.open ? \'true\' : \'false\'"' in hub_page
+         and '<button type="button" class="item__row"' in hub_page
+         and ':aria-pressed="isExpanded(b.slug, it.id) ? \'true\' : \'false\'"' in hub_page
+         and ':aria-pressed="showDelivered ? \'true\' : \'false\'"' in hub_page),
+    ]
 
     # Untrusted-text neutralization (see _inert_json): hostile binder-derived
     # strings must never reach a response as raw bytes, on either path.
