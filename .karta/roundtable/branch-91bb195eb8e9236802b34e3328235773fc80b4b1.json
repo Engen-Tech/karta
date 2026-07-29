@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "91bb195eb8e9236802b34e3328235773fc80b4b1",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/karta-watch-hub/integration",
+  "run_at": "2026-07-29T13:52:24.746878+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "LANDABLE",
+      "summary": "All 5 fixes sound: _store_lock spans the read-modify-write with graceful OSError fallback; kill guard converts probe-to-kill races to a clean dead outcome; lazy cold path verified via sys.modules isolation tests; bounded nudge re-probe; accurate Codex docs. Doctrine re-scope honest \u2014 bind-as-mutex retained for the daemon, store lock targeted. One LOW: intentional cold-path duplication of state-path logic. LANDABLE."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "LANDABLE",
+      "summary": "All fixes sound and correctly address the prior panel's concerns; the store lock closes the opted_in race, kill guard flows to spawn, lazy gates keep non-opted repos import-free with byte-identical output, re-probe prevents the misleading nudge, and the doctrine re-scope is an honest refinement separating data-consistency locking from the daemon's bind-based mutex. LANDABLE."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": "LANDABLE",
+      "summary": "All five fixes sound with detailed mechanics verified (flock/msvcrt semantics, ensure_state_dir ordering, retry matrix, count-based lock confinement guard with split-literal self-match defense). Re-scope is more precise than the original, not weaker. One maintainability nit: triple-duplicated _watch_state_path is a drift risk worth a shared self-test in 2.26.x. LANDABLE."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "LANDABLE",
+      "summary": "All five fixes verified sound; re-scope honest \u2014 the old check conflated daemon lifecycle with store writes and would have frozen the contract in its broken state. Six LOW follow-ups for 2.26.x, scheduled first: a cross-pinning test for the triplicated state-dir/repo-key resolution (drift fails open but silently); also non-reentrant lock contract undocumented, retry window shorter than stated bind time, PermissionError labeled dead, narrower guard coverage, ~10s Windows lock stall. None make shipped behavior wrong. LANDABLE."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "LANDABLE",
+      "summary": "All five fixes sound; self-test growth matches stated counts (serve +4, engine +4, hook +2); cold-path subprocess tests defeat module caching correctly; re-probe state space fully pinned; doctrine re-scope is an honest architectural bifurcation pinned by the use-count invariant. Three LOW follow-ups: cross-pair equivalence test for duplicated resolution logic, rename the dead label for the unsignalable case, broaden the daemon-class lock grep. LANDABLE."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "LANDABLE",
+      "summary": "All fixes sound and well-tested, including correct msvcrt seek/lock-region symmetry; the re-scoped self-test honestly preserves the daemon-lifecycle invariant while preventing lock-file creep. LANDABLE."
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    }
+  ]
+}
