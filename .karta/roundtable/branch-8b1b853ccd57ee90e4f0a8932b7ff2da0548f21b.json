@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "8b1b853ccd57ee90e4f0a8932b7ff2da0548f21b",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/watch-shell/integration",
+  "run_at": "2026-07-29T17:43:08.548878+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "LANDABLE",
+      "summary": "All six fixes sound (empty-repo guard, icon guard, aria-expanded split, timestamp guard verified against extreme epochs, mirror comments, appearance reset). One LOW: add TypeError to the fromtimestamp guard tuple. LANDABLE."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "LANDABLE",
+      "summary": "All six fixes sound; the empty-fixture, icon-resolution, ARIA, and epoch-guard self-tests each pin their fix. LANDABLE."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": "LANDABLE",
+      "summary": "All six sound with mechanics verified: short-circuit semantics on the empty-repo guard, static icon assertion in scope, regression-proof negative ARIA assertions, guard fires through the _repo_card integration path, 177/177 confirms all paths execute. No correctness, security, or error-handling gaps."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "LANDABLE",
+      "summary": "All six sound; the exception trio is exactly fromtimestamp's full cross-platform raise-set and the \u00b11e18 test is portable, not Linux-lucky. Declined items have defensible stated reasons \u2014 no grounds to relitigate. Two LOW notes: aria-controls association for assistive-tech jumps; the empty-repo NEXT word is a conscious semantic choice, flagged and accepted."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "LANDABLE",
+      "summary": "All six sound, including operator precedence on the guard, None-falsy coverage, zero-pluralization correctness, negative-assertion collision analysis, and the intentionally retained button padding. LANDABLE."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "LANDABLE",
+      "summary": "All six fixes sound and locked in by self-tests. LANDABLE."
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    }
+  ]
+}
