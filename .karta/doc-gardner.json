@@ -1,0 +1,4 @@
+{
+  "enabled": true,
+  "focus": "prose docs must match the shipped behavior: README, docs/how-to, and skill descriptions track the current flags and modes; generated mirrors are projections, never hand-edited (see AGENTS.md layout table)"
+}
