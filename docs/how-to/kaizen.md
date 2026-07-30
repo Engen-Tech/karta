@@ -24,7 +24,7 @@ Remove the file, or set `"enabled": false`, to turn it off. **Off means kaizen n
 python3 -c "import json; d=json.load(open('.karta/kaizen.json')); assert type(d.get('enabled')) is bool, 'enabled must be true or false'; assert set(d) <= {'enabled', 'focus'}, 'unknown keys (allowed: enabled, focus)'; assert d.get('focus') is None or type(d.get('focus')) is str, 'focus must be a string'; print('kaizen.json OK')"
 ```
 
-With the switch on, kaizen runs after the doc-gardner phase of every delivery, and the delivery report carries its outcome next to doc-gardner's.
+With the switch on, kaizen runs after the doc-gardner phase of every delivery — including a single-item delivery, where karta-build's hatch runs kaizen after doc-gardner — and the delivery report carries its outcome next to doc-gardner's.
 
 ## The first run seeds your packs
 
