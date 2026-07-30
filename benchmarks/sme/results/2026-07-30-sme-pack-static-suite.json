@@ -2,8 +2,8 @@
   "schema_version": 1,
   "vector": "sme-pack-static-suite",
   "run_date": "2026-07-30",
-  "plugin_version": "2.28.0",
-  "karta_sha": "feb6dfcb605c87b13e96314f14063fe610357e02",
+  "plugin_version": "2.29.0",
+  "karta_sha": "b53b147e7c6bcee103f9ffe898fadca77f3c43f4",
   "consumer_shas": {
     "parchmark": "2b87e071fbcd50256c5cd18dc31d401c169b8eaf",
     "gringotts": "36652b1af25024226323e34698415b3c1b1a10a3"
@@ -86,7 +86,7 @@
       "probe": "seed-drift",
       "outcome": "recorded",
       "file": "",
-      "remediation": "6 non-identical"
+      "remediation": "3 non-identical"
     },
     {
       "probe": "token-audit",
@@ -603,17 +603,17 @@
     {
       "owner": "parchmark",
       "pack": "minimalism",
-      "class": "LOCAL-ADDITIVE"
+      "class": "IDENTICAL"
     },
     {
       "owner": "parchmark",
       "pack": "python-fastapi",
-      "class": "LOCAL-ADDITIVE"
+      "class": "IDENTICAL"
     },
     {
       "owner": "parchmark",
       "pack": "vue",
-      "class": "LOCAL-ADDITIVE"
+      "class": "IDENTICAL"
     },
     {
       "owner": "gringotts",
@@ -737,10 +737,7 @@
     "pin-nonconformant:parchmark:settings-password-change",
     "seed-drift:gringotts:go-htmx:DIVERGENT",
     "seed-drift:gringotts:go-naming:DIVERGENT",
-    "seed-drift:gringotts:minimalism:LOCAL-ADDITIVE",
-    "seed-drift:parchmark:minimalism:LOCAL-ADDITIVE",
-    "seed-drift:parchmark:python-fastapi:LOCAL-ADDITIVE",
-    "seed-drift:parchmark:vue:LOCAL-ADDITIVE"
+    "seed-drift:gringotts:minimalism:LOCAL-ADDITIVE"
   ],
   "baseline_file": "benchmarks/sme/results/2026-07-30-sme-pack-static-suite.json",
   "status": "pass"

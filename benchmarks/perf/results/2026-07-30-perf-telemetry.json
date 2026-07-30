@@ -19,12 +19,12 @@
         "project": "karta",
         "context": {
           "project": "karta",
-          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,cross-item-consistency,delivery-stop-gate,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-sovereignty,roundtable-edict,shared-terms-pending,watch-shell,writer-confinement",
-          "plugin_version": "2.28.0",
-          "item_count": 69,
+          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,cross-item-consistency,delivery-stop-gate,gardner-reliability,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-sovereignty,roundtable-edict,seed-drift-stamp-strip,shared-terms-pending,watch-shell,writer-confinement",
+          "plugin_version": "2.29.0",
+          "item_count": 73,
           "estimate_mix": {
-            "M": 36,
-            "S": 19,
+            "M": 39,
+            "S": 20,
             "L": 14
           },
           "models_per_agent_type": {},

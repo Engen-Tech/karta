@@ -33,7 +33,7 @@
  "truth": {
   "N_agents": 4,
   "N_skills": 10,
-  "plugin_version": "2.28.0",
+  "plugin_version": "2.29.0",
   "readonly_agents": 2,
   "writer_agents": 2
  }

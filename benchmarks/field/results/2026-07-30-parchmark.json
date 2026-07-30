@@ -281,7 +281,7 @@
         "commit": "5d372de43934dc4a29dfb1a0ca8eee0c8cded5bd",
         "date": "2026-07-23T00:02:51-04:00"
       },
-      "carried_forward": false,
+      "carried_forward": true,
       "adoption_lag_days": 0,
       "lag_label": null,
       "present_now": null,
