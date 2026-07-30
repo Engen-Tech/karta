@@ -2,12 +2,44 @@
 name: karta-plainlanguage
 model: sonnet
 effort: medium
-description: Write or revise prose so a real reader can use it on the first read. Apply this whenever drafting or editing user-facing writing — documentation, READMEs, guides, announcements, emails, policies, regulations, release notes, help text, error messages, public-facing copy, or any message someone has to act on. Also apply when the user says "make this clearer," "simplify this," "rewrite in plain English," "less jargon," "tighten this up," or asks for an edit pass on existing prose. Skip for code, code comments, commit messages, and internal log lines — those follow different conventions.
+description: Write or revise prose so a real reader can use it on the first read. Apply this whenever drafting or editing user-facing writing — documentation, READMEs, guides, announcements, emails, policies, regulations, release notes, help text, error messages, public-facing copy, or any message someone has to act on. Also apply when the user says "make this clearer," "simplify this," "rewrite in plain English," "less jargon," "tighten this up," asks for an edit pass on existing prose, or wants text to read less like AI/LLM output — "remove the AI tells," "de-slop this," "make it sound human-written," "less ChatGPT-sounding." Skip for code, code comments, commit messages, and internal log lines — those follow different conventions.
 ---
 
 # Plain Language
 
 Adapted from the U.S. federal Plain Language guidance (digital.gov) and the Plain Writing Act of 2010. The goal of plain language is not "dumbed-down" writing — it's writing that a specific reader can act on without rereading.
+
+## Two passes: de-LLM, then plain language
+
+Run prose through two passes, in this order:
+
+1. **Phase 1 — De-LLM.** Strip the tics of AI-generated writing. Start with *structure* — sentence-length uniformity, rhetorical triads, blanket hedging, evenly-weighted paragraphs — then the lexical tells: inflated vocabulary, hollow significance claims, copula avoidance, fake-punch fragments, formatting. This removes *noise* — the residue that makes text sound generated rather than written.
+2. **Phase 2 — Plain language.** Everything from "The one rule" down. This adds *signal* — reader focus, the bottom line up front, active voice, and structure the reader can scan.
+
+Do Phase 1 first. A de-LLM'd draft is shorter and more honest, which makes the Phase 2 decisions (what's the bottom line, who's the reader, what can be cut) much easier. Running Phase 2 on slop just polishes the slop.
+
+The two passes mostly reinforce each other, with four seams worth knowing:
+
+- **Sentence length.** Phase 1 rejoins fragments split for drama ("It works. Every time." → "It works every time."); Phase 2 breaks sentences that are genuinely overstuffed. Rejoin first, then split what's still too long. No conflict.
+- **Sentence *variance*.** Applied mechanically, Phase 2's "break long sentences" produces a page of uniform medium-length sentences — which is itself the strongest structural AI tell. Break the overstuffed ones, then check the spread. A passage where every sentence lands in the 15–25 word band reads as generated no matter how plain the words are. Leave the short ones short.
+- **Em dashes.** Phase 1 trims em dashes used for *false drama*; plain language still uses the em dash for an ordinary aside. Calibrate on density (two or three per 200 words is a signal), not presence. Stripping them all is its own tell.
+- **Formatting.** Phase 2 pushes toward tables, lists and subheads for scannability. Phase 1 warns against over-formatting and evenly-weighted sections. Both are right: structure the material the reader must navigate, but do not give every item the same wordcount just because it sits in the same list. Real emphasis is uneven.
+
+**Phase 1 in brief** (full catalog with replacement lists in [de-llm.md](de-llm.md)):
+
+- **Fix structure first — this is where the signal is.** Vary sentence length so the spread is uneven. Break rhetorical triads. Delete the hedge on every claim. Let unimportant items be short instead of padding them to match. Replace abstraction with the concrete case. Cut the sentence that explains the point the reader just read. The word lists below are worth running, but a text can pass all of them and still read as generated; surface edits alone move AI-detection by about a point.
+- **Cut AI vocabulary**: delve, leverage, crucial/pivotal/key, foster, garner, tapestry, landscape, vibrant, showcase, intricate, testament, underscore — replace with the plain word or delete. Also the newer register that moved in behind these: the "quiet" family (*quietly building*, *quiet confidence*), *shift*, *matters*, *earn*, *compound*, *the work*.
+- **Delete chat leakage**: "Great question!", "I hope this helps!", "Certainly! Here's…", trailing offers to continue. Not a style tell — hard evidence.
+- **Kill significance claims**: "stands as a testament to," "plays a vital role," "marks a turning point," "reflects broader trends" — delete or state the fact plainly.
+- **Drop hollow -ing tails**: "..., highlighting the importance of X," "..., underscoring the significance of Y," "..., ensuring Z" — delete.
+- **Undo copula avoidance**: "serves as / stands as / represents" → **is**; "boasts / features / offers" → **has**.
+- **Simplify negative parallelism and rule-of-three**: "Not only X, but Y" → "X and Y"; trim "adjective, adjective, and adjective" triplets.
+- **Rejoin dramatic fragments**: strings of two-to-four-word punch "sentences" → one normal sentence.
+- **Fix formatting tells**: title-case headings → sentence case; remove excessive bold; convert "**Term:** description" bullet lists to prose; curly quotes → straight quotes.
+- **Remove meta-commentary and conclusion patterns**: "It's important to note," "It's worth noting," "In summary," "In conclusion," "Overall," knowledge-cutoff disclaimers.
+- **Replace vague attributions**: "experts argue," "some critics say," "several sources" → name the source or cut.
+
+When the user hands you AI-generated text and asks for a rewrite, run both passes and **lead with the rewritten prose**, then a short note on what changed. When they explicitly ask only to "de-slop" or "remove AI tells," Phase 1 may be enough — but a light Phase 2 read almost always helps; mention if you skipped it.
 
 ## The one rule
 
@@ -154,6 +186,8 @@ When proofreading, these patterns almost always mean you can tighten:
 
 ## A short checklist before shipping
 
+- [ ] Sentence lengths are uneven — short ones next to long ones, not a uniform 15–25 word band (Phase 1).
+- [ ] No AI tells remain — rhetorical triads, blanket hedging, evenly-weighted sections, inflated vocabulary, significance claims, hollow -ing tails, copula avoidance, fake-punch fragments, meta-commentary, chat leakage (Phase 1; see [de-llm.md](de-llm.md)).
 - [ ] A new reader can tell, from the first paragraph or first screen, what this is and what to do with it.
 - [ ] If there's more than one audience, each one has its own clearly-marked section.
 - [ ] Section headings answer reader questions, not document the topic.
