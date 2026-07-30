@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "eb23da7ee760d09ba621f166f3e86ad747bd2a09",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/gardner-reliability/integration",
+  "run_at": "2026-07-30T19:13:15.690629+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "sound",
+      "summary": "{\"verdict\": \"sound\", \"findings\": \"Full five-criteria review: doctrine coherent across all surfaces (one-commit-per-invocation everywhere, ad-hoc commit-free, kaizen conditional intact); no unauthorized behavior deltas; focus_stale guard judged clear and output-only; BOTH zero-drift paths traced to exactly one empty commit with correct subject and body; nothing impedes 2.29.0. No findings.\"}"
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "amend-first",
+      "summary": "{\"verdict\": \"amend-first\", \"findings\": \"blocking :: focus_stale generic-note guard not operationally defined \\u2014 divergent projections risk :: agent line 41 guard vs subjective 'concrete'/'plainly matches' :: operational tokenize-and-match test in agent + how-to\\nshould-fix :: empty-commit body can claim 'no drift found' with non-empty residual :: skill Phase 3 zero-corrections wording :: qualify \\u2014 'no drift found' only when residual empty; else 'drift observed but not auto-corrected'\\nnote :: run-report templates omit the focus_stale advisory :: deliver/build report bullets :: append advisory text when present\\nnote :: how-to example focus note (doc-title-shaped) will commonly flag stale on code-only deliveries :: guide example :: feature-scoped example + caveat\\nnote :: core doctrine coherent; ad-hoc/kaizen boundaries preserved; no unauthorized deltas :: quoted passages :: none\\nnote :: manifest/changelog not in diff \\u2014 verify feature-manifest at 2.29.0 bump :: no version files changed :: confirm at bump\"}"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"note :: doctrine coherence solid across all surfaces; per-invocation wording consistent; ad-hoc and kaizen boundaries preserved :: quoted :: none\\nnote :: no behavior deltas beyond mandate; focus_stale output-only; empty-commit rule authorized :: quoted :: none\\nshould-fix :: focus_stale rule sentence ambiguous vs the guard's three-condition omit list \\u2014 'names nothing' readable as 'has no concrete tokens' :: agent Rules line vs line-41 guard :: align to 'has concrete tokens that name nothing in the blast radius'\\nnote :: upgrade coherence verified for both zero-drift paths :: quoted flow trace :: none\\nnote :: nothing makes the 2.29.0 bump wrong; empty commits backward-compatible; filter guidance present :: README row + how-to notes :: none\"}"
+    }
+  ]
+}
