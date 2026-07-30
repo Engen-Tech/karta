@@ -1,0 +1,30 @@
+{
+  "reviewed_hash": "53117210120e74504e573d5b16c51e40bf5dfe9c1a96b65bee74be2f094ff808",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "seed-drift-stamp-strip",
+  "run_at": "2026-07-30T07:02:39.199586+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"should-fix :: parity extraction method unspecified (fragile-or-trivial risk) :: 'extract its STAMP_KEYS assignment' :: require ast-based extraction\\nshould-fix :: relative path to runtime file unpinned :: 'from Path(__file__) relative to the repo root' :: pin parents[2] or robust discovery\\nnote :: line-1 '---' heuristic vs BOM/leading whitespace :: strip spec :: handle or declare guaranteed\\nnote :: 'tolerant of ordering' omits remove-all-occurrences :: strip spec :: clarify every matching line\\nnote :: no-frontmatter identity untested :: self-test list :: add fixture\"}"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"should-fix :: frontmatter closing rule under-specified (closer matching, body '---', CRLF) :: contract clause 2 :: pin next-stripped-'---' closer, body never closes, no-closer = identity\\nshould-fix :: parity extraction policy unprescribed (brittle regex vs trivial substring both 'conformant') :: contract clause 5f :: anchored regex + literal parse + set equality + loud two-file failure message\\nshould-fix :: over-strip of non-stamp frontmatter keys undetected by proposed fixtures :: clause 5 fixtures :: assert non-stamp keys survive byte-identical\\nshould-fix :: forged-stamp fixture construction not reproducible from binder alone :: '- new rule' reference :: quote or anchor to the existing check's construction\\nshould-fix :: parity path resolution unpinned (__file__ reliability) :: clause 5f :: resolve().parents[2] + is_file() + actionable message\\nnote :: doc drift \\u2014 probe/card raw-equality framing may go stale :: probe docstring, bench-spec card :: audit or one-line note\\nnote :: partial single-key stamps unaddressed :: strip spec :: state and assert\\nnote :: tokens-path verification is prose not a self-test :: clause 4 :: add token-set assertion\\nnote :: single-frontmatter-window semantics unstated :: strip spec :: state leading-window intent\\nnote :: confirm SEEDED_IDS has no stamp-only ids that would vanish :: SEEDED_IDS floor :: verify\"}"
+    }
+  ]
+}

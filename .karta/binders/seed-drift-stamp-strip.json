@@ -1,0 +1,68 @@
+{
+  "slug": "seed-drift-stamp-strip",
+  "title": "Stamped pack copies stop showing up as drift",
+  "summary": "karta copies its built-in advice packs into a project and, since 2.25.0, writes a two-line receipt into each copy recording which built-in it came from. karta's own planner already knows to ignore that receipt when it checks a copy against the original. The benchmark that watches enrolled projects for drifted copies does not: it compares raw text, so the receipt itself reads as a local edit, and every correctly stamped but otherwise untouched copy is reported as locally modified — permanently. This binder teaches the benchmark the same move the planner makes: peel off exactly those two receipt lines before comparing, and nothing else. A copy with a real edit keeps its finding; a receipt can never hide one.",
+  "motivation": "The 2.28.0 release gate produced three drift findings against parchmark whose only cause was the receipt lines parchmark added by doing exactly the right thing; they had to be waved through with a baseline refresh. A report that permanently flags the repos that adopted the stamp correctly trains its readers to ignore it. The fix is one benchmark file, deterministic, and self-tested — no consumer repo is touched or consulted.",
+  "scope": {
+    "included": [
+      "benchmarks/sme-static/seed_drift.py — the drift classifier strips the two provenance-stamp frontmatter lines (seeded_from, base_sha256) from the overlay copy before classifying it against the built-in's history; its self-test gains stamped variants of the existing fixtures proving all four classes see stripped text, a strip-is-identity check on unstamped text, and a parity check that reads the runtime classifier's source text so the duplicated key pair can never silently diverge; every existing check stays"
+    ],
+    "excluded": [
+      "benchmarks/probes/sme-pack-static-suite.py is untouched — it calls seed_drift.drift_report unchanged, and its SEEDED_IDS floor stays satisfied because gringotts' unstamped forks keep their DIVERGENT and token-audit findings",
+      "No baseline, findings, or results files are edited and no committed gate artifacts are touched — decide_status regressions are one-directional (recorded minus baseline), so finding ids that vanish never fail a gate; the next run simply records fewer ids",
+      "skills/karta-plan/scripts/check_pack_provenance.py is untouched — it already strip-canonicalizes and is the parity SOURCE this change mirrors, never a target",
+      "No imports from skills/ into bench code — the bench module stays standalone stdlib plus its sibling match_pins; the two stamp keys are duplicated as a literal tuple with a comment naming the parity source, and a self-test fails on silent divergence",
+      "The seed-drift vocabulary is frozen: the four class names IDENTICAL, UPSTREAM-UNPROPAGATED, LOCAL-ADDITIVE, and DIVERGENT and the seed-drift finding-id shapes stay exactly as recorded findings use them",
+      "No mirrors exist for benchmarks/ — no sync script runs for this change"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Claude Code + Codex plugin repo: markdown doctrine (skills/, agents/) with generated projections, pure-stdlib Python tooling"
+  },
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "python", "version": ">=3.11", "manager": "uv" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-skill-authoring", "minimalism"],
+  "work_items": [
+    {
+      "id": "stamp-strip-classify",
+      "title": "Strip the provenance stamp before classifying drift",
+      "summary": "The bench drift classifier removes the two stamp lines from a copy's frontmatter before comparing it with the built-in's history, so a correctly stamped, otherwise identical seeded cache classifies IDENTICAL again instead of LOCAL-ADDITIVE. A stamp never rescues a real edit: a genuinely changed copy keeps its class. The self-test gains stamped fixtures covering all four classes plus a parity check that reads the runtime classifier's source, so the duplicated key pair can never silently drift apart.",
+      "estimate": "S",
+      "depends_on": [],
+      "contract": "ONE file changes: benchmarks/sme-static/seed_drift.py. (1) DUPLICATE the stamp-key pair as a module-level literal tuple with the exact value (\"seeded_from\", \"base_sha256\"), carrying a comment naming the parity source — skills/karta-plan/scripts/check_pack_provenance.py STAMP_KEYS. Do NOT import from skills/ (bench measuring-stick discipline: the module stays standalone stdlib plus its sibling match_pins). (2) ADD a small local strip helper matching the runtime strip_stamp's two-key semantics: when the text opens a frontmatter block — line 1 is exactly '---' after stripping trailing whitespace/CR; the closing delimiter is the NEXT subsequent line whose stripped content is exactly '---', and a later '---' in the body never closes it (leading window only, by design — a future non-leading stamp format is deliberately out of this helper's reach) — remove EVERY frontmatter line whose key — the segment before the first ':', stripped of surrounding whitespace — equals seeded_from or base_sha256, including when only ONE of the two keys is present, tolerant of ordering and position within the block; NEVER touch body text; when there is no line-1 opener (including a BOM-prefixed file) or no closing delimiter, the helper is the identity — fail-safe by construction: unstripped text at worst re-yields the old cosmetic finding, never a wrong class; every kept byte is preserved, so the helper is the identity on text carrying no stamp lines (asserted in the self-test). The runtime's canonicalize() pipeline (NFC, CRLF folding, trailing-whitespace trim) is deliberately NOT copied — bench classification is raw-text equality against historical git blobs and must stay raw. (3) APPLY the strip in ONE place: the top of classify() rebinds its overlay_text input through the helper (or an equivalent single call site on classify's input), so all four classes — the HEAD-equality check, the older-blob membership check, the head_lines/overlay_lines set comparison, and the DIVERGENT fallthrough — see stripped text. OVERLAY-SIDE ONLY, by choice: built-in blobs come from skills/_shared/sme history, which never shipped a stamp key (the stamp is written only into consumer seeded caches), so stripping the overlay suffices and the single call site keeps the diff minimal. (4) The _tokens comparison inside classify() sees stripped text automatically because the strip happens on classify's input. A stamp key could affect tokens only if it were a match: line — it is not (seeded_from and base_sha256 are plain frontmatter keys and match_pins.parse_pack reads only match tokens) — VERIFY this while implementing rather than assuming. (5) _run_self_test(): KEEP every existing check — blob enumeration newest-first, the four unstamped class checks, the token-superset DIVERGENT check, drift_report plumbing, and all five token-audit checks — then ADD, deriving stamped variants of the existing _V1/_V2 fixtures by inserting two stamp lines (e.g. 'seeded_from: skills/_shared/sme/demo.md' and 'base_sha256: <64 hex chars>') into the frontmatter: (a) a stamped copy of the HEAD blob classifies IDENTICAL; (b) a stamped copy of the older blob classifies UPSTREAM-UNPROPAGATED; (c) a stamped copy of the additive variant still classifies LOCAL-ADDITIVE; (d) a forged stamp on a divergent copy — the same construction the existing DIVERGENT check already uses (stamping the _V2 variant with its '- new rule' line dropped) — still classifies DIVERGENT: a stamp never rescues a real delta, mirroring the runtime classifier's forged-stamp invariance doctrine; (e) the strip helper is the identity on unstamped _V2 AND on a fixture with no frontmatter at all; a stamped fixture's non-stamp frontmatter lines survive byte-identical (over-stripping any other key is non-conformant); a fixture stamped with only ONE of the two keys strips that key cleanly; (f) PARITY — resolve the runtime source as Path(__file__).resolve().parents[2] / 'skills' / 'karta-plan' / 'scripts' / 'check_pack_provenance.py', assert is_file() first with a failure message printing the resolved path ('runtime parity source missing'), read it as TEXT (never import it), extract the STAMP_KEYS assignment with a whitespace-tolerant regex anchored on STAMP_KEYS-then-'='-then-a-parenthesized literal and parse that literal with ast.literal_eval, then assert SET equality with the bench tuple, failing with a message naming both files and printing both extracted key sets — a brittle format-sensitive match and a trivially-true substring check are both non-conformant. (6) the module docstring's class table gains one line noting the overlay is stamp-stripped before classification (its class definitions stay otherwise as written); historical_blobs, drift_report, token_audit, main(), the CLI flags, and the printed JSON shape are unchanged; the four class-name strings are unchanged; benchmarks/probes/sme-pack-static-suite.py is NOT edited and keeps passing its own self-test.",
+      "touches": [
+        "benchmarks/sme-static/seed_drift.py"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"seeded_from\" \"base_sha256\" \"check_pack_provenance\" \"STAMP_KEYS\"; do grep -qF -- \"$s\" benchmarks/sme-static/seed_drift.py; done; for c in \"IDENTICAL\" \"UPSTREAM-UNPROPAGATED\" \"LOCAL-ADDITIVE\" \"DIVERGENT\"; do grep -qF -- \"$c\" benchmarks/sme-static/seed_drift.py; done; if grep -qE \"(import|from)[[:space:]]+check_pack_provenance\" benchmarks/sme-static/seed_drift.py; then exit 1; fi' && python3 benchmarks/sme-static/seed_drift.py --self-test && python3 benchmarks/probes/sme-pack-static-suite.py --self-test && python3 benchmarks/sme-static/match_pins.py --self-test && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "a stamped but otherwise HEAD-identical overlay classifies IDENTICAL — the permanent LOCAL-ADDITIVE finding against correctly stamped seeded caches is gone",
+          "a stamped copy equal to an OLDER built-in blob classifies UPSTREAM-UNPROPAGATED — the strip fixes the stale-seed class too, not just the HEAD case",
+          "a stamped copy carrying a genuine additive delta still classifies LOCAL-ADDITIVE — the strip removes only the two stamp lines, never a real local rule",
+          "a forged stamp on a divergent copy still classifies DIVERGENT — a stamp never rescues a real delta, mirroring the runtime classifier's invariance doctrine",
+          "the parity self-test reads the runtime classifier's text and fails if its STAMP_KEYS ever stops naming exactly seeded_from and base_sha256, and the grep proves the bench file never imports check_pack_provenance — the duplicated tuple cannot silently diverge and the module stays standalone",
+          "every pre-existing self-test check still passes — blob enumeration, the four unstamped class checks, drift_report plumbing, and the token-audit checks — and the strip helper is the identity on unstamped text and on text with no frontmatter, preserves every non-stamp frontmatter line byte-identical, and strips a single-key partial stamp cleanly, so unstamped classification is byte-for-byte the old behavior",
+          "both stamp keys and all four unchanged class names appear in seed_drift.py, the probe's own self-test and match_pins' self-test pass without either file changing, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:bench-measuring-stick-edit-deterministic-and-self-tested-with-no-consumer-repo-dependence"
+        ]
+      }
+    }
+  ]
+}
