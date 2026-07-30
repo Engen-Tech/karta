@@ -2,12 +2,12 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Classify every local stack-pack copy against the shipped built-in it shadows.
+"""Classify every local stack-pack copy against the shipped built-in it derives from.
 
 Each `.karta/sme/*.md` file in a consumer repo is a copy of — or an original beside —
-karta's built-in packs. This script reports which honest state each copy is in, so an
-out-of-date copy can be refreshed and a genuinely edited copy is flagged loudly instead
-of silently overriding the shipped rules. This release warns and deters; nothing halts.
+karta's built-in packs. This script simply reports which honest state each copy is in.
+A user-edited copy is a local fork the user owns — user edits always win; the one
+consequence reported is that the copy no longer receives upstream pack updates.
 
 States (the exact user-facing strings, one per pack):
   seeded cache   stamp-stripped canonical bytes are identical to the current built-in.
@@ -16,7 +16,7 @@ States (the exact user-facing strings, one per pack):
                  resolution is auto-reseed at the next kaizen pass.
   suppression    frontmatter `disabled: true`; the body is free commentary, not compared.
   project pack   the casefolded basename collides with no built-in — a project's own pack.
-  illegal shadow a same-basename copy carrying a genuine local delta over the built-in.
+  local fork     a same-basename copy carrying a genuine local delta over the built-in.
   orphaned cache the stamp's `seeded_from` names a built-in that no longer exists after
                  rename-alias resolution.
 
@@ -38,7 +38,7 @@ validator lookup. The hash ledger resolves the same way from `references/pack-ha
                                               the target is not on disk yet)
   check_pack_provenance.py --self-test        run embedded fixtures, exit 0/1
 
-Exit 0 whenever classification ran — phase 1 never gates on findings; a nonzero exit
+Exit 0 whenever classification ran — classification never gates on findings; a nonzero exit
 means the script itself failed. JSON on stdout: {"packs": [...], "warnings": [...],
 "aliases": {...}}.
 """
@@ -46,16 +46,16 @@ from __future__ import annotations
 import argparse, hashlib, json, os, sys, unicodedata
 from pathlib import Path
 
-# The canonical illegal-shadow substring — quoted byte-identically here, in the plan
-# skill's stack-pack step, the write guard, and the docs (held together by the binder's
-# shared_terms gate). Downstream call sites match on exactly this text.
-ILLEGAL_SHADOW_SUBSTR = "illegal shadow: a local delta over the shipped built-in"
+# The canonical local-fork substring — quoted byte-identically here, in the plan
+# skill's stack-pack step, and the docs (held together by the binder's shared_terms
+# gate). Downstream call sites match on exactly this text.
+LOCAL_FORK_SUBSTR = "local fork: a user-edited copy of the shipped built-in"
 
 # Rename-alias table: retired built-in basename (sans .md, casefolded) -> current name.
 # It lives here as data because provenance classification is what needs it (orphaned-cache
 # resolution), and it is exposed in the JSON output so every other call site cites one
-# truth. Phase 1 ships it empty — no built-in has been renamed yet; a rename adds an entry
-# kept for one minor release, and phase 2 retires the table.
+# truth. It ships empty — no built-in has been renamed yet; a rename adds an entry
+# kept for one minor release and retired on its own schedule.
 RENAME_ALIASES: dict[str, str] = {}
 
 STAMP_KEYS = ("seeded_from", "base_sha256")
@@ -219,10 +219,8 @@ def classify_one(text: str, filename: str, builtins: dict[str, dict[str, str]],
             finding = (f"stale cache: byte-identical to a past shipped {builtin} but not the "
                        "current one; resolution is auto-reseed at the next kaizen pass")
         else:
-            state = "illegal shadow"
-            finding = (f"{ILLEGAL_SHADOW_SUBSTR} ({builtin}) — restore the seeded copy, move "
-                       "the delta to a project pack (a fresh basename with extends and "
-                       "id_prefix), or take the delta upstream")
+            state = "local fork"
+            finding = f"{LOCAL_FORK_SUBSTR} ({builtin}) — no longer receives upstream pack updates"
     else:
         # basename resolves to no live built-in: an orphaned cache (dead seeded_from) or a
         # project's own pack.
@@ -317,9 +315,9 @@ def _run_self_test() -> int:
         pack, w = classify_one(text, filename, builtins, ledger, aliases)
         return pack["state"], w
 
-    # A genuine local delta (used by both the illegal-shadow and the invariance checks).
-    shadow = _BUILTIN + "- [ ] demo.2 — a sneaky extra local rule.\n"
-    shadow_hash = canonical_sha256(shadow)
+    # A genuine local delta (used by both the local-fork and the invariance checks).
+    fork = _BUILTIN + "- [ ] demo.2 — an extra local rule the built-in never shipped.\n"
+    fork_hash = canonical_sha256(fork)
 
     checks: list[tuple[str, bool]] = []
 
@@ -348,10 +346,10 @@ def _run_self_test() -> int:
                    st(_with_frontmatter(_BUILTIN, disabled="true"), "demo.md")[0] == "suppression"))
     checks.append(("state fixture: project pack (no built-in collision)",
                    st("---\nname: house\ndescription: ours\n---\nbody\n", "house.md")[0] == "project pack"))
-    ill_state, ill_finding = st(shadow, "demo.md")
-    checks.append(("state fixture: illegal shadow with the canonical substring",
-                   ill_state == "illegal shadow"
-                   and ill_finding is not None and ILLEGAL_SHADOW_SUBSTR in ill_finding))
+    fork_state, fork_finding = st(fork, "demo.md")
+    checks.append(("state fixture: local fork with the canonical substring",
+                   fork_state == "local fork"
+                   and fork_finding is not None and LOCAL_FORK_SUBSTR in fork_finding))
     stale_state, stale_finding = st(
         _with_frontmatter(_PAST_BUILTIN, seeded_from="demo", base_sha256=past_hash), "demo.md")
     checks.append(("state fixture: stale cache names auto-reseed as the resolution",
@@ -385,14 +383,14 @@ def _run_self_test() -> int:
     # 9: FORGED / MISSING STAMP VERDICT INVARIANCE (the core guard). The verdict is a pure
     # function of the stamp-stripped bytes vs the built-ins — the stamp text cannot move it.
     dirty_variants = {
-        "no stamp": shadow,
+        "no stamp": fork,
         "forged base = own hash (self-certify attempt)":
-            _with_frontmatter(shadow, seeded_from="demo", base_sha256=shadow_hash),
+            _with_frontmatter(fork, seeded_from="demo", base_sha256=fork_hash),
         "forged base = a real past ledger hash":
-            _with_frontmatter(shadow, seeded_from="demo", base_sha256=past_hash),
+            _with_frontmatter(fork, seeded_from="demo", base_sha256=past_hash),
     }
-    checks.append(("forged/missing stamp never rescues a genuine delta from illegal shadow",
-                   all(st(t, "demo.md")[0] == "illegal shadow" for t in dirty_variants.values())))
+    checks.append(("forged/missing stamp never rescues a genuine delta from local fork",
+                   all(st(t, "demo.md")[0] == "local fork" for t in dirty_variants.values())))
     clean_stale_variants = {
         "valid stamp": _with_frontmatter(_PAST_BUILTIN, seeded_from="demo", base_sha256=past_hash),
         "no stamp": _PAST_BUILTIN,
@@ -407,11 +405,11 @@ def _run_self_test() -> int:
                    st(_with_frontmatter(_PAST_BUILTIN, seeded_from="demo", base_sha256=past_hash),
                       "demo.md")[0] == "stale cache"))
     # A genuine delta whose forged base_sha256 EQUALS its own stamp-stripped hash but is
-    # absent from the ledger still falls to illegal shadow.
-    checks.append(("ledger fixture: base_sha256 absent from ledger -> illegal shadow even when "
+    # absent from the ledger still falls to local fork.
+    checks.append(("ledger fixture: base_sha256 absent from ledger -> local fork even when "
                    "it equals the local hash",
-                   st(_with_frontmatter(shadow, seeded_from="demo", base_sha256=shadow_hash),
-                      "demo.md")[0] == "illegal shadow"))
+                   st(_with_frontmatter(fork, seeded_from="demo", base_sha256=fork_hash),
+                      "demo.md")[0] == "local fork"))
 
     failures = sum(1 for _n, ok in checks if not ok)
     for name, ok in checks:
