@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "6eb6fea324d7e532630c55f648311c75024d6abc",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/pack-sovereignty/integration",
+  "run_at": "2026-07-30T06:27:42.821310+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "sound",
+      "summary": "{\"verdict\": \"sound\", \"findings\": \"Full six-criteria review: behavior deltas within mandate; assembled tip coherent across code/docs/mirrors; consumer upgrade graceful (warnings become info lines, nothing blocks); deletions complete with no dangling references; spec accurate; feature-manifest clean. No findings.\"}"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"note :: guard docstring 'unparseable output' fail-open trigger may no longer map to surviving code :: _classify_state (the JSON-parser of classifier output) was deleted; only _run_validator remains :: tighten docstring in both copies\\nnote :: alias-table retirement wording loosens the old 'stale pointer becomes an error' promise :: SKILL.md diff + same phrasing in new spec :: confirm intent with doctrine owner; if intentional, no fix\\n(no blocking or should-fix findings; vocabulary internally consistent across all surfaces; guard deletion complete; consumer policy outcome unchanged; archive rename benign; spec accurate)\"}"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "sound",
+      "summary": "{\"verdict\": \"sound\", \"findings\": \"note :: alias-table lifecycle wording change possibly beyond strict edict scope :: 'retired on its own schedule' vs old phase-2 error promise :: verify roundtable authorization or revert\\nnote :: possible dead 'import json' in guard after _classify_state deletion :: json.loads only visible use in diff context :: verify top of file\"}"
+    }
+  ]
+}
