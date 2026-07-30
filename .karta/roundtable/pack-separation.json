@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "b478bc4a9143d5dd44dee43ba9377d818b6ea8437f11f231cf520b8b853bc069",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "pack-separation",
+  "run_at": "2026-07-30T20:38:18.118412+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "amend-first",
+      "summary": "{\"verdict\": \"amend-first\", \"findings\": \"1. blocking :: gate agents not told to parse resolver JSON stdout \\u2014 could revert to reading the pack's own checklist :: gate-wiring prose :: say parse stdout, that IS the checklist, don't read the file's section\\n2. should-fix :: dedup only covers always:true extends packs; match: extends packs still double-pin the base :: plan-extends-dedup contract :: generalize to any extends pack\\n3. should-fix :: resolver 'source pack' field undefined (basename/filename/name?) :: extends-resolver (5) :: pin exact field\\n4. note :: no consumer upgrade warning \\u2014 existing extends packs now enforce a different checklist :: motivation/docs :: add breaking-change note\\n5. note :: README/other docs not audited for stale shadow/composition claims :: separation-docs scope :: grep before commit\"}"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"1. should-fix :: resolver output shape vs auditor intake ambiguous (JSON vs text lines) :: extends-resolver (5) :: derive shape from auditor intake or render explicitly\\n2. should-fix :: consumer upgrade silent behavior change unannounced :: sentinel observable:false :: changelog/upgrade note\\n3. should-fix :: stack-packs 'plan reports drops visibly' not installed by any item :: separation-docs (1) vs plan-dedup (4) :: soften or install\\n4. should-fix :: resolver import mechanism for validate_packs unspecified (needs sys.path/__init__) :: extends-resolver (4) :: pin import pattern\\n5. should-fix :: resolver bypasses binder floor (validate_plugin self-tests only hooks/scripts) :: env_contract :: extend validate_plugin or add resolver self-test to floor\\n6. note :: hmin.1 carve-out wording fuzzy ('committed config', 'item oracle probe') :: house-pack (1) :: tighten\\n7. note :: README/integration-branch unaudited for shadow/doc-only :: separation-docs scope :: grep pass\\n8. note :: transient wave state leaves minimalism.md unguarded between waves :: wave order :: note or atomic\\n9. note :: resolver self-test case (b) empty-list vs absent implicit :: extends-resolver (6) :: add explicit case\\n10. note :: source-pack attribution could diverge (path/basename/id) :: extends-resolver (5) :: pin key shape\"}"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"should-fix :: resolver oracle greps rule-ids but never validates JSON structure/field names \\u2014 a {rule_id,rule_text} variant passes grep but breaks the gate :: extends-resolver oracle :: add JSON structural assertion on keys + ordering\\nnote :: resolver import mechanism unspecified (relative import vs sys.path); ImportError risk at gate time from repo-root cwd :: extends-resolver (4) :: pin the sys.path-insert import pattern\"}"
+    }
+  ]
+}

@@ -1,0 +1,255 @@
+{
+  "slug": "pack-separation",
+  "title": "karta becomes a normal consumer of its own packs, and an `extends` narrowing finally takes effect at the gate",
+  "summary": "karta ships a built-in 'minimalism' advice pack and, in its own repo, kept a byte-identical managed copy it had to police forever. This binder retires that special case: karta's repo now carries an ordinary project pack that says `extends: minimalism` and narrows one rule locally — exactly what any project can already write. To make that real, it also fixes a gap that affects every project: a pack that `extends` a built-in was only composed when planning reported it, never when the gate actually checked the code. Now the verify and build gates compose the checklist for real — the built-in's rules minus the ones you excluded, plus your own — so an `extends` narrowing finally changes what the checker enforces.",
+  "motivation": "A direct user decision (2026-07-30): karta-the-repo should eat its own dog food — be a regular consumer of karta-the-framework rather than maintain a policed byte-identical minimalism shadow. Recon proved the enabling primitive was inert: `extends`/`exclude_rules` composition is validated for shape by validate_packs.py but never expanded at any gate — verify:boundary and karta-build's 4c-ter each resolve a single pack file and read only that file's own Review checklist, so a project pack's narrowing never reached the auditor. Implementing extends-expansion end-to-end fixes a latent gap in every consumer, and only then can karta's own `.karta/sme/` narrow minimalism through a project pack instead of a shadow.",
+  "scope": {
+    "included": [
+      "skills/karta-kaizen/scripts/resolve_pack_checklist.py — a NEW stdlib, self-tested composition resolver: given a resolved project pack, it returns the composed Review checklist (the extended built-in's rules minus exclude_rules, then the pack's own rules) as the same normalized item list the gate agents already consume; a non-extends pack returns its own checklist unchanged",
+      "skills/karta-verify/SKILL.md (verify:boundary) and skills/karta-build/SKILL.md (4c-ter + 6-sme) — the two one-file resolution points are rewired to invoke the resolver, so the boundary gate and the builder self-check both enforce the identical composed checklist",
+      "skills/karta-plan/SKILL.md (plan:sme) — extends-pin dedup: an always-on built-in named by an overlay pack's `extends` is carried into `sme` through that extends pack, never pinned as a second independent basename; every edit stays OUTSIDE the integrity-pinned matching-rule span",
+      "scripts/validate_plugin.py, AGENTS.md, skills/karta-kaizen/SKILL.md, agents/karta-kaizen.md — retire the managed-shadow special case: delete the shadow guard, its stamp-strip helper, and its self-test fixtures from the validator; rewrite the Kaizen dogfood policy to describe karta as an ordinary consumer; strike the trailing dogfood-shadow clause from the kaizen skill and the shadow row from the kaizen agent",
+      ".karta/sme/karta-house-minimalism.md — a NEW project pack (`always: true`, `extends: minimalism`, `id_prefix: hmin`, `exclude_rules: [\"min.4\"]`) whose one rule begins `Narrows min.4:`, replacing the retired byte-identical shadow file `.karta/sme/minimalism.md`, which is deleted",
+      "docs/how-to/stack-packs.md, docs/how-to/kaizen.md — the guides now say extends composition takes effect at the checks, not only in the plan report; benchmarks/field/feature-manifest.json — one observable:false sentinel records the gate-expansion release; docs/specs/2026-07-30-pack-separation.md — a new dated spec recording the edict, the resolver, the retirement, and everything deliberately unchanged",
+      "The regenerated projections of every canonical file above — the Codex skill mirrors, the agent references copies and toml, and the marketplace install tree — kept generated-identical by the sync scripts in the same change"
+    ],
+    "excluded": [
+      "skills/karta-kaizen/scripts/validate_packs.py is NOT edited — its extends/exclude_rules/id_prefix SHAPE checks (a stale exclusion is a loud error, id_prefix may not collide with a built-in prefix) are correct and sufficient; the resolver composes, the validator validates shape, and the two stay separate scripts",
+      "benchmarks/sme-static/consumers.json is UNCHANGED — karta is NOT enrolled as a consumer; enrolling it would turn on pin-conformance checking of karta's own archived binders against the new expected set, and every historical binder pinning ['minimalism'] would read pin-nonconformant. The edict is conceptual (stop special-casing); it does not require enrolling karta",
+      "benchmarks/sme-static/seed_drift.py needs NO change — it rows an overlay only when its basename also exists under skills/_shared/sme; the retiring minimalism.md simply vanishes from the drift array (diagnostic only, never gated), and the fresh-basename karta-house-minimalism produces no drift row",
+      "hooks/scripts/guard_pack_write.py and hooks/scripts/guard_writer_confinement.py are UNCHANGED — the new pack lives inside `.karta/sme/`, admitted by both; guard_pack_write's Write-preventive validate_packs check admits it because the pack is well-formed",
+      "benchmarks/claims.yaml and every committed baseline, finding, gate result, and bench probe are NOT edited — claims.yaml carries no extends/composition/stack-pack row, so the doc rewrites regress no parity lane; the feature-manifest sentinel is observable:false, so the field adoption ledger gains no 'detection never fired' finding against the enrolled consumers",
+      "The two in-code KARTA-SME-OVERRIDE(min.4) markers at scripts/validate_plugin.py stay — kaizen cannot write outside .karta/sme, the `Narrows min.4:` identity thread keeps them meaningful, and the phase-2 stale-exclusion re-check governs their eventual fate",
+      "The shipped built-in skills/_shared/sme/minimalism.md and its byte-equal copies under references/sme/ are UNCHANGED — the narrowing is local to karta's repo; promoting min.4 upstream is a separate human act, never this binder",
+      "The project CLAUDE.md carries no shadow row (it holds only the roundtable standing direction; the shadow doctrine lives in the imported AGENTS.md), and .karta/kaizen.json's focus prose names no shadow — so neither file is touched",
+      "Historical records stay as records: the archived pack-sovereignty and kaizen-sharpening binders, the release checklists, and every dated spec that mentions the shadow keep describing the behavior of their day; the new spec supersedes the policy in prose, it does not rewrite history",
+      "No other living doc needs editing for this change — a repo-wide grep of README.md and docs/how-to/ for 'managed shadow', 'minimalism shadow', 'byte-identical', 'doc-only', and the plan-time-only composition claim found NO straggler beyond the two in-scope stack-packs.md lines; the docs item's surface is complete",
+      "The mid-delivery interim state is benign: after the shadow guard is deleted and before the shadow FILE is deleted, .karta/sme/minimalism.md is simply an unguarded seeded cache — a fully legal provenance state, not a violation — and the integration branch is never pushed mid-run, so no external tooling observes it; no atomicity constraint is needed"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Claude Code + Codex plugin repo: markdown doctrine (skills/, agents/) with generated projections, pure-stdlib Python tooling"
+  },
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "python", "version": ">=3.11", "manager": "uv" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-skill-authoring", "minimalism"],
+  "shared_terms": [
+    {
+      "id": "narrows-min4",
+      "canonical": "Narrows min.4:",
+      "items": ["house-pack", "separation-docs"]
+    },
+    {
+      "id": "extends-minimalism",
+      "canonical": "extends: minimalism",
+      "items": ["house-pack", "retire-shadow-doctrine", "separation-docs"]
+    },
+    {
+      "id": "composed-checklist",
+      "canonical": "the composed Review checklist",
+      "items": ["extends-resolver", "gate-wiring", "separation-docs"]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "extends-resolver",
+      "title": "The extends composition resolver (the inert primitive made real)",
+      "summary": "A new stdlib, self-tested script composes a project pack's Review checklist from the built-in it extends — the base rules minus exclude_rules, then the pack's own rules — and emits it as the same normalized item list the gate agents consume; a non-extends pack passes through unchanged, so the common case never regresses.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Create skills/karta-kaizen/scripts/resolve_pack_checklist.py — a pure-stdlib script on the house pattern (argparse, `--self-test` with [PASS]/[FAIL] lines, exit 0/1), homed beside validate_packs.py because it is the composition sibling of the pack validator and verify:boundary already invokes karta-kaizen/scripts tooling by its full path. (1) PURPOSE: given ONE already-resolved project-pack file path (the overlay `.karta/sme/<id>.md` when present, else the built-in `references/sme/<id>.md`), return the composed Review checklist as the identical normalized item list the gate agents already receive — one entry per active rule, each carrying rule id, rule text, and source pack. (2) BEHAVIOR: parse the pack's strict frontmatter and its `## Review checklist`. If the pack does NOT declare `extends`, return its own active checklist items unchanged, source = the pack itself (the common, non-extends case must be a pass-through — no regression for minimalism, python, angular, etc.). If the pack declares `extends: <built-in basename>`, load that built-in's `## Review checklist` active items, DROP every id named in `exclude_rules`, then APPEND the pack's own active items — base-minus-excluded first (source = the extended built-in), then the pack's own rules (source = the pack). Ordering is deterministic: built-in checklist order for the base, then pack checklist order for its own. Active items only (`- [ ] <id> — <text>`); tombstones are not rules. (3) FAILURE, consistent with validate_packs: an `extends` that names no shipped built-in, or an `exclude_rules` id absent from the extended built-in's checklist, is a reported error and a non-zero exit — never a silent drop — matching validate_packs.py's stale-exclusion rejection (defense in depth: verify:boundary validates the pack before calling the resolver, but the resolver must not compose a malformed pack silently). (4) REUSE, per minimalism.min.1/min.2: import the sibling validate_packs.py for its strict frontmatter parser and its ITEM_RE checklist grammar rather than re-deriving them, and resolve the built-in packs dir exactly as validate_packs.load_builtin_registry does (CLAUDE_PLUGIN_ROOT else the resolver's own plugin root; the built-ins live at skills/karta-plan/references/sme/). PIN THE IMPORT PATTERN (there is no __init__.py in skills/karta-kaizen/scripts/, verified): `import os, sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import validate_packs` — a cwd-independent sibling import, so the plugin-relative `python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py` invocation resolves it from any working directory. validate_packs.py is import-safe (module-level defs + a `__main__` guard, verified — no side effects at import). Add no third-party dependency. (5) OUTPUT: write to stdout a deterministic JSON ARRAY, one object per active rule with EXACTLY these three keys — `id` (the rule id, e.g. `min.1`), `text` (the rule text after the em dash), `source` (the source pack BASENAME with `.md`, e.g. `minimalism.md` for a base rule, `karta-house-minimalism.md` for the pack's own rule) — matching the safety-auditor's expected 'rule id, rule text, source pack' item list (agents/karta-safety-auditor.md input 4, which is NOT edited). Order is deterministic: base-minus-excluded items in the built-in's checklist order (source = the extended built-in's basename), then the pack's own items in its checklist order (source = the pack's basename); a non-extends pack emits only its own items. The docstring/argparse help names the emitted structure as `the composed Review checklist` (the shared-terms canonical string must appear verbatim in this file). (6) SELF-TEST (hermetic — inject fixture built-in text, never touch disk) covering exactly: (a) a plain pack with no `extends` returns its own checklist unchanged; (b) an `extends` pack with no `exclude_rules` field returns base + own; (b2) an `extends` pack with `exclude_rules: []` (empty list) behaves IDENTICALLY to (b) — empty list equals absent; (c) an `extends` pack with `exclude_rules` drops precisely the named base ids and keeps the rest and the pack's own rules; (d) an `extends` pack whose `exclude_rules` names an id absent from the base is flagged as an error, consistently with validate_packs; and (e) the emitted objects carry exactly the keys `id`/`text`/`source` with the base-then-own ordering and basename source values. (7) min.4 note: this new non-trivial logic (a parser + a composition branch) leaves one runnable check — the `--self-test` — which satisfies the built-in minimalism pack as it ships; no carve-out is needed or claimed here. (8) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so .agents/skills/karta-kaizen/scripts/resolve_pack_checklist.py and plugins/karta/skills/karta-kaizen/scripts/resolve_pack_checklist.py regenerate byte-identically; match the non-executable mode of the sibling validate_packs.py (it is invoked via `python3 <path>`, never `./`). NOTE — shared skill tree: this item adds a file under skills/karta-kaizen/scripts/ while the retire item edits skills/karta-kaizen/SKILL.md and references/; the two touch disjoint files, so sync regenerates each independently and validate_plugin.py checks each mirror against its own canonical source. IMPORTANT — validate_plugin.py runs `--self-test` only for hooks/scripts/*.py, NOT for skills/*/scripts/*.py, so this resolver's self-test is invoked explicitly by this item's oracle, never implicitly by the plugin validator. Out of scope here: wiring the resolver into any gate (the gate-wiring item owns verify:boundary and 4c-ter), plan:sme (the dedup item), and the house pack (the house-pack item).",
+      "touches": [
+        "skills/karta-kaizen/scripts/resolve_pack_checklist.py",
+        ".agents/skills/karta-kaizen/scripts/resolve_pack_checklist.py",
+        "plugins/karta/skills/karta-kaizen/scripts/resolve_pack_checklist.py"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; grep -qF -- \"the composed Review checklist\" skills/karta-kaizen/scripts/resolve_pack_checklist.py; out=$(python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py skills/karta-plan/references/sme/minimalism.md); printf \"%s\" \"$out\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert isinstance(d,list) and d; assert all(set(e)=={\\\"id\\\",\\\"text\\\",\\\"source\\\"} for e in d), \\\"exact keys id/text/source\\\"; ids=[e[\\\"id\\\"] for e in d]; assert {\\\"min.1\\\",\\\"min.2\\\",\\\"min.3\\\",\\\"min.4\\\"} <= set(ids); assert all(e[\\\"source\\\"].endswith(\\\".md\\\") for e in d)\"' && python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py --self-test && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the resolver file carries the exact shared-terms canonical string 'the composed Review checklist' and is homed at skills/karta-kaizen/scripts/resolve_pack_checklist.py",
+          "the resolver emits a JSON array whose every object carries EXACTLY the keys id/text/source (source a pack basename ending .md); run against the real built-in skills/karta-plan/references/sme/minimalism.md (a plain always-on pack with no extends), it passes through unchanged — the parsed ids include min.1, min.2, min.3, and min.4 — proving the non-extends common case does not regress and the shape matches the auditor's expected item list",
+          "the resolver's --self-test passes all hermetic cases: a plain pack unchanged, an extends pack with no exclude (base+own), an empty exclude_rules list behaving identically to absent, an extends pack with exclude (exactly the named base ids dropped), an extends pack whose exclude names a nonexistent base id (flagged as an error like validate_packs), and the id/text/source key + base-then-own ordering check — and it exits 0",
+          "sync_codex_skills.py --check reports no drift across the two resolver mirrors, and validate_plugin --self-test passes with all [PASS] — the resolver's own self-test is run here explicitly because validate_plugin runs self-tests only for hooks/scripts/*.py, not skills/*/scripts/*.py"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:new-stdlib-primitive-the-enforcing-boundary-gate-and-the-build-self-check-both-call-to-compose-the-checklist-the-safety-auditor-judges",
+          "contract:composed-output-shape-must-match-the-normalized-item-list-the-gate-agents-already-consume-id-text-source-pack"
+        ]
+      }
+    },
+    {
+      "id": "gate-wiring",
+      "title": "Wire the resolver into the boundary gate and the build self-check",
+      "summary": "The one-file resolution at verify:boundary and at karta-build's 4c-ter is rewired to call the resolver, so the enforcing boundary gate and the builder's pre-gate self-check both judge the identical composed checklist — base built-in minus exclude_rules, plus the pack's own rules — instead of a single file's own checklist.",
+      "estimate": "M",
+      "depends_on": ["extends-resolver"],
+      "contract": "Two canonical SKILL.md files, both at their existing single-pack resolution points, plus mirrors. (1) skills/karta-verify/SKILL.md, verify:boundary (the 'Resolve stack-pack checklists first' paragraph, around line 75): the flow stays — read the binder's `sme`, resolve each id to the overlay `.karta/sme/<id>.md` else the built-in references/sme/<id>.md (project-local wins), and VALIDATE the resolved pack with `python3 skills/karta-kaizen/scripts/validate_packs.py <pack.md>` (a malformed overlay stays BLOCKED, a pinned id resolving to no pack stays BLOCKED) — but the extract-and-normalize step is REPLACED: after validation, invoke `python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py <pack.md>`, PARSE its JSON stdout as the composed Review checklist (the normalized item list — one object per rule with keys id, text, source), and hand THAT parsed list into the auditor's dispatch brief. State explicitly: the dispatcher no longer reads the pack's own `## Review checklist` section directly — the resolver's output IS the checklist, so an `extends` pack's base rules and exclusions actually reach the gate. State plainly that a resolver error (an unresolvable `extends` base, or an `exclude_rules` id the extended built-in never had) is BLOCKED and halts with the resolver's findings, exactly like a validator failure. Keep the surrounding doctrine intact: this is still the one input beyond the four that travels to a gate agent and only when `sme[]` is non-empty; when `sme[]` is empty or absent, hand nothing and the auditor's stack-pack check no-ops. The exact shared-terms string 'the composed Review checklist' must appear in this file. (2) skills/karta-build/SKILL.md, 4c-ter (around line 171): the same rewire — for each id in SME_PACKS, resolve the overlay-else-built-in file, then obtain the composed Review checklist by invoking `python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py <pack.md>` and PARSING its JSON stdout, and hold THAT composed checklist (never the pack's own `## Review checklist` section read directly) as the item's stack-pack checklist; the resolution-halt behavior (a pinned id resolving to no file halts the item with a call to action naming both paths tried) is unchanged. The exact shared-terms string 'the composed Review checklist' must appear in this file too. (3) Same file, 6-sme (around line 337): it already runs 'its Review checklist' against the diff; add one clarifying clause that the checklist run here is the composed Review checklist loaded in 4c-ter, so the pre-gate self-check and the boundary gate enforce the identical rule set (base minus exclude_rules, plus the pack's own rules). No other change to 6-sme's pass/miss/override mechanics. (4) Both invocation points use the plugin-relative path form `skills/karta-kaizen/scripts/resolve_pack_checklist.py`, exactly mirroring how verify:boundary already writes the validate_packs.py invocation (the actual call resolves against the installed plugin root, the same convention validate_packs uses). Keep every edit localized to the resolution step; touch no other paragraph, and do not disturb any claims.yaml-anchored cell text (recon confirmed claims.yaml carries no stack-pack/checklist row, so the resolution prose is unanchored). (5) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so the .agents/ and plugins/karta mirrors of both SKILL.md files regenerate; validate_plugin.py --self-test fails otherwise. Out of scope here: the resolver itself (the resolver item), plan:sme (the dedup item), and all docs.",
+      "touches": [
+        "skills/karta-verify/SKILL.md",
+        ".agents/skills/karta-verify/SKILL.md",
+        "plugins/karta/skills/karta-verify/SKILL.md",
+        "skills/karta-build/SKILL.md",
+        ".agents/skills/karta-build/SKILL.md",
+        "plugins/karta/skills/karta-build/SKILL.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for f in skills/karta-verify/SKILL.md skills/karta-build/SKILL.md; do grep -qF -- \"skills/karta-kaizen/scripts/resolve_pack_checklist.py\" \"$f\"; grep -qF -- \"the composed Review checklist\" \"$f\"; done' && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "both the boundary gate (skills/karta-verify/SKILL.md) and the build self-check (skills/karta-build/SKILL.md) invoke the resolver by its plugin-relative path 'skills/karta-kaizen/scripts/resolve_pack_checklist.py', so the gate and the pre-gate self-check enforce the identical composed checklist",
+          "both files carry the exact shared-terms string 'the composed Review checklist', naming what the resolver returns and what travels to the safety-auditor",
+          "verify:boundary still validates the resolved pack with validate_packs before composing, and a resolver error is BLOCKED and halts exactly like a validator failure (contract prose asserts this)",
+          "sync_codex_skills.py --check reports no drift across the mirrors of both SKILL.md files, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:rewires-the-enforcing-boundary-gate-and-the-build-pre-gate-self-check-to-judge-the-composed-checklist-instead-of-a-single-file-checklist",
+          "contract:verify-and-build-must-invoke-the-identical-resolver-so-the-gate-and-the-self-check-can-never-enforce-different-rule-sets"
+        ]
+      }
+    },
+    {
+      "id": "plan-extends-dedup",
+      "title": "plan:sme stops double-pinning a built-in an overlay pack extends",
+      "summary": "When an overlay project pack declares `extends: <built-in>`, plan:sme now pins that pack alone and never the extended built-in as a second, independent basename — because the extends pack already carries the built-in's rules through composition, and pinning both would double-apply the base and re-fire any rule exclude_rules drops. Every edit stays outside the integrity-pinned matching-rule span.",
+      "estimate": "S",
+      "depends_on": ["extends-resolver"],
+      "contract": "One canonical file, skills/karta-plan/SKILL.md, plus mirrors — and every edit lies OUTSIDE the integrity-pinned matching-rule span. (1) THE PIN: the span markers sit at `<!-- karta:matching-rule:start ... -->` (line 104) and `<!-- karta:matching-rule:end -->` (line 117); the plan:sme step, the always-on rule (line 110), and the 'collect the applied pack basenames into sme' sentence (line 112) all live INSIDE that span. Do NOT touch the markers or one byte between them — benchmarks/sme-static/match_pins.py --karta . --check-rule-only must still pass against its embedded RULE_SHA256. (2) THE DEDUP RULE lands in the 'Project pack composition (`extends`)' section (lines 123-129), which is OUTSIDE the span. Add a rule stating: because a project pack that `extends` a built-in already carries that built-in's rules into the enforced checklist through composition (resolved at verify and build, see the extends-resolver), plan:sme pins the extends pack alone and does not ALSO pin the extended built-in as a second, independent basename — carry the exact fragment 'never the extended built-in as a second independent pin'. This holds for EVERY applied extends pack, whether it is `always: true` or `match:`-token — in both cases the pack stands in for its base, so the base is never independently pinned alongside it. Explain why: the always-on rule inside the span (pin the built-in unless a same-basename `disabled` overlay suppresses it) is SATISFIED by the extends pack, which stands in for its base; pinning both would double-apply the base and re-fire any rule that `exclude_rules` drops. This qualifies the in-span always-on rule by reference — it does not edit it. (3) A fresh-basename extends pack does not suppress its base the way a same-basename `disabled: true` overlay does; the dedup is the mechanism that keeps the base from being independently pinned, so state that link plainly. (4) Nothing else in plan:sme changes: suppression packs, the empty-`sme` legitimacy, the alias-table sentence, and the provenance-classification paragraph all stay as they are. (5) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so .agents/skills/karta-plan/SKILL.md and plugins/karta/skills/karta-plan/SKILL.md regenerate; validate_plugin.py --self-test fails otherwise. Out of scope here: verify:boundary and 4c-ter (the gate-wiring item), the resolver (the resolver item), and all docs.",
+      "touches": [
+        "skills/karta-plan/SKILL.md",
+        ".agents/skills/karta-plan/SKILL.md",
+        "plugins/karta/skills/karta-plan/SKILL.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; grep -qF -- \"never the extended built-in as a second independent pin\" skills/karta-plan/SKILL.md' && python3 benchmarks/sme-static/match_pins.py --karta . --check-rule-only && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "skills/karta-plan/SKILL.md carries the exact dedup fragment 'never the extended built-in as a second independent pin' in the extends-composition section (outside the pinned span)",
+          "the integrity-pinned matching-rule span is untouched: match_pins.py --check-rule-only passes against the embedded RULE_SHA256, proving no byte between the markers (lines 104-117, including the always-on rule) changed",
+          "sync_codex_skills.py --check reports no drift across the karta-plan SKILL.md mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:every-edit-outside-the-integrity-pinned-matching-rule-span-the-dedup-rule-lands-in-the-extends-section-and-references-the-in-span-always-on-rule-without-editing-it"
+        ]
+      }
+    },
+    {
+      "id": "retire-shadow-doctrine",
+      "title": "Retire the managed minimalism shadow special case",
+      "summary": "The validator's shadow guard, its stamp-strip helper, and its self-test fixtures are deleted; the validator additionally gains a self-test discovery pass over skills scripts so the composition resolver's correctness joins the floor; the Kaizen dogfood policy is rewritten to describe karta as an ordinary consumer that narrows minimalism through a project pack; and the trailing dogfood-shadow clause leaves the kaizen skill and its agent. The four generic surface-resolution rules already cover karta's case, so nothing is lost.",
+      "estimate": "M",
+      "depends_on": ["extends-resolver"],
+      "contract": "Four canonical files plus the kaizen agent's projections. (1) scripts/validate_plugin.py — DELETE the shadow guard end to end: remove the `_check_kaizen_shadow(errors)` call in check() (line 94), the whole `_check_kaizen_shadow` function (lines 115-134), and the now-orphaned `_strip_provenance_stamp` helper (lines 98-112) — recon confirmed its SOLE caller is line 128 inside the guard, so it is dead once the guard goes. In `_self_test()` remove the `shadow_cases` fixture block (the canon/stamped/delta/stamped_delta setup and the four cases, lines 415-438) and change the totals line `total = len(cases) + 1 + len(shadow_cases)` (line 439) back to `total = len(cases) + 1`. Keep the doc-gardner and roundtable/kaizen config checks, the two KARTA-SME-OVERRIDE(min.4) markers (lines 273-276 and 296-300), and every other check exactly as they are — this item removes only the shadow guard. (1b) CLOSE THE FLOOR GAP: `_check_hooks` today runs `--self-test` on every hooks/scripts/*.py but the validator never self-tests skills/*/scripts/*.py, so the new composition resolver — whose correctness gates the enforcing checklist — would sit outside the floor (the panel's finding). Add a sibling discovery pass (mirror the existing hooks/scripts loop, factoring a shared helper if clean): run `--self-test` on every `skills/*/scripts/*.py`, appending an error on any non-zero exit. Every existing skills script already exposes `--self-test` (verified), so this passes today and durably covers resolve_pack_checklist.py plus its siblings; this is why this item depends on extends-resolver — the resolver must exist on the tip when the discovery pass runs. Re-run validate_plugin --self-test: it must pass with the recomputed total and the new skills-script pass green. (2) AGENTS.md — rewrite the 'Kaizen dogfood policy (this repo)' section (lines 91-97): the framing sentence (line 93) stops centering the shadow; the managed-shadow bullet (line 95) becomes a description of karta as an ordinary consumer of its own framework — its `.karta/sme/` carries a project pack `.karta/sme/karta-house-minimalism.md` that declares `extends: minimalism` and narrows one rule locally (carry the exact string 'extends: minimalism'), and a change to the built-in itself is only ever made upstream in skills/_shared/sme/minimalism.md by a human, never by drifting a repo-local copy; the 'Never seed further built-ins here' bullet (line 97) is revised to note the repo now carries zero seeded built-in copies, only its own project packs. Keep the karta-house-skill-authoring bullet (line 96) in substance. (3) skills/karta-kaizen/SKILL.md — in the 'Surface resolution' paragraph (line 80), DELETE only the trailing clause 'In karta's own dogfood repo the house pack is edited in place and the managed byte-identical minimalism shadow never.' The four generic surface-resolution rules before it (built-in + repo-specific lesson -> the repo's existing project pack via exclude_rules + a `Narrows <built-in-id>:` replacement rule; built-in + environment-generic lesson -> upstream candidate note; the repo's own project pack -> edited in place; a seeded cache -> never) already cover karta's case, so no replacement clause is added. Leave every other sentence — including the stale-exclusion re-check and the `Narrows <built-in-id>:` convention — byte-untouched. (4) agents/karta-kaizen.md — DELETE the surface-resolution table row 'karta's own dogfood repo | the house pack is edited in place; the managed byte-identical minimalism shadow never' (line 82). The other four rows and the 'You never create a project pack' sentence stay. (5) After the edits, none of these four files contains 'managed shadow' or 'minimalism shadow' (any case), and scripts/validate_plugin.py contains none of the identifiers `_check_kaizen_shadow`, `_strip_provenance_stamp`, or `shadow_cases`. The project CLAUDE.md and .karta/kaizen.json are NOT touched (CLAUDE.md carries no shadow row; kaizen.json's focus names no shadow) — recon confirmed. (6) MIRRORED SURFACE: run python3 scripts/sync_codex_agents.py then python3 scripts/sync_codex_skills.py so .codex/agents/karta-kaizen.toml, the three references copies of karta-kaizen.agent.md, and the karta-kaizen SKILL.md mirrors regenerate; validate_plugin.py --self-test fails otherwise. NOTE — shared skill tree: this item edits skills/karta-kaizen/SKILL.md and references/ while the resolver item adds skills/karta-kaizen/scripts/resolve_pack_checklist.py; the two touch disjoint files, so the sync writers regenerate each independently. Out of scope: the house pack and the shadow FILE deletion (the house-pack item owns .karta/sme/*), and all docs (the docs item).",
+      "touches": [
+        "scripts/validate_plugin.py",
+        "AGENTS.md",
+        "skills/karta-kaizen/SKILL.md",
+        ".agents/skills/karta-kaizen/SKILL.md",
+        "plugins/karta/skills/karta-kaizen/SKILL.md",
+        "agents/karta-kaizen.md",
+        ".codex/agents/karta-kaizen.toml",
+        "skills/karta-kaizen/references/karta-kaizen.agent.md",
+        ".agents/skills/karta-kaizen/references/karta-kaizen.agent.md",
+        "plugins/karta/skills/karta-kaizen/references/karta-kaizen.agent.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for f in scripts/validate_plugin.py AGENTS.md skills/karta-kaizen/SKILL.md agents/karta-kaizen.md; do for n in \"managed shadow\" \"minimalism shadow\"; do if grep -qiF -- \"$n\" \"$f\"; then exit 1; fi; done; done; for n in \"_check_kaizen_shadow\" \"_strip_provenance_stamp\" \"shadow_cases\"; do if grep -qF -- \"$n\" scripts/validate_plugin.py; then exit 1; fi; done; grep -qF -- \"extends: minimalism\" AGENTS.md; grep -qF -- \"Narrows\" skills/karta-kaizen/SKILL.md' && python3 scripts/sync_codex_agents.py --check && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "'managed shadow' and 'minimalism shadow' (any case) appear in none of scripts/validate_plugin.py, AGENTS.md, skills/karta-kaizen/SKILL.md, or agents/karta-kaizen.md",
+          "the validator no longer names the deleted machinery: `_check_kaizen_shadow`, `_strip_provenance_stamp`, and `shadow_cases` are all gone from scripts/validate_plugin.py, and validate_plugin --self-test passes with the recomputed total — proving the deleted fixtures and the deleted guard moved together",
+          "the validator now runs --self-test over every skills/*/scripts/*.py (mirroring the hooks/scripts pass), so the composition resolver's self-test joins the floor and a resolver regression fails validate_plugin --self-test — the check is green because every skills script already exposes --self-test",
+          "AGENTS.md's rewritten dogfood policy carries the exact string 'extends: minimalism', describing karta as an ordinary consumer that narrows minimalism through a project pack",
+          "the kaizen skill keeps its surface-resolution mechanics (the `Narrows <built-in-id>:` convention is still present) with only the trailing dogfood-shadow clause removed",
+          "sync_codex_agents.py --check and sync_codex_skills.py --check both report no drift across the toml, the three agent-file references copies, and the skill mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "removal:deletes-the-managed-shadow-guard-its-stamp-strip-helper-and-its-self-test-fixtures-from-validate_plugin-an-enforcement-path-goes-away",
+          "sensitive:rewrites-the-repo-standing-dogfood-policy-that-governed-how-kaizen-treats-karta-s-own-sme-copies"
+        ]
+      }
+    },
+    {
+      "id": "house-pack",
+      "title": "Add karta's minimalism project pack and delete the retired shadow file",
+      "summary": "A new project pack `.karta/sme/karta-house-minimalism.md` (always-on, extends minimalism, id_prefix hmin, excludes min.4) carries karta's one local narrowing — hmin.1, whose text begins `Narrows min.4:` — and the byte-identical shadow file `.karta/sme/minimalism.md` is deleted. The resolver expands the new pack to the base minus min.4 plus hmin.1, so the narrowing takes effect.",
+      "estimate": "S",
+      "depends_on": ["retire-shadow-doctrine", "gate-wiring", "plan-extends-dedup"],
+      "contract": "Add .karta/sme/karta-house-minimalism.md and delete .karta/sme/minimalism.md. (1) THE PACK — frontmatter exactly: name karta-house-minimalism (equals the basename, so validate_packs accepts it), a description, `always: true` (REQUIRED, not `match:` — it plays minimalism's always-on role, and always-on carries no match tokens so the token-audit bench sees none and raises no dead-token finding), `extends: minimalism`, `id_prefix: hmin` (distinct from the built-in prefixes {min, ng, vue, fapi, py, htmx, goname} and from the existing house pack's `house` prefix), and `exclude_rules: [\"min.4\"]`. Its `## Review checklist` has exactly one active rule, hmin.1, whose text begins with the exact shared-terms string 'Narrows min.4:' and states: min.4's one-runnable-check mandate holds for all non-trivial new logic EXCEPT a new branch inside a stdlib gate/validator script's own config-shape validation block (the numbered opt-in-config blocks in scripts/validate_plugin.py); because this repo ships no test framework by design (manual gate scripts only), the runnable check for that carve-out is the script's own `--self-test` over the committed config plus the karta item oracle's malformed-config probe — never a separate per-branch test — and this narrows only what satisfies the runnable check for a validator-internal config branch, never min.4's mandate for logic that carries product behavior (cite the two deliveries: 2026-07-06 stack-pack-hardening and 2026-07-18 roundtable-edict). This is the sanctioned kaizen surface: a `Narrows <built-in-id>:` replacement rule under a project prefix, with `exclude_rules` on the built-in id — exactly the mechanism the kaizen doctrine describes. (2) THE DELETION: remove `.karta/sme/minimalism.md` (the retired byte-identical shadow). The shadow guard is gone (the retire item), so nothing polices this file any longer; deleting it leaves karta's `.karta/sme/` carrying only project packs (karta-house-minimalism and karta-house-skill-authoring). (3) VALIDATION: the pack must pass `python3 skills/karta-kaizen/scripts/validate_packs.py .karta/sme/karta-house-minimalism.md` — the registry (scanned from skills/karta-plan/references/sme/) resolves `extends: minimalism`, confirms min.4 exists in the built-in's checklist (so the exclusion is not stale), and confirms `hmin` collides with no built-in prefix. (4) IT MUST TAKE EFFECT: the resolver (from the resolver item) must expand `.karta/sme/karta-house-minimalism.md` to the base minus min.4 plus hmin.1 — i.e. min.1, min.2, min.3, hmin.1, and NOT min.4 — and check_pack_provenance must classify it as `project pack` (its basename collides with no built-in). (5) The two in-code KARTA-SME-OVERRIDE(min.4) markers in scripts/validate_plugin.py STAY — kaizen cannot write outside .karta/sme, the `Narrows min.4:` text is the identity thread that keeps those markers meaningful, and the phase-2 stale-exclusion re-check governs their eventual fate; this item does not touch them. Out of scope: validate_plugin.py, all doctrine and docs (owned by other items) — this item only adds one pack file and deletes one.",
+      "touches": [
+        ".karta/sme/karta-house-minimalism.md",
+        ".karta/sme/minimalism.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; python3 skills/karta-kaizen/scripts/validate_packs.py .karta/sme/karta-house-minimalism.md; grep -qF -- \"Narrows min.4:\" .karta/sme/karta-house-minimalism.md; grep -qF -- \"extends: minimalism\" .karta/sme/karta-house-minimalism.md; [ ! -e .karta/sme/minimalism.md ]; comp=$(python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py .karta/sme/karta-house-minimalism.md); for r in min.1 min.2 min.3 hmin.1; do printf \"%s\" \"$comp\" | grep -qF -- \"$r\"; done; if printf \"%s\" \"$comp\" | grep -qF -- \"min.4\"; then exit 1; fi' && python3 skills/karta-plan/scripts/check_pack_provenance.py . | python3 -c \"import sys,json;d=json.load(sys.stdin);e=[p for p in d['packs'] if p['basename']=='karta-house-minimalism.md'];sys.exit(0 if e and e[0]['state']=='project pack' else 1)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          ".karta/sme/karta-house-minimalism.md passes validate_packs.py (extends resolves to minimalism, min.4 exists so the exclusion is not stale, hmin collides with no built-in prefix), and its one rule's text begins with the exact string 'Narrows min.4:' while the frontmatter carries 'extends: minimalism'",
+          "the retired shadow file .karta/sme/minimalism.md no longer exists",
+          "the resolver expands the pack to the base minus min.4 plus the pack's own rule — its output carries min.1, min.2, min.3, and hmin.1 but NOT min.4 — proving the narrowing takes effect end to end",
+          "check_pack_provenance classifies karta-house-minimalism.md as 'project pack' (its basename collides with no built-in), and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:new-project-pack-must-validate-classify-project-pack-and-be-expanded-by-the-resolver-to-base-minus-min4-plus-hmin1-and-the-byte-identical-shadow-file-is-deleted"
+        ]
+      }
+    },
+    {
+      "id": "separation-docs",
+      "title": "Tell the truth in the guides, add the sentinel, and record the decision as a spec",
+      "summary": "The stack-packs and kaizen guides now say an extends narrowing takes effect at the checks, not only in the plan report; one observable:false sentinel in the feature manifest records the gate-expansion release; and a new dated spec records the edict, the resolver, the shadow retirement, and everything deliberately unchanged. The live doc-truth parity ledger gates the result.",
+      "estimate": "M",
+      "depends_on": ["gate-wiring", "plan-extends-dedup", "retire-shadow-doctrine", "house-pack"],
+      "contract": "Two consumer guides (written plainly per the karta-plainlanguage standard — no line-number citations, no repo-internal script paths in the guides), one manifest sentinel, and one new spec. (1) docs/how-to/stack-packs.md — in the 'Extending a built-in instead of forking it' section (heading around line 59), correct the plan-time-only composition claim (line 85, 'At plan time karta appends the built-in's checklist to yours ...'): composition now takes effect wherever karta enforces the checklist — as before, planning reports which rules `exclude_rules` drops (so an excluded rule is never lost in silence), and NOW the verify and build gates hand the auditor the composed Review checklist (the built-in's rules minus your `exclude_rules`, then your own), so a narrowing you express with `extends` actually changes what the checker enforces, not just what the plan mentions. This section must carry the exact shared-terms strings 'the composed Review checklist' and 'extends: minimalism' (use karta's own karta-house-minimalism pack as the worked example: a project pack that declares `extends: minimalism` and drops min.4 for a narrower local rule). Add a short upgrade note: a project already carrying an `extends` pack will, from this release, have that pack's composed checklist enforced at the verify and build gates for the first time (before, composition surfaced only in the plan) — so your excluded rules stop being checked and the base's other rules start being checked; review your `extends` packs on upgrade. Keep the states list (lines 46-53) and every other section as they are. (2) docs/how-to/kaizen.md — in the 'Where a sharpening lands' surface-resolution section (around line 70), add one plain sentence: a narrowing kaizen writes as `exclude_rules` on a built-in id plus a `Narrows <built-in-id>:` replacement rule now takes effect at the checks, not only in the plan report (carry the exact phrase 'not only in the plan report'). Nothing else in the kaizen guide changes. (3) benchmarks/field/feature-manifest.json — APPEND ONE observable:false sentinel entry as the last element of `entries`, of the same shape the existing sentinels use ({version, observable: false, note}), preserving every existing entry byte-for-byte and ascending version order. Set `version` to the plugin version this delivery ships under (read it from .claude-plugin/plugin.json at delivery; a feature ships a minor bump), and write a `note` that begins with 'pack-separation:' and states that extends composition is now expanded at the verify and build gates (was reported at plan time only) and that karta retired its managed minimalism shadow to become an ordinary consumer — a plugin-internal enforcement change with 'no new consumer-repo artifact'. Do NOT add a detection entry: this ships no new consumer-repo-observable artifact (extends packs were already greppable), so a sentinel is the honest classification and it cannot misfire the field adoption ledger's 'detection never fired' check against the enrolled consumers. The file must stay valid JSON. (4) NEW docs/specs/2026-07-30-pack-separation.md — a short dated spec recording: the user edict of 2026-07-30 (karta-the-repo becomes a regular consumer of karta-the-framework); the discovery that extends/exclude_rules composition was DOC-ONLY (validated for shape, never expanded at any gate) and the new resolver skills/karta-kaizen/scripts/resolve_pack_checklist.py that expands it, invoked at verify:boundary and karta-build's 4c-ter so the gate and the self-check enforce 'the composed Review checklist'; the plan:sme dedup (an extends pack pins its base for it, never a second independent pin); the retirement of the managed minimalism shadow (guard, stamp-strip helper, and self-test fixtures deleted from validate_plugin.py; the shadow FILE deleted) in favor of the project pack .karta/sme/karta-house-minimalism.md that declares 'extends: minimalism' and carries the rule beginning 'Narrows min.4:'; and the UNCHANGED list — validate_packs.py's shape checks, consumers.json (karta not enrolled), seed_drift.py and every committed bench baseline/result/claim, the hooks, the two in-code KARTA-SME-OVERRIDE(min.4) markers, and the shipped built-in minimalism.md (promotion stays a human act). The spec must record the consumer-upgrade effect plainly (an existing `extends` pack's composed checklist now enforces at the gate for the first time — excluded rules stop being checked, other base rules start). The spec must also carry the exact strings 'Narrows min.4:', 'extends: minimalism', and 'the composed Review checklist'. (5) PARITY STAYS GREEN: the doc-truth parity ledger must still pass live against the repo after the edits — python3 benchmarks/probes/parity-doc-truth-ledger.py --target . reports status pass with no lane regressed (recon confirmed claims.yaml carries no extends/composition/stack-pack row, so the doc rewrites are unanchored and cannot regress a lane); this is why the item depends on the behavior items — the guides describe what they install, and the probe reads docs against the current tree. Out of scope: README, AGENTS.md, and every other doc; all bench files except the one sentinel append; and consumers.json, seed_drift.py, and claims.yaml (never edited).",
+      "touches": [
+        "docs/how-to/stack-packs.md",
+        "docs/how-to/kaizen.md",
+        "benchmarks/field/feature-manifest.json",
+        "docs/specs/2026-07-30-pack-separation.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"the composed Review checklist\" \"extends: minimalism\"; do grep -qF -- \"$s\" docs/how-to/stack-packs.md; done; grep -qF -- \"not only in the plan report\" docs/how-to/kaizen.md; for s in \"Narrows min.4:\" \"extends: minimalism\" \"the composed Review checklist\"; do grep -qF -- \"$s\" docs/specs/2026-07-30-pack-separation.md; done; grep -qF -- \"pack-separation:\" benchmarks/field/feature-manifest.json' && python3 -c \"import json;json.load(open('benchmarks/field/feature-manifest.json'))\" && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "docs/how-to/stack-packs.md carries the exact strings 'the composed Review checklist' and 'extends: minimalism', and its extends section says composition takes effect at the verify and build gates, not only in the plan report",
+          "docs/how-to/kaizen.md carries the exact phrase 'not only in the plan report' in its surface-resolution section and changes nothing else",
+          "benchmarks/field/feature-manifest.json stays valid JSON and gains exactly one observable:false sentinel whose note begins 'pack-separation:'; no detection entry is added, so the field adoption ledger cannot gain a 'detection never fired' finding",
+          "docs/specs/2026-07-30-pack-separation.md exists and carries the exact strings 'Narrows min.4:', 'extends: minimalism', and 'the composed Review checklist', recording the edict, the resolver, the retirement, and the unchanged list",
+          "the live doc-truth parity ledger reports status pass against the repo — no lane regressed by the reworded guides — and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:consumer-guides-and-the-spec-render-the-canonical-strings-the-manifest-gains-only-an-observable-false-sentinel-and-the-live-parity-probe-stays-green"
+        ]
+      }
+    }
+  ]
+}
