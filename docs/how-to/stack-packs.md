@@ -29,7 +29,7 @@ see_also: ["platform-native#python-standard-library"]
 - `see_also` — optional pointers to companion material; section anchors allowed.
 - `disabled: true` — makes this a **suppression pack**: it is never pinned to a binder and exists only to switch a pack off. To suppress the built-in `minimalism` for your project, drop a `.karta/sme/minimalism.md` carrying just `name`, `description`, and `disabled: true`. A disabled pack needs no `match`/`always` and no checklist.
 
-No other keys are allowed — the validator fails on anything it does not recognize.
+The only other keys the validator accepts are the composition keys — `extends`, `exclude_rules`, `id_prefix` (see "Extending a built-in instead of forking it") — and the provenance stamp pair `seeded_from` / `base_sha256` (see "Where a local copy stands against the original"). Anything else fails validation.
 
 ## How matching works
 
