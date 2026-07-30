@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "3b879b45229b225e637dd7835076cc5976f6e8ff335aa7213b747d1c4b116d17",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "pack-sovereignty",
+  "run_at": "2026-07-30T05:48:14.760337+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"blocking :: doc-truth parity probe may fail if baselines encode old wording :: item 3 oracle vs excluded list :: verify no lane affected or update mechanism\\nshould-fix :: external suites may import deleted guard symbols (_classify_state etc.) :: item 1 scope :: audit imports repo-wide\\nshould-fix :: 'PostToolUse classification block' imprecise; rule-1 breakage risk :: item 1 contract :: pin exact ranges\\nnote :: NO-imperative-verbs unenforced by oracle :: only 'restore the seeded copy' grepped :: add imperative-stem regex\\nnote :: shared_terms omit bare state name 'local fork' :: shared_terms list :: add it\\nnote :: 'sneaky' replacement tone underspecified :: contract example only :: pin exact comment\"}"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"should-fix :: flow-guard matrix families may encode rule-2 verdicts :: excluded list never names the matrix file :: enumerate validator-only vs fork-aware rows\\nshould-fix :: item-1 oracle hollow for mirror content if sync --check not content-aware :: relies on sync_codex_skills.py --check :: add per-mirror greps/cmp\\nshould-fix :: sync scope for plugins/karta/.codex-plugin guard copy unproven :: typical sync scopes are skills/ only :: verify manifest or hand-copy\\nshould-fix :: case asymmetry: ILLEGAL_SHADOW_SUBSTR grep case-sensitive :: snake-case variant slips :: add -i\\nshould-fix :: no runtime oracle for NO-imperative finding :: absence of one phrase only :: fixture-render + stem assert\\nshould-fix :: shared_terms miss parallel prose phrases (edits-always-win, inform-never-deny, never-overwritten forms) :: two terms only :: add canonical forms\\nshould-fix :: untouched surfaces may carry dead doctrine (README, verify/build, serve_status, validate_binder, CHANGELOG) :: no repo-wide proof :: greedy grep or touches\\nshould-fix :: cross-script imports of deleted symbols break :: validate_plugin only runs hooks/scripts :: import-graph grep must be empty\\nshould-fix :: WARNING severity tag consumers may silently lose fork surfacing :: downstream parsers unenumerated :: audit or keep level tag\\nnote :: new spec lacks supersession cross-note in old spec :: 2026-07-21 spec untouched :: append superseded-by note\\nnote :: parity oracle binary; per-file lanes unchecked :: status==pass only :: parse per-file lanes\"}"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"blocking(withdrawn in-text) -> amendment :: spec oracle only checks two substrings; content contract undiscriminated :: a spec with only the substrings would pass :: add anchors 2026-07-21 / never edits a user-edited copy / validator-clean\\nshould-fix :: fail-open preservation unasserted after rule-2 deletion :: negative greps only :: add positive fail-open assertion\\nshould-fix :: third guard copy never directly byte-compared :: cmp covers hand-kept copy only :: add second cmp\\nnote :: other living surfaces not oracle-grepped for 'illegal shadow' :: attack-surface Q4 :: extend or add probe\\nnote :: spec omits no-migration statement for pre-existing forks :: scope.excluded only :: add clause to spec contract\"}"
+    }
+  ]
+}

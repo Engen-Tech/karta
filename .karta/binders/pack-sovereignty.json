@@ -1,0 +1,173 @@
+{
+  "slug": "pack-sovereignty",
+  "title": "Your pack copies are yours: karta stops policing edited packs",
+  "summary": "karta ships expert advice packs and copies them into a project's own folder. Until now, a copy the user edited was branded an illegal shadow: planning warned loudly, a hook refused the edit as it was typed, the docs called the behavior deprecated, and a coming release promised to stop planning entirely on such a copy. That promise is cancelled. An edited copy is now called a local fork — the user's copy, doing what the user told it to. karta reports a fork as plain information with its one real consequence — the copy no longer receives updates when karta's shipped version improves — and never warns, never deprecates, never tells anyone to fix it. The hook half that refused fork edits is deleted; the half that checks a pack file is well-formed stays. Kaizen's manners are unchanged: it still never touches a copy a user edited, and it still never weakens a rule.",
+  "motivation": "A direct user decision (2026-07-30): the pack copies inside a project belong to the project — people may edit them however they please, and their changes always win over karta's. Machinery built to deter that — the loud warning, the write denial, the planned hard stop — punished owners for using their own files, so it goes. Honest information stays: knowing a copy has forked, and knowing it will no longer pick up upstream improvements, is genuinely useful; being scolded about it is not.",
+  "scope": {
+    "included": [
+      "skills/karta-plan/scripts/check_pack_provenance.py — the state 'illegal shadow' becomes 'local fork', the finding becomes one neutral information line naming the single consequence, the deterrence framing leaves the docstring, and the self-tests rename strings while keeping every invariance assertion",
+      "hooks/scripts/guard_pack_write.py — the fork-deny half (rule 2) is deleted wholesale, together with its self-tests and fixtures; the validator-clean half (rule 1) survives untouched; the hand-kept byte-identical copy under .codex-plugin/ gets the same edit",
+      "skills/karta-plan/SKILL.md, skills/karta-kaizen/SKILL.md, agents/karta-kaizen.md — the doctrine prose renames the state, replaces the warning-and-deprecation sentence with one neutral report instruction, and drops the cancelled future-release clauses; every edit stays outside the integrity-pinned matching-rule span",
+      "docs/how-to/stack-packs.md and docs/how-to/hooks.md — the consumer guides describe forks as information with one consequence, the deprecated-override section is replaced by a plain your-edits-always-win statement, and the hooks table row shrinks to the guard's single remaining rule",
+      "benchmarks/field/feature-manifest.json — one prose phrase in the pack-provenance-stamp capability sentence is reworded; every machine field stays frozen",
+      "docs/specs/2026-07-30-user-pack-sovereignty.md — a new short spec recording the edict, the cancellation, the rename, the guard retirement, and everything deliberately unchanged",
+      "The regenerated projections of every canonical file above — the Codex skill mirrors, the agent references copies, and the marketplace install tree — kept generated-identical by the sync scripts in the same change"
+    ],
+    "excluded": [
+      "benchmarks/claims.yaml is not edited — the HOOKS-MATCHER-PARITY row keeps binding because the hooks table keeps its exact 'Pack edits must validate' cell text",
+      "The seed-drift bench vocabulary is not touched — DIVERGENT and LOCAL-ADDITIVE stay exactly as the bench uses them",
+      "benchmarks/flow fixtures and the flow-guard-enforcement-matrix probe stay untouched — recon verified its pack rows exercise only the validator-clean rule, which survives; the fork-deny behavior was asserted only by the guard's own self-test, which this binder rewrites in the same item as the behavior",
+      "No committed baselines, findings, or gate results are touched",
+      "hooks/hooks.json is unchanged — the pack-write guard keeps its registration and event wiring, with one rule fewer inside",
+      "Kaizen's agent discipline is unchanged in substance: it never edits a user-edited copy, never weakens a rule, and stays confined to its writer surface by guard_writer_confinement.py",
+      "The validator-clean deny half of guard_pack_write.py survives byte-for-byte in behavior — packs still land only well-formed",
+      "Suppression packs, project packs and extends composition, stale-cache auto-reseed, and the karta-repo-only managed minimalism shadow policy in validate_plugin.py all stay as they are",
+      "Historical records stay as records: the 2026-07-21 pack-overlay-redesign spec and the archived pack-provenance binder are not edited — the new spec supersedes the cancelled phase in prose, it does not rewrite history",
+      "No consumer-repo migrations — existing forks elsewhere are simply reported under their new name; nothing is repaired or moved on karta's initiative"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Claude Code + Codex plugin repo: markdown doctrine (skills/, agents/) with generated projections, pure-stdlib Python tooling"
+  },
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "python", "version": ">=3.11", "manager": "uv" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-skill-authoring", "minimalism"],
+  "shared_terms": [
+    {
+      "id": "local-fork-report-substring",
+      "canonical": "local fork: a user-edited copy of the shipped built-in",
+      "items": ["fork-classifier-and-guard", "fork-doctrine-prose", "fork-docs-and-spec"]
+    },
+    {
+      "id": "fork-consequence-line",
+      "canonical": "no longer receives upstream pack updates",
+      "items": ["fork-classifier-and-guard", "fork-doctrine-prose", "fork-docs-and-spec"]
+    },
+    {
+      "id": "edits-always-win",
+      "canonical": "user edits always win",
+      "items": ["fork-classifier-and-guard", "fork-doctrine-prose"]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "fork-classifier-and-guard",
+      "title": "Rename the state in the classifier and delete the write refusal",
+      "summary": "The provenance classifier stops calling a user-edited copy an illegal shadow and stops telling the user what to do about it: the state becomes local fork and the finding becomes one neutral line naming the forked built-in and the single consequence. The write guard's half that refused fork edits is deleted outright, self-tests included; the well-formedness half stays. The hand-kept Codex copy and the generated mirrors follow in the same change.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Two scripts change; the six-state model, the exit-0 contract, and every forged-stamp invariance stay. (1) skills/karta-plan/scripts/check_pack_provenance.py — RENAME the state: the constant ILLEGAL_SHADOW_SUBSTR (line 52) becomes LOCAL_FORK_SUBSTR with the exact value 'local fork: a user-edited copy of the shipped built-in', and the state string 'illegal shadow' becomes 'local fork' everywhere (the state field, the docstring states list, every self-test assertion). (2) NEUTRALIZE the finding: the local-fork finding is one information line with NO imperative verbs — the canonical substring, the forked built-in's basename in parentheses, and the single consequence stated as 'no longer receives upstream pack updates'. The corrective tail ('restore the seeded copy, move the delta to a project pack (a fresh basename with extends and id_prefix), or take the delta upstream') is deleted and nothing replacing it tells the user to do anything. (3) REWRITE the docstring's deterrence framing: 'flagged loudly instead of silently overriding' and 'This release warns and deters; nothing halts' go; the script simply reports which honest state each copy is in — a user-edited copy is a local fork the user owns, user edits always win, and the one consequence reported is that the copy no longer receives upstream pack updates. Retire every phase-staging clause in the file: the exit-0 paragraph's 'phase 1 never gates on findings' becomes 'classification never gates on findings' (behavior unchanged), and the RENAME_ALIASES comment's 'and phase 2 retires the table' clause is dropped — an alias entry is kept for one minor release after a rename and retired on its own schedule. The diagnostic-only stamp paragraph and the forged-stamp guard paragraph stay, reworded only where they say 'illegal shadow'. (4) SELF-TESTS rename strings and keep every check: the forged/missing-stamp verdict-invariance block keeps ALL its assertions with 'local fork' as the expected state for a genuine delta, both ledger fixtures keep asserting their verdicts, and the state-fixture check asserts the new canonical substring via the renamed constant. The fixture comment '- [ ] demo.2 — a sneaky extra local rule.' loses the accusatory tone — e.g. '- [ ] demo.2 — an extra local rule the built-in never shipped.' (updating the fixture line is fine; no check keys on the word). (5) hooks/scripts/guard_pack_write.py — DELETE rule 2 (the fork-deny half) wholesale, keeping rule 1 (validator-clean) unchanged in behavior and message text: remove CLASSIFIER_REL, ILLEGAL_SHADOW_SUBSTR, _classifier_path, _classify_state, _shadow_deny_msg, the PreToolUse classification call after the validator passes, the PostToolUse classification block, every rule-2 paragraph of the module docstring (it now documents a single rule — stack packs land only validator-clean — and keeps the Write-preventive / Edit-corrective asymmetry paragraph restated for that rule alone), the rule-2 self-test cases (the seeded-cache pass, the three shadow-deny checks, the suppression pass, the fresh-basename pass, and the two corrective post-edit/post-write shadow cases), the shadow fixtures (_SUPPRESS_MIN, _PROJECT_PACK, _builtin_source, and the seed-plus-delta derivation), and the four fail-open checks that drive _classify_state directly. KEEP the eleven validator-clean self-test cases byte-identical in intent, the fail-open-on-internal-error rule, and rule 1's deny/feedback wording verbatim. (6) .codex-plugin/hooks/scripts/guard_pack_write.py is a HAND-KEPT byte-identical copy with no auto-sync — apply the same edit so cmp reports the two files identical. (7) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so .agents/skills/karta-plan/scripts/check_pack_provenance.py, plugins/karta/skills/karta-plan/scripts/check_pack_provenance.py, and plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py regenerate. scripts/validate_plugin.py --self-test runs every hooks/scripts/*.py --self-test, so the deleted tests and the deleted behavior move together — a leftover shadow assertion fails the gate. Out of scope here: hooks/hooks.json (unchanged — the guard keeps its registration), all doctrine prose, and all docs (the other two items own those).",
+      "touches": [
+        "skills/karta-plan/scripts/check_pack_provenance.py",
+        ".agents/skills/karta-plan/scripts/check_pack_provenance.py",
+        "plugins/karta/skills/karta-plan/scripts/check_pack_provenance.py",
+        "hooks/scripts/guard_pack_write.py",
+        ".codex-plugin/hooks/scripts/guard_pack_write.py",
+        "plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"local fork: a user-edited copy of the shipped built-in\" \"no longer receives upstream pack updates\"; do grep -qF -- \"$s\" skills/karta-plan/scripts/check_pack_provenance.py; done; for f in skills/karta-plan/scripts/check_pack_provenance.py hooks/scripts/guard_pack_write.py .codex-plugin/hooks/scripts/guard_pack_write.py; do if grep -qiF -- \"illegal shadow\" \"$f\"; then exit 1; fi; if grep -qiF -- \"ILLEGAL_SHADOW_SUBSTR\" \"$f\"; then exit 1; fi; done; for n in \"restore the seeded copy\" \"sneaky\" \"flagged loudly\" \"warns and deters\" \"phase 1\" \"phase 2\"; do if grep -qiF -- \"$n\" skills/karta-plan/scripts/check_pack_provenance.py; then exit 1; fi; done; for n in \"_classifier_path\" \"_classify_state\" \"_shadow_deny_msg\" \"check_pack_provenance\"; do if grep -qF -- \"$n\" hooks/scripts/guard_pack_write.py; then exit 1; fi; done; cmp -s hooks/scripts/guard_pack_write.py .codex-plugin/hooks/scripts/guard_pack_write.py; cmp -s hooks/scripts/guard_pack_write.py plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py; grep -qiF -- \"fails open\" hooks/scripts/guard_pack_write.py' && python3 skills/karta-plan/scripts/check_pack_provenance.py --self-test && python3 hooks/scripts/guard_pack_write.py --self-test && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the classifier carries the exact canonical substring 'local fork: a user-edited copy of the shipped built-in' and the exact consequence phrase 'no longer receives upstream pack updates', and its local-fork finding contains no imperative — 'restore the seeded copy' and the rest of the corrective tail are gone",
+          "the literal string 'illegal shadow' (any case) and the identifier ILLEGAL_SHADOW_SUBSTR appear in none of the three living scripts — classifier, guard, or the hand-kept .codex-plugin guard copy",
+          "the classifier docstring no longer frames the report as deterrence ('flagged loudly', 'warns and deters' gone) and no longer stages behavior by phase ('phase 1' and 'phase 2' gone), while the exit-0 contract, the six-state model, and the diagnostic-only stamp doctrine survive",
+          "the classifier self-test passes with every check renamed, in particular the forged/missing-stamp invariance block still proves a fabricated stamp can never rescue a genuine delta — now to the verdict 'local fork' — and both ledger fixtures still hold",
+          "the guard has no trace of rule 2: _classifier_path, _classify_state, _shadow_deny_msg, and the check_pack_provenance reference are all gone, its self-test passes with only the validator-clean cases, and rule 1's deny and corrective-feedback behavior is unchanged",
+          "both other guard copies — the hand-kept .codex-plugin one and the generated marketplace one under plugins/karta/.codex-plugin — are byte-identical to hooks/scripts/guard_pack_write.py (each cmp exits 0), and the guard still documents that any internal error fails open (the fail-open rule survived rule 2's deletion)",
+          "sync_codex_skills.py --check reports no drift across the classifier mirrors and the marketplace install tree, and validate_plugin --self-test passes with all [PASS] — proving the deleted guard self-tests and the deleted behavior moved together"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "removal:deletes-an-enforcement-path-the-write-guards-fork-deny-half-with-its-self-tests",
+          "sensitive:renames-a-canonical-report-string-other-surfaces-and-consumers-match-on"
+        ]
+      }
+    },
+    {
+      "id": "fork-doctrine-prose",
+      "title": "Rewrite the planning and kaizen doctrine to inform, never warn",
+      "summary": "The plan skill stops instructing a loud warning and a coming halt: it now says to report a local fork in one neutral line naming the forked built-in and the one consequence. The kaizen skill and agent rename the state and drop the era-and-reconcile framing while keeping the never-overwrite behavior word for word. Every edit stays outside the integrity-pinned matching-rule span, and all projections regenerate.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Three canonical prose files; every edit lies OUTSIDE the integrity-pinned span. (1) skills/karta-plan/SKILL.md — the pinned matching-rule span sits between the markers <!-- karta:matching-rule:start --> and <!-- karta:matching-rule:end --> (lines 104-117): do not touch the markers or one byte between them; benchmarks/sme-static/match_pins.py --karta . --check-rule-only must still pass against its embedded RULE_SHA256. In the 'Provenance classification (read-only reporting)' paragraph (line 119) the six-state list renames its fifth entry to `local fork` (a copy that carries a genuine user edit over the shipped built-in); the other five state names and glosses stay verbatim. In the 'Plan time is read-only' paragraph (line 121) the stale-cache sentence stays; everything from 'Report an `illegal shadow` as a loud WARNING ...' through '... lands in karta 3.0.0.' is REPLACED by one neutral instruction: report a `local fork` in one line quoting `local fork: a user-edited copy of the shipped built-in`, naming the built-in it forked, and stating the one consequence — the copy no longer receives upstream pack updates; user edits always win; this is information, never a warning, and nothing halts. No deprecation language, no version number, no future-release promise anywhere in the paragraph. In the extends bullet list (line 129) the alias-table sentence drops its cancelled-phase clause: 'after which phase 2 retires the table and the stale pointer becomes an error' is deleted — the table is kept for one minor release after a rename and retired on its own schedule. (2) skills/karta-kaizen/SKILL.md — line 64: the migrate-pass bullet renames to **local fork** (a user-edited copy of the shipped built-in, including an unverifiable `base_sha256`), keeps '**left in place and reported, never overwritten.**' verbatim, and replaces 'Kaizen never destroys a local delta in the warning era; a genuinely edited copy is the human's to reconcile.' with a sentence keeping the never-overwrite behavior minus the era framing and the reconcile imperative — e.g. 'Kaizen never destroys a user's edit; a fork simply no longer receives upstream pack updates.' Line 98: rename only — the migrate sentence now says it leaves a local fork in place, reported, never overwritten. (3) agents/karta-kaizen.md — line 44: same treatment as the skill's line 64, keeping '**leave it in place and report it; never overwrite it.**' verbatim while the era and reconcile framing go; line 114: rename only — 'leave a local fork untouched and reported'. (4) After the edits NONE of these strings appears in any of the three canonical files: 'illegal shadow', 'loud WARNING', 'deprecated', '3.0.0', 'plan-time halt', 'warning era', 'to reconcile', 'phase 2 retires'. Kaizen's rules stay unchanged in substance — never-weaken, the direction rule, writer confinement, seed/migrate mechanics, and auto-reseed of a ledger-verified stale cache; this item renames a state and removes deterrence framing, nothing else. (5) MIRRORED SURFACE: run python3 scripts/sync_codex_agents.py then python3 scripts/sync_codex_skills.py so .codex/agents/karta-kaizen.toml, the three references copies of karta-kaizen.agent.md, and the SKILL.md mirrors under .agents/skills/ and plugins/karta/skills/ regenerate; python3 scripts/validate_plugin.py --self-test fails otherwise.",
+      "touches": [
+        "skills/karta-plan/SKILL.md",
+        ".agents/skills/karta-plan/SKILL.md",
+        "plugins/karta/skills/karta-plan/SKILL.md",
+        "skills/karta-kaizen/SKILL.md",
+        ".agents/skills/karta-kaizen/SKILL.md",
+        "plugins/karta/skills/karta-kaizen/SKILL.md",
+        "agents/karta-kaizen.md",
+        ".codex/agents/karta-kaizen.toml",
+        "skills/karta-kaizen/references/karta-kaizen.agent.md",
+        ".agents/skills/karta-kaizen/references/karta-kaizen.agent.md",
+        "plugins/karta/skills/karta-kaizen/references/karta-kaizen.agent.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"local fork: a user-edited copy of the shipped built-in\" \"no longer receives upstream pack updates\"; do grep -qF -- \"$s\" skills/karta-plan/SKILL.md; done; for f in skills/karta-plan/SKILL.md skills/karta-kaizen/SKILL.md agents/karta-kaizen.md; do if grep -qiF -- \"illegal shadow\" \"$f\"; then exit 1; fi; grep -qF -- \"local fork\" \"$f\"; done; for n in \"loud WARNING\" \"deprecated\" \"3.0.0\" \"plan-time halt\" \"phase 2 retires\"; do if grep -qF -- \"$n\" skills/karta-plan/SKILL.md; then exit 1; fi; done; for f in skills/karta-kaizen/SKILL.md agents/karta-kaizen.md; do for n in \"warning era\" \"to reconcile\"; do if grep -qF -- \"$n\" \"$f\"; then exit 1; fi; done; done; grep -qF -- \"never overwritten\" skills/karta-kaizen/SKILL.md; grep -qF -- \"never overwrite it\" agents/karta-kaizen.md' && python3 benchmarks/sme-static/match_pins.py --karta . --check-rule-only && python3 scripts/sync_codex_agents.py --check && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the plan skill's provenance paragraphs carry the exact canonical substring 'local fork: a user-edited copy of the shipped built-in' and the exact consequence phrase 'no longer receives upstream pack updates', framed as information the plan reports — not a warning, not a deprecation, not a halt",
+          "the state renames everywhere it is doctrine: 'illegal shadow' (any case) appears in none of the three canonical files, and 'local fork' appears in all three",
+          "the cancelled future is gone from the plan skill: 'loud WARNING', 'deprecated', '3.0.0', 'plan-time halt', and 'phase 2 retires' each appear nowhere in skills/karta-plan/SKILL.md, including the extends alias-table bullet",
+          "the kaizen never-overwrite behavior survives verbatim — 'never overwritten' in the skill, 'never overwrite it' in the agent — while 'warning era' and 'to reconcile' appear in neither kaizen file",
+          "the integrity-pinned matching-rule span is untouched: match_pins.py --check-rule-only passes against the embedded RULE_SHA256, proving no byte between the markers changed",
+          "sync_codex_agents.py --check and sync_codex_skills.py --check both report no drift across the Codex toml, the three references copies, and the skill mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:every-edit-outside-the-integrity-pinned-matching-rule-span-hash-must-not-move"
+        ]
+      }
+    },
+    {
+      "id": "fork-docs-and-spec",
+      "title": "Update the guides and feature list, and record the decision as a spec",
+      "summary": "The stack-packs guide tells readers their edits always win: the deprecated-override section is replaced with a plain statement, the fork state is described as information with one consequence, and extends is pointed at as the way to keep both your edits and upstream updates. The hooks guide shrinks the pack-write row to the guard's single remaining rule without breaking the claims binding. One phrase in the feature manifest is reworded, and a new dated spec records the edict, the cancellation, and everything deliberately unchanged.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "(1) docs/how-to/stack-packs.md — in the states list (line 52) the `illegal shadow` bullet becomes **`local fork`**: a copy sharing a built-in's name but carrying your own edit; your edits always win — karta reports it with a message containing the exact phrase `local fork: a user-edited copy of the shipped built-in`, naming the built-in — and the one consequence is that the copy no longer receives upstream pack updates; point at `extends` (next section) as the optional path that keeps both your edits and upstream updates. DELETE the section 'The old override behavior is deprecated' (heading and body, lines 55-57) and replace it with a short section stating plainly that your edits always win: a local fork's rules apply exactly as you wrote them, karta never blocks, warns about, or deprecates your copy, and the only trade-off is that the copy stops receiving updates when the built-in improves — a project pack with `extends` gives both. In line 61 the parenthetical '(which strands it as an illegal shadow)' becomes '(which stops it receiving upstream updates)'. Line 38 (the go-htmx always:true overlay escape) stays; optionally note that a project pack with `extends` plus `always: true` reaches the same result while keeping upstream updates. Lines 7, 42-51, and 53 keep their content. (2) docs/how-to/hooks.md — the enforcement-table row (line 12) is rewritten for the guard's single-rule reality: the cell text 'Pack edits must validate' stays EXACTLY as-is (benchmarks/claims.yaml row HOOKS-MATCHER-PARITY binds rule_regex 'Pack edits must validate' to guard_pack_write.py, and claims.yaml is NOT edited), the backticked tool names `Write` and `Edit` stay backticked, and the row describes only the validator-clean check — a `Write` of a `.md` under `.karta/sme/` is validated before it lands and blocked with the findings; after an `Edit` or `Write` the file on disk is validated again and a failure returns as feedback — with every fork-deny sentence deleted. The section 'The pack-write guard is a deterrent, not the gate' (around line 25) is rewritten to match: no '(that warning becomes a halt in karta 3.0.0)' parenthetical, no 'turns a fork away' framing; it now says the guard enforces well-formedness only, and that plan-time provenance classification is informational — a local fork is reported with its one consequence, never blocked (retitle the section accordingly, e.g. 'The pack-write guard checks form, not ownership'). (3) benchmarks/field/feature-manifest.json — in the entry with id 'pack-provenance-stamp', reword ONLY the 'capability' prose so the phrase 'an illegal shadow' becomes 'a local fork'; every machine field — ids, ordering, and every other key and entry — is frozen byte-for-byte. (4) NEW docs/specs/2026-07-30-user-pack-sovereignty.md — a short spec recording: the user edict of 2026-07-30 (users may edit .karta/sme/ pack copies however they please; user changes always win over karta); the CANCELLATION of the 2026-07-21 pack-overlay-redesign spec's planned plan-time halt and overlay-wins removal (that spec file stays untouched as a historical record, superseded on this point); the rename of the state to local fork with the canonical report substring `local fork: a user-edited copy of the shipped built-in` and the single reported consequence `no longer receives upstream pack updates` — never a warning, never a deprecation, never an instruction to fix; the deletion of the write guard's fork-deny half (inform, never deny — any writer may make the edit); and the UNCHANGED list: kaizen's discipline (never edits a user-edited copy, never weakens, writer confinement), the validator-clean deny half of guard_pack_write.py, suppression packs, project packs and extends, stale-cache auto-reseed, the karta-repo-only managed minimalism shadow policy, the seed-drift bench vocabulary (DIVERGENT / LOCAL-ADDITIVE), and hooks.json wiring. The spec must also state plainly that there is no consumer-repo migration: existing forks are simply reported under the new name — nothing is repaired, moved, or renamed on karta's initiative, ever. (5) After the edits neither how-to guide nor the manifest contains 'illegal shadow', and stack-packs.md contains neither 'deprecated' nor '3.0.0'. (6) The doc-truth parity ledger stays green: python3 benchmarks/probes/parity-doc-truth-ledger.py --target . reports status pass with every baseline lane still at zero — any regression fails this item.",
+      "touches": [
+        "docs/how-to/stack-packs.md",
+        "docs/how-to/hooks.md",
+        "benchmarks/field/feature-manifest.json",
+        "docs/specs/2026-07-30-user-pack-sovereignty.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"local fork: a user-edited copy of the shipped built-in\" \"no longer receives upstream pack updates\"; do grep -qF -- \"$s\" docs/how-to/stack-packs.md; grep -qF -- \"$s\" docs/specs/2026-07-30-user-pack-sovereignty.md; done; for a in \"2026-07-21\" \"never edits a user-edited copy\" \"validator-clean\" \"reported under the new name\"; do grep -qF -- \"$a\" docs/specs/2026-07-30-user-pack-sovereignty.md; done; for f in docs/how-to/stack-packs.md docs/how-to/hooks.md benchmarks/field/feature-manifest.json; do if grep -qiF -- \"illegal shadow\" \"$f\"; then exit 1; fi; done; for n in \"deprecated\" \"3.0.0\"; do if grep -qF -- \"$n\" docs/how-to/stack-packs.md; then exit 1; fi; done; for n in \"3.0.0\" \"turns a fork away\"; do if grep -qF -- \"$n\" docs/how-to/hooks.md; then exit 1; fi; done; grep -qF -- \"Pack edits must validate\" docs/how-to/hooks.md; grep -qF -- \"local fork\" benchmarks/field/feature-manifest.json' && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the stack-packs guide carries the exact canonical substring and the exact consequence phrase, its states list describes a local fork as the reader's own edit that always wins, and the deprecated-override section is gone — replaced by the plain your-edits-always-win statement with extends named as the both-worlds path",
+          "'illegal shadow' (any case) appears in neither how-to guide nor in the feature manifest, and stack-packs.md contains neither 'deprecated' nor '3.0.0'",
+          "the hooks table keeps the exact cell text 'Pack edits must validate' with `Write` and `Edit` backticked while describing only the validator-clean rule, so the untouched HOOKS-MATCHER-PARITY row in benchmarks/claims.yaml still binds the doc to guard_pack_write.py",
+          "the hooks guide's guard section no longer promises a 3.0.0 halt and no longer frames the guard as turning a fork away — plan-time classification reads as information",
+          "the feature manifest rewords only the pack-provenance-stamp capability prose to say 'a local fork'; every machine field is unchanged",
+          "docs/specs/2026-07-30-user-pack-sovereignty.md exists, quotes both canonical strings, records the edict and the cancellation of the 2026-07-21 spec's halt phase (leaving that file as a historical record), lists what stays unchanged — kaizen discipline (anchored by 'never edits a user-edited copy'), the validator-clean guard half, suppression packs, extends, auto-reseed, the minimalism shadow policy, the seed-drift vocabulary, and hooks.json wiring — and states there is no consumer-repo migration: existing forks are reported under the new name only",
+          "the doc-truth parity ledger reports status pass against the repo — no lane regressed — and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:docs-render-the-canonical-strings-and-keep-the-claims-binding-and-doc-truth-parity"
+        ]
+      }
+    }
+  ]
+}
