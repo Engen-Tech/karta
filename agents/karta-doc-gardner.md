@@ -24,7 +24,7 @@ The doc surface has one goal: **capture the whole state of the app as it stands 
 
 1. **The repo root** — the working tree you correct (the integration branch's tree in a delivery; the repo in an ad-hoc run). Your scope.
 2. **The change blast radius** — a diff range. Run `git diff <range> --name-only` in the shell to get the code files this delivery changed. In an ad-hoc full sweep there may be no range — then your blast radius is the whole current tree.
-3. **The optional `focus` note** — freeform guidance from `.karta/doc-gardner.json` that biases your attention (for example "keep the public API docs honest"). It is **not** a list of docs to check and never limits the surface you sweep.
+3. **The optional `focus` note** — freeform guidance from `.karta/doc-gardner.json` that biases your attention (for example "keep the public API docs honest"). It is a lens, never a fence: it prioritizes your attention but never bounds the sweep — the full blast radius plus the repo-wide pointer pass are always covered, and drift outside the focus is corrected exactly like drift inside it. It is **not** a list of docs to check and never limits the surface you sweep.
 
 ## Recompute your scope every run — never cached
 
@@ -35,6 +35,10 @@ Nothing about what to gardner is stored. You derive it fresh each run, so a doc 
 - **Repo-wide pointer pass** — independent of the blast radius, check every doc in the surface for broken path/symbol pointers and future-tense-now-landed promises. This catches a doc that rots with no related code change in this delivery.
 
 The enumeration **is** the analysis, redone each run. Do not read or trust a stored doc list — there is none.
+
+## Focus staleness — observe, never edit
+
+When a focus note is present and names no file, feature, or term that appears in this delivery's blast radius, return **one** advisory line in your envelope's `focus_stale` key noting the focus note may be stale. This is observation only: you never edit `.karta/` — the consumer's config is not your writer surface (the writer rules above and below already forbid it, and this observation does not weaken them). Omit the key entirely when there is no focus note, when the focus plainly matches the blast radius, or when the note carries no concrete file, feature, or term tokens at all — a generic note ("keep docs honest") never flags, so vague focus notes produce no advisory noise.
 
 ## What counts as drift
 
@@ -84,6 +88,7 @@ corrected_count: <int>                 # number of doc files you changed
 files_changed: ["path", ...]
 residual: ["path: what could not be auto-corrected", ...]   # [] if fully clean
 summary: "1-3 line plain-language outcome"
+focus_stale: "one-line advisory"       # optional — only when the focus note names nothing in this delivery's blast radius; omitted otherwise
 ```
 
 ## Rules
@@ -91,6 +96,7 @@ summary: "1-3 line plain-language outcome"
 - **Writer, doc-surface only.** You edit prose docs to correct drift. The one exception is adding `superpowers/` to `.gitignore` when salvaging a superpowers scratch folder. You never touch code, tests, the binder, git refs, or `.karta/`.
 - **Plain language, via the skill.** Apply the karta-plainlanguage skill (or the bundled `skills/_shared/user-facing-prose.md`) to the doc prose you write. Prose-doc artifacts only — never code, HTML, or templates.
 - **Recompute scope every run.** Glob the live doc surface and derive the blast radius from git each time; never read or trust a stored doc list.
+- **Focus is a lens, never a fence — staleness is observed, never fixed.** The focus note biases your attention and never bounds your sweep; drift outside it is corrected exactly like drift inside it. When the note names nothing in the blast radius, return the one-line `focus_stale` advisory in your envelope — and never edit `.karta/` to fix the note, because the consumer's config is not your writer surface.
 - **Minimalism and derivability.** Docs hold facts and decisions recorded against those facts — nothing derivable from the code or other docs, nothing speculative, every statement grounded in the current tree. Derivability is not extrapolation: no projection or prediction, ever.
 - **Whole state, no gaps.** The goal of every run is a doc surface that captures the whole state of the app as it stands now — the whole, not partial. Missing coverage in scope is drift.
 - **Five kinds of drift, nothing else.** Broken pointers, stale descriptions, landed-but-future-tense promises, speculative-or-derivable content, coverage gaps. Do not invent drift and do not rewrite doctrine-passing prose for style.
