@@ -1,6 +1,6 @@
 # Automatic doc-gardner
 
-The doc-gardner keeps a repo's prose in lockstep with its code, automatically. When it is on, every `karta-deliver` run ends by rewriting any drifted docs to match the just-delivered code and committing the fix. There is no advisory report, no human waive, and no halt — it corrects and the delivery proceeds. It is **all or nothing**: opted in, drift is fixed automatically; opted out, it never runs.
+The doc-gardner keeps a repo's prose in lockstep with its code, automatically. When it is on, every delivery ends with one commit whose subject is `docs: gardner <slug>`: the corrected docs when something drifted, or an empty commit recording that nothing did. There is no advisory report, no human waive, and no halt — it corrects and the delivery proceeds. The phase runs on single-item deliveries too: karta-build's hatch runs the same companion phases as a full delivery. It is **all or nothing**: opted in, drift is fixed automatically; opted out, it never runs.
 
 ## Turn it on
 
@@ -10,7 +10,7 @@ Add `.karta/doc-gardner.json` to your repo:
 { "enabled": true }
 ```
 
-That single switch is the only setup. Optionally bias the gardner's attention with a freeform note (it is **not** a list of docs and never limits what gets swept):
+That single switch is the only setup. Optionally bias the gardner's attention with a freeform note. The note is a lens, never a fence: it steers where the gardner looks first, but it never bounds the sweep — drift outside the focus is corrected exactly like drift inside it. It is **not** a list of docs:
 
 ```json
 { "enabled": true, "focus": "keep the public API reference and the architecture overview honest to the code" }
@@ -54,14 +54,26 @@ Nothing about *what* to garden is stored — the switch is the only static eleme
 
 There is no cached analysis that can go stale.
 
-## Where the corrections land, and how to review them
+## The trace commit, and how to review it
 
-In a delivery, the corrections are committed to the integration branch as one labeled commit: `docs: gardner <slug>`. karta never pushes and never commits to a protected branch — delivery ends at the integration branch you review and merge yourself. So the `docs: gardner` commit is your review surface:
+When the gardner is on, every delivery leaves exactly one commit on the integration branch whose subject is `docs: gardner <slug>`. It takes one of two forms:
 
-- Inspect it: `git show` the `docs: gardner <slug>` commit to see exactly what changed.
+- **Drift was found** — the commit carries the doc corrections, with the gardner's summary in the body and anything it could not auto-correct noted there.
+- **No drift** — the commit is an empty commit: it changes no files, and its body is the record. The body states `no drift found`, the range the sweep examined, and anything the gardner could not auto-correct.
+
+In either form, when your focus note names concrete files, features, or terms and none of them appear in the delivery's change, the body carries one advisory line saying the note may be stale. A generic note ("keep docs honest") never flags. That line is advisory only — the gardner never edits your `.karta/` config; updating the focus note is yours to do.
+
+karta never pushes and never commits to a protected branch — delivery ends at the integration branch you review and merge yourself. So the `docs: gardner` commit is your review surface:
+
+- Inspect it: `git show` the `docs: gardner <slug>` commit. The corrections form shows a diff; the empty commit has no diff, so its body is what you read.
 - Revert it like any commit if a correction is wrong: `git revert <sha>` (or drop it before you merge the integration branch).
 
 There is no inline waive because there is nothing to wait for — the corrections are already a reviewable commit.
+
+Two practical notes:
+
+- Expect exactly one gardner commit per delivery. The empty commit on a no-drift run is deliberate — its body is the record that the sweep ran and found nothing, so silence can never be mistaken for a run that never happened. Changelog tooling that minds the extra commit can filter on the `docs: gardner` subject.
+- The trace assumes the integration branch lands by a true merge, which is the flow karta documents everywhere. A squash merge collapses the branch's commits into one — so a squash-based process forfeits the per-delivery audit trail, deliveries and traces alike, not the trace uniquely.
 
 ## Run it on demand
 
