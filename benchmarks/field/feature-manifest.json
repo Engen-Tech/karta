@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "notes": [
-    "One entry per shipped, consumer-repo-observable karta capability: {id, karta_version, ship_date, detection:{kind: grep|jq|ref, pattern, path}, durable} — or an explicit {version, observable: false} sentinel for a release that shipped no new repo-observable capability.",
-    "Coverage floor: every released version from 1.8.0 through 2.25.0 carries an entry or a sentinel, enumerated from the .claude-plugin/plugin.json version-transition commits (git log -G).",
+    "One entry per shipped, consumer-repo-observable karta capability: {id, karta_version, ship_date, detection:{kind: grep|jq|ref, pattern, path}, durable} \u2014 or an explicit {version, observable: false} sentinel for a release that shipped no new repo-observable capability.",
+    "Coverage floor: every released version from 1.8.0 through 2.28.0 carries an entry or a sentinel, enumerated from the .claude-plugin/plugin.json version-transition commits (git log -G).",
     "Era capabilities that shipped before the 1.8.0 coverage floor (debt markers, the smoke oracle type, the accept/failure path, failed-ref presence) carry their true first released version (1.0.0) and that version-transition commit's committer date; attributing them to 1.8.0 would forge their ship dates. The plan-time seed expectations name these features, so they are entries, not omissions.",
-    "ship_date = committer date of the plugin.json version-transition commit for that version. Declared deviation from card step 2: pre-1.13.0 bumps predate the chore(release) subject convention, so the transition commit — not a chore(release) grep — is the date source for every version.",
+    "ship_date = committer date of the plugin.json version-transition commit for that version. Declared deviation from card step 2: pre-1.13.0 bumps predate the chore(release) subject convention, so the transition commit \u2014 not a chore(release) grep \u2014 is the date source for every version.",
     "detection kinds: grep = tracked-content substring (first-use via git log -S<pattern> [-- path]); jq = key presence in the tracked JSON file at path (first-use via git log -S on the final key token, scoped to path); ref = git refs matching pattern (first-use via the earliest ref-target committer date).",
     "durable:false detections report current-state presence only and are EXCLUDED from adoption-lag and from AVAILABLE-BUT-UNUSED (card step 3): refs/karta/**/failed is rewritten by karta-deliver and git keeps no reflog for refs/karta/**."
   ],
@@ -14,7 +14,11 @@
       "capability": "Inline declared-debt markers (KARTA-DEFER) at deferral sites in tracked content",
       "karta_version": "1.0.0",
       "ship_date": "2026-06-17T16:13:15-04:00",
-      "detection": {"kind": "grep", "pattern": "KARTA-DEFER", "path": ""},
+      "detection": {
+        "kind": "grep",
+        "pattern": "KARTA-DEFER",
+        "path": ""
+      },
       "durable": true
     },
     {
@@ -22,7 +26,11 @@
       "capability": "The smoke oracle type on binder work items",
       "karta_version": "1.0.0",
       "ship_date": "2026-06-17T16:13:15-04:00",
-      "detection": {"kind": "grep", "pattern": "\"smoke\"", "path": ".karta/binders"},
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"smoke\"",
+        "path": ".karta/binders"
+      },
       "durable": true
     },
     {
@@ -30,7 +38,11 @@
       "capability": "The delivery failure path, tracked via its durable traces: accepted refs persist post-archive (waiver/override markers in tracked content are the sibling trace)",
       "karta_version": "1.0.0",
       "ship_date": "2026-06-17T16:13:15-04:00",
-      "detection": {"kind": "ref", "pattern": "refs/karta/*/item-*/accepted", "path": ""},
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/accepted",
+        "path": ""
+      },
       "durable": true
     },
     {
@@ -38,7 +50,11 @@
       "capability": "Current-state failed-ref presence (ephemeral: karta-deliver deletes the failed ref on accept and rewrites it in revert-the-wave)",
       "karta_version": "1.0.0",
       "ship_date": "2026-06-17T16:13:15-04:00",
-      "detection": {"kind": "ref", "pattern": "refs/karta/*/item-*/failed", "path": ""},
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/failed",
+        "path": ""
+      },
       "durable": false
     },
     {
@@ -46,16 +62,28 @@
       "capability": "Human title + plain-language summary on binders and work items",
       "karta_version": "1.8.0",
       "ship_date": "2026-06-23T21:04:05-04:00",
-      "detection": {"kind": "grep", "pattern": "\"title\"", "path": ".karta/binders"},
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"title\"",
+        "path": ".karta/binders"
+      },
       "durable": true
     },
-    {"version": "1.9.0", "observable": false, "note": "per-host model + effort tiers on karta's own agents/skills — plugin-internal, no consumer-repo trace"},
+    {
+      "version": "1.9.0",
+      "observable": false,
+      "note": "per-host model + effort tiers on karta's own agents/skills \u2014 plugin-internal, no consumer-repo trace"
+    },
     {
       "id": "karta-validate-loop",
       "capability": "karta-validate design-fidelity loop (data-first comparison shipped 1.10.0); adoption trace = any tracked karta-validate mention (a committed validation report or delivery note)",
       "karta_version": "1.10.0",
       "ship_date": "2026-07-01T01:00:44-04:00",
-      "detection": {"kind": "grep", "pattern": "karta-validate", "path": ""},
+      "detection": {
+        "kind": "grep",
+        "pattern": "karta-validate",
+        "path": ""
+      },
       "durable": true
     },
     {
@@ -63,17 +91,33 @@
       "capability": "doc-gardner opt-in config committed at .karta/doc-gardner.json",
       "karta_version": "1.11.0",
       "ship_date": "2026-07-02T14:25:58-04:00",
-      "detection": {"kind": "jq", "pattern": ".enabled", "path": ".karta/doc-gardner.json"},
+      "detection": {
+        "kind": "jq",
+        "pattern": ".enabled",
+        "path": ".karta/doc-gardner.json"
+      },
       "durable": true
     },
-    {"version": "1.11.1", "observable": false, "note": "doc-gardner agent effort raise — patch, plugin-internal"},
-    {"version": "1.12.0", "observable": false, "note": "doc-gardner superpowers-folder salvage behavior — plugin-internal"},
+    {
+      "version": "1.11.1",
+      "observable": false,
+      "note": "doc-gardner agent effort raise \u2014 patch, plugin-internal"
+    },
+    {
+      "version": "1.12.0",
+      "observable": false,
+      "note": "doc-gardner superpowers-folder salvage behavior \u2014 plugin-internal"
+    },
     {
       "id": "kaizen-optin",
       "capability": "kaizen opt-in config committed at .karta/kaizen.json",
       "karta_version": "1.13.0",
       "ship_date": "2026-07-05T22:12:11-04:00",
-      "detection": {"kind": "jq", "pattern": ".enabled", "path": ".karta/kaizen.json"},
+      "detection": {
+        "kind": "jq",
+        "pattern": ".enabled",
+        "path": ".karta/kaizen.json"
+      },
       "durable": true
     },
     {
@@ -81,17 +125,33 @@
       "capability": "Declared stack-pack overrides with stable rule ids (KARTA-SME-OVERRIDE markers) in tracked content",
       "karta_version": "1.14.0",
       "ship_date": "2026-07-06T03:54:08-04:00",
-      "detection": {"kind": "grep", "pattern": "KARTA-SME-OVERRIDE", "path": ""},
+      "detection": {
+        "kind": "grep",
+        "pattern": "KARTA-SME-OVERRIDE",
+        "path": ""
+      },
       "durable": true
     },
-    {"version": "1.15.0", "observable": false, "note": "kaizen dogfood enablement on karta itself + example-binder docs — no new consumer-repo-observable capability"},
-    {"version": "1.16.0", "observable": false, "note": "plannotator optional review surface — separately-installed CLI, leaves no consumer-repo trace"},
+    {
+      "version": "1.15.0",
+      "observable": false,
+      "note": "kaizen dogfood enablement on karta itself + example-binder docs \u2014 no new consumer-repo-observable capability"
+    },
+    {
+      "version": "1.16.0",
+      "observable": false,
+      "note": "plannotator optional review surface \u2014 separately-installed CLI, leaves no consumer-repo trace"
+    },
     {
       "id": "binder-eol-archive",
       "capability": "Binder end-of-life: delivered binders archived to .karta/binders/archive/",
       "karta_version": "1.17.0",
       "ship_date": "2026-07-08T09:34:56-04:00",
-      "detection": {"kind": "grep", "pattern": "\"slug\"", "path": ".karta/binders/archive"},
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"slug\"",
+        "path": ".karta/binders/archive"
+      },
       "durable": true
     },
     {
@@ -99,12 +159,28 @@
       "capability": "Cross-item shared_terms declarations on binders (byte-identity enforcement)",
       "karta_version": "1.18.0",
       "ship_date": "2026-07-08T23:58:08-04:00",
-      "detection": {"kind": "grep", "pattern": "\"shared_terms\"", "path": ".karta/binders"},
+      "detection": {
+        "kind": "grep",
+        "pattern": "\"shared_terms\"",
+        "path": ".karta/binders"
+      },
       "durable": true
     },
-    {"version": "1.19.0", "observable": false, "note": "writer-confinement hooks + shared-terms pending detection — plugin-internal enforcement"},
-    {"version": "2.20.0", "observable": false, "note": "Codex CLI compatibility certification — plugin-internal/publishing, no consumer-repo trace"},
-    {"version": "2.21.0", "observable": false, "note": "delivery Stop-gate (sixth hook) — plugin-internal enforcement"},
+    {
+      "version": "1.19.0",
+      "observable": false,
+      "note": "writer-confinement hooks + shared-terms pending detection \u2014 plugin-internal enforcement"
+    },
+    {
+      "version": "2.20.0",
+      "observable": false,
+      "note": "Codex CLI compatibility certification \u2014 plugin-internal/publishing, no consumer-repo trace"
+    },
+    {
+      "version": "2.21.0",
+      "observable": false,
+      "note": "delivery Stop-gate (sixth hook) \u2014 plugin-internal enforcement"
+    },
     {
       "id": "builtin-go-packs",
       "capability": "Built-in go-naming and go-htmx stack packs (pinnable via sme[], seedable to .karta/sme/)",
@@ -122,17 +198,49 @@
       "capability": "go-htmx pack Review-checklist rule htmx.8 (templ whitespace/byte-identity), field-proven in the gringotts overlay and promoted into the built-in; reaches consumer repos via kaizen seeding to .karta/sme/",
       "karta_version": "2.23.0",
       "ship_date": "2026-07-21T15:58:11-04:00",
-      "detection": {"kind": "grep", "pattern": "htmx.8", "path": ".karta"},
+      "detection": {
+        "kind": "grep",
+        "pattern": "htmx.8",
+        "path": ".karta"
+      },
       "durable": true
     },
-    {"version": "2.24.0", "observable": false, "note": "hooks-deferral closure: Codex enforcement bundle (trust-gated), Bash writer-confinement coverage, doc-gardner confinement row, SubagentStop whiff advisory — plugin-internal enforcement, no consumer-repo trace"},
+    {
+      "version": "2.24.0",
+      "observable": false,
+      "note": "hooks-deferral closure: Codex enforcement bundle (trust-gated), Bash writer-confinement coverage, doc-gardner confinement row, SubagentStop whiff advisory \u2014 plugin-internal enforcement, no consumer-repo trace"
+    },
     {
       "id": "pack-provenance-stamp",
-      "capability": "Provenance stamp (seeded_from + base_sha256) on kaizen-seeded stack-pack copies — marks a local copy's shipped origin so the provenance classifier separates a seeded/stale cache from a local fork; reaches consumer repos via kaizen seeding to .karta/sme/",
+      "capability": "Provenance stamp (seeded_from + base_sha256) on kaizen-seeded stack-pack copies \u2014 marks a local copy's shipped origin so the provenance classifier separates a seeded/stale cache from a local fork; reaches consumer repos via kaizen seeding to .karta/sme/",
       "karta_version": "2.25.0",
       "ship_date": "2026-07-22T23:10:28-04:00",
-      "detection": {"kind": "grep", "pattern": "seeded_from", "path": ".karta"},
+      "detection": {
+        "kind": "grep",
+        "pattern": "seeded_from",
+        "path": ".karta"
+      },
       "durable": true
+    },
+    {
+      "version": "2.26.0",
+      "observable": false,
+      "note": "persistent Karta Watch hub \u2014 per-user daemon, state dir, and pages live outside consumer repos; no durable consumer-repo trace (kaizen phase-2 sharpening doctrine also shipped: plugin-internal instructions, observable only in future kaizen: commits)"
+    },
+    {
+      "version": "2.27.0",
+      "observable": false,
+      "note": "Karta Watch navigation/vocabulary + calm done derive \u2014 watch UI behavior, no consumer-repo trace"
+    },
+    {
+      "version": "2.27.1",
+      "observable": false,
+      "note": "watch landing theme fix \u2014 UI only"
+    },
+    {
+      "version": "2.28.0",
+      "observable": false,
+      "note": "pack sovereignty: illegal-shadow state renamed to local fork (information-only plan report), write-guard fork-deny half deleted \u2014 report wording and hook behavior; no durable consumer-repo artifact"
     }
   ]
 }

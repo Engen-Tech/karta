@@ -3,7 +3,7 @@
   "vector": "sme-pack-static-suite",
   "run_date": "2026-07-30",
   "plugin_version": "2.28.0",
-  "karta_sha": "6e0db417969225206daa11b0ff3c376e08cf318e",
+  "karta_sha": "feb6dfcb605c87b13e96314f14063fe610357e02",
   "consumer_shas": {
     "parchmark": "2b87e071fbcd50256c5cd18dc31d401c169b8eaf",
     "gringotts": "36652b1af25024226323e34698415b3c1b1a10a3"
@@ -742,6 +742,6 @@
     "seed-drift:parchmark:python-fastapi:LOCAL-ADDITIVE",
     "seed-drift:parchmark:vue:LOCAL-ADDITIVE"
   ],
-  "baseline_file": "benchmarks/sme/results/2026-07-22-sme-pack-static-suite.json",
-  "status": "fail"
+  "baseline_file": "benchmarks/sme/results/2026-07-30-sme-pack-static-suite.json",
+  "status": "pass"
 }
