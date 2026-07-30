@@ -85,7 +85,7 @@ It holds the slug (which names the integration branch and tags), scope, the env 
 | **`karta-verify`** | The behavioral gate (`unit`/`integration`/`e2e`/`smoke`). Runs read-only against the diff, dispatches the two gate agents, and drives kickbacks to build. Never edits code, tests, or the binder. |
 | **`karta-validate`** | The visual gate (`type: visual`). Compares a running view against its design prototype — screenshots and DOM — and reports differences in layout, color, type, spacing, and structure. Read-only; one view per call. |
 | **`karta-plainlanguage`** | The bundled writing standard. Everything karta shows you — reports, prompts, summaries — is written to be read once and acted on. |
-| **`karta-doc-gardner`** | Opt-in doc repair. After a delivery, rewrites any prose docs that drifted from the code, as one labeled commit. |
+| **`karta-doc-gardner`** | Opt-in doc repair. Every delivery ends with one labeled commit: the rewritten docs when prose drifted from the code, or an empty commit recording no drift. |
 | **`karta-kaizen`** | Opt-in stack-pack writer. Improves the packs your project uses from what its builds keep repeating; every edit is a labeled commit you review. |
 | **`karta-debt`** | On-demand debt harvest. Collects every `KARTA-DEFER` and `KARTA-SME-OVERRIDE` marker into a one-shot ledger. Writes nothing. |
 | **`karta-status`** | Shows where a run stands and the single next action, derived fresh from git. Live browser page by default; one-shot terminal map headless. Read-only. Opt a repo in and **Karta Watch** turns persistent: one stable local hub page for every opted-in repo, revived by ordinary karta activity — see [docs/how-to/karta-watch.md](docs/how-to/karta-watch.md). |
@@ -108,13 +108,13 @@ karta writes everything it shows you — run reports, prompts, summaries — to 
 
 ## Automatic doc-gardner (opt-in)
 
-Docs rot. Turn on **doc-gardner** and karta keeps your prose in sync with your code. Add `.karta/doc-gardner.json` with `{"enabled": true}` (and an optional `"focus"` note); every `karta-deliver` run then ends by rewriting any drifted docs — README, `docs/`, `AGENTS.md`, `ARCHITECTURE` — to match the delivered code, as one `docs: gardner <slug>` commit.
+Docs rot. Turn on **doc-gardner** and karta keeps your prose in sync with your code. Add `.karta/doc-gardner.json` with `{"enabled": true}` (and an optional `"focus"` note); every delivery then ends with one `docs: gardner <slug>` commit: any drifted docs — README, `docs/`, `AGENTS.md`, `ARCHITECTURE` — rewritten to match the delivered code, or an empty commit recording that nothing drifted.
 
 It's all or nothing: on, drift is fixed automatically; off, it never runs. Scope is recomputed each run, so a file added later is never missed. The fix lands as a labeled, revertible commit on the branch you already review. It ships the **`karta-doc-gardner`** skill and a writer agent that edits docs and nothing else. Full guide: [`docs/how-to/doc-gardner.md`](docs/how-to/doc-gardner.md).
 
 ## Kaizen: the stack-pack writer (opt-in)
 
-**kaizen** is the second writer, after doc-gardner — the one that edits your stack packs. Add `.karta/kaizen.json` with `{"enabled": true}` (and an optional `"focus"` note); every `karta-deliver` run then ends with a kaizen pass. The first enabled run copies every pack your project uses into `.karta/sme/` — from then on those files are the packs. Off means it never runs, even invoked directly.
+**kaizen** is the second writer, after doc-gardner — the one that edits your stack packs. Add `.karta/kaizen.json` with `{"enabled": true}` (and an optional `"focus"` note); every delivery then ends with a kaizen pass. The first enabled run copies every pack your project uses into `.karta/sme/` — from then on those files are the packs. Off means it never runs, even invoked directly.
 
 Every change lands as a labeled `kaizen:` commit on the branch you already review — no PR, no push. Kaizen writes knowledge and never changes what gates a build; sharpening rules and suggesting new packs arrive in later phases. It ships the **`karta-kaizen`** skill and a writer agent confined to your packs. Full guide: [`docs/how-to/kaizen.md`](docs/how-to/kaizen.md).
 

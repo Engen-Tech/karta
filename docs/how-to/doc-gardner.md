@@ -61,7 +61,7 @@ When the gardner is on, every delivery leaves exactly one commit on the integrat
 - **Drift was found** — the commit carries the doc corrections, with the gardner's summary in the body and anything it could not auto-correct noted there.
 - **No drift** — the commit is an empty commit: it changes no files, and its body is the record. The body states `no drift found`, the range the sweep examined, and anything the gardner could not auto-correct.
 
-In either form, when your focus note names nothing in the delivery's change, the body carries one advisory line saying the note may be stale. That line is advisory only — the gardner never edits your `.karta/` config; updating the focus note is yours to do.
+In either form, when your focus note names concrete files, features, or terms and none of them appear in the delivery's change, the body carries one advisory line saying the note may be stale. A generic note ("keep docs honest") never flags. That line is advisory only — the gardner never edits your `.karta/` config; updating the focus note is yours to do.
 
 karta never pushes and never commits to a protected branch — delivery ends at the integration branch you review and merge yourself. So the `docs: gardner` commit is your review surface:
 
