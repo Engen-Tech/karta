@@ -12,6 +12,8 @@ Drift classes (no sync-commit archaeology — no sync marker exists):
   LOCAL-ADDITIVE        contains every HEAD-blob line AND its match-token set is
                         a superset of the built-in's
   DIVERGENT             anything else
+  The overlay is stamp-stripped (seeded_from/base_sha256 frontmatter lines
+  removed) before classification; built-in blobs never carried a stamp.
 
 Token audit (reusing the match_pins matcher semantics):
   dead token      = matches nothing in the supplied corpus (the union of
@@ -27,7 +29,7 @@ Usage:
 Self-test prints [PASS]/[FAIL] lines and an N/N checks passed summary.
 """
 from __future__ import annotations
-import argparse, json, subprocess, sys, tempfile
+import argparse, ast, json, re, subprocess, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -36,6 +38,33 @@ import match_pins  # sibling: pack parsing + corpus semantics
 BUILTIN_REL = "skills/_shared/sme"
 # The language names detect_stack.py can emit (see its module docstring).
 LANGUAGE_LITERALS = frozenset({"python", "javascript", "node", "go", "rust", "ruby", "php"})
+
+# Duplicated from skills/karta-plan/scripts/check_pack_provenance.py STAMP_KEYS —
+# bench code never imports from skills/ (measuring-stick discipline); the
+# --self-test parity check reads that file's text and fails on divergence.
+_STAMP_KEYS = ("seeded_from", "base_sha256")
+
+
+def _strip_stamp(text: str) -> str:
+    """Remove the two provenance-stamp keys from a leading frontmatter block.
+
+    Mirrors the runtime strip_stamp's two-key semantics (parity-checked in the
+    self-test). Leading window only: line 1 must be exactly '---' after trailing
+    whitespace/CR, and the next line whose stripped content is '---' closes the
+    block; a later '---' in the body never closes it. No opener (including a
+    BOM-prefixed file) or no closer -> identity. Body text is never touched and
+    every kept byte is preserved, so the helper is the identity on unstamped
+    text. The runtime's canonicalize() pipeline is deliberately NOT copied —
+    bench classification is raw-text equality against historical git blobs.
+    """
+    lines = text.split("\n")
+    if not lines or lines[0].rstrip() != "---":
+        return text
+    close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if close is None:
+        return text
+    kept = [l for l in lines[1:close] if l.split(":", 1)[0].strip() not in _STAMP_KEYS]
+    return "\n".join([lines[0], *kept, *lines[close:]])
 
 
 # --- historical blobs ----------------------------------------------------------
@@ -59,6 +88,7 @@ def _tokens(text: str) -> set[str]:
 
 
 def classify(overlay_text: str, blobs: list[str]) -> str:
+    overlay_text = _strip_stamp(overlay_text)  # overlay side only; built-ins never stamped
     if not blobs:
         return "NO-BUILTIN-HISTORY"
     head = blobs[0]
@@ -150,6 +180,30 @@ def _run_self_test() -> int:
         check("DIVERGENT: token set shrank even with lines kept",
               classify(additive.replace(', "beta"', ""), blobs) == "DIVERGENT")
 
+        # stamped variants: the strip runs on classify's input, so every class
+        # sees stripped text — and a stamp never rescues a real delta
+        stamp = ("seeded_from: skills/_shared/sme/demo.md\n"
+                 "base_sha256: " + "a" * 64 + "\n")
+
+        def _stamped(text: str) -> str:
+            return text.replace("---\n", "---\n" + stamp, 1)
+
+        check("stamped HEAD copy classifies IDENTICAL",
+              classify(_stamped(_V2), blobs) == "IDENTICAL")
+        check("stamped older copy classifies UPSTREAM-UNPROPAGATED",
+              classify(_stamped(_V1), blobs) == "UPSTREAM-UNPROPAGATED")
+        check("stamped additive copy stays LOCAL-ADDITIVE",
+              classify(_stamped(additive), blobs) == "LOCAL-ADDITIVE")
+        check("forged stamp on a divergent copy stays DIVERGENT",
+              classify(_stamped(_V2.replace("- new rule\n", "")), blobs) == "DIVERGENT")
+        check("strip is the identity on unstamped text", _strip_stamp(_V2) == _V2)
+        check("strip is the identity on text with no frontmatter",
+              _strip_stamp("## Do\n- rule\n") == "## Do\n- rule\n")
+        check("non-stamp frontmatter lines survive byte-identical",
+              _strip_stamp(_stamped(_V2)) == _V2)
+        one_key = _V2.replace("---\n", "---\nseeded_from: skills/_shared/sme/demo.md\n", 1)
+        check("single-key partial stamp strips cleanly", _strip_stamp(one_key) == _V2)
+
         # drift_report plumbing over an overlay dir
         overlay = karta / "overlay"
         overlay.mkdir()
@@ -180,6 +234,23 @@ def _run_self_test() -> int:
         got2 = token_audit({"consumerx": [gopack]}, corpus)
         check("not overbroad when the pack basename IS the language",
               not any(f["kind"] == "overbroad-token" for f in got2), repr(got2))
+
+    # parity: the duplicated key tuple can never silently diverge from the
+    # runtime classifier — read its source as text, never import it
+    runtime = (Path(__file__).resolve().parents[2] / "skills" / "karta-plan"
+               / "scripts" / "check_pack_provenance.py")
+    check("parity: runtime source exists", runtime.is_file(),
+          f"runtime parity source missing: {runtime}")
+    runtime_keys: set[str] | None = None
+    if runtime.is_file():
+        m = re.search(r"^\s*STAMP_KEYS\s*=\s*(\([^)]*\))", runtime.read_text(),
+                      re.MULTILINE)
+        if m:
+            runtime_keys = set(ast.literal_eval(m.group(1)))
+    check("parity: STAMP_KEYS names exactly the bench stamp-key pair",
+          runtime_keys == set(_STAMP_KEYS),
+          f"{runtime} STAMP_KEYS={runtime_keys!r} != "
+          f"benchmarks/sme-static/seed_drift.py _STAMP_KEYS={set(_STAMP_KEYS)!r}")
 
     failures = results.count(False)
     total = len(results)
