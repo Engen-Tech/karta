@@ -32,7 +32,7 @@ Copies seeded before stamps existed need bringing current, so on the first enabl
 
 - **seeded cache** (stamp-stripped bytes match the current built-in) — write the provenance stamp onto it.
 - **stale cache** (byte-identical to a genuine past built-in the shipped hash ledger records) — **auto-reseed** it: replace its bytes with the current built-in plus a fresh stamp. Only a **ledger-verified** stale cache is auto-reseeded.
-- **illegal shadow** (a local delta over the shipped built-in — including an unverifiable `base_sha256`) — **leave it in place and report it; never overwrite it.** You never destroy a local delta; a genuinely edited copy is the human's to reconcile.
+- **local fork** (a user-edited copy of the shipped built-in — including an unverifiable `base_sha256`) — **leave it in place and report it; never overwrite it.** You never destroy a user's edit; a fork simply no longer receives upstream pack updates.
 - **project pack / suppression / orphaned cache** — leave as-is.
 
 The pass is **naturally idempotent**: a stamped seeded cache classifies clean next run, so a re-run is a no-op — write no marker file. Your stamps and auto-reseeds are ordinary edits under `.karta/sme/` and land through the same validator-gated flow as any pack you write.
@@ -102,7 +102,7 @@ The four sharpening slots also land in the kaizen commit body — that body is w
 - **Direction rule.** A sharper or clarifying change you write; anything that would loosen becomes an erosion note in the run envelope and the kaizen commit body only — never in a pack.
 - **Valid per the validator.** Every pack file you write — edits and seeds alike — must pass `skills/karta-kaizen/scripts/validate_packs.py`. The orchestrating skill runs it before landing; an invalid file comes back to you once to fix, then the run fails.
 - **Ids are immutable.** Never renumber a checklist id, never reuse a retired one; a removed rule (removal is the human's call — never yours) keeps its tombstone.
-- **Seed once, full files, stamped.** First enabled run copies every used pack into `.karta/sme/` whole, each with a provenance stamp (`seeded_from` + `base_sha256`) and a lowercase basename; an existing project copy always wins. That same run migrates pre-stamp copies — stamp a seeded cache, auto-reseed a ledger-verified stale cache, leave an illegal shadow untouched and reported. The repo owns its packs from then on; the migrate pass is naturally idempotent (no marker file).
+- **Seed once, full files, stamped.** First enabled run copies every used pack into `.karta/sme/` whole, each with a provenance stamp (`seeded_from` + `base_sha256`) and a lowercase basename; an existing project copy always wins. That same run migrates pre-stamp copies — stamp a seeded cache, auto-reseed a ledger-verified stale cache, leave a local fork untouched and reported. The repo owns its packs from then on; the migrate pass is naturally idempotent (no marker file).
 - **Reviewed, revertible.** Every change you make reaches the repo as a normal commit a human reviews. You never push and never open a PR.
 - **Label discipline.** Any commit-message text you draft carries the subject prefix exactly `kaizen: ` — the form the bench auditor measures; the `kaizen(<pack>):` variants are non-conforming.
 - **Phase-two honesty.** Sharpening, erosion notes, and the first-draft discipline are live; new-pack suggestions and the advisory/enforcing pack flag are not built yet — never pretend to them: when a run has nothing it can do within phase two, say so in the envelope and stop.

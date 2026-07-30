@@ -29,13 +29,13 @@ see_also: ["platform-native#python-standard-library"]
 - `see_also` — optional pointers to companion material; section anchors allowed.
 - `disabled: true` — makes this a **suppression pack**: it is never pinned to a binder and exists only to switch a pack off. To suppress the built-in `minimalism` for your project, drop a `.karta/sme/minimalism.md` carrying just `name`, `description`, and `disabled: true`. A disabled pack needs no `match`/`always` and no checklist.
 
-No other keys are allowed — the validator fails on anything it does not recognize.
+The only other keys the validator accepts are the composition keys — `extends`, `exclude_rules`, `id_prefix` (see "Extending a built-in instead of forking it") — and the provenance stamp pair `seeded_from` / `base_sha256` (see "Where a local copy stands against the original"). Anything else fails validation.
 
 ## How matching works
 
 `skills/karta-plan/scripts/detect_stack.py` scans your repo's manifests — `package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json` — and emits two lists: dependency names and languages (`python`, `javascript/node`, `go`, `rust`, `ruby`, `php`). A pack applies when one of its `match` tokens **equals** (case-insensitive, whole token) a name on either list. There is no substring or free-prose guessing: `match: ["fastapi"]` fires on the `fastapi` dependency and on nothing else. A pack you want everywhere uses `always: true` instead.
 
-Matching sees only manifests, so a stack the manifests can't see never auto-matches. The canonical case is `go-htmx`: the pack itself mandates vendoring htmx as a static file, which leaves no manifest trace — a Go app with vendored htmx and stdlib templates matches only via a `github.com/a-h/templ` require or an `htmx.org` entry in `package.json`. To opt in anyway, copy the built-in to `.karta/sme/go-htmx.md` and replace its `match` line with `always: true` — your overlay wins by name (the same escape works for any manifest-invisible stack).
+Matching sees only manifests, so a stack the manifests can't see never auto-matches. The canonical case is `go-htmx`: the pack itself mandates vendoring htmx as a static file, which leaves no manifest trace — a Go app with vendored htmx and stdlib templates matches only via a `github.com/a-h/templ` require or an `htmx.org` entry in `package.json`. To opt in anyway, copy the built-in to `.karta/sme/go-htmx.md` and replace its `match` line with `always: true` — your overlay wins by name (the same escape works for any manifest-invisible stack). A project pack with `extends: go-htmx` plus `always: true` reaches the same result while keeping upstream updates.
 
 ## Where a local copy stands against the original
 
@@ -49,16 +49,16 @@ The states you will see:
 - **`stale cache`** — your copy matches the built-in it was seeded from but not the current one, and its stamp names a hash the built-in genuinely shipped with. Your copy carries no edits of its own; it is simply out of date, so karta refreshes it for you (see `auto-reseed` in [kaizen.md](kaizen.md)).
 - **`project pack`** — the basename matches no built-in. This is entirely your own pack.
 - **`suppression`** — a copy carrying `disabled: true`. It switches a built-in off and its body is free commentary, never compared.
-- **`illegal shadow`** — a copy sharing a built-in's name but carrying a genuine local edit. karta warns loudly, with a message containing the exact phrase `illegal shadow: a local delta over the shipped built-in`, naming the built-in you have shadowed.
+- **`local fork`** — a copy sharing a built-in's name but carrying your own edit. Your edits always win. karta reports it with a message containing the exact phrase `local fork: a user-edited copy of the shipped built-in`, naming the built-in you forked; the one consequence is that the copy no longer receives upstream pack updates. A project pack with `extends` (next section) keeps both your edits and upstream updates.
 - **`orphaned cache`** — a copy whose `seeded_from` names a built-in that no longer exists, even after karta resolves renames. karta warns so you can re-point or retire it.
 
-### The old override behavior is deprecated
+### Your edits always win
 
-For now an `illegal shadow` still gets its way: its rules override the shipped built-in's, and karta only warns — nothing stops a build. That override is **deprecated** this release. In **karta 3.0.0** the override goes away and planning halts on an illegal shadow instead of merely warning. It is deprecated now, not removed: your existing shadow copies keep working until that release, so you have a full release to move each real edit into a project pack.
+A local fork's rules apply exactly as you wrote them. karta never blocks a fork, never warns you about it, and never deprecates it — the copy is yours, doing what you told it to. The one trade-off: a forked copy stops receiving updates when the shipped built-in improves. If you want your edits and upstream updates, put the edits in a project pack with `extends` (next section).
 
 ## Extending a built-in instead of forking it
 
-When a built-in pack is almost right but carries one rule that does not fit your project, you do not have to copy the whole file (which strands it as an illegal shadow) or switch the pack off entirely. A **project pack** can build on a built-in: it adds your own checklist items and subtracts the built-in rules that do not fit.
+When a built-in pack is almost right but carries one rule that does not fit your project, you do not have to copy the whole file (which stops it receiving upstream updates) or switch the pack off entirely. A **project pack** can build on a built-in: it adds your own checklist items and subtracts the built-in rules that do not fit.
 
 Three frontmatter keys drive this:
 

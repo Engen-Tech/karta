@@ -128,7 +128,7 @@
     {"version": "2.24.0", "observable": false, "note": "hooks-deferral closure: Codex enforcement bundle (trust-gated), Bash writer-confinement coverage, doc-gardner confinement row, SubagentStop whiff advisory — plugin-internal enforcement, no consumer-repo trace"},
     {
       "id": "pack-provenance-stamp",
-      "capability": "Provenance stamp (seeded_from + base_sha256) on kaizen-seeded stack-pack copies — marks a local copy's shipped origin so the provenance classifier separates a seeded/stale cache from an illegal shadow; reaches consumer repos via kaizen seeding to .karta/sme/",
+      "capability": "Provenance stamp (seeded_from + base_sha256) on kaizen-seeded stack-pack copies — marks a local copy's shipped origin so the provenance classifier separates a seeded/stale cache from a local fork; reaches consumer repos via kaizen seeding to .karta/sme/",
       "karta_version": "2.25.0",
       "ship_date": "2026-07-22T23:10:28-04:00",
       "detection": {"kind": "grep", "pattern": "seeded_from", "path": ".karta"},
