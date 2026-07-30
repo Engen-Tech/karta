@@ -1,0 +1,166 @@
+{
+  "slug": "gardner-reliability",
+  "title": "The doc gardner always leaves a trace, sweeps past its focus note, and runs on single-item deliveries",
+  "summary": "Today a doc-gardner run that finds no drift leaves nothing behind, so silence from a run that found nothing looks exactly like silence from a run that never happened — the bench can only call both a whiff. Three changes fix that. First, in a delivery the gardner now always ends with one commit whose subject is exactly 'docs: gardner <slug>': the corrections when drift was found, or an empty commit whose body records that no drift was found, the range it examined, anything it could not auto-correct, and — when the consumer's focus note names nothing in this delivery's change — one advisory line saying the note may be stale. Second, the focus note is pinned as a lens, never a fence: it prioritizes attention but never bounds the sweep, and drift outside the focus is corrected exactly like drift inside it. Third, the single-item delivery hatch is hardened: karta-build's 9c-single sequence already lists doc-gardner and kaizen steps between its clean merge and the binder archive, but they read as skippable and get skipped in practice — they are rewritten to karta-deliver's required-when-enabled contract, and karta-deliver's single-item paragraph names them so the hatch's reader knows the phases still run. The bench that measures all this is untouched: its probe matches the exact commit subject, and an empty commit matches the same way.",
+  "motivation": "A six-agent investigation of parchmark's five gardner-whiff deliveries backed every verdict with evidence. Three whiffs were single-item binders: the hatch hands straight to karta-build, whose companion steps got skipped — confirmed again in this repo when the seed-drift-stamp-strip solo build skipped both and the orchestrator ran them by hand (HEAD 03aa70f is that catch-up commit). Two whiffs were true misfires with the gardner enabled: real drift in the blast radius went uncorrected while the focus note steered attention at a different feature area, and because a no-correction run leaves no trace, the bench's field-companion-loop-health probe cannot tell 'found nothing' from 'missed'. Making silence impossible turns the probe's true-whiff detection exact without editing the probe.",
+  "scope": {
+    "included": [
+      "skills/karta-doc-gardner/SKILL.md — delivery mode always ends with exactly one 'docs: gardner <slug>' commit: the existing corrections commit, or (no drift) an empty commit via git commit --allow-empty whose body records no drift found, the examined range, any residual, and the focus-staleness advisory when present; the focus paragraph gains the lens-never-fence sentence",
+      "agents/karta-doc-gardner.md — the same lens-never-fence sentence on the focus input; a focus-staleness observation (focus names nothing in the blast radius → one advisory line in the envelope, never an edit to .karta/); the envelope gains the optional focus_stale key",
+      "skills/karta-deliver/SKILL.md — Phase 6 states the unconditional one-commit shape (corrections or empty no-drift record) and the report bullet stops saying the commit is conditional; the Phase 0 single-item paragraph and the single-item gotcha name the companion phases karta-build's 9c-single runs, under the same required-when-enabled contract as Phases 6/6b",
+      "skills/karta-build/SKILL.md — 9c-single steps 6 (doc-gardner) and 7 (kaizen), already sitting between step 5's shared-terms check and step 8's binder archive, are rewritten in place from skippable-sounding prose to the required-when-enabled contract karta-deliver uses; the Phase 10 report gains the companion-phase outcome lines for the hatch",
+      "docs/how-to/doc-gardner.md — documents the always-present trace commit including its empty form, the lens-never-fence rule, the staleness advisory (and that the gardner never edits your .karta/ config), and that single-item deliveries run the phase too",
+      "docs/how-to/kaizen.md — one sentence naming the single-item invocation point (karta-build's hatch runs kaizen after doc-gardner); kaizen doctrine content otherwise unchanged",
+      "The regenerated projections of every canonical file above — the Codex agent toml, the bundled karta-doc-gardner.agent.md references copies, and the .agents/ and plugins/karta mirrors — kept generated-identical by the sync scripts in the same change"
+    ],
+    "excluded": [
+      "The bench is untouched, everywhere: benchmarks/field/audit_companions.py and the field-companion-loop-health probe card are the measuring sticks this binder aims at — the probe's exact-subject match (audit_companions.py:224, subjects.get(f\"docs: gardner {d['slug']}\")) is satisfied by an empty commit with no probe edit; bench-spec.json, claims.yaml, committed baselines, findings, and results all stay as they are",
+      "No consumer-repo changes — remediating parchmark's five whiffed deliveries is a separate PR in that repo, not this binder",
+      "No hook changes: hooks/, hooks/hooks.json, and the .codex-plugin hook copies are not touched",
+      "No script or validator changes: validate_plugin.py, validate_binder.py, check_shared_terms.py, and the two sync scripts are run by the items, never edited",
+      "Kaizen doctrine is unchanged in content: skills/karta-kaizen/, agents/karta-kaizen.md, and every pack are untouched — kaizen only gains the required-when-enabled framing at its existing 9c-single invocation point and one how-to sentence naming that point",
+      "The doc-gardner config schema (skills/karta-doc-gardner/references/doc-gardner-schema.json) is unchanged — no new keys; the staleness advisory is output-only, because .karta/ is never the gardner's writer surface",
+      "Historical records stay as records: docs/specs/2026-06-18-doc-gardner-design.md and the release checklists keep describing the behavior of their day (including no-commit-on-zero); archived binders and .karta/roundtable/ records are not edited"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Claude Code + Codex plugin repo: markdown doctrine (skills/, agents/) with generated projections, pure-stdlib Python tooling"
+  },
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "python", "version": ">=3.11", "manager": "uv" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-skill-authoring", "minimalism"],
+  "shared_terms": [
+    {
+      "id": "gardner-trace-subject",
+      "canonical": "docs: gardner <slug>",
+      "items": ["gardner-trace-doctrine", "pipeline-required-phases", "gardner-docs"]
+    },
+    {
+      "id": "lens-never-fence",
+      "canonical": "a lens, never a fence",
+      "items": ["gardner-trace-doctrine", "gardner-docs"]
+    },
+    {
+      "id": "no-drift-found",
+      "canonical": "no drift found",
+      "items": ["gardner-trace-doctrine", "pipeline-required-phases", "gardner-docs"]
+    },
+    {
+      "id": "empty-commit",
+      "canonical": "empty commit",
+      "items": ["gardner-trace-doctrine", "pipeline-required-phases", "gardner-docs"]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "gardner-trace-doctrine",
+      "title": "The gardner always commits a trace, and its focus note becomes a lens",
+      "summary": "The doc-gardner skill's delivery mode stops going silent when nothing drifted: every delivery-mode run now ends with exactly one 'docs: gardner <slug>' commit — the corrections when drift was found, or an empty commit whose body records no drift found, the range examined, any residual, and the focus-staleness advisory when there is one. The gardner agent pins the focus note as a lens, never a fence, and learns to report a stale-looking focus note in its envelope without ever touching the consumer's config. All projections regenerate.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Two canonical files — the gardner's skill and agent — plus their generated projections. (1) skills/karta-doc-gardner/SKILL.md Phase 3 (docgardner:land, line 51): in Mode: delivery the phase ALWAYS ends with exactly one commit per delivery-mode invocation whose subject is exactly 'docs: gardner <slug>' — silence is impossible (a resumed or re-entered run may legitimately leave more than one such commit on the branch; the bench's existence check tolerates that by design). When corrected_count > 0, the existing behavior stands: stage the changed doc files and commit them with the gardner's summary in the body and any residual as a trailer. When corrected_count == 0, make an EMPTY commit — git commit --allow-empty — with the SAME exact subject, whose body states: that the sweep found no drift (carrying the exact phrase 'no drift found'), the blast-radius range examined (the literal diff range the run was given, or 'full tree' in a rangeless sweep), any residual the gardner could not auto-correct, and — when the envelope carries one — the focus-staleness advisory line from (3). In both forms, when the envelope carries focus_stale, that advisory is one line of the commit body. The old sentence 'If corrected_count == 0, make no commit.' is deleted; 'Never push.' and the untouched ad-hoc bullet (no commit ever in ad-hoc mode) survive. WHY THIS EXACT SUBJECT: the bench's field-companion-loop-health probe is the measuring stick and is not edited — benchmarks/field/audit_companions.py builds a subject map over the merge-reachable commit stream (line 216, subjects.setdefault(c[\"subject\"], c)) and marks a delivery covered iff subjects.get(f\"docs: gardner {d['slug']}\") hits (line 224); the probe card pins the same form (benchmarks/field/field-companion-loop-health.md:22, subject '^docs: gardner <slug>$'). An empty commit appears in that stream with the same subject, so the probe's true-whiff verdict becomes exact with zero bench edits. (2) Same file, the focus paragraph (line 23) and the Rules list (lines 56-63): the focus note is pinned with the exact sentence fragment 'a lens, never a fence' — it prioritizes the gardner's attention but never bounds the sweep; the full blast radius plus the repo-wide pointer pass are always covered, and drift outside the focus is corrected exactly like drift inside it. The 'Labeled, revertible commit' rule (line 63) is rewritten to the new shape: every delivery-mode run leaves exactly one 'docs: gardner <slug>' commit — corrections, or the empty commit recording no drift found — so a run that found nothing is distinguishable from a run that never happened. (3) agents/karta-doc-gardner.md — input 3 (line 27) gains the same lens sentence with the exact fragment 'a lens, never a fence' (the sentence lands in BOTH the skill and the agent, by design). New focus-staleness observation: when a focus note is present and names no file, feature, or term that appears in this delivery's blast radius, the agent returns ONE advisory line in its envelope noting the focus note may be stale; this is observation only — the agent never edits .karta/ (the consumer's config is not its writer surface; the existing writer rules at lines 10, 66, and 91 already forbid it and are restated at the observation, not weakened). The envelope block (lines 82-87) gains the optional key focus_stale: a one-line advisory string, omitted when there is no focus note, when the focus plainly matches the blast radius, or when the note carries no concrete file, feature, or term tokens at all — a generic note ('keep docs honest') never flags, so vague focus notes produce no advisory noise. The Rules list extends its focus/writer entries accordingly. (4) Nothing else in either file changes: the doctrine (four tests), the five drift kinds, the superpowers salvage, the 3-pass re-verify bound, and the ad-hoc mode all stay byte-level untouched except where a sentence above lands inside them. (5) MIRRORED SURFACE: run python3 scripts/sync_codex_agents.py then python3 scripts/sync_codex_skills.py so .codex/agents/karta-doc-gardner.toml, the three references copies of karta-doc-gardner.agent.md (spawn-site skill + .agents/ + plugins/karta), and the SKILL.md mirrors regenerate; validate_plugin.py --self-test fails otherwise. Out of scope here: the karta-deliver and karta-build sequences (the pipeline item owns those), the how-to docs (the docs item), the bench (never), and docs/specs/2026-06-18-doc-gardner-design.md — a dated archival record that keeps describing the old behavior.",
+      "touches": [
+        "skills/karta-doc-gardner/SKILL.md",
+        ".agents/skills/karta-doc-gardner/SKILL.md",
+        "plugins/karta/skills/karta-doc-gardner/SKILL.md",
+        "agents/karta-doc-gardner.md",
+        ".codex/agents/karta-doc-gardner.toml",
+        "skills/karta-doc-gardner/references/karta-doc-gardner.agent.md",
+        ".agents/skills/karta-doc-gardner/references/karta-doc-gardner.agent.md",
+        "plugins/karta/skills/karta-doc-gardner/references/karta-doc-gardner.agent.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"docs: gardner <slug>\" \"a lens, never a fence\" \"no drift found\" \"--allow-empty\"; do grep -qF -- \"$s\" skills/karta-doc-gardner/SKILL.md; done; for s in \"a lens, never a fence\" \"focus_stale\"; do grep -qF -- \"$s\" agents/karta-doc-gardner.md; done; if grep -qF -- \"make no commit. Never push\" skills/karta-doc-gardner/SKILL.md; then exit 1; fi' && python3 scripts/sync_codex_agents.py --check && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the skill's delivery mode carries the exact subject form 'docs: gardner <slug>', the empty-commit mechanism (git commit --allow-empty), and the exact phrase 'no drift found' for the empty commit's body — and the old zero-corrections silence ('make no commit. Never push') is gone",
+          "the empty commit's specified body contents are: no drift found, the blast-radius range examined, any residual the gardner could not auto-correct, and the focus-staleness advisory when the envelope carries one",
+          "both the skill and the agent carry the exact fragment 'a lens, never a fence', stating that the focus note prioritizes attention but never bounds the sweep and that drift outside the focus is corrected exactly like drift inside it",
+          "the agent's envelope gains the optional focus_stale key — one advisory line returned when the focus note names no file, feature, or term in the blast radius — and the agent's writer rules still forbid editing .karta/ (the advisory is output-only)",
+          "the contract cites the untouched probe's matching logic (audit_companions.py line 224 exact-subject lookup; probe card line 22) as the reason the subject form is frozen — the bench files themselves show no diff",
+          "sync_codex_agents.py --check and sync_codex_skills.py --check report no drift across the toml, the three agent-file references copies, and the skill mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:changes-the-trace-commit-contract-the-untouched-bench-probe-greps—the-empty-commit-must-carry-the-exact-subject-or-coverage-misreads"
+        ]
+      }
+    },
+    {
+      "id": "pipeline-required-phases",
+      "title": "Single-item deliveries keep the companion phases; the delivery phase states the unconditional trace",
+      "summary": "karta-deliver's Phase 6 now says what the gardner skill now does: the phase always ends with one 'docs: gardner <slug>' commit, corrections or an empty no-drift record, and the report bullet stops calling the commit conditional. The Phase 0 single-item paragraph names the companion phases so the hatch's reader knows they still run. In karta-build, the 9c-single doc-gardner and kaizen steps — which exist but read as skippable and got skipped in practice — are rewritten to the required-when-enabled contract, and the hatch's report gains their outcome lines.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Two canonical files — the two pipeline sequences that invoke the companions — plus mirrors. (1) skills/karta-deliver/SKILL.md Phase 6 (deliver:docgardner, lines 169-176): the enabled path now states the unconditional one-commit shape — the phase ends with exactly one 'docs: gardner <slug>' commit on the integration branch: the corrections when drift was found, or an empty commit recording no drift found (with the examined range and any residual in its body) when nothing drifted. Line 176's 'The docs: gardner commit is the auditable record on the integration branch' stays and now holds unconditionally. The opted-out path (skip with a one-line note) is unchanged. (2) Same file, Phase 7 report (line 215): the Doc-gardner bullet stops saying the commit is conditional — delete '(if any)' from the docs: gardner commit clause and report the commit's sha, the number of doc files corrected (0 on a no-drift run), and any residual. The Kaizen bullet (line 216) keeps its '(if any)' — kaizen genuinely may make no commit. (3) Same file, Phase 0 single-item paragraph (line 29): extend it so the hatch's reader knows the opt-in phases still run — karta-build's 9c-single sequence runs the opt-in companion phases between its clean merge and the binder archive: doc-gardner delivery-mode over the item's diff range when .karta/doc-gardner.json enables it, then kaizen delivery-mode when .karta/kaizen.json enables it, under the same required-when-enabled contract as Phases 6/6b (carry that exact sentence fragment: 'the same required-when-enabled contract as Phases 6/6b'). The Gotchas bullet 'A single-item binder skips deliver.' (line 232) gains a clause naming the same fact. (4) skills/karta-build/SKILL.md, 9c-single: the two companion steps ALREADY EXIST as steps 6 (doc-gardner, line 420) and 7 (kaizen, line 422), correctly positioned between step 5 (shared-terms check) and step 8 (binder end-of-life) — they were added by fa48b10 (2026-06-18) and a255cc2 (2026-07-05). The field failure is that they read as skippable ('Absent or disabled, skip it.') and got skipped in practice (three parchmark single-item whiffs; this repo's seed-drift-stamp-strip solo build). So this item REWRITES THEM IN PLACE — same positions, no reordering — to karta-deliver's required-when-enabled contract: step 6 reads .karta/doc-gardner.json; absent or enabled:false → skip with a one-line note in the report; enabled:true → the step is REQUIRED: it always runs and cannot be skipped; invoke the karta-doc-gardner skill in delivery mode over this item's diff range (its merge versus the pre-item integration tip), passing the file's focus; the step ends with exactly one 'docs: gardner <slug>' commit on the integration branch — corrections, or the empty commit recording no drift found — fully automatic, no human, and it never halts the delivery. Step 7 gets the same required-when-enabled rewrite for kaizen (.karta/kaizen.json; enabled → required, always runs, cannot be skipped; invoke the karta-kaizen skill in delivery mode over this item's diff range; same one-commit shapes — pack changes as labeled 'kaizen:' commits, and kaizen's own conditional commit stays: it genuinely may make no commit; never halts). Kaizen's doctrine content is unchanged — the step gains only the enforcement framing. Both steps keep their wave-worker exclusion sentences (a wave worker never runs them; the orchestrator runs them once). (5) Same file, Phase 10 report (build:report, around line 447): the single-item hatch's report gains the companion-phase outcome lines mirroring karta-deliver's Phase 7 bullets — the 'docs: gardner <slug>' commit sha with corrected file count and residual, and kaizen off/on with its commits — omitted by a wave worker. (6) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so the .agents/ and plugins/karta mirrors of both SKILL.md files regenerate; validate_plugin.py --self-test fails otherwise. Out of scope here: the gardner skill/agent themselves (the doctrine item), the how-to docs (the docs item), integration-branch.md and every other reference file, and all kaizen skill/agent files.",
+      "touches": [
+        "skills/karta-deliver/SKILL.md",
+        ".agents/skills/karta-deliver/SKILL.md",
+        "plugins/karta/skills/karta-deliver/SKILL.md",
+        "skills/karta-build/SKILL.md",
+        ".agents/skills/karta-build/SKILL.md",
+        "plugins/karta/skills/karta-build/SKILL.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"docs: gardner <slug>\" \"no drift found\" \"the same required-when-enabled contract as Phases 6/6b\"; do grep -qF -- \"$s\" skills/karta-deliver/SKILL.md; done; for s in \"docs: gardner <slug>\" \"no drift found\" \"cannot be skipped\" \"invoke the karta-doc-gardner skill in delivery mode over this item\" \"invoke the karta-kaizen skill in delivery mode over this item\"; do grep -qF -- \"$s\" skills/karta-build/SKILL.md; done; [ \"$(grep -cF -- \"cannot be skipped\" skills/karta-build/SKILL.md)\" -ge 2 ]; if grep -qF -- \"Absent or disabled, skip it\" skills/karta-build/SKILL.md; then exit 1; fi; if grep -qF -- \"commit (if any), the number of doc files corrected\" skills/karta-deliver/SKILL.md; then exit 1; fi' && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "karta-deliver's Phase 6 states the unconditional one-commit shape — corrections, or an empty commit recording no drift found — and the Phase 7 doc-gardner bullet no longer says the commit is conditional (the old 'commit (if any), the number of doc files corrected' text is gone; kaizen's own '(if any)' stays)",
+          "karta-deliver's Phase 0 single-item paragraph carries the exact fragment 'the same required-when-enabled contract as Phases 6/6b' and names both companion phases, their config files, the item's diff range, and their position between the clean merge and the binder archive; the single-item Gotchas bullet says the same",
+          "karta-build's 9c-single steps 6 and 7 are rewritten in place — same positions between the shared-terms check and binder end-of-life — to the required-when-enabled contract: 'cannot be skipped' appears at least twice in the file (once per step) and the skippable-sounding 'Absent or disabled, skip it' appears nowhere",
+          "both steps keep the never-halt rule and the wave-worker exclusion, and the kaizen step changes only enforcement framing — no kaizen doctrine content",
+          "karta-build's Phase 10 report lists the companion-phase outcomes for the single-item hatch (gardner commit sha, corrected count, residual; kaizen off/on) and a wave worker omits them",
+          "sync_codex_skills.py --check reports no drift across the mirrors of both files, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:rewrites-existing-9c-single-steps-in-place-to-required-when-enabled—no-reordering-no-new-steps"
+        ]
+      }
+    },
+    {
+      "id": "gardner-docs",
+      "title": "The how-to guides tell the truth about the trace, the lens, and single-item deliveries",
+      "summary": "The doc-gardner guide documents the always-present trace commit — including its empty no-drift form and how to read it — pins the focus note as a lens, never a fence, explains the staleness advisory (and that the gardner never edits your .karta/ config), and says plainly that single-item deliveries run the phase too. The kaizen guide gains one sentence naming its single-item invocation point. The live doc-truth parity probe gates the result.",
+      "estimate": "M",
+      "depends_on": ["gardner-trace-doctrine", "pipeline-required-phases"],
+      "contract": "Two consumer guides, written plainly per the karta-plainlanguage standard. (1) docs/how-to/doc-gardner.md — intro (line 3): a delivery with the gardner on now always ends with one 'docs: gardner <slug>' commit, and single-item deliveries run the phase too (karta-build's hatch runs the same companion phases as a full delivery). Focus paragraph (line 13): the note is 'a lens, never a fence' (exact fragment) — it biases the gardner's attention but never bounds the sweep, and drift outside the focus is corrected exactly like drift inside it. Review section (lines 57-64): the commit always exists when the gardner is on — the corrections when drift was found, or an empty commit whose body records no drift found, the range examined, any residual, and (when your focus note names nothing in the delivery's change) one advisory line saying the note may be stale; show how to read both forms (git show the commit; an empty commit has no diff, so its body is the record). Document the staleness advisory as advisory only: the gardner never edits your .karta/ config — updating the focus note is yours to do. Two practical notes the guide must carry: (a) expect exactly one gardner commit per delivery — an empty commit on a no-drift run is deliberate, its body is the record, and changelog tooling that minds it can filter the 'docs: gardner' subject; (b) the trace assumes the integration branch lands by a true merge (the flow karta documents everywhere) — a squash merge collapses the branch's commits, the trace included, into one, so a squash-based process forfeits the per-delivery audit trail (deliveries and traces alike, not the trace uniquely). Keep everything else — the doctrine section, the five drift kinds, the salvage section, the accepted risk — untouched except where a sentence above lands. (2) docs/how-to/kaizen.md — one sentence at the delivery-trigger prose (line 27, 'With the switch on, kaizen runs after the doc-gardner phase of every delivery'): make explicit that this includes single-item deliveries, where karta-build's hatch runs kaizen after doc-gardner. Nothing else in the kaizen guide changes. (3) These are plain consumer docs — no line-number citations, no repo-internal jargon; hold every new sentence to the karta-plainlanguage standard the guides already follow. (4) PARITY STAYS GREEN: the doc-truth parity ledger must still pass live against the repo after the edits — python3 benchmarks/probes/parity-doc-truth-ledger.py --target . reports status pass with no lane regressed; this is the same guard the reference docs items carry, and it is why this item depends on both doctrine items: the guides describe behavior those items install, and the probe reads docs against the current tree. Out of scope: every other doc (README, AGENTS.md, other how-tos), the dated specs under docs/specs/, and all bench files.",
+      "touches": [
+        "docs/how-to/doc-gardner.md",
+        "docs/how-to/kaizen.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"docs: gardner <slug>\" \"a lens, never a fence\" \"no drift found\" \"empty commit\" \"single-item\"; do grep -qF -- \"$s\" docs/how-to/doc-gardner.md; done; grep -qF -- \"stale\" docs/how-to/doc-gardner.md; grep -qF -- \"single-item\" docs/how-to/kaizen.md' && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the doc-gardner guide carries the exact subject form 'docs: gardner <slug>', the exact fragment 'a lens, never a fence', and the exact phrase 'no drift found', and describes the empty commit as the no-drift record with its body contents (range examined, residual, possible focus-staleness note)",
+          "the guide says single-item deliveries run the phase too, and that the staleness note is advisory only — the gardner never edits the reader's .karta/ config",
+          "the kaizen guide names its single-item invocation point (karta-build's hatch runs kaizen after doc-gardner) and changes nothing else",
+          "the live doc-truth parity probe reports status pass against the repo — no baseline lane regressed by the reworded guides",
+          "validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:consumer-guides-render-the-canonical-strings-and-the-live-parity-probe-stays-green"
+        ]
+      }
+    }
+  ]
+}

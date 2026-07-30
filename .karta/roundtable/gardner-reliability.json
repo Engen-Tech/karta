@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "fb0e4f1177ba914fccd247f6fcbc990a7a18d5b562ada6c641e1179dcfb78b51",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "gardner-reliability",
+  "run_at": "2026-07-30T16:01:27.183517+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"should-fix :: empty commits vanish under squash merges \\u2014 trace breaks :: git-merge(1); probe needs subject reachable on main :: document true-merge invariant or squash-surviving mechanism\\nshould-fix :: live parity probe may fail on out-of-scope stale docs :: scope excludes README/other how-tos :: verify no other doc describes old behavior\\nlow :: 'cannot be skipped' >=2 count satisfiable elsewhere / synonym-fragile :: pipeline oracle :: lock to step sections\\nnote :: empty-commit noise may surprise consumers; suggest filter guidance in guide :: mandatory empties :: docs line\\nnote :: shared-term id concern (incoherent as stated) :: shared_terms array :: none\"}"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "sound-with-amendments",
+      "summary": "{\"verdict\": \"sound-with-amendments\", \"findings\": \"should-fix :: squash/rebase drops empty trace commits; how-to says nothing about merge policy :: audit_companions.py:224 exact-subject on main :: add merge-policy line\\nshould-fix :: lens sentence described as 'gains' \\u2014 if bounding prose exists the change is a no-op :: contract wording :: displace bounding prose + negative grep\\nshould-fix :: 'cannot be skipped' count satisfiable by pasting outside steps 6/7 :: pipeline oracle :: proximity/positive-in-step greps\\nshould-fix :: out-of-scope surfaces may still describe conditional commit :: README/AGENTS/integration-branch/verify/watch/feature-manifest :: extend touches or record follow-up\\nshould-fix :: 2026-06-18 spec now contradicts canonical behavior, no supersession banner :: scope.excluded keeps spec verbatim :: banner or dated line\\nshould-fix :: empty-commit body itemization described in two SKILLs with no canonical pin :: shared_terms has only three :: add '--allow-empty'/'empty commit' term\\nlow :: 'exactly one commit' wording vs resume/re-run duplicates :: doctrine contract :: per-invocation wording\\nlow :: focus_stale false-positives on vague notes :: 'names no file, feature, or term' heuristic :: tighten/skip generic notes\\nlow :: pre-receive hooks may reject zero-diff commits :: consumer setups :: how-to subsection\\nlow :: Phase 7 report string shift may break parsers keyed on old phrase :: line 215 pinned :: alias or update parsers\\nlow :: consumer hooks rejecting empties -> whiff the design rules out :: scope excludes hooks :: audit line\\nlow :: plannotator may dismiss empty commits as no-changes :: review flow :: reviewer instruction\\nlow :: noise trade-off unstated :: every no-drift delivery adds a commit :: guide line\"}"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "amend-first",
+      "summary": "{\"verdict\": \"amend-first\", \"findings\": \"blocking :: squash/rebase erases the trace; no verification that integration branches are never squashed, no fallback mechanism :: probe subject lookup on main :: verify doctrine paths, forbid squash, or secondary trace\\nshould-fix :: pipeline oracle passes without correct rewrite ('cannot be skipped' pre-existing? 'docs: gardner <slug>' already present) and lacks step-scoped negatives :: oracle command :: step-section counts + step-context positives + proximity negatives\\nshould-fix :: focus_stale may break strict envelope parsers; binder never verified none exist :: envelope is a different surface than the config schema :: grep for envelope parsing, update schema or document tolerance\\nshould-fix :: consumer impact of mandatory empty commits unassessed (CI triggers, changelog tools, log clutter) :: how-to mentions but does not discuss trade-off :: filter guidance, verify bench handles empties, consider opt-out knob\\nnote :: shared_terms don't pin the empty-commit body structure across three items :: only 'no drift found' pinned :: add body-element terms or cross-reference\\nnote :: comprehensive grep for old-behavior mentions not run :: scope lists files without a sweep :: run repo-wide grep, extend or justify\"}"
+    }
+  ]
+}
