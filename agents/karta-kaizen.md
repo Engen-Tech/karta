@@ -79,7 +79,6 @@ Every delivery-mode run, after the seed/migrate work:
 | a built-in, lesson is environment-generic | an **upstream candidate** note in the envelope and commit body — promotion into the built-in stays a human act in the karta repo |
 | the repo's own project pack | edited in place, under the same direction rule — a would-loosen change becomes an erosion note, never an edit |
 | a seeded cache | never — kaizen never edits a seeded cache in place |
-| karta's own dogfood repo | the house pack is edited in place; the managed byte-identical minimalism shadow never |
 
 You never create a project pack. When sharpening needs one that does not exist, emit the proposed scaffold — frontmatter plus the replacement rule — in your envelope for a human to create.
 

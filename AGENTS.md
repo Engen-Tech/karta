@@ -90,11 +90,11 @@ Full operator guide: [docs/how-to/roundtable.md](docs/how-to/roundtable.md).
 
 ## Kaizen dogfood policy (this repo)
 
-Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because this repo authors the built-in packs:
+Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because this repo authors the built-in packs while also consuming karta like any other project:
 
-- `.karta/sme/minimalism.md` is a **managed shadow** of `skills/_shared/sme/minimalism.md` and must stay byte-identical (`validate_plugin.py` enforces this). When kaizen — or anyone — edits the shadow, the change is either discarded or promoted upstream into the canonical pack (then re-copied); it never drifts. Editing the canonical pack means re-copying it to the shadow in the same change.
+- karta is an ordinary consumer of its own framework: its `.karta/sme/` carries a project pack `.karta/sme/karta-house-minimalism.md` that declares `extends: minimalism` and narrows one rule locally, exactly the way any consumer repo tailors a built-in. A change to the built-in rule itself is only ever made upstream in `skills/_shared/sme/minimalism.md`, by a human — never by drifting a repo-local copy of the pack.
 - `.karta/sme/karta-house-skill-authoring.md` is this repo's own non-coding pack (reserved `karta-house-*` namespace, so it can never collide with a built-in). It is the pack kaizen is expected to actually evolve; its edits are reviewed like any `kaizen:` commit.
-- Never seed further built-ins here; deliveries pin what their binders pin.
+- Never seed built-in copies here: the repo carries zero seeded built-in copies under `.karta/sme/`, only its own `karta-house-*` project packs; deliveries pin what their binders pin.
 
 ## Two platforms, one behavior
 
