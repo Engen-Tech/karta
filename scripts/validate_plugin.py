@@ -91,47 +91,8 @@ def check() -> list[str]:
                 errors.append(f"marketplace.json: plugin '{pname}' lists '{name}' but skills/{name}/SKILL.md is missing")
     _check_codex(errors, present)
     _check_hooks(errors)
-    _check_kaizen_shadow(errors)
+    _check_skill_scripts(errors)
     return errors
-
-
-def _strip_provenance_stamp(text: str) -> str:
-    """Drop the two provenance-stamp frontmatter lines (`seeded_from` + `base_sha256`),
-    byte-preserving everything else. The stamp is what kaizen's seed/migrate pass writes
-    onto a seeded copy (see skills/karta-plan/scripts/check_pack_provenance.py); the shadow
-    guard compares the *rest* of the bytes, so a stamped shadow is legal but any other
-    delta is not. A file with no frontmatter, or no stamp lines, is returned unchanged."""
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        return text
-    close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
-    if close is None:
-        return text
-    kept = [ln for i, ln in enumerate(lines)
-            if not (1 <= i < close and ln.split(":", 1)[0].strip() in ("seeded_from", "base_sha256"))]
-    return "\n".join(kept)
-
-
-def _check_kaizen_shadow(errors: list[str], shadow: Path | None = None,
-                         canonical: Path | None = None) -> None:
-    """Kaizen dogfood guard: this repo authors the built-in packs, so its seeded
-    .karta/sme/minimalism.md is a managed shadow that must stay byte-identical to the
-    canonical skills/_shared/sme/minimalism.md — under STAMP-STRIPPED comparison. The
-    shadow may carry the paired provenance stamp (`seeded_from` + `base_sha256`) kaizen's
-    seed/migrate pass writes; every OTHER byte must equal the canonical pack. A real
-    content delta (or a stamp that hides one) must be either discarded or promoted upstream
-    into the canonical pack — never left to drift."""
-    shadow = shadow if shadow is not None else ROOT / ".karta/sme/minimalism.md"
-    canonical = canonical if canonical is not None else ROOT / "skills/_shared/sme/minimalism.md"
-    if not (shadow.exists() and canonical.exists()):
-        return
-    if _strip_provenance_stamp(shadow.read_text()) != _strip_provenance_stamp(canonical.read_text()):
-        errors.append(
-            f"{shadow.name}: differs (beyond the provenance stamp) from the canonical "
-            "skills/_shared/sme/minimalism.md — this repo's seeded copy is a managed shadow "
-            "(kaizen dogfood policy, see AGENTS.md): a stamp is allowed, but discard any other "
-            "shadow edit, or promote it into the canonical pack and re-copy"
-        )
 
 
 def _load_json(path: Path, errors: list[str]) -> dict:
@@ -411,34 +372,32 @@ def _self_test() -> int:
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
         failures += 0 if ok else 1
-
-        # --- kaizen shadow guard: STAMP-STRIPPED byte-identity ---
-        canon = ("---\nname: minimalism\ndescription: least code\nalways: true\n---\n"
-                 "## Review checklist\n- [ ] min.1 — the shipped rule.\n")
-        stamped = canon.replace("always: true\n",
-                                "always: true\nseeded_from: minimalism\n"
-                                "base_sha256: " + "a1" * 32 + "\n")
-        delta = canon.replace("the shipped rule", "a sneaky local edit")
-        stamped_delta = stamped.replace("the shipped rule", "a sneaky local edit")
-        canon_f = Path(td) / "canonical.md"
-        canon_f.write_text(canon)
-        shadow_cases = [
-            ("stamped byte-identical shadow passes", stamped, []),
-            ("unstamped legacy shadow passes", canon, []),
-            ("shadow with a content delta fails", delta, ["managed shadow"]),
-            ("a stamp cannot hide a content delta", stamped_delta, ["managed shadow"]),
-        ]
-        for name, shadow_text, want in shadow_cases:
-            shadow_f = Path(td) / "shadow.md"
-            shadow_f.write_text(shadow_text)
-            errors = []
-            _check_kaizen_shadow(errors, shadow=shadow_f, canonical=canon_f)
-            ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
-            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r}"))
-            failures += 0 if ok else 1
-    total = len(cases) + 1 + len(shadow_cases)
+    total = len(cases) + 1
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
+
+
+def _run_self_test(script: Path, errors: list[str]) -> None:
+    """Run `<script> --self-test` and append a reported error on failure. Shared by the
+    hooks/scripts and skills/*/scripts passes so both self-test their fixtures identically."""
+    try:
+        proc = subprocess.run([sys.executable, str(script), "--self-test"],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        errors.append(f"{script.relative_to(ROOT)}: --self-test did not run ({e})")
+        return
+    if proc.returncode != 0:
+        tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
+        errors.append(f"{script.relative_to(ROOT)}: --self-test failed ({tail})")
+
+
+def _check_skill_scripts(errors: list[str]) -> None:
+    """Self-test every skills/*/scripts/*.py the way _check_hooks self-tests the hook
+    scripts. The hooks pass never covered the skill-shipped scripts, so their embedded
+    fixtures (e.g. resolve_pack_checklist.py) went unrun at commit; every skills script
+    exposes --self-test, so this pass durably covers them."""
+    for script in sorted(SKILLS.glob("*/scripts/*.py")):
+        _run_self_test(script, errors)
 
 
 def _check_hooks(errors: list[str]) -> None:
@@ -480,15 +439,7 @@ def _check_hooks(errors: list[str]) -> None:
     for script in sorted(scripts_dir.glob("*.py")) if scripts_dir.is_dir() else []:
         if script.resolve() not in referenced:
             errors.append(f"{script.relative_to(ROOT)}: not referenced by hooks/hooks.json — it would never run")
-        try:
-            proc = subprocess.run([sys.executable, str(script), "--self-test"],
-                                  capture_output=True, text=True, timeout=120)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            errors.append(f"{script.relative_to(ROOT)}: --self-test did not run ({e})")
-            continue
-        if proc.returncode != 0:
-            tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
-            errors.append(f"{script.relative_to(ROOT)}: --self-test failed ({tail})")
+        _run_self_test(script, errors)
 
 
 def main() -> int:

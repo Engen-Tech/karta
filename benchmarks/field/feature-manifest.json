@@ -246,6 +246,11 @@
       "version": "2.29.0",
       "observable": false,
       "note": "gardner always-trace commit ('docs: gardner <slug>' every delivery, empty on no drift) IS consumer-history-observable, but the adoption ledger's detection kinds (grep/jq/ref) cannot express a commit-subject probe \u2014 the sibling field-companion-loop-health probe owns that measurement (exact-subject lookup, exact from this release). Also shipped: focus lens-not-fence doctrine + required-when-enabled solo-delivery companion phases (plugin-internal)."
+    },
+    {
+      "version": "2.30.0",
+      "observable": false,
+      "note": "pack-separation: extends/exclude_rules composition is now expanded at the verify and build gates (was reported at plan time only), and karta retired its managed minimalism shadow to become an ordinary consumer of the built-in minimalism pack \u2014 a plugin-internal enforcement change, no new consumer-repo artifact."
     }
   ]
 }

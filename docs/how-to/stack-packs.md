@@ -66,23 +66,25 @@ Three frontmatter keys drive this:
 - `id_prefix` — required whenever you use `extends`. It is your pack's own rule prefix, it must not collide with a prefix a built-in already uses, and every checklist id you write must start with it.
 - `exclude_rules` — a list of built-in rule ids to drop. It is legal only alongside `extends`, and naming a rule the built-in does not have is an error, not a silent skip.
 
-A worked example — your house Python rules on top of the built-in `python` pack, dropping one rule that clashes with a repo convention:
+A worked example is karta's own `karta-house-minimalism` pack. It builds on the built-in `minimalism` pack, drops one rule that does not fit — `min.4`, the one-runnable-check mandate — and puts a narrower local rule in its place:
 
 ```markdown
 ---
-name: house-python
-description: Our house Python rules layered on the built-in python pack
-extends: python
-exclude_rules: ["py.3"]
-id_prefix: house
+name: karta-house-minimalism
+description: karta's local narrowing of minimalism
+extends: minimalism
+exclude_rules: ["min.4"]
+id_prefix: hmin
 ---
 
 ## Review checklist
 
-- [ ] house.1 — Every public function carries a typed signature.
+- [ ] hmin.1 — Narrows min.4: the one-runnable-check mandate holds for new logic, except one narrowly named validator-internal config-shape case.
 ```
 
-At plan time karta appends the built-in's checklist to yours, fires both packs' match tokens together, and reports the rules `exclude_rules` dropped — visibly, so an excluded rule is never lost in silence.
+Composition takes effect wherever karta enforces the checklist. As before, planning reports which rules `exclude_rules` drops, so an excluded rule is never lost in silence. And now the verify and build gates hand the auditor the composed Review checklist — the built-in's rules minus your `exclude_rules`, then your own — so a narrowing you express with `extends` actually changes what the checker enforces, not just what the plan mentions.
+
+Upgrade note: a project that already carries an `extends` pack will, from this release, have that pack's composed checklist enforced at the verify and build gates for the first time — before, composition surfaced only in the plan. Your excluded rules stop being checked, and the base pack's other rules start being checked, so review your `extends` packs when you upgrade.
 
 ## The four sections — one has teeth
 
