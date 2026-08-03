@@ -72,7 +72,7 @@ Inside a sharpened rule you will see the evidence cited inline as `(seen <date>,
 Which file kaizen edits depends on where the rule lives:
 
 - **Kaizen never edits a seeded cache in place.** A seeded copy of a built-in pack stays exactly what was seeded.
-- **A built-in rule, when the lesson is specific to your repo:** the sharpening lands in your *existing* project pack — an exclusion on the built-in rule plus a replacement rule whose text begins `Narrows <built-in-id>:`. Reading the project pack always tells you which built-in rules it replaces.
+- **A built-in rule, when the lesson is specific to your repo:** the sharpening lands in your *existing* project pack — an exclusion on the built-in rule plus a replacement rule whose text begins `Narrows <built-in-id>:`. Reading the project pack always tells you which built-in rules it replaces. That narrowing — an `exclude_rules` on the built-in id plus the `Narrows <built-in-id>:` replacement rule — now takes effect at the checks, not only in the plan report: the verify and build gates enforce the composed checklist your project pack expresses.
 - **A built-in rule, when the lesson would apply anywhere:** kaizen writes an **upstream candidate** note for karta's maintainers instead of editing anything locally. Improving a built-in pack is a human act in the karta repo.
 - **A rule in your own project pack:** edited in place, under the same one-way direction — a change that would loosen it becomes an erosion note, never an edit.
 
