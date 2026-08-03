@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "c52666325913e147031a2e42e518d62dde687463",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/pack-separation/integration",
+  "run_at": "2026-08-03T20:47:22.426034+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "NEEDS-FIXES",
+      "summary": "### Review Summary\n\nVerdict: NEEDS-FIXES\n\n1. Finding 1 (Critical): skills/karta-kaizen/scripts/validate_packs.py hardcodes ALLOWED_KEYS without extends, id_prefix, or exclude_rules. Frontmatter parsing discards these keys, causing resolve_pack_checklist.py to drop base pack resolution and karta-verify to BLOCK on all extends packs.\n2. Finding 2 (Medium): skills/karta-kaizen/scripts/resolve_pack_checklist.py resolves base packs strictly against plugin defaults, ignoring local .karta/sme/ worktree overlays.\n3. Finding 3 (Low): validate_packs.py does not verify that frontmatter id_prefix matches checklist rule ID prefixes.\n4. Finding 4 (Low): resolve_pack_checklist.py does not handle transitive (multi-level) extends chains.\n\nHouse Pack Waiver: Sound; oracle sub-check 6 false-failed due to a string match on \"Narrows min.4:\" in hmin.1 prose, while rule ID min.4 was successfully excluded.\n\n[ORCHESTRATOR TRIAGE] Finding 1 REFUTED: ALLOWED_KEYS at validate_packs.py:41-42 DOES include extends/exclude_rules/id_prefix; the reviewer saw only the diff (validate_packs.py unchanged, not shown) and inferred a truncated tuple. Empirically the wave-3 validate_packs passed and the resolver composed base+own. Finding 3 REFUTED: prefix discipline enforced at validate_packs.py:168-174. Findings 2/4 are by-design (extends binds to the shipped built-in, consistent with validate_packs; built-ins never extend, so chains are structurally impossible)."
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": null,
+      "summary": "Request timed out after 181s."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": null,
+      "summary": "Request timed out after 181s."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": null,
+      "summary": "Request timed out after 181s."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "NEEDS-FIXES",
+      "summary": "Verdict: NEEDS-FIXES (pre-merge).\n\nThree primary risks:\n1. The resolver hardcodes one built-in lookup location (skills/karta-plan/references/sme/) where the verify/build specs reference different ones, so the fail-closed ResolveError blocks every extends pack on first gate; finding #1.\n2. The verify/build SKILL.md is rewired to call the resolver, but no verifier/builder dispatch code changes are in the diff - the headline \"enforced at the gate\" claim is unprovable from this branch; finding #2.\n3. The resolver reaches into four validate_packs private names via a pinned one-liner; a one-line refactor in validate_packs silently breaks the resolver, with no shared smoke test; finding #3.\n\nLower-priority concerns: _check_skill_scripts cannot tell \"--self-test failed\" from \"--self-test not present\", plan-dedup logic does not share the resolver's base-lookup path (so the two can disagree), the upgrade note understates both context-cost growth and what consumers may have been relying on from literal-section enforcement, and the WAIVER on oracle sub-check 6 is sound but the buggy oracle should be repaired in the same commit, not propagated. The hmin.1 narrowing is defensibly scoped.\n\n[ORCHESTRATOR TRIAGE] Finding #1: the resolver resolves the extends base against the shipped built-in registry (CLAUDE_PLUGIN_ROOT else plugin root, skills/karta-plan/references/sme/) - the SAME source load_builtin_registry/validate_packs use; wave-1 and wave-3 resolved correctly, so not a block-for-everyone bug. Finding #2: category error - karta gates are agent-executed skills; the SKILL.md contract IS the implementation, no separate dispatcher file exists; this is karta's standing architecture, not a new risk. Finding #3: the coupling is contract-mandated (reuse the single grammar source) AND floor-guarded - the new _check_skill_scripts runs the resolver's --self-test on every validate, which fails if validate_packs drops an imported name. Lower-priority items accepted as follow-ups (task #18 already tracks the oracle fix; the waiver was independently confirmed sound)."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "NEEDS-FIXES",
+      "summary": "NEEDS-FIXES. One medium defect: _active_checklist parses the first ## section instead of specifically ## Review checklist, risking silent wrong-section composition for non-standard pack orderings - fix by matching the heading text and adding a non-standard-ordering fixture. Four low items: add a self-test for the extends -> non-existent-built-in error path; verify plan dedup implementation covers both always-on and match-token extends packs; track the house-pack oracle fix as a follow-up; document the invariant that every skills/*/scripts/*.py must support --self-test. Resolver composition, gate wiring, shadow deletion, and docs are all correct.\n\n[ORCHESTRATOR TRIAGE] Medium defect REFUTED: HEADING_RE = r\"^## Review checklist\\b\" targets the checklist heading specifically, not any \"## \"; the resolver's _active_checklist uses HEADING_RE.match. Empirically minimalism.md has three \"## \" sections before \"## Review checklist\" and the wave-1 resolver correctly composed min.1-4. The four low items accepted as follow-ups (the extends->nonexistent-base path works via a fail-closed ResolveError; it is simply not in the hermetic self-test)."
+    }
+  ]
+}
