@@ -372,23 +372,71 @@ def _self_test() -> int:
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
         failures += 0 if ok else 1
-    total = len(cases) + 1
+
+        # _run_self_test enforces "every gated script exposes --self-test": check all three
+        # dispositions on fabricated scripts. Their paths are outside ROOT, exercising rel().
+        rst = Path(td) / "rst"
+        rst.mkdir()
+        (rst / "good.py").write_text(
+            "import argparse\n"
+            "p=argparse.ArgumentParser();p.add_argument('--self-test',action='store_true')\n"
+            "p.parse_args()\n")
+        (rst / "bad.py").write_text(
+            "import argparse,sys\n"
+            "p=argparse.ArgumentParser();p.add_argument('--self-test',action='store_true')\n"
+            "a=p.parse_args()\n"
+            "sys.exit(1 if a.self_test else 0)\n")
+        (rst / "missing.py").write_text(
+            "import argparse\n"
+            "argparse.ArgumentParser().parse_args()\n")
+        rst_cases = [
+            ("_run_self_test: exposed & passing self-test -> no error", "good.py", False, None),
+            ("_run_self_test: exposed & failing self-test -> named failure", "bad.py", True, "--self-test failed"),
+            ("_run_self_test: absent --self-test -> distinct failure", "missing.py", True, "does not expose --self-test"),
+        ]
+        for name, fn, want_err, want_sub in rst_cases:
+            errs: list[str] = []
+            _run_self_test(rst / fn, errs)
+            ok = (bool(errs) == want_err) and (want_sub is None or any(want_sub in e for e in errs))
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
+    total = len(cases) + 1 + len(rst_cases)
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
 
 def _run_self_test(script: Path, errors: list[str]) -> None:
     """Run `<script> --self-test` and append a reported error on failure. Shared by the
-    hooks/scripts and skills/*/scripts passes so both self-test their fixtures identically."""
+    hooks/scripts and skills/*/scripts passes so both self-test their fixtures identically.
+
+    The floor assumes every gated script exposes --self-test, so that invariant is enforced,
+    not narrated: a script whose --help does not list --self-test is a distinct, named failure
+    ('does not expose --self-test') — never mistaken for a self-test that ran and failed, and
+    never a silent pass behind argparse's generic 'unrecognized arguments' exit."""
+    def rel(p: Path) -> str:
+        try:
+            return str(p.relative_to(ROOT))
+        except ValueError:
+            return p.name
+    try:
+        helpp = subprocess.run([sys.executable, str(script), "--help"],
+                               capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        errors.append(f"{rel(script)}: could not probe --help ({e})")
+        return
+    if "--self-test" not in (helpp.stdout + helpp.stderr):
+        errors.append(f"{rel(script)}: does not expose --self-test "
+                      f"(the validator floor self-tests every gated script; add a --self-test mode)")
+        return
     try:
         proc = subprocess.run([sys.executable, str(script), "--self-test"],
                               capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
-        errors.append(f"{script.relative_to(ROOT)}: --self-test did not run ({e})")
+        errors.append(f"{rel(script)}: --self-test did not run ({e})")
         return
     if proc.returncode != 0:
         tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
-        errors.append(f"{script.relative_to(ROOT)}: --self-test failed ({tail})")
+        errors.append(f"{rel(script)}: --self-test failed ({tail})")
 
 
 def _check_skill_scripts(errors: list[str]) -> None:

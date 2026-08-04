@@ -21,6 +21,12 @@ Composition:
     pack's own active items appended. Ordering is deterministic: built-in checklist order
     for the base, then pack checklist order for the pack's own rules.
 
+Asserting on the output (oracle authors): key any check on the emitted `id` values, never a
+bare substring of the JSON. A `Narrows <id>:` replacement rule's own text contains the
+excluded id, so a fixed-string grep for the id matches that prose and cannot tell an excluded
+rule from a mentioned one. To prove a rule is excluded, assert its id is absent from the
+emitted ids, e.g. `... | python3 -c 'import sys,json; assert "min.4" not in [e["id"] for e in json.load(sys.stdin)]'`.
+
 Failures (consistent with validate_packs, never a silent drop):
   - `extends` naming no shipped built-in is a reported error and non-zero exit.
   - an `exclude_rules` id absent from the extended built-in's checklist is a reported
@@ -262,7 +268,17 @@ def _run_self_test() -> int:
     check("(e) exact keys id/text/source, base-then-own order, basename source values",
           keys_ok and order_ok and source_ok)
 
-    total = 6
+    # (f) `extends` naming a built-in that does not ship is flagged as an error, never a
+    # silent pass-through — the resolver fails closed exactly as validate_packs rejects it.
+    f_text = sub(_FIX_EXTENDS, "extends: minimalism\n", "extends: nonesuch\n")
+    try:
+        resolve_checklist(f_text, "karta-house-minimalism.md", lookup)
+        raised_f = False
+    except ResolveError:
+        raised_f = True
+    check("(f) extends naming a non-shipped built-in is an error", raised_f)
+
+    total = 7
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 
