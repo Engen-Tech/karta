@@ -12,15 +12,13 @@ The integration branch is also the resume record. karta tracks every item's outc
 
 The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **immutable while a wave runs**. karta-deliver reads it; it never writes to it. For its full field reference, see [references/binder-reference.md](references/binder-reference.md). The build primitive for each item is `karta-build`. The parallelism rules live in [references/parallelism-gates.md](references/parallelism-gates.md).
 
+**Bundled scripts.** When Pi provides `karta_script`, use the named action below. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
+
 ---
 
 ## Phase 0 — Preflight  `deliver:preflight`
 
-**Validate the binder.** Run:
-
-```bash
-uv run --script skills/karta-plan/scripts/validate_binder.py --binder <path>
-```
+**Validate the binder.** Use `karta_script` action `validateBinder` with `binder: <path>`; fallback: `uv run --script <skill-dir>/../karta-plan/scripts/validate_binder.py --binder <path>`.
 
 This checks schema validity, dependency cycles, and dangling `depends_on` references. On failure, bail with the validator's output — no "continue anyway?".
 
@@ -84,7 +82,7 @@ After each merge: write `refs/karta/<slug>/item-<id>/done` → the merge commit.
 
 **Step 4 — Post-wave integration check.** Run the project's build/type-check on the new integration tip. On failure, **revert the wave** and halt with a call to action — this catches semantic collisions that text-clean merges miss (e.g. item A renames a helper, item B used the old name). Reverting the wave is more than rewinding the branch: `git reset --hard` the integration branch to `karta/<slug>/wave-<N>-base`, **delete the `done`, `built`, and `accepted` refs of every item integrated since `wave-<N>-base`** (enumerated by ref at-or-after the base — including any Phase-4 accepts, not only this step's serial-merge set), and **restore the `failed` ref** for any item whose `failed` a Phase-4 accept cleared in this wave (the `wave-<N>` success tag is never written, since this check failed before it). Those items return to their unbuilt-or-halted state — only the item branches remain, as a diagnostic — so a resumed run re-derives the frontier and **rebuilds** them against the rewound tip (or re-prompts the human for a restored-`failed` item) instead of skipping them as already-done; leaving the refs behind would orphan the reverted commits and break resume-idempotency (see [references/integration-branch.md](references/integration-branch.md), Revert-the-wave).
 
-**Then check shared terms.** After the build/type-check passes on the new integration tip, run the binder's declared-term check on that same tip: `uv run --script skills/karta-plan/scripts/check_shared_terms.py --binder <binder path>`. A non-zero exit (`[FAIL]` — a declared `shared_terms` string drifted between items that both landed) halts the wave on the **same footing as a failed post-wave build**: revert the wave (as above) or the human fixes the wording. `[PENDING]` entries — items still in later waves — are skipped by the script itself and are **not** a failure; they re-evaluate when those waves land. An absent or empty `shared_terms` is a clean no-op pass.
+**Then check shared terms.** After the build/type-check passes on the new integration tip, run the binder's declared-term check on that same tip with `karta_script` action `checkSharedTerms` and `binder: <binder path>`; fallback: `uv run --script <skill-dir>/../karta-plan/scripts/check_shared_terms.py --binder <binder path>`. A non-zero exit (`[FAIL]` — a declared `shared_terms` string drifted between items that both landed) halts the wave on the **same footing as a failed post-wave build**: revert the wave (as above) or the human fixes the wording. `[PENDING]` entries — items still in later waves — are skipped by the script itself and are **not** a failure; they re-evaluate when those waves land. An absent or empty `shared_terms` is a clean no-op pass.
 
 **Defer the `wave-<N>` success tag** until the wave's Phase-4 accept/defer decisions (`deliver:lifecycle`) resolve and a final post-wave check passes on the resulting tip. The serial-merge set may not be the wave's final tip: a Phase-4 accept lands a merge after this step. Tagging `karta/<slug>/wave-<N>` here would point it at a stale tip and orphan a later accept on revert — so the tag waits for the true wave tip, with accepts included.
 
@@ -150,7 +148,7 @@ Committed item branches and the integration branch persist. A later `karta-deliv
 
 **Surface what's next.** After the wave's result is known, print the condensed next-step footer so the run ends pointing forward:
 
-  `uv run --script skills/karta-status/scripts/karta_next.py --footer --binder <slug>`
+  use `karta_script` action `kartaNext` with `format: footer` and `binder: <slug>`; fallback: `uv run --script <skill-dir>/../karta-status/scripts/karta_next.py --footer --binder <slug>`
 
 This is read-only — it derives the next action from git, never writes. It is the same engine the `karta-status` skill uses, so the footer and the command never disagree.
 

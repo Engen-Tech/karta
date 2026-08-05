@@ -1,0 +1,404 @@
+# Pi package delivery plan
+
+## Goal
+
+Ship Karta as a first-class Pi package without weakening its Git-native resume model, read-only gates, or Claude Code and Codex behavior.
+
+Karta will use one explicit Pi extension and the canonical `skills/` tree. It will not fork Pi, create another full skill mirror, or use Pi sessions as a second orchestration database.
+
+## Reboot checkpoint
+
+|Field|Value|
+|-|-|
+|Worktree|`/Users/tej/src/karta-pi`|
+|Branch|`feat/pi-package`|
+|Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
+|Completed|Phase 0 feasibility closure; Phases 1, 2, and 3A|
+|In progress|Phase 3B — package-owned roles, dispatch lock, evidence, and capability profiles|
+|First next action|Implement the host-generated, canonical, hash-bound Git evidence manifest and scoped evidence reader|
+|Do not touch|Unrelated changes in `/Users/tej/src/karta`|
+|Commit state|No Pi integration work has been committed|
+
+The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
+
+Mac, local terminal from the feature worktree:
+
+```sh
+cd /Users/tej/src/karta-pi
+npm run check:pi
+uv run scripts/validate_plugin.py --self-test
+uv run scripts/check_shared_copies.py --self-test
+uv run scripts/sync_codex_agents.py --check
+uv run scripts/sync_codex_skills.py --check
+```
+
+All five checks pass after the role-catalog and dispatch-lock increments. The Pi suite currently runs 54 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+
+## Non-negotiable invariants
+
+1. Project trust gates every Karta action. Untrusted projects expose no Karta skills, and registered Karta tools refuse execution.
+2. Authoritative prompts, scripts, role definitions, and policy resolve from the installed package root. A project skill collision may alter conversational guidance but never selects a Karta worker or gate prompt.
+3. Karta state remains Git-native: binders, branches, commits, tags, refs, and the existing Git-common-dir sentinels. Pi sessions hold no durable delivery state.
+4. Gate children inherit no ambient extensions, skills, prompts, themes, context files, tools, parent conversation, or project instructions.
+5. Parent hooks do not protect SDK children. Every child receives an explicit capability set owned by Karta.
+6. Gate children are read-only by construction. They receive no Bash, write, edit, arbitrary path, arbitrary prompt, or arbitrary script capability.
+7. Build worktrees isolate changes; they are not security sandboxes. Build workers are trusted, high-authority coding agents.
+8. A guard may fail open only where the existing Karta hook contract explicitly requires it. Gate startup, provider compatibility, evidence integrity, dispatch locking, and verdict binding fail closed.
+9. No background child may outlive its owning lifecycle record. Shutdown aborts all active children before disposal.
+10. Ordinary consumer repositories gain no new setup files or mandatory configuration.
+11. Claude Code and Codex projections remain generated from their documented canonical sources.
+12. Git history is never rebased.
+
+## Delivery map
+
+|Phase|Status|Exit condition|
+|-|-|-|
+|0 — SDK feasibility|Complete|OAuth refresh and real multi-child shutdown are proved; unsupported provider shapes fail closed|
+|1 — Package and paths|Complete|Package loading, fixed scripts, projections, install/update/rollback, and inventory checks pass|
+|2 — Trust and host adapters|Complete|Trust, binder/pack guards, status, lifecycle, whiff, and dirty-delivery backstops pass|
+|3A — Strict child runtime|Complete|Gate provider policy, exact model resolution, OAuth behavior, and real multi-child shutdown pass|
+|3B — Dispatch foundation|In progress|Role catalog, evidence builder, cross-process lock, and capability profiles pass|
+|3C — Read-only gates|Not started|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
+|4 — Build and delivery|Not started|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
+|5 — Narrow writers|Not started|Doc-gardner and kaizen run with confined capabilities and labeled commits|
+|6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
+
+## Decisions carried from Phase 0
+
+- Pi loads one package extension. `resources_discover` adds canonical skills only after Pi resolves project trust.
+- The project skill wins a same-name collision. Future dispatch must therefore enter through a package-owned fixed tool or command, not through the ambient skill winner.
+- In-memory sessions and settings plus an explicit resource loader successfully remove ambient extensions, skills, prompts, themes, context files, and tools.
+- Stored credentials, environment credentials, CLI runtime keys, and declarative dynamic provider configurations can be reproduced in a child runtime.
+- A child can complete a real model turn, and aborting a child reaches its active tool signal.
+- Worktrees are change-isolation boundaries, not hostile-code sandboxes.
+
+## Retrospective changes to the original sequence
+
+Phase 0 and Phase 1 do not need to be rewritten, but their findings change later work:
+
+1. Phase 3 is split into 3A, 3B, and 3C. Provider and shutdown feasibility must close before gate implementation.
+2. Dynamic native providers are executable extension code. Copying one into a gate would violate the no-ambient-extension rule. Gates reject them unless a future audited bridge is designed explicitly.
+3. A gate child must resolve the selected model in its own runtime. The Phase 0 probe's fallback to the parent model object is forbidden for gates.
+4. Parent `before_provider_request` and `before_provider_headers` handlers are not inherited. Gate requests use the isolated runtime directly; unsupported provider shapes fail before dispatch rather than silently loading ambient extensions.
+5. The Phase 1 collision test proved path ownership, not final dispatch ownership. Command/tool collision precedence and package-owned role selection move into Phase 3 acceptance.
+6. Pi cannot veto process shutdown. Phase 4 must commit each durable checkpoint before a dispatch tool returns; `session_shutdown` is cleanup, not a transaction boundary.
+7. Existing Python host guards intentionally fail open on internal errors. That posture must not leak into lock, evidence, provider, or gate-verdict code.
+
+## Phase 0 — feasibility closure
+
+The original spike is retained at `/Users/tej/src/karta-pi-phase-0` on `spike/pi-phase-0`. Its implementation and findings have been transferred to the feature worktree.
+
+### Proved
+
+- Local and pinned Git package loading from outside the checkout.
+- Install, update, rollback, uninstall, duplicate-root rejection, spaces, Unicode, and a symlinked local package.
+- Trust-gated discovery of all ten skills.
+- Project skill collision precedence.
+- Ambient-free child resources and in-memory sessions.
+- Stored, environment, runtime-key, and declarative dynamic-provider authentication paths.
+- Real child completion and single-child cancellation propagation.
+
+### Closure evidence
+
+Phase 3A closed the remaining spike items in the feature worktree: deterministic OAuth expiry and concurrent refresh, strict rejection of executable provider shapes, a real isolated stored-auth preflight, and coordinated cleanup of four real children in tool, streaming, and idle states.
+
+## Phase 1 — package and paths
+
+**Status: complete.**
+
+### Implemented
+
+- `package.json`, lockfile, TypeScript configuration, and one explicit Pi extension.
+- Package-root path resolution and a typed catalog covering every bundled Karta Python script.
+- `karta_script`, with fixed actions, strict schemas, direct `uv` argument vectors, timeouts, output bounds, HTTP URL checks, and project/package path containment.
+- Symlink-escape and traversal rejection.
+- Canonical skills that prefer fixed Pi actions and use `<skill-dir>`-relative fallbacks on Claude Code and Codex.
+- Regenerated `.agents/skills/` and `plugins/karta/` projections.
+- Validator checks for manifest shape, version parity, peers, lockfile, lifecycle scripts, package inventory, and consumer-relative bundled commands.
+- npm inventory exclusions for generated bytecode, development projections, tests, benchmarks, and private planning material.
+
+### Acceptance evidence
+
+- Local install through a spaced Unicode symlink.
+- Pinned Git install, update, rollback, uninstall, and duplicate-root rejection.
+- Project-local skill collision precedence.
+- A live Pi model successfully called `karta_script`.
+- Production npm audit reports zero vulnerabilities.
+
+### Deferred proof
+
+The package root is ready to own dispatch and gate assets. The claim that a project skill cannot replace those roles is accepted only when Phase 3 registers and tests the authoritative role entrypoint.
+
+## Phase 2 — trust and host adapters
+
+**Status: complete.**
+
+### Implemented
+
+- A central `tool_call` guard blocks `karta_*` actions before execution when project trust is off. Each action keeps its own trust check as a second boundary.
+- Pi write/edit calls are translated into Karta's package-owned binder-immutability and pack-validation hook payloads.
+- Invalid proposed pack writes are denied. A successful write/edit that leaves a malformed pack becomes an errored tool result with validator findings.
+- Trusted Karta repositories receive neutralized, Git-derived status context before each agent run.
+- Package-owned guards run through shell-free, bounded `uv` subprocesses with Python path injection disabled.
+- An in-memory lifecycle registry records role, parentage, working directory, and owned resource. It rejects duplicate or orphaned records and aborts all resources before disposal.
+- `agent_settled` runs the whiff and dirty-delivery backstops in trusted Karta repositories. A changed finding queues one corrective follow-up; unchanged whiff state cannot loop.
+- Pi's non-cancellable shutdown limitation is stated honestly. Git remains the resume path if the operator exits.
+
+### Acceptance evidence
+
+- Unit and integration tests cover trust, guard payload translation, package-owned guard execution, committed binder denial, pack validation, status injection, loop suppression, lifecycle ownership, and multi-resource cleanup.
+- A live Pi model attempted to overwrite a committed binder; the tool was denied and the file stayed unchanged.
+
+## Phase 3A — strict child runtime
+
+**Status: complete.**
+
+### 3A-1 — provider policy and exact model resolution
+
+**Status: complete.** Probe and gate policies diverge; the gate path rejects native providers before copying them, requires exact isolated model resolution, and reports its policy and resolution result. Declarative, built-in runtime-key, native-rejection, and missing-model cases pass.
+
+1. Add separate probe and gate runtime policies. Probe behavior stays available for Phase 0 diagnostics; production gate behavior is strict.
+2. Reject a registered native provider for a gate. Do not copy its executable provider object into the isolated runtime.
+3. Copy declarative provider configuration and runtime credentials using the existing package-owned adapter.
+4. Require `runtime.getModel(provider, model)` to return the selected model. Remove the parent-model fallback from the gate path.
+5. Return a structured preflight report that names the provider class, auth source, copied configuration, and exact failure without exposing credentials.
+6. Unit-test built-in, declarative, runtime-key, missing-model, and native-provider cases.
+
+### 3A-2 — request/header stance
+
+**Status: complete.** An in-memory `GateProviderPreflight` now coalesces concurrent checks, caches only successful provider/model/auth-source results, and runs a real isolated child with no ambient resources or tools. A live stored-auth `openai-codex/gpt-5.6-sol` preflight returned the exact package-owned response. Future gate dispatch must call this preflight before creating either reviewer.
+
+1. Gate children never load parent extensions or replay unknown hooks.
+2. Run a package-owned isolated preflight request before dispatching the first gate for a provider/model pair.
+3. Cache only the successful compatibility result in memory for the current extension runtime. Do not persist it in Pi or the repository.
+4. If direct isolated execution fails, stop with a clear unsupported-provider diagnostic.
+5. Do not claim compatibility with parent request/header transformations. Document that those transformations are outside the gate runtime unless represented in declarative provider configuration.
+
+### 3A-3 — OAuth refresh
+
+**Status: complete.** Deterministic tests cross an OAuth expiry boundary while two active runtimes share serialized credentials, then repeat with two independently created file-backed runtimes. Both paths perform one refresh under concurrency and persist the rotated credential only in the temporary auth store.
+
+1. Exercise an OAuth-backed child long enough to cross a token refresh boundary, or use Pi's supported deterministic OAuth fixture if available.
+2. Verify the refreshed credential is available to the child without copying a token into session state, logs, tool output, or project files.
+3. Run two OAuth children concurrently to expose refresh races.
+4. If the direct SDK cannot refresh safely, stop Phase 3 and compare an isolated Pi subprocess with a narrowly integrated delegation runtime. Isolation wins over convenience.
+
+### 3A-4 — real multi-child shutdown
+
+**Status: complete.** A live strict-runtime probe starts four real children: two blocked in separate tool calls, one receiving a model stream, and one idle. Coordinated shutdown aborts both tool signals, interrupts streaming, disposes all four, and leaves zero lifecycle records. Unit failure injection proves one cleanup error cannot strand siblings.
+
+1. Start at least three real children under one lifecycle owner.
+2. Keep one child in a tool call, one in model streaming, and one idle but undisposed.
+3. Trigger Pi shutdown/reload and verify every child observes abort before disposal.
+4. Verify no process, worktree, lifecycle record, or session file remains.
+5. Repeat cancellation while one child cleanup throws; all siblings must still be disposed.
+
+### Phase 3A gate
+
+- Native providers fail closed without executing their provider function.
+- Gate model lookup has no parent-object fallback.
+- Direct isolated provider preflight succeeds for every supported provider class.
+- OAuth refresh and concurrent refresh are proved or the SDK approach is replaced.
+- Three real active children shut down cleanly under failure injection.
+- No gate or lifecycle state is persisted outside Git.
+
+## Phase 3B — dispatch foundation
+
+### 3B-1 — package-owned role catalog
+
+**Progress:** a package-root role catalog now binds acceptance, safety, build, doc-gardner, and kaizen to fixed canonical sources, symbolic capability profiles, output schemas, and SHA-256 source/prompt/definition identities. `karta_dispatch` exposes only role description and read-only gate preflight actions; its schema accepts no prompt, path, tool, provider, or model input. Trust, collision, authority, hash, and preflight tests pass. Actual reviewer dispatch and canonical-skill routing remain in 3C and Phase 4.
+
+1. Define fixed role IDs for acceptance gate, safety gate, build worker, doc-gardner, and kaizen.
+2. Bind each role to a package-owned prompt path, capability profile, output schema, and runtime policy.
+3. The caller selects only a role and Git-derived work identity. It cannot provide a prompt path, system prompt, tool object, script path, or arbitrary model fallback.
+4. Hash role prompts at load time and include the hash in dispatch evidence.
+5. Register a package-owned Karta command/tool entrypoint and test its precedence against same-name project skills and commands.
+
+### 3B-2 — cross-process dispatch lock
+
+**Status: complete.** Locks use an atomic directory under the Git common directory, with binder, PID, host, process-start marker, owner nonce, package version, and acquisition time in owner metadata. Release verifies the nonce and renames before removal. Existing, unreadable, absent-owner, foreign, stale, and PID-reuse-shaped locks are never stolen automatically. Tests cover two-process races, independent binders, linked worktrees, Unicode paths, nonce mismatch, stale diagnostics, and slug traversal. Session shutdown releases only leases owned by the current extension runtime.
+
+1. Resolve the repository's Git common directory and create one lock per repository and binder.
+2. Acquire atomically before any child, branch, or worktree dispatch. Two Pi processes racing for the same binder must produce one owner and one clear refusal.
+3. Store diagnostic metadata only: binder, PID, process start marker, owner nonce, package version, and acquisition time. The lock is coordination state, not delivery progress.
+4. Release only when the owner nonce matches. Release in normal completion, cancellation, reload, and shutdown paths.
+5. Treat uncertain stale ownership conservatively. Provide an explicit recovery diagnostic instead of silently stealing a lock.
+6. Test process death, reboot-shaped stale metadata, PID reuse, Unicode paths, linked worktrees, and two different binders in one repository.
+
+### 3B-3 — host-generated evidence
+
+1. Resolve the binder from Git and validate it before dispatch.
+2. Build evidence from Git object IDs, integration tip, item branch tip, diff, acceptance oracle, touched paths, relevant pack hashes, and external-contract boundaries.
+3. Hash canonical evidence bytes. Pass the evidence and hash to the child; never ask the child to discover its own target from ambient context.
+4. Expose only fixed read actions scoped to the evidence manifest. Reject traversal, symlink escape, missing paths, changed Git tips, and hash mismatch.
+5. Revalidate the evidence hash immediately before accepting a verdict.
+6. Keep large raw evidence in host memory or a package-owned temporary directory removed on completion. Do not commit it or append it to the Pi session.
+
+### 3B-4 — capability profiles
+
+- Acceptance gate: evidence reads and acceptance runner only.
+- Safety gate: evidence reads and boundary inspection only.
+- Build worker: trusted coding tools in its assigned worktree.
+- Doc-gardner: documentation surface and `.gitignore` only.
+- Kaizen: `.karta/sme/` and `.karta/kaizen.json` only.
+
+No child receives the parent `karta_script` tool wholesale.
+
+### Phase 3B gate
+
+- Project collisions cannot select a Karta role prompt.
+- Dispatch races are serialized across processes.
+- Evidence is hash-bound to exact Git tips and package prompt versions.
+- Capability tests prove that gates cannot mutate through tools or path aliases.
+- Lock and evidence failures stop dispatch before a model call.
+
+## Phase 3C — read-only gates
+
+### 3C-1 — acceptance reviewer
+
+1. Load `agents/karta-acceptance-reviewer.md` from the package root.
+2. Start a fresh in-memory child under the acceptance capability profile.
+3. Evaluate the work item's behavioral oracle, external contracts, and boundary crossings against the evidence manifest.
+4. Return structured JSON containing evidence hash, verdict, findings, and retry classification.
+5. Reject malformed output, wrong hash, missing fields, or an unsupported provider.
+
+### 3C-2 — safety auditor
+
+1. Load `agents/karta-safety-auditor.md` from the package root.
+2. Use a separate fresh child and safety capability profile.
+3. Inspect the exact diff and boundary evidence without Bash or project context.
+4. Return the same hash-bound structured envelope.
+
+### 3C-3 — verdict handling
+
+1. Gate disagreement does not mutate work directly.
+2. A retryable finding returns to the build worker within the existing bounded retry policy.
+3. Retry exhaustion halts and reports to the human.
+4. Only host code updates refs after both required verdicts bind to the current evidence hash.
+5. A moving integration tip invalidates the evidence and forces revalidation.
+
+### Phase 3C gate
+
+- Both gates run with no ambient resources or mutation tools.
+- Host-generated evidence and returned verdict hashes match.
+- Prompt collision, path escape, stale-tip, malformed-output, and provider-failure tests all fail closed.
+- Gate retries preserve existing Karta semantics.
+
+## Phase 4 — build and delivery
+
+### 4A — authoritative entry and resume
+
+1. Add fixed actions for building one item and delivering one binder.
+2. Validate the binder and derive the frontier from Git on every invocation.
+3. Acquire the binder dispatch lock before creating worktrees or children.
+4. Reuse existing branches, refs, tags, and commits when resuming. Never infer durable progress from Pi history.
+
+### 4B — wave dispatch
+
+1. Create item branches and isolated Git worktrees using the existing naming protocol.
+2. Register one lifecycle child per worker under the binder owner.
+3. Dispatch only dependency-ready items and serialize known collision surfaces.
+4. Give workers trusted coding authority only inside their worktree. State plainly that this is not a hostile-code sandbox.
+5. A worker must run project checks and the binder acceptance command, scan secrets, commit, and tag before returning.
+6. A no-change worker leaves the existing whiff signature for the backstop and frontier re-derivation.
+
+### 4C — serial integration
+
+1. Keep Karta's existing serial merge queue.
+2. Revalidate each item against the moving integration tip before merge.
+3. On stale evidence, rebuild/reverify within the bounded policy or halt.
+4. Update refs last, only after the commit and gate evidence are final.
+5. Roll back the whole wave according to the existing marker and branch protocol when an item cannot land safely.
+6. Archive the binder only after every item is done and the archive commit exists on the integration branch.
+
+### 4D — interruption behavior
+
+1. Every durable branch/ref/commit checkpoint lands before the dispatch tool returns.
+2. Shutdown aborts children and releases only owned locks; it does not invent completion state.
+3. Crash-injection tests cover child creation, first edit, commit, gate completion, merge, ref update, archive move, and archive commit.
+4. A fresh Pi process must resume each injected state from Git alone.
+
+### Phase 4 gate
+
+- Parallel waves preserve dependency and collision constraints.
+- Integration remains serial and moving-tip safe.
+- Two Pi processes cannot deliver the same binder concurrently.
+- Every crash fixture resumes from Git with no Pi session data.
+- Existing Claude Code and Codex delivery behavior remains unchanged.
+
+## Phase 5 — narrow writers
+
+### 5A — doc-gardner
+
+1. Respect `.karta/doc-gardner.json`; absent or disabled means no run.
+2. Use the package-owned prompt and a capability-limited writer child.
+3. Permit only README, `docs/`, `AGENTS.md`, `ARCHITECTURE*`, top-level Markdown, and `.gitignore` according to the existing confinement contract.
+4. Validate the final diff, commit to the integration branch, and return the commit ID.
+5. Any out-of-surface mutation fails closed and rolls back the writer worktree.
+
+### 5B — kaizen
+
+1. Respect `.karta/kaizen.json`; absent or disabled means no run.
+2. Preserve Karta's seed, inheritance, override, and never-weaken rules.
+3. Permit only `.karta/sme/` and `.karta/kaizen.json`.
+4. Run package validation before and after edits.
+5. Commit only labeled `kaizen:` changes for human review.
+
+### Phase 5 gate
+
+- Writer path aliases, symlinks, Bash indirection, and Git path options cannot escape the declared surfaces.
+- Disabled writers create no child, worktree, or commit.
+- Writer commits preserve existing Claude Code and Codex semantics.
+
+## Phase 6 — release
+
+### 6A — compatibility matrix
+
+Run native tests on:
+
+- current macOS;
+- Linux;
+- Windows, including directory-symlink privilege handling;
+- paths with spaces, Unicode, symlinks, and linked worktrees;
+- stored, environment, runtime-key, declarative custom, and OAuth provider classes;
+- TUI, print, JSON, and RPC modes where relevant.
+
+Container or compatibility-layer results may supplement native runs but do not replace them.
+
+### 6B — package lifecycle
+
+1. Test local install and pinned Git tag/commit install outside the checkout.
+2. Test update, rollback, uninstall, duplicate local/Git sources, and cache cleanup.
+3. Verify the npm tarball inventory and production audit.
+4. Keep `private: true` and `UNLICENSED` until publication is explicitly approved.
+5. Pin the tested Pi development version while leaving Pi package peers at `*` as required by Pi packages.
+
+### 6C — documentation
+
+1. Add `docs/how-to/pi.md` with install, trust, commands, provider support, resume, lock recovery, and uninstall instructions.
+2. Update README runtime coverage without implying worktrees are sandboxes.
+3. Document unsupported native providers and request/header-transform behavior plainly.
+4. Document that process quit cannot be blocked and Git is the recovery source.
+5. Add a release checklist and support matrix.
+
+### Phase 6 gate
+
+- Native OS and package lifecycle tests pass.
+- All repository validators and Pi tests pass.
+- Production audit reports zero vulnerabilities.
+- Documentation matches the shipped commands and limitations.
+- Publication remains blocked until licensing and ownership approval are explicit.
+
+## Final completion criteria
+
+Karta's Pi package is complete only when:
+
+- an approved project can plan, build, verify, deliver, resume, run doc-gardner, and run kaizen through package-owned fixed entrypoints;
+- an untrusted project cannot execute Karta actions;
+- project collisions cannot replace authoritative role prompts;
+- gates are genuinely read-only and hash-bound to exact Git evidence;
+- workers preserve the existing wave, serial integration, retry, rollback, marker, and ref-last protocols;
+- a fresh process resumes entirely from Git;
+- no active child survives shutdown;
+- Claude Code and Codex projections and validators remain clean; and
+- the native release matrix passes.

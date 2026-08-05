@@ -1,6 +1,6 @@
 # AGENTS.md — working on karta
 
-karta is a stack-agnostic orchestration framework shipped as **both** a Claude Code plugin and a Codex CLI plugin. It plans a binder of work items, delivers it in parallel waves onto a per-binder integration branch, builds each item in an isolated git worktree, and gates each one against its own acceptance check. This file orients an agent editing karta itself; end-user usage lives in `README.md` and `docs/how-to/codex.md`.
+karta is a stack-agnostic orchestration framework shipped for Claude Code, Codex CLI, and Pi. It plans a binder of work items, delivers it in parallel waves onto a per-binder integration branch, builds each item in an isolated git worktree, and gates each one against its own acceptance check. This file orients an agent editing karta itself; end-user usage lives in `README.md` and `docs/how-to/`.
 
 ## Layout — canonical vs generated
 
@@ -20,6 +20,7 @@ Some files are hand-edited (canonical); others are generated projections you mus
 | `skills/<name>/references/<f>.md` | Per-skill copy of a `_shared` file | no — keep byte-equal |
 | `.claude-plugin/` | Claude plugin + marketplace manifests | yes |
 | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | Codex plugin + repo marketplace manifests | yes (keep name/version in step with `.claude-plugin/plugin.json`) |
+| `package.json`, `extensions/pi/`, `tests/pi/` | Pi package manifest, first-party runtime adapter, and compatibility tests — canonical | yes |
 
 Why committed mirrors and not symlinks: Codex does not detect symlinked skills on Windows (openai/codex#8400), so `.agents/skills/` and the marketplace install projection under `plugins/karta/` are real directories kept in sync by the generator and guarded by the validator.
 
@@ -30,16 +31,20 @@ Externally managed cross-runtime skills are the exception to `.agents/skills/` o
 - Edited a skill (including its `references/`, `scripts/`, or `agents/openai.yaml`): run `uv run scripts/sync_codex_skills.py`.
 - Edited an agent (`agents/*.md`): run `uv run scripts/sync_codex_agents.py`, then `uv run scripts/sync_codex_skills.py` (the bundled `*.agent.md` lives inside the agent's spawn-site skill, so that mirror changes too).
 - Edited a `skills/_shared/*.md`: copy it into each consuming skill's `references/` (keep them byte-equal), then run the skills mirror.
+- Edited `package.json`, `extensions/pi/`, or `tests/pi/`: run `npm run check:pi`.
 
 ## Before you commit
 
-All four must be clean:
+All five must be clean.
+
+Mac/Linux/Windows, local terminal from the repository root:
 
 ```
 uv run scripts/validate_plugin.py --self-test
 uv run scripts/check_shared_copies.py --self-test
 uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
+npm run check:pi
 ```
 
 The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating.
@@ -96,6 +101,8 @@ Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because thi
 - `.karta/sme/karta-house-skill-authoring.md` is this repo's own non-coding pack (reserved `karta-house-*` namespace, so it can never collide with a built-in). It is the pack kaizen is expected to actually evolve; its edits are reviewed like any `kaizen:` commit.
 - Never seed built-in copies here: the repo carries zero seeded built-in copies under `.karta/sme/`, only its own `karta-house-*` project packs; deliveries pin what their binders pin.
 
-## Two platforms, one behavior
+## Three runtimes, one behavior
 
 The gate agents are read-only on every install. On Claude Code and on Codex-with-`.codex/agents/`, they run as registered subagents (`sandbox_mode = "read-only"`). On a Codex plugin install — where plugins cannot register subagents — `karta-verify` spawns a read-only subagent using the bundled `references/*.agent.md`. Keep that adaptive dispatch intact when editing `skills/karta-verify/SKILL.md`.
+
+Pi has no registered-agent projection. Its adapter must load the canonical package-owned gate prompts into fresh child sessions with explicit read-only tools, in-memory settings, and no ambient skills, extensions, project context, or parent conversation. A project-local skill with the same name may affect conversational guidance, but it never becomes an authoritative Karta gate agent.

@@ -16,7 +16,7 @@ The skill uses bundled PEP 723 Python scripts to avoid Bash/WSL/POSIX assumption
 - `scripts/serve_design.py` resolves and serves the design HTML on an OS-assigned localhost port.
 - `scripts/capture_view.py` drives `playwright-cli`, captures both targets, and writes one JSON artifact.
 
-Run both through `uv run`. Resolve the script paths relative to this `SKILL.md` directory. Do not invoke Python automation as `python script.py` in a uv-managed environment.
+When Pi provides `karta_script`, use `serveDesignSelfTest` for the bounded self-test and `captureView` for capture. The long-running design server still uses the runtime's managed-process facility with the fallback command. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run scripts through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory, and do not invoke Python automation as `python script.py` in a uv-managed environment.
 
 `playwright-cli` is an external dependency. This skill uses the installed `playwright-cli` command; it does not patch, wrap, bypass, or maintain Playwright CLI behavior. If a Playwright action cannot be performed, fail with the command, exit code, stdout, and stderr. When `playwright-cli` is not installed at all, `capture_view.py` fails with a one-time install CTA (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills` for its companion agent skill); relay that message to the user and stop — do not auto-install or hand-drive Playwright.
 
@@ -45,9 +45,7 @@ All checks are hard gates. Fail with a clear report rather than prompting.
 1. **`uv` is available.** The bundled scripts are run with `uv run`.
 2. **Design files resolve.** Run:
 
-   ```powershell
-   uv run <skill-dir>/scripts/serve_design.py --self-test
-   ```
+   Use `karta_script` action `serveDesignSelfTest`; fallback: `uv run --script <skill-dir>/scripts/serve_design.py --self-test`.
 
    Then use the same script in the serve step (`validate:serve`) with the caller's design path. If it cannot resolve an HTML file, stop with: "No design HTML files found at `<path>`. Provide a Claude Design OR runtime-JSX design HTML export."
 
@@ -61,7 +59,7 @@ Do not assume Bash, WSL, `/tmp`, `curl`, `grep`, `find`, `lsof`, `kill`, or POSI
 Start the design server as a managed background process/session with the bundled script:
 
 ```powershell
-uv run <skill-dir>/scripts/serve_design.py --design-path <design-path> --metadata-out <metadata-json>
+uv run --script <skill-dir>/scripts/serve_design.py --design-path <design-path> --metadata-out <metadata-json>
 ```
 
 The script:
@@ -78,10 +76,10 @@ Keep the process handle so cleanup (`validate:cleanup`) can stop it. Read `desig
 
 Use a capture subagent OR host worker for mechanical capture only. It does not compare and does not suggest fixes.
 
-For simple route-only or text-click navigation, run:
+For simple route-only or text-click navigation, use `karta_script` action `captureView` with `designUrl`, `appUrl`, `viewport`, and `out`; fallback:
 
 ```powershell
-uv run <skill-dir>/scripts/capture_view.py `
+uv run --script <skill-dir>/scripts/capture_view.py `
   --design-url <design-url> `
   --app-url <app-base-url><app-route> `
   --viewport <WxH> `

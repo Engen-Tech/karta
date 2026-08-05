@@ -32,7 +32,7 @@ from pathlib import Path
 RULE_HEADING = "**stack pack matching"
 RULE_START_MARK = "<!-- karta:matching-rule:start"
 RULE_END_MARK = "<!-- karta:matching-rule:end"
-RULE_SHA256 = "e1fe27ace05267de0ded3d2b25d377ca932b8691ce0f19631ea0a22d1096fcfb"
+RULE_SHA256 = "e1ae5dad822ea7902dc02fc8d657f256e8073f94904a6a9bfc6658ffedc36a9b"
 RULE_MISMATCH_MSG = "matching rule changed — re-verify implementation, update hash"
 SKILL_MD = Path("skills") / "karta-plan" / "SKILL.md"
 DETECT = Path("skills") / "karta-plan" / "scripts" / "detect_stack.py"
