@@ -15,9 +15,9 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, and 3A|
 |In progress|Phase 3B — package-owned roles, dispatch lock, evidence, and capability profiles|
-|First next action|Implement the host-generated, canonical, hash-bound Git evidence manifest and scoped evidence reader|
+|First next action|Implement the fixed acceptance-oracle runner and concrete read-only gate capability profiles|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|No Pi integration work has been committed|
+|Commit state|Foundation committed as `6ddecb6`; current Phase 3B role, lock, and evidence increments are uncommitted|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the role-catalog and dispatch-lock increments. The Pi suite currently runs 54 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the evidence increment. The Pi suite currently runs 60 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -226,6 +226,8 @@ The package root is ready to own dispatch and gate assets. The claim that a proj
 6. Test process death, reboot-shaped stale metadata, PID reuse, Unicode paths, linked worktrees, and two different binders in one repository.
 
 ### 3B-3 — host-generated evidence
+
+**Status: complete.** The host validates the integration-tip binder with Karta's package validator, derives exact integration/item refs and tips, records the merge base, emits a bounded binary Git diff and NUL-safe touched-path list, embeds the exact work item, and resolves project policy packs from the integration tip with package-pack fallback. Canonical JSON and SHA-256 bind the payload; integrity and moving-ref freshness are checked separately. The `karta_evidence` child tool exposes only summary, binder, work item, paged diff, and pinned-pack actions—never arbitrary paths, refs, files, commands, prompts, or repository roots. Tests cover policy-pack self-weakening, payload tampering, moving refs, package/project packs, traversal, missing items, and size limits.
 
 1. Resolve the binder from Git and validate it before dispatch.
 2. Build evidence from Git object IDs, integration tip, item branch tip, diff, acceptance oracle, touched paths, relevant pack hashes, and external-contract boundaries.
