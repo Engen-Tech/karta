@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   AgentSession,
   createAgentSession,
@@ -281,7 +282,20 @@ export class GateProviderPreflight {
   #key(ctx: ExtensionContext): string {
     if (!ctx.model) throw new Error("Pi has no active model");
     const auth = ctx.modelRegistry.getProviderAuthStatus(ctx.model.provider);
-    return [ctx.model.provider, ctx.model.id, auth.source ?? "unconfigured"].join("\u0000");
+    const providerConfig = ctx.modelRegistry.getRegisteredProviderConfig?.(ctx.model.provider);
+    const providerIdentity = createHash("sha256")
+      .update(
+        JSON.stringify(providerConfig ?? null, (_key, value) =>
+          typeof value === "function" ? `[function:${value.name || "anonymous"}]` : value,
+        ),
+      )
+      .digest("hex");
+    return [
+      ctx.model.provider,
+      ctx.model.id,
+      auth.source ?? "unconfigured",
+      providerIdentity,
+    ].join("\u0000");
   }
 
   async ensure(

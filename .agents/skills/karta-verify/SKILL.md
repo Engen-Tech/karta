@@ -23,7 +23,9 @@ The caller names the mode at dispatch; unnamed means **full**.
 
 ## Pi route
 
-When Pi provides `karta_dispatch`, complete Phase 0, then call it once with `action: runVerification`, the binder slug, work item id, and mode. The tool derives the binder, refs, tips, diff, packs, and prompt from the installed package and Git. Do not pass or re-derive paths, prompts, tools, commands, models, providers, or diff ranges. Do not resolve the legacy agents below or run either review inline; `karta_dispatch` creates both fresh read-only children and holds one dispatch lock across them.
+When Pi provides `karta_dispatch`, complete Phase 0, then call it once with `action: runVerification`, the binder slug, work item id, and mode. The tool derives the binder, refs, tips, diff, composed pack rules, touched files, citations, and prompt from the installed package and Git. Do not pass or re-derive paths, prompts, tools, commands, models, providers, or diff ranges. Do not resolve the legacy agents below or run either review inline; `karta_dispatch` creates both fresh read-only children and holds one dispatch lock across them.
+
+A package-owned build or delivery binds verification to its fully staged candidate or proposed merge tree and supplies the host-run check receipt. A direct verification of an oracle with a required command blocks when no receipt exists; the read-only gate never reruns the command to manufacture one.
 
 Use the returned `karta-verification-v1` result as Phase 3's aggregate. `pass`, `concerns`, `blocked`, and `skipped` map directly to the routing rules below. The host classifies a gate concern as retryable; this orchestrator still owns the existing caps—two acceptance attempts and three safety attempts—and the Git-native halt/escalation behavior. A tool error is `blocked`, never a reason to fall back to an inline review. Use the legacy agent resolution only when `karta_dispatch` is not available.
 

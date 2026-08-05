@@ -107,6 +107,7 @@ async function repositoryFixture(): Promise<{
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "fixture"]);
   const tip = await git(repo, ["rev-parse", "HEAD"]);
+  const tree = await git(repo, ["rev-parse", "HEAD^{tree}"]);
   await git(repo, ["update-ref", "refs/heads/karta/demo/integration", tip]);
   await git(repo, ["update-ref", "refs/heads/karta/demo/item-item-a", tip]);
   const workItem = {
@@ -131,6 +132,8 @@ async function repositoryFixture(): Promise<{
       itemRef: "refs/heads/karta/demo/item-item-a",
       itemTip: tip,
       mergeBase: tip,
+      targetKind: "committed-tip",
+      targetTree: tree,
     },
     diff: {
       format: "git-binary-patch",
@@ -139,6 +142,9 @@ async function repositoryFixture(): Promise<{
       touchedPaths: ["subject.txt"],
       content: "",
     },
+    checks: { oracle: { status: "not-required", targetTree: tree } },
+    files: [],
+    citations: [],
     packs: [],
   };
   return {
@@ -181,7 +187,7 @@ test("real isolated child sessions run both gate profiles through a declarative 
         ]);
         return;
       }
-      if (toolResults === 0 && tools.includes("karta_oracle")) {
+      if (toolResults === 0 && tools.includes("karta_checks")) {
         sendChunks(response, [
           completionChunk(
             {
@@ -190,7 +196,7 @@ test("real isolated child sessions run both gate profiles through a declarative 
                 { name: "karta_evidence", arguments: { action: "summary" } },
                 { name: "karta_evidence", arguments: { action: "workItem" } },
                 { name: "karta_evidence", arguments: { action: "diff" } },
-                { name: "karta_oracle", arguments: { action: "run" } },
+                { name: "karta_checks", arguments: { action: "summary" } },
               ]),
             },
             "tool_calls",

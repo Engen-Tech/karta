@@ -22,7 +22,19 @@ export interface BoundaryInspection {
     sharedResources: unknown;
     surface: unknown;
   };
-  packs: Array<{ id: string; source: "project" | "package"; sha256: string }>;
+  citations: Array<{
+    index: number;
+    path: string;
+    locator: string;
+    state: "present" | "deleted" | "missing";
+    omitted?: "too-large" | "non-blob";
+  }>;
+  packs: Array<{
+    id: string;
+    source: "project" | "package";
+    sha256: string;
+    checklistItems: number;
+  }>;
   truncated: boolean;
 }
 
@@ -109,7 +121,19 @@ export function inspectBoundaries(manifest: KartaEvidenceManifest): BoundaryInsp
       sharedResources: item.shared_resources ?? [],
       surface: item.surface ?? null,
     },
-    packs: manifest.payload.packs.map(({ id, source, sha256 }) => ({ id, source, sha256 })),
+    citations: manifest.payload.citations.map(({ index, path, locator, state, omitted }) => ({
+      index,
+      path,
+      locator,
+      state,
+      omitted,
+    })),
+    packs: manifest.payload.packs.map(({ id, source, sha256, checklist }) => ({
+      id,
+      source,
+      sha256,
+      checklistItems: checklist.length,
+    })),
     truncated: allCueCount > MAX_CUES,
   };
 }
@@ -118,7 +142,10 @@ const boundaryParameters = Type.Object({ action: Type.Literal("inspect") });
 
 export function createBoundaryInspectionTool(
   manifest: KartaEvidenceManifest,
-): ToolDefinition<typeof boundaryParameters, { evidenceHash: string }> {
+): ToolDefinition<
+  typeof boundaryParameters,
+  { evidenceHash: string; citationsComplete: boolean }
+> {
   verifyEvidenceIntegrity(manifest);
   return {
     name: "karta_boundary",
@@ -131,13 +158,21 @@ export function createBoundaryInspectionTool(
         const inspection = inspectBoundaries(manifest);
         return {
           content: [{ type: "text", text: JSON.stringify(inspection, null, 2) }],
-          details: { evidenceHash: manifest.evidenceHash },
+          details: {
+            evidenceHash: manifest.evidenceHash,
+            citationsComplete: manifest.payload.citations.every(
+              (citation) =>
+                citation.state === "present" &&
+                citation.omitted === undefined &&
+                citation.content !== undefined,
+            ),
+          },
           isError: false,
         };
       } catch (error) {
         return {
           content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          details: { evidenceHash: manifest.evidenceHash },
+          details: { evidenceHash: manifest.evidenceHash, citationsComplete: false },
           isError: true,
         };
       }

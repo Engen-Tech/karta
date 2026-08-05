@@ -13,11 +13,11 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, and 3C|
+|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, and 3D|
 |In progress|Phase 4 — authoritative build and delivery entry|
-|First next action|Add fixed build-item and deliver-binder actions that derive branches, refs, frontier, and resume state from Git|
+|First next action|Implement the Git-derived recovery-state classifier, then add the fixed build-item entry around it|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|All work through Phase 3C is committed on `feat/pi-package`|
+|Commit state|All work through Phase 3D is committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after Phase 3C. The Pi suite currently runs 83 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after Phase 3D. The Pi suite currently runs 91 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -59,6 +59,7 @@ All five checks pass after Phase 3C. The Pi suite currently runs 83 tests. `npm 
 |3A — Strict child runtime|Complete|Gate provider policy, exact model resolution, OAuth behavior, and real multi-child shutdown pass|
 |3B — Dispatch foundation|Complete|Role catalog, evidence builder, cross-process lock, and capability profiles pass|
 |3C — Read-only gates|Complete|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
+|3D — Contract alignment|Complete|Gates bind staged candidates, proposed merge trees, host-run checks, composed rules, and explicit lock ownership|
 |4 — Build and delivery|In progress|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
 |5 — Narrow writers|Not started|Doc-gardner and kaizen run with confined capabilities and labeled commits|
 |6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
@@ -227,7 +228,7 @@ The package root is ready to own dispatch and gate assets. The claim that a proj
 
 ### 3B-3 — host-generated evidence
 
-**Status: complete.** The host validates the integration-tip binder with Karta's package validator, derives exact integration/item refs and tips, records the merge base, emits a bounded binary Git diff and NUL-safe touched-path list, embeds the exact work item, and resolves project policy packs from the integration tip with package-pack fallback. Canonical JSON and SHA-256 bind the payload; integrity and moving-ref freshness are checked separately. The `karta_evidence` child tool exposes only summary, binder, work item, paged diff, and pinned-pack actions—never arbitrary paths, refs, files, commands, prompts, or repository roots. Tests cover policy-pack self-weakening, payload tampering, moving refs, package/project packs, traversal, missing items, and size limits.
+**Status: superseded by Phase 3D's stronger target model.** The host still validates the integration-tip binder and binds canonical evidence, but evidence may target a staged candidate tree, a committed item tip, or a proposed merge-result tree. Diffs and full touched-file views come from that exact tree. Project packs stay pinned to integration and are resolved into the composed Review checklist (`extends` minus `exclude_rules`, then local rules). Explicit `repo-rule` citations are the only unchanged files added to evidence. Moving refs, staged-tree drift, and merge-tree drift invalidate the verdict.
 
 1. Resolve the binder from Git and validate it before dispatch.
 2. Build evidence from Git object IDs, integration tip, item branch tip, diff, acceptance oracle, touched paths, relevant pack hashes, and external-contract boundaries.
@@ -238,7 +239,7 @@ The package root is ready to own dispatch and gate assets. The claim that a proj
 
 ### 3B-4 — capability profiles
 
-**Status: gate profiles complete; writer profiles remain for Phase 4.** Acceptance receives only `karta_evidence` plus a no-argument `karta_oracle`; safety receives only `karta_evidence` plus a no-argument `karta_boundary`. The oracle command and cwd come exclusively from hash-bound evidence, execute once in a disposable exact-tip Git snapshot with bounded output, timeout, cancellation, process-tree cleanup, and no `.git`, then the snapshot is removed. Boundary inspection derives fixed cues without choosing a verdict. Profile hashes bind role definition, evidence, capabilities, and tool schemas. Tests prove there is no Bash, write, edit, `karta_script`, caller command, path, ref, prompt, model, provider, environment, or timeout authority. Build/doc/kaizen confinement is implemented with their Phase 4 dispatchers rather than granting placeholder mutation tools early.
+**Status: gate profiles complete; writer profiles remain for Phases 4–5.** Acceptance receives only `karta_evidence` plus `karta_checks`; safety receives only `karta_evidence` plus `karta_boundary`. `karta_checks` never executes code: it reads a host-generated check receipt bound to the evidence tree and command hash, preserving Karta's rule that the floor runs while acceptance inspects. Boundary inspection derives cues without choosing a verdict. Profile hashes include an explicit capability-profile version. Tests prove there is no Bash, write, edit, `karta_script`, caller command, path, ref, prompt, model, provider, environment, or timeout authority.
 
 - Acceptance gate: evidence reads and acceptance runner only.
 - Safety gate: evidence reads and boundary inspection only.
@@ -290,38 +291,76 @@ No child receives the parent `karta_script` tool wholesale.
 - Prompt collision, path escape, stale-tip, malformed-output, and provider-failure tests all fail closed.
 - Gate retries preserve existing Karta semantics.
 
+## Phase 3D — align gates with the delivery contract
+
+**Status: complete.** The first gate implementation proved isolation and provider behavior, then exposed four integration mistakes before worker code made them expensive: workers verify before their final commit, floor commands already run outside acceptance, project packs must be composed rather than handed over raw, and delivery-owned verification cannot reacquire its own binder lock. Phase 3D corrects all four. Tests cover staged and merge-result trees, exact-tree commits and merges, bound check receipts, composed rules, touched-file and citation evidence, changed provider configs, and explicit lease reuse.
+
+### 3D-1 — exact candidate targets
+
+1. Build pre-commit evidence from a fully staged Git tree. Refuse unstaged and untracked changes.
+2. Keep committed-tip evidence for recovered `built` branches.
+3. Build moving-tip evidence from `git merge-tree --write-tree`; gate the proposed merge tree, not a two-tip diff that falsely removes integration-only changes.
+4. Before commit or merge, require the resulting tree ID to equal the gated tree ID.
+
+### 3D-2 — check receipts, files, rules, and citations
+
+1. Final floor/oracle commands run under Phase 4 host code in the assigned worktree or proposed-merge worktree.
+2. Bind command hash, cwd, target tree, exit status, bounded output, and duration into `karta-check-receipt-v1`.
+3. `karta_checks` only reads the receipt. A required missing receipt blocks; a failed receipt cannot pass.
+4. Add bounded full content for touched files, addressed only by manifest index.
+5. Resolve each pinned pack to normalized composed checklist items with source hashes.
+6. Parse `repo-rule:` citations only from changed override markers and add those exact immutable files by manifest index. Missing or omitted citations block safety review.
+
+### 3D-3 — lock and provider ownership
+
+1. Public standalone verification acquires and releases a binder lock.
+2. Delivery passes its existing owned lease to internal verification. Internal calls never reacquire, release, or expose the nonce.
+3. Provider preflight cache keys include declarative provider configuration identity, so a same-name provider change forces a new live probe.
+
+### Phase 3D gate
+
+- A legacy-order fixture stages and secret-scans a candidate, gates its tree, and commits that exact tree only after a pass.
+- A moving integration fixture gates a proposed merge tree and proves integration-only files survive.
+- Raw packs, missing check receipts, changed staged trees, bad citations, and nested lock acquisition all fail closed.
+- No final commit, merge, or ref may claim a verdict over a different tree.
+
 ## Phase 4 — build and delivery
 
 ### 4A — authoritative entry and resume
 
-1. Add fixed actions for building one item and delivering one binder.
+1. Add package-owned fixed entries for planning, building one item, and delivering one binder. Planning accepts user problem text, but its system prompt, tools, validation, and commit gate remain package-owned.
 2. Validate the binder and derive the frontier from Git on every invocation.
 3. Acquire the binder dispatch lock before creating worktrees or children.
-4. Reuse existing branches, refs, tags, and commits when resuming. Never infer durable progress from Pi history.
+4. Implement the recovery lattice before dispatch: no branch; branch with dirty or staged worktree; candidate commit without `built`/`failed`; `built` without `done`; `failed`; merge commit without `done`; and archive move/commit interruption.
+5. Resume from branches, worktree metadata, indexes, commit markers, refs, and tags. Never infer durable progress from Pi history.
+6. Pi uses merge commits, never rebase, when an item must catch a moving integration tip.
 
 ### 4B — wave dispatch
 
 1. Create item branches and isolated Git worktrees using the existing naming protocol.
 2. Register one lifecycle child per worker under the binder owner.
 3. Dispatch only dependency-ready items and serialize known collision surfaces.
-4. Give workers trusted coding authority only inside their worktree. State plainly that this is not a hostile-code sandbox.
-5. A worker must run project checks and the binder acceptance command, scan secrets, commit, and tag before returning.
-6. A no-change worker leaves the existing whiff signature for the backstop and frontier re-derivation.
+4. Give workers a package-owned prompt, explicit project instructions, root-checked read/write/edit tools, scoped Karta support actions, and trusted Bash in their worktree. Bash is high authority and is not sandboxed; the worktree is collision isolation, not a security boundary.
+5. Host code runs the final floor/oracle command and records its receipt. Then stage the exact candidate, secret-scan it, write its tree, gate that tree, and commit only that tree.
+6. A clean wave worker writes `built` only after its commit tree matches the gated tree. A capped halt commits the scanned candidate and writes `failed`; a no-change worker writes no completion ref.
+7. Manage wave environments and dev servers through Karta-owned process handles so cancellation and shutdown terminate only owned process trees.
+8. Wave tags remain the orchestrator's job; workers commit and write item refs but do not invent per-item tags.
 
 ### 4C — serial integration
 
 1. Keep Karta's existing serial merge queue.
-2. Revalidate each item against the moving integration tip before merge.
-3. On stale evidence, rebuild/reverify within the bounded policy or halt.
-4. Update refs last, only after the commit and gate evidence are final.
-5. Roll back the whole wave according to the existing marker and branch protocol when an item cannot land safely.
-6. Archive the binder only after every item is done and the archive commit exists on the integration branch.
+2. Derive a proposed merge tree from the current integration tip and built item tip. A conflict stops before any ref moves.
+3. Materialize that tree, run the final floor, and re-run verification against the same tree. On stale evidence, rebuild/reverify within the bounded policy or halt.
+4. Create the real no-ff merge only after checks pass, then assert its tree ID equals the gated merge tree.
+5. Update refs last with expected-old-object checks. A crash after merge but before `done` must be recoverable from ancestry, commit trailers, and tree identity.
+6. Roll back the whole wave according to the existing marker and branch protocol when an item cannot land safely.
+7. Archive the binder only after every item is done and the archive commit exists on the integration branch.
 
 ### 4D — interruption behavior
 
 1. Every durable branch/ref/commit checkpoint lands before the dispatch tool returns.
 2. Shutdown aborts children and releases only owned locks; it does not invent completion state.
-3. Crash-injection tests cover child creation, first edit, commit, gate completion, merge, ref update, archive move, and archive commit.
+3. Deterministic failure-injection hooks cover child creation, first edit, staging, tree creation, check receipt, gate completion, commit, merge, ref update, archive move, and archive commit. Tests synchronize on those hooks; they do not guess with sleeps.
 4. A fresh Pi process must resume each injected state from Git alone.
 
 ### Phase 4 gate
@@ -366,7 +405,8 @@ Run native tests on:
 - Linux;
 - Windows, including directory-symlink privilege handling;
 - paths with spaces, Unicode, symlinks, and linked worktrees;
-- stored, environment, runtime-key, declarative custom, and OAuth provider classes;
+- stored, environment, runtime-key, declarative custom, and OAuth provider classes, each through a complete gate tool-call and verdict roundtrip rather than an auth-only probe;
+- staged-tree and merge-tree plumbing under each native Git implementation;
 - TUI, print, JSON, and RPC modes where relevant.
 
 Container or compatibility-layer results may supplement native runs but do not replace them.

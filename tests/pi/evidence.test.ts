@@ -10,6 +10,7 @@ import {
   buildKartaEvidence,
   canonicalJson,
   createEvidenceReadTool,
+  hashCheckCommand,
   verifyEvidenceFreshness,
   verifyEvidenceIntegrity,
 } from "../../extensions/pi/evidence.ts";
@@ -53,9 +54,10 @@ async function fixture(): Promise<{ repo: string; cleanup(): Promise<void> }> {
   await writeFile(join(repo, ".karta", "binders", "demo.json"), `${JSON.stringify(binder, null, 2)}\n`);
   await writeFile(
     join(repo, ".karta", "sme", "project-pack.md"),
-    "---\nname: project-pack\ndescription: fixture\n---\n## Review checklist\n- [ ] project.1 — Review.\n",
+    "---\nname: project-pack\ndescription: fixture\nextends: minimalism\nexclude_rules: [\"min.4\"]\n---\n## Review checklist\n- [ ] project.1 — Review.\n",
   );
   await writeFile(join(repo, "src", "file.txt"), "base\n");
+  await writeFile(join(repo, "AGENTS.md"), "## Safety\nUse the repository token convention.\n");
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Evidence"]);
   await git(repo, ["config", "user.email", "evidence@invalid.example"]);
@@ -65,7 +67,10 @@ async function fixture(): Promise<{ repo: string; cleanup(): Promise<void> }> {
   await git(repo, ["branch", "karta/demo/integration"]);
   await git(repo, ["checkout", "-b", "karta/demo/item-item-a"]);
   await writeFile(join(repo, "src", "file.txt"), "changed\n");
-  await writeFile(join(repo, "src", "new.txt"), "new\n");
+  await writeFile(
+    join(repo, "src", "new.txt"),
+    "new\n// KARTA-SME-OVERRIDE(project.1): repo-rule: AGENTS.md:Safety\n",
+  );
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "item"]);
   return { repo, cleanup: () => rm(root, { recursive: true, force: true }) };
@@ -88,6 +93,13 @@ test("evidence binds binder, item, tips, diff, and project/package packs", async
     assert.match(evidence.evidenceHash, /^[a-f0-9]{64}$/);
     assert.deepEqual(evidence.payload.diff.touchedPaths, ["src/file.txt", "src/new.txt"]);
     assert.match(evidence.payload.diff.content, /changed/);
+    assert.deepEqual(evidence.payload.files.map((file) => file.path), ["src/file.txt", "src/new.txt"]);
+    assert.match(evidence.payload.files[0].content ?? "", /changed/);
+    assert.deepEqual(
+      evidence.payload.citations.map(({ path, locator, state }) => ({ path, locator, state })),
+      [{ path: "AGENTS.md", locator: "Safety", state: "present" }],
+    );
+    assert.match(evidence.payload.citations[0].content ?? "", /repository token convention/);
     assert.deepEqual(
       evidence.payload.packs.map((pack) => [pack.id, pack.source]),
       [
@@ -96,6 +108,109 @@ test("evidence binds binder, item, tips, diff, and project/package packs", async
       ],
     );
     assert.match(evidence.payload.packs[1].blob ?? "", /^[a-f0-9]{40,64}$/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("staged candidate evidence binds the index tree before the final commit", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    await writeFile(join(repo, "src", "file.txt"), "candidate\n");
+    await git(repo, ["add", "src/file.txt"]);
+    const evidence = await buildKartaEvidence({ cwd: repo, binder: "demo", item: "item-a" });
+    assert.equal(evidence.payload.git.targetKind, "candidate-tree");
+    assert.notEqual(evidence.payload.git.targetTree, evidence.payload.git.itemTip);
+    assert.match(evidence.payload.diff.content, /candidate/);
+    assert.equal(evidence.payload.checks.oracle.status, "missing");
+    await verifyEvidenceFreshness(evidence);
+
+    await writeFile(join(repo, "src", "file.txt"), "changed after evidence\n");
+    await assert.rejects(
+      () => verifyEvidenceFreshness(evidence),
+      /unstaged or untracked changes/,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("check receipts must bind the exact candidate tree, command, and cwd", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    await writeFile(join(repo, "src", "file.txt"), "candidate\n");
+    await git(repo, ["add", "src/file.txt"]);
+    const candidate = await buildKartaEvidence({ cwd: repo, binder: "demo", item: "item-a" });
+    const receipt = {
+      schema: "karta-check-receipt-v1" as const,
+      targetTree: candidate.payload.git.targetTree,
+      commandHash: hashCheckCommand("test -f src/file.txt"),
+      cwd: ".",
+      status: "passed" as const,
+      code: 0,
+      stdout: "ok\n",
+      stderr: "",
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      durationMs: 12,
+    };
+    const evidence = await buildKartaEvidence({
+      cwd: repo,
+      binder: "demo",
+      item: "item-a",
+      checkReceipt: receipt,
+    });
+    assert.equal(evidence.payload.checks.oracle.status, "passed");
+    assert.deepEqual(evidence.payload.checks.oracle.receipt, receipt);
+    await assert.rejects(
+      () =>
+        buildKartaEvidence({
+          cwd: repo,
+          binder: "demo",
+          item: "item-a",
+          checkReceipt: { ...receipt, targetTree: "f".repeat(40) },
+        }),
+      /does not bind/,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("merge evidence binds the proposed merged tree, not a divergent two-tip diff", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    await git(repo, ["checkout", "main"]);
+    await writeFile(join(repo, "integration-only.txt"), "keep me\n");
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "--no-gpg-sign", "-m", "advance integration"]);
+    const integrationTip = await git(repo, ["rev-parse", "HEAD"]);
+    await git(repo, ["update-ref", "refs/heads/karta/demo/integration", integrationTip]);
+    await git(repo, ["checkout", "karta/demo/item-item-a"]);
+
+    const evidence = await buildKartaEvidence({
+      cwd: repo,
+      binder: "demo",
+      item: "item-a",
+      target: "merge",
+    });
+    assert.equal(evidence.payload.git.targetKind, "merge-tree");
+    assert.deepEqual(evidence.payload.diff.touchedPaths, ["src/file.txt", "src/new.txt"]);
+    assert.equal(evidence.payload.diff.touchedPaths.includes("integration-only.txt"), false);
+    await verifyEvidenceFreshness(evidence);
+    await git(repo, ["checkout", "karta/demo/integration"]);
+    await git(repo, [
+      "merge",
+      "--no-ff",
+      "--no-gpg-sign",
+      "-m",
+      "merge item",
+      "karta/demo/item-item-a",
+    ]);
+    assert.equal(
+      await git(repo, ["rev-parse", "HEAD^{tree}"]),
+      evidence.payload.git.targetTree,
+    );
   } finally {
     await cleanup();
   }
@@ -112,8 +227,11 @@ test("project policy packs are pinned to integration, not item-controlled conten
     await git(repo, ["commit", "--no-gpg-sign", "-m", "attempt pack change"]);
     const evidence = await buildKartaEvidence({ cwd: repo, binder: "demo", item: "item-a" });
     const pack = evidence.payload.packs.find((candidate) => candidate.id === "project-pack");
-    assert.match(pack?.content ?? "", /project\.1/);
-    assert.equal(pack?.content.includes("weakened"), false);
+    const ruleIds = pack?.checklist.map((item) => item.id) ?? [];
+    assert.ok(ruleIds.includes("project.1"));
+    assert.ok(ruleIds.includes("min.1"));
+    assert.equal(ruleIds.includes("min.4"), false);
+    assert.equal(pack?.checklist.some((item) => item.text.includes("weakened")), false);
     assert.ok(evidence.payload.diff.touchedPaths.includes(".karta/sme/project-pack.md"));
   } finally {
     await cleanup();
@@ -162,6 +280,23 @@ test("evidence reader exposes fixed sections and bounded diff pages only", async
     assert.equal(text(diff).length, 20);
     assert.equal(diff.details?.totalLength, evidence.payload.diff.content.length);
     assert.equal(diff.details?.nextOffset, 20);
+
+    const touchedFile = await tool.execute(
+      "file",
+      { action: "touchedFile", index: 0, offset: 0, limit: 100 },
+      undefined,
+      undefined,
+      TOOL_CONTEXT,
+    );
+    assert.match(text(touchedFile), /changed/);
+    const citation = await tool.execute(
+      "citation",
+      { action: "citation", index: 0, offset: 0, limit: 200 },
+      undefined,
+      undefined,
+      TOOL_CONTEXT,
+    );
+    assert.match(text(citation), /repository token convention/);
 
     const pack = await tool.execute(
       "pack",

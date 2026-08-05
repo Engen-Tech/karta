@@ -55,6 +55,8 @@ async function fixture(oracle: Record<string, unknown> = { type: "unit" }): Prom
       itemRef: "refs/heads/karta/demo/item-item-a",
       itemTip: tip,
       mergeBase: tip,
+      targetKind: "committed-tip",
+      targetTree: tip,
     },
     diff: {
       format: "git-binary-patch",
@@ -63,6 +65,9 @@ async function fixture(oracle: Record<string, unknown> = { type: "unit" }): Prom
       touchedPaths: ["subject.txt"],
       content: "",
     },
+    checks: { oracle: { status: "not-required", targetTree: tip } },
+    files: [],
+    citations: [],
     packs: [],
   };
   return {
@@ -120,6 +125,28 @@ test("full verification runs acceptance then safety under one lock and one evide
     assert.equal(result.status, "pass");
     assert.equal(result.evidenceHash, manifest.evidenceHash);
     assert.equal(result.gates.acceptance?.evidenceHash, result.gates.safety?.evidenceHash);
+    assert.equal(locks.size, 0);
+  } finally {
+    await locks.releaseAll();
+    await cleanup();
+  }
+});
+
+test("delivery-owned verification reuses an explicit lease without reacquiring or releasing it", async () => {
+  const { manifest, ctx, cleanup } = await fixture();
+  const locks = new DispatchLockManager();
+  try {
+    const lease = await locks.acquire(ctx.cwd, "demo");
+    const runner = new KartaVerificationRunner(preflight, new ChildRegistry(), locks, {
+      buildEvidence: async () => manifest,
+      async executeGate(_ctx, role) {
+        return { ...gate(role, "pass"), evidenceHash: manifest.evidenceHash };
+      },
+    });
+    const result = await runner.runWithLease(ctx, "demo", "item-a", "boundary-only", lease);
+    assert.equal(result.status, "pass");
+    assert.equal(locks.size, 1);
+    await locks.release(lease);
     assert.equal(locks.size, 0);
   } finally {
     await locks.releaseAll();

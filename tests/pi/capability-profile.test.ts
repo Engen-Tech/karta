@@ -50,6 +50,8 @@ function manifest(): KartaEvidenceManifest {
       itemRef: "refs/heads/karta/demo/item-item-a",
       itemTip: "c".repeat(40),
       mergeBase: "a".repeat(40),
+      targetKind: "committed-tip",
+      targetTree: "c".repeat(40),
     },
     diff: {
       format: "git-binary-patch",
@@ -59,13 +61,18 @@ function manifest(): KartaEvidenceManifest {
       content:
         "diff --git a/src/auth/token.ts b/src/auth/token.ts\n+delete token forcibly\n+// KARTA-SME-OVERRIDE(min.1): compatibility\n",
     },
+    checks: {
+      oracle: { status: "not-required", targetTree: "c".repeat(40) },
+    },
+    files: [],
+    citations: [],
     packs: [
       {
         id: "minimalism",
         source: "package",
         path: "skills/karta-plan/references/sme/minimalism.md",
         sha256: "e".repeat(64),
-        content: "## Review checklist\n- [ ] min.1 — Keep it small.\n",
+        checklist: [{ id: "min.1", text: "Keep it small.", source: "minimalism.md" }],
       },
     ],
   };
@@ -95,7 +102,7 @@ test("acceptance and safety profiles expose exactly two role-owned read-only too
   const evidence = manifest();
   const acceptance = createGateCapabilityProfile("acceptance-gate", evidence);
   const safety = createGateCapabilityProfile("safety-gate", evidence);
-  assert.deepEqual(acceptance.toolNames, ["karta_evidence", "karta_oracle"]);
+  assert.deepEqual(acceptance.toolNames, ["karta_evidence", "karta_checks"]);
   assert.deepEqual(safety.toolNames, ["karta_evidence", "karta_boundary"]);
   assert.match(acceptance.profileHash, /^[a-f0-9]{64}$/);
   assert.match(safety.profileHash, /^[a-f0-9]{64}$/);

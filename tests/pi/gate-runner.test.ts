@@ -41,6 +41,7 @@ async function fixture(): Promise<{
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "item"]);
   const tip = await git(repo, ["rev-parse", "HEAD"]);
+  const tree = await git(repo, ["rev-parse", "HEAD^{tree}"]);
   await git(repo, ["update-ref", "refs/heads/karta/demo/integration", tip]);
   await git(repo, ["update-ref", "refs/heads/karta/demo/item-item-a", tip]);
   const workItem = {
@@ -65,6 +66,8 @@ async function fixture(): Promise<{
       itemRef: "refs/heads/karta/demo/item-item-a",
       itemTip: tip,
       mergeBase: tip,
+      targetKind: "committed-tip",
+      targetTree: tree,
     },
     diff: {
       format: "git-binary-patch",
@@ -73,6 +76,9 @@ async function fixture(): Promise<{
       touchedPaths: ["subject.txt"],
       content: "",
     },
+    checks: { oracle: { status: "not-required", targetTree: tree } },
+    files: [],
+    citations: [],
     packs: [],
   };
   const manifest: KartaEvidenceManifest = {
@@ -113,11 +119,33 @@ function validInvoker(
   options: { invokeRoleTool?: boolean; mutate?: (invocation: Parameters<GateModelInvoker>[0]) => Promise<void> } = {},
 ): GateModelInvoker {
   return async (invocation) => {
+    const evidenceTool = invocation.profile.tools[0];
+    for (const params of [
+      { action: "summary" },
+      { action: "workItem" },
+      { action: "diff" },
+    ]) {
+      await evidenceTool.execute("evidence", params, undefined, undefined, invocation.ctx);
+    }
+    if (invocation.profile.role.id === "safety-gate") {
+      for (const id of invocation.profile.evidenceToolState.requiredPacks) {
+        await evidenceTool.execute("pack", { action: "pack", id }, undefined, undefined, invocation.ctx);
+      }
+      for (const index of invocation.profile.evidenceToolState.requiredCitations) {
+        await evidenceTool.execute(
+          "citation",
+          { action: "citation", index },
+          undefined,
+          undefined,
+          invocation.ctx,
+        );
+      }
+    }
     if (options.invokeRoleTool !== false) {
       const roleTool = invocation.profile.tools[1];
       await roleTool.execute(
         "role-tool",
-        { action: invocation.profile.role.id === "acceptance-gate" ? "run" : "inspect" },
+        { action: invocation.profile.role.id === "acceptance-gate" ? "summary" : "inspect" },
         undefined,
         undefined,
         invocation.ctx,
@@ -217,10 +245,15 @@ test("gate fails closed when the required role tool is skipped", async () => {
   }
 });
 
-test("acceptance cannot pass over a failed fixed oracle", async () => {
+test("acceptance cannot pass without a bound check receipt", async () => {
   const { manifest, ctx, cleanup } = await fixture();
   try {
-    manifest.payload.workItem.oracle = { type: "unit", command: "node -e \"process.exit(7)\"" };
+    manifest.payload.workItem.oracle = { type: "unit", command: "npm test" };
+    manifest.payload.checks.oracle = {
+      status: "missing",
+      targetTree: manifest.payload.git.targetTree,
+      commandHash: "f".repeat(64),
+    };
     manifest.evidenceHash = hashEvidencePayload(manifest.payload);
     await assert.rejects(
       () =>
@@ -232,7 +265,38 @@ test("acceptance cannot pass over a failed fixed oracle", async () => {
           new ChildRegistry(),
           validInvoker("pass"),
         ),
-      /cannot pass when its fixed oracle did not pass/,
+      /cannot pass without a passing bound check receipt/,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("safety cannot pass with unresolved repo-rule citation evidence", async () => {
+  const { manifest, ctx, cleanup } = await fixture();
+  try {
+    manifest.payload.citations = [
+      {
+        index: 0,
+        path: "AGENTS.md",
+        locator: "Security",
+        state: "missing",
+        sourceTree: manifest.payload.git.targetTree,
+        binary: false,
+      },
+    ];
+    manifest.evidenceHash = hashEvidencePayload(manifest.payload);
+    await assert.rejects(
+      () =>
+        executeGateOnEvidence(
+          ctx,
+          "safety-gate",
+          manifest,
+          preflight,
+          new ChildRegistry(),
+          validInvoker("pass"),
+        ),
+      /citation evidence is incomplete/,
     );
   } finally {
     await cleanup();

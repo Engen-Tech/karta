@@ -46,7 +46,7 @@ test("dispatch role descriptions expose hashes and capabilities, never prompt te
   assert.equal((response as { isError?: boolean }).isError, false);
   assert.equal(body.role, "acceptance-gate");
   assert.equal(body.authority, "read-only");
-  assert.deepEqual(body.capabilities, ["evidence.read", "oracle.run"]);
+  assert.deepEqual(body.capabilities, ["evidence.read", "checks.read"]);
   assert.match(body.definitionHash, /^[a-f0-9]{64}$/);
   assert.equal("prompt" in body, false);
   assert.equal("sourcePath" in body, false);

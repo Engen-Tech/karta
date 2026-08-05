@@ -204,6 +204,10 @@ export class DispatchLockManager {
     this.#leases.delete(lease.lockPath);
   }
 
+  owns(lease: DispatchLockLease): boolean {
+    return this.#leases.get(lease.lockPath) === lease;
+  }
+
   async releaseAll(): Promise<void> {
     const leases = [...this.#leases.values()];
     const results = await Promise.allSettled(leases.map((lease) => lease.release()));

@@ -13,6 +13,9 @@ const IDENTIFIER = /^[a-z0-9][a-z0-9-]*$/;
 const DEFAULT_MAX_DIFF_BYTES = 5 * 1024 * 1024;
 const MAX_BINDER_BYTES = 2 * 1024 * 1024;
 const MAX_PACK_BYTES = 1024 * 1024;
+const MAX_EVIDENCE_FILE_BYTES = 512 * 1024;
+const MAX_EVIDENCE_FILES_BYTES = 2 * 1024 * 1024;
+const MAX_EVIDENCE_CITATIONS = 8;
 const DEFAULT_DIFF_PAGE = 30_000;
 const MAX_DIFF_PAGE = 50_000;
 
@@ -23,13 +26,60 @@ interface BinderDocument {
   [key: string]: unknown;
 }
 
+export interface EvidenceChecklistItem {
+  id: string;
+  text: string;
+  source: string;
+}
+
 export interface EvidencePack {
   id: string;
   source: "project" | "package";
   path: string;
   blob?: string;
   sha256: string;
-  content: string;
+  checklist: EvidenceChecklistItem[];
+}
+
+export type KartaEvidenceTargetKind = "candidate-tree" | "committed-tip" | "merge-tree";
+
+export interface EvidenceFile {
+  index: number;
+  path: string;
+  state: "present" | "deleted" | "missing";
+  sourceTree: string;
+  mode?: string;
+  objectType?: string;
+  blob?: string;
+  bytes?: number;
+  binary: boolean;
+  content?: string;
+  omitted?: "too-large" | "non-blob";
+}
+
+export interface EvidenceCitation extends EvidenceFile {
+  locator: string;
+}
+
+export interface KartaCheckReceipt {
+  schema: "karta-check-receipt-v1";
+  targetTree: string;
+  commandHash: string;
+  cwd: string;
+  status: "passed" | "failed";
+  code: number;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  durationMs: number;
+}
+
+export interface KartaCheckEvidence {
+  status: "passed" | "failed" | "missing" | "not-required";
+  targetTree: string;
+  commandHash?: string;
+  receipt?: KartaCheckReceipt;
 }
 
 export interface KartaEvidencePayload {
@@ -47,6 +97,8 @@ export interface KartaEvidencePayload {
     itemRef: string;
     itemTip: string;
     mergeBase: string;
+    targetKind: KartaEvidenceTargetKind;
+    targetTree: string;
   };
   diff: {
     format: "git-binary-patch";
@@ -55,6 +107,9 @@ export interface KartaEvidencePayload {
     touchedPaths: string[];
     content: string;
   };
+  checks: { oracle: KartaCheckEvidence };
+  files: EvidenceFile[];
+  citations: EvidenceCitation[];
   packs: EvidencePack[];
 }
 
@@ -70,6 +125,8 @@ export interface BuildEvidenceOptions {
   cwd: string;
   binder: string;
   item: string;
+  target?: "auto" | "candidate" | "committed" | "merge";
+  checkReceipt?: KartaCheckReceipt;
   maxDiffBytes?: number;
 }
 
@@ -95,6 +152,10 @@ export function canonicalJson(value: unknown): string {
 
 export function hashEvidencePayload(payload: KartaEvidencePayload): string {
   return sha256(canonicalJson(payload));
+}
+
+export function hashCheckCommand(command: string): string {
+  return sha256(command);
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -191,6 +252,277 @@ function validateGitPath(path: string): void {
   }
 }
 
+async function candidateTree(
+  cwd: string,
+  expectedBranch: string,
+): Promise<{ kind: "candidate-tree"; tree: string } | undefined> {
+  const branch = (await git(cwd, ["branch", "--show-current"])).trim();
+  if (branch !== expectedBranch) return undefined;
+  const unstaged = await gitOptional(cwd, ["diff", "--quiet", "--no-ext-diff", "--"]);
+  const untracked = await git(cwd, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  if (unstaged === undefined || untracked.length > 0) {
+    throw new Error(
+      `Karta candidate '${expectedBranch}' has unstaged or untracked changes; stage the exact candidate before verification`,
+    );
+  }
+  const tree = (await git(cwd, ["write-tree"])).trim();
+  const headTree = (await git(cwd, ["rev-parse", "HEAD^{tree}"])).trim();
+  return tree === headTree ? undefined : { kind: "candidate-tree", tree };
+}
+
+async function mergeTree(cwd: string, integrationTip: string, itemTip: string): Promise<string> {
+  const output = await git(cwd, ["merge-tree", "--write-tree", integrationTip, itemTip]);
+  const tree = output.split("\n", 1)[0].trim();
+  if (!/^[a-f0-9]{40,64}$/.test(tree)) {
+    throw new Error("Karta could not derive a clean proposed merge tree");
+  }
+  return tree;
+}
+
+async function resolveEvidenceTarget(
+  cwd: string,
+  expectedBranch: string,
+  integrationTip: string,
+  itemTip: string,
+  requested: BuildEvidenceOptions["target"],
+): Promise<{ kind: KartaEvidenceTargetKind; tree: string }> {
+  if (requested === "merge") {
+    return { kind: "merge-tree", tree: await mergeTree(cwd, integrationTip, itemTip) };
+  }
+  if (requested !== "committed") {
+    const candidate = await candidateTree(cwd, expectedBranch);
+    if (candidate) return candidate;
+    if (requested === "candidate") {
+      throw new Error(`Karta candidate '${expectedBranch}' has no staged tree distinct from HEAD`);
+    }
+  }
+  return {
+    kind: "committed-tip",
+    tree: (await git(cwd, ["rev-parse", `${itemTip}^{tree}`])).trim(),
+  };
+}
+
+async function treeFile(
+  cwd: string,
+  tree: string,
+  path: string,
+  index: number,
+  state: EvidenceFile["state"],
+): Promise<EvidenceFile> {
+  const listing = await git(cwd, ["ls-tree", "-z", tree, "--", path]);
+  if (!listing) {
+    return { index, path, state: "missing", sourceTree: tree, binary: false };
+  }
+  const tab = listing.indexOf("\t");
+  const metadata = listing.slice(0, tab).split(" ");
+  const [mode, objectType, blob] = metadata;
+  if (objectType !== "blob") {
+    return {
+      index,
+      path,
+      state,
+      sourceTree: tree,
+      mode,
+      objectType,
+      blob,
+      binary: false,
+      omitted: "non-blob",
+    };
+  }
+  const bytes = Number((await git(cwd, ["cat-file", "-s", blob])).trim());
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new Error(`Git returned an invalid blob size for evidence path: ${path}`);
+  }
+  if (bytes > MAX_EVIDENCE_FILE_BYTES) {
+    return {
+      index,
+      path,
+      state,
+      sourceTree: tree,
+      mode,
+      objectType,
+      blob,
+      bytes,
+      binary: false,
+      omitted: "too-large",
+    };
+  }
+  const content = await git(cwd, ["show", `${tree}:${path}`]);
+  const binary = content.includes("\0");
+  return {
+    index,
+    path,
+    state,
+    sourceTree: tree,
+    mode,
+    objectType,
+    blob,
+    bytes,
+    binary,
+    ...(binary ? {} : { content }),
+  };
+}
+
+async function loadTouchedFiles(
+  cwd: string,
+  integrationTip: string,
+  targetTree: string,
+  paths: string[],
+): Promise<EvidenceFile[]> {
+  const files: EvidenceFile[] = [];
+  let includedBytes = 0;
+  for (const [index, path] of paths.entries()) {
+    let file = await treeFile(cwd, targetTree, path, index, "present");
+    if (file.state === "missing") {
+      file = await treeFile(cwd, integrationTip, path, index, "deleted");
+    }
+    if (file.content !== undefined) {
+      const nextBytes = Buffer.byteLength(file.content);
+      if (includedBytes + nextBytes > MAX_EVIDENCE_FILES_BYTES) {
+        file = { ...file, content: undefined, omitted: "too-large" };
+      } else {
+        includedBytes += nextBytes;
+      }
+    }
+    files.push(file);
+  }
+  return files;
+}
+
+function citationRequests(diff: string): Array<{ path: string; locator: string }> {
+  const requests: Array<{ path: string; locator: string }> = [];
+  const seen = new Set<string>();
+  for (const line of diff.split("\n")) {
+    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+    const marker = line.match(/repo-rule:\s+([^\s:]+):([^\]\n;]+)/i);
+    if (!marker) continue;
+    const path = marker[1];
+    const locator = marker[2].trim();
+    validateGitPath(path);
+    const key = `${path}\0${locator}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      requests.push({ path, locator });
+    }
+  }
+  if (requests.length > MAX_EVIDENCE_CITATIONS) {
+    throw new Error(
+      `Karta evidence contains ${requests.length} repo-rule citations; limit is ${MAX_EVIDENCE_CITATIONS}`,
+    );
+  }
+  return requests;
+}
+
+async function loadCitations(
+  cwd: string,
+  integrationTip: string,
+  targetTree: string,
+  diff: string,
+): Promise<EvidenceCitation[]> {
+  const citations: EvidenceCitation[] = [];
+  for (const [index, request] of citationRequests(diff).entries()) {
+    let file = await treeFile(cwd, targetTree, request.path, index, "present");
+    if (file.state === "missing") {
+      file = await treeFile(cwd, integrationTip, request.path, index, "present");
+    }
+    citations.push({ ...file, locator: request.locator });
+  }
+  return citations;
+}
+
+const checklistCache = new Map<string, EvidenceChecklistItem[]>();
+
+async function resolvePackChecklist(
+  id: string,
+  content: string,
+): Promise<EvidenceChecklistItem[]> {
+  const cacheKey = `${id}\0${sha256(content)}`;
+  const cached = checklistCache.get(cacheKey);
+  if (cached) return cached.map((item) => ({ ...item }));
+  const root = await mkdtemp(join(tmpdir(), "karta-evidence-pack-"));
+  const path = join(root, `${id}.md`);
+  const environment = { ...process.env };
+  delete environment.PYTHONHOME;
+  delete environment.PYTHONPATH;
+  environment.CLAUDE_PLUGIN_ROOT = requirePackagePath(".");
+  environment.PYTHONNOUSERSITE = "1";
+  environment.PYTHONSAFEPATH = "1";
+  await writeFile(path, content);
+  try {
+    const { stdout } = await exec(
+      "uv",
+      [
+        "run",
+        "--script",
+        requirePackagePath("skills/karta-kaizen/scripts/resolve_pack_checklist.py"),
+        path,
+      ],
+      { encoding: "utf8", env: environment, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 },
+    );
+    const checklist = JSON.parse(stdout) as unknown;
+    if (
+      !Array.isArray(checklist) ||
+      !checklist.every(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          typeof (item as EvidenceChecklistItem).id === "string" &&
+          typeof (item as EvidenceChecklistItem).text === "string" &&
+          typeof (item as EvidenceChecklistItem).source === "string",
+      )
+    ) {
+      throw new Error(`Karta pack '${id}' resolver returned an invalid checklist`);
+    }
+    const resolved = checklist as EvidenceChecklistItem[];
+    checklistCache.set(cacheKey, resolved.map((item) => ({ ...item })));
+    return resolved;
+  } catch (error) {
+    const output = `${(error as { stdout?: string }).stdout ?? ""}${(error as { stderr?: string }).stderr ?? ""}`.trim();
+    throw new Error(output || `Karta pack '${id}' checklist resolution failed`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function checkEvidence(
+  workItem: Record<string, unknown>,
+  targetTree: string,
+  receipt: KartaCheckReceipt | undefined,
+): KartaCheckEvidence {
+  const oracle = workItem.oracle;
+  if (!oracle || typeof oracle !== "object" || Array.isArray(oracle)) {
+    throw new Error("Karta work item has no valid oracle after binder validation");
+  }
+  const command = (oracle as Record<string, unknown>).command;
+  if (command === undefined) return { status: "not-required", targetTree };
+  if (typeof command !== "string" || !command.trim()) {
+    throw new Error("Karta oracle command is invalid after binder validation");
+  }
+  const commandHash = hashCheckCommand(command);
+  if (!receipt) return { status: "missing", targetTree, commandHash };
+  if (
+    receipt.schema !== "karta-check-receipt-v1" ||
+    receipt.targetTree !== targetTree ||
+    receipt.commandHash !== commandHash ||
+    receipt.cwd !== ((oracle as Record<string, unknown>).cwd ?? ".") ||
+    !["passed", "failed"].includes(receipt.status) ||
+    !Number.isInteger(receipt.code) ||
+    (receipt.status === "passed" && receipt.code !== 0) ||
+    (receipt.status === "failed" && receipt.code === 0) ||
+    typeof receipt.stdout !== "string" ||
+    typeof receipt.stderr !== "string" ||
+    typeof receipt.stdoutTruncated !== "boolean" ||
+    typeof receipt.stderrTruncated !== "boolean" ||
+    !Number.isFinite(receipt.durationMs) ||
+    receipt.durationMs < 0 ||
+    Buffer.byteLength(receipt.stdout) > 64 * 1024 ||
+    Buffer.byteLength(receipt.stderr) > 64 * 1024
+  ) {
+    throw new Error("Karta oracle check receipt does not bind to the candidate tree and command");
+  }
+  return { status: receipt.status, targetTree, commandHash, receipt };
+}
+
 async function loadPacks(
   cwd: string,
   policyTip: string,
@@ -211,7 +543,7 @@ async function loadPacks(
         path: projectPath,
         blob,
         sha256: sha256(projectContent),
-        content: projectContent,
+        checklist: await resolvePackChecklist(id, projectContent),
       });
       continue;
     }
@@ -225,7 +557,7 @@ async function loadPacks(
       source: "package",
       path: relative(requirePackagePath("."), packagePath).split(sep).join("/"),
       sha256: sha256(packageContent),
-      content: packageContent,
+      checklist: await resolvePackChecklist(id, packageContent),
     });
   }
   return packs;
@@ -240,11 +572,19 @@ export async function buildKartaEvidence(
     (await git(options.cwd, ["rev-parse", "--show-toplevel"])).trim(),
   );
   const integrationRef = `refs/heads/karta/${options.binder}/integration`;
-  const itemRef = `refs/heads/karta/${options.binder}/item-${options.item}`;
+  const itemBranch = `karta/${options.binder}/item-${options.item}`;
+  const itemRef = `refs/heads/${itemBranch}`;
   const [integrationTip, itemTip] = await Promise.all([
     git(repositoryRoot, ["rev-parse", "--verify", `${integrationRef}^{commit}`]),
     git(repositoryRoot, ["rev-parse", "--verify", `${itemRef}^{commit}`]),
   ]).then((values) => values.map((value) => value.trim()));
+  const target = await resolveEvidenceTarget(
+    repositoryRoot,
+    itemBranch,
+    integrationTip,
+    itemTip,
+    options.target ?? "auto",
+  );
   const mergeBase = (await git(repositoryRoot, ["merge-base", integrationTip, itemTip])).trim();
   const binderPath = `.karta/binders/${options.binder}.json`;
   const binderRaw = await git(repositoryRoot, ["show", `${integrationTip}:${binderPath}`]);
@@ -261,7 +601,8 @@ export async function buildKartaEvidence(
       "--binary",
       "--no-color",
       "--no-ext-diff",
-      `${integrationTip}..${itemTip}`,
+      integrationTip,
+      target.tree,
       "--",
     ]),
     git(repositoryRoot, [
@@ -269,7 +610,8 @@ export async function buildKartaEvidence(
       "--name-only",
       "-z",
       "--no-ext-diff",
-      `${integrationTip}..${itemTip}`,
+      integrationTip,
+      target.tree,
       "--",
     ]),
   ]);
@@ -280,7 +622,12 @@ export async function buildKartaEvidence(
   }
   const touchedPaths = touchedRaw.split("\0").filter(Boolean).sort();
   touchedPaths.forEach(validateGitPath);
-  const packs = await loadPacks(repositoryRoot, integrationTip, document.sme ?? []);
+  const [packs, files, citations] = await Promise.all([
+    loadPacks(repositoryRoot, integrationTip, document.sme ?? []),
+    loadTouchedFiles(repositoryRoot, integrationTip, target.tree, touchedPaths),
+    loadCitations(repositoryRoot, integrationTip, target.tree, diffContent),
+  ]);
+  const checks = { oracle: checkEvidence(workItem, target.tree, options.checkReceipt) };
   const payload: KartaEvidencePayload = {
     binder: {
       slug: options.binder,
@@ -296,6 +643,8 @@ export async function buildKartaEvidence(
       itemRef,
       itemTip,
       mergeBase,
+      targetKind: target.kind,
+      targetTree: target.tree,
     },
     diff: {
       format: "git-binary-patch",
@@ -304,6 +653,9 @@ export async function buildKartaEvidence(
       touchedPaths,
       content: diffContent,
     },
+    checks,
+    files,
+    citations,
     packs,
   };
   return {
@@ -333,6 +685,23 @@ export async function verifyEvidenceFreshness(manifest: KartaEvidenceManifest): 
   if (integrationTip !== evidenceGit.integrationTip || itemTip !== evidenceGit.itemTip) {
     throw new Error("Karta evidence is stale because a bound Git tip moved");
   }
+  if (evidenceGit.targetKind === "candidate-tree") {
+    const expectedBranch = evidenceGit.itemRef.replace(/^refs\/heads\//, "");
+    const candidate = await candidateTree(manifest.repositoryRoot, expectedBranch);
+    if (!candidate || candidate.tree !== evidenceGit.targetTree) {
+      throw new Error("Karta evidence is stale because the staged candidate tree changed");
+    }
+  } else if (evidenceGit.targetKind === "committed-tip") {
+    const tree = (await git(manifest.repositoryRoot, ["rev-parse", `${itemTip}^{tree}`])).trim();
+    if (tree !== evidenceGit.targetTree) {
+      throw new Error("Karta evidence is stale because the committed item tree changed");
+    }
+  } else if (evidenceGit.targetKind === "merge-tree") {
+    const tree = await mergeTree(manifest.repositoryRoot, integrationTip, itemTip);
+    if (tree !== evidenceGit.targetTree) {
+      throw new Error("Karta evidence is stale because the proposed merge tree changed");
+    }
+  }
 }
 
 const evidenceReadParameters = Type.Union([
@@ -341,6 +710,18 @@ const evidenceReadParameters = Type.Union([
   Type.Object({ action: Type.Literal("workItem") }),
   Type.Object({
     action: Type.Literal("diff"),
+    offset: Type.Optional(Type.Integer({ minimum: 0 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DIFF_PAGE })),
+  }),
+  Type.Object({
+    action: Type.Literal("touchedFile"),
+    index: Type.Integer({ minimum: 0 }),
+    offset: Type.Optional(Type.Integer({ minimum: 0 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DIFF_PAGE })),
+  }),
+  Type.Object({
+    action: Type.Literal("citation"),
+    index: Type.Integer({ minimum: 0 }),
     offset: Type.Optional(Type.Integer({ minimum: 0 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DIFF_PAGE })),
   }),
@@ -384,12 +765,15 @@ export function createEvidenceReadTool(
                 bytes: manifest.payload.diff.bytes,
                 touchedPaths: manifest.payload.diff.touchedPaths,
               },
-              packs: manifest.payload.packs.map(({ id, source, path, blob, sha256: packHash }) => ({
+              files: manifest.payload.files.map(({ content: _content, ...metadata }) => metadata),
+              citations: manifest.payload.citations.map(({ content: _content, ...metadata }) => metadata),
+              packs: manifest.payload.packs.map(({ id, source, path, blob, sha256: packHash, checklist }) => ({
                 id,
                 source,
                 path,
                 blob,
                 sha256: packHash,
+                checklistItems: checklist.length,
               })),
             };
             break;
@@ -404,6 +788,20 @@ export function createEvidenceReadTool(
             const limit = params.limit ?? DEFAULT_DIFF_PAGE;
             totalLength = manifest.payload.diff.content.length;
             value = manifest.payload.diff.content.slice(offset, offset + limit);
+            if (offset + limit < totalLength) nextOffset = offset + limit;
+            break;
+          }
+          case "touchedFile":
+          case "citation": {
+            const entries =
+              params.action === "touchedFile" ? manifest.payload.files : manifest.payload.citations;
+            const entry = entries[params.index];
+            if (!entry) throw new Error(`${params.action} index ${params.index} is not in this evidence manifest`);
+            const content = entry.content ?? "";
+            const offset = params.offset ?? 0;
+            const limit = params.limit ?? DEFAULT_DIFF_PAGE;
+            totalLength = content.length;
+            value = { ...entry, content: content.slice(offset, offset + limit) };
             if (offset + limit < totalLength) nextOffset = offset + limit;
             break;
           }

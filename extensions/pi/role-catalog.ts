@@ -13,7 +13,7 @@ export type KartaRoleAuthority = "read-only" | "worktree-write" | "surface-write
 
 export type KartaCapability =
   | "evidence.read"
-  | "oracle.run"
+  | "checks.read"
   | "boundary.inspect"
   | "worktree.read"
   | "worktree.write"
@@ -34,7 +34,7 @@ const ROLE_CATALOG: Record<KartaRoleId, RoleCatalogEntry> = {
     source: "agents/karta-acceptance-reviewer.md",
     expectedName: "karta-acceptance-reviewer",
     authority: "read-only",
-    capabilities: ["evidence.read", "oracle.run"],
+    capabilities: ["evidence.read", "checks.read"],
     outputSchema: "gate-verdict-v1",
   },
   "safety-gate": {

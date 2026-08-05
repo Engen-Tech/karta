@@ -128,6 +128,39 @@ test("gate provider preflight coalesces concurrent checks and caches only succes
   assert.equal(preflight.size, 0);
 });
 
+test("gate provider preflight cache is invalidated by declarative provider changes", async () => {
+  let calls = 0;
+  let baseUrl = "https://first.invalid/v1";
+  const report: ChildRuntimeReport = {
+    provider: "fixture",
+    model: "model",
+    policy: "gate",
+    exactModelResolved: true,
+    parentAuthConfigured: true,
+    childAuthConfigured: true,
+    copiedProvider: "config",
+    copiedRuntimeCredential: false,
+    unresolvedEnvironmentKeys: [],
+  };
+  const preflight = new GateProviderPreflight(async () => {
+    calls += 1;
+    return report;
+  });
+  const ctx = {
+    model: { provider: "fixture", id: "model" },
+    modelRegistry: {
+      getProviderAuthStatus: () => ({ source: "stored" }),
+      getRegisteredProviderConfig: () => ({ baseUrl }),
+    },
+  } as unknown as ExtensionCommandContext;
+  const registry = new ChildRegistry();
+  await preflight.ensure(ctx, registry);
+  assert.equal((await preflight.ensure(ctx, registry)).cached, true);
+  baseUrl = "https://second.invalid/v1";
+  assert.equal((await preflight.ensure(ctx, registry)).cached, false);
+  assert.equal(calls, 2);
+});
+
 test("gate provider preflight does not cache a failed request", async () => {
   let calls = 0;
   const report: ChildRuntimeReport = {
