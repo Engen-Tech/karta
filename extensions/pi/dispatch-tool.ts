@@ -31,6 +31,12 @@ const dispatchParameters = Type.Union([
     action: Type.Literal("preflightGate"),
     role: gateRoleId,
   }),
+  Type.Object({
+    action: Type.Literal("runVerification"),
+    binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+    item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+    mode: Type.Union([Type.Literal("full"), Type.Literal("boundary-only")]),
+  }),
 ]);
 
 export type KartaDispatchParameters = Static<typeof dispatchParameters>;
@@ -41,7 +47,11 @@ interface GatePreflight {
 
 interface DispatchDetails {
   action: KartaDispatchParameters["action"];
-  role: string;
+  role?: string;
+  binder?: string;
+  item?: string;
+  evidenceHash?: string;
+  status?: string;
   definitionHash?: string;
   provider?: string;
   model?: string;
@@ -60,6 +70,15 @@ function roleSummary(role: KartaRoleDefinition): Record<string, unknown> {
   };
 }
 
+interface VerificationRunner {
+  run(
+    ctx: ExtensionContext,
+    binder: string,
+    item: string,
+    mode: "full" | "boundary-only",
+  ): Promise<{ evidenceHash: string; status: string }>;
+}
+
 function textResult(text: string, details: DispatchDetails, isError = false) {
   return {
     content: [{ type: "text" as const, text }],
@@ -71,22 +90,39 @@ function textResult(text: string, details: DispatchDetails, isError = false) {
 export function createKartaDispatchTool(
   preflight: GatePreflight,
   children: ChildRegistry,
+  verification?: VerificationRunner,
 ): ToolDefinition<typeof dispatchParameters, DispatchDetails> {
   return {
     name: "karta_dispatch",
     label: "Karta dispatch",
     description:
-      "Package-owned Karta role entrypoint. Describes a fixed role or preflights a read-only gate. Callers cannot supply prompts, paths, tools, or provider hooks.",
+      "Package-owned Karta role entrypoint. Describes a fixed role, preflights a read-only gate, or runs hash-bound verification. Callers cannot supply prompts, paths, tools, commands, models, or provider hooks.",
     parameters: dispatchParameters,
     async execute(_toolCallId, params: KartaDispatchParameters, _signal, _onUpdate, ctx) {
       if (!ctx?.isProjectTrusted()) {
         return textResult(
           "Karta dispatch is disabled in untrusted projects.",
-          { action: params.action, role: params.role },
+          {
+            action: params.action,
+            role: "role" in params ? params.role : undefined,
+            binder: "binder" in params ? params.binder : undefined,
+            item: "item" in params ? params.item : undefined,
+          },
           true,
         );
       }
       try {
+        if (params.action === "runVerification") {
+          if (!verification) throw new Error("Karta verification runner is unavailable");
+          const result = await verification.run(ctx, params.binder, params.item, params.mode);
+          return textResult(JSON.stringify(result, null, 2), {
+            action: params.action,
+            binder: params.binder,
+            item: params.item,
+            evidenceHash: result.evidenceHash,
+            status: result.status,
+          });
+        }
         const role = loadKartaRole(params.role);
         if (params.action === "describeRole") {
           return textResult(
@@ -112,7 +148,12 @@ export function createKartaDispatchTool(
       } catch (error) {
         return textResult(
           error instanceof Error ? error.message : String(error),
-          { action: params.action, role: params.role },
+          {
+            action: params.action,
+            role: "role" in params ? params.role : undefined,
+            binder: "binder" in params ? params.binder : undefined,
+            item: "item" in params ? params.item : undefined,
+          },
           true,
         );
       }

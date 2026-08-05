@@ -178,11 +178,12 @@ async function createChild(
   systemPrompt: string,
   customTools: ToolDefinition[] = [],
   policy: ChildRuntimePolicy = "probe",
+  cwd = ctx.cwd,
 ): Promise<{ session: AgentSession; report: ChildRuntimeReport }> {
   const { runtime, model, report } = await createMirroredModelRuntime(ctx, policy);
-  const { loader, settings } = await createIsolatedResourceLoader(ctx.cwd, systemPrompt);
+  const { loader, settings } = await createIsolatedResourceLoader(cwd, systemPrompt);
   const { session } = await createAgentSession({
-    cwd: ctx.cwd,
+    cwd,
     modelRuntime: runtime,
     model,
     thinkingLevel: ctx.thinkingLevel ?? "minimal",
@@ -194,6 +195,16 @@ async function createChild(
     customTools,
   });
   return { session, report };
+}
+
+export async function createGateChildSession(
+  ctx: ExtensionContext,
+  systemPrompt: string,
+  customTools: ToolDefinition[],
+  cwd: string,
+): Promise<{ session: AgentSession; report: ChildRuntimeReport }> {
+  if (customTools.length === 0) throw new Error("Karta gate child requires explicit tools");
+  return createChild(ctx, systemPrompt, customTools, "gate", cwd);
 }
 
 function bindAbort(session: AgentSession, signal: AbortSignal | undefined): () => void {

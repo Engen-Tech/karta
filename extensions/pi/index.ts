@@ -14,15 +14,17 @@ import { claimExtensionInstance } from "./extension-instance.ts";
 import { registerGuardAdapters } from "./guard-adapter.ts";
 import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
+import { KartaVerificationRunner } from "./verification-runner.ts";
 
 export default function kartaPi(extension: ExtensionAPI): void {
   const releaseInstance = claimExtensionInstance(PACKAGE_ROOT);
   const children = new ChildRegistry();
   const dispatchLocks = new DispatchLockManager();
   const gatePreflight = new GateProviderPreflight();
+  const verification = new KartaVerificationRunner(gatePreflight, children, dispatchLocks);
   const guards = registerGuardAdapters(extension);
   extension.registerTool(createKartaScriptTool(extension));
-  extension.registerTool(createKartaDispatchTool(gatePreflight, children));
+  extension.registerTool(createKartaDispatchTool(gatePreflight, children, verification));
 
   extension.on("resources_discover", (_event, ctx) => {
     if (!ctx.isProjectTrusted()) return {};

@@ -13,11 +13,11 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure; Phases 1, 2, and 3A|
-|In progress|Phase 3B — package-owned roles, dispatch lock, evidence, and capability profiles|
-|First next action|Implement the fixed acceptance-oracle runner and concrete read-only gate capability profiles|
+|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, and 3C|
+|In progress|Phase 4 — authoritative build and delivery entry|
+|First next action|Add fixed build-item and deliver-binder actions that derive branches, refs, frontier, and resume state from Git|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|All work through the Phase 3B evidence increment is committed on `feat/pi-package`|
+|Commit state|All work through Phase 3C is committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the evidence increment. The Pi suite currently runs 60 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after Phase 3C. The Pi suite currently runs 83 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -57,9 +57,9 @@ All five checks pass after the evidence increment. The Pi suite currently runs 6
 |1 — Package and paths|Complete|Package loading, fixed scripts, projections, install/update/rollback, and inventory checks pass|
 |2 — Trust and host adapters|Complete|Trust, binder/pack guards, status, lifecycle, whiff, and dirty-delivery backstops pass|
 |3A — Strict child runtime|Complete|Gate provider policy, exact model resolution, OAuth behavior, and real multi-child shutdown pass|
-|3B — Dispatch foundation|In progress|Role catalog, evidence builder, cross-process lock, and capability profiles pass|
-|3C — Read-only gates|Not started|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
-|4 — Build and delivery|Not started|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
+|3B — Dispatch foundation|Complete|Role catalog, evidence builder, cross-process lock, and capability profiles pass|
+|3C — Read-only gates|Complete|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
+|4 — Build and delivery|In progress|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
 |5 — Narrow writers|Not started|Doc-gardner and kaizen run with confined capabilities and labeled commits|
 |6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
 
@@ -238,6 +238,8 @@ The package root is ready to own dispatch and gate assets. The claim that a proj
 
 ### 3B-4 — capability profiles
 
+**Status: gate profiles complete; writer profiles remain for Phase 4.** Acceptance receives only `karta_evidence` plus a no-argument `karta_oracle`; safety receives only `karta_evidence` plus a no-argument `karta_boundary`. The oracle command and cwd come exclusively from hash-bound evidence, execute once in a disposable exact-tip Git snapshot with bounded output, timeout, cancellation, process-tree cleanup, and no `.git`, then the snapshot is removed. Boundary inspection derives fixed cues without choosing a verdict. Profile hashes bind role definition, evidence, capabilities, and tool schemas. Tests prove there is no Bash, write, edit, `karta_script`, caller command, path, ref, prompt, model, provider, environment, or timeout authority. Build/doc/kaizen confinement is implemented with their Phase 4 dispatchers rather than granting placeholder mutation tools early.
+
 - Acceptance gate: evidence reads and acceptance runner only.
 - Safety gate: evidence reads and boundary inspection only.
 - Build worker: trusted coding tools in its assigned worktree.
@@ -255,6 +257,8 @@ No child receives the parent `karta_script` tool wholesale.
 - Lock and evidence failures stop dispatch before a model call.
 
 ## Phase 3C — read-only gates
+
+**Status: complete.** `karta_dispatch runVerification` accepts only binder slug, item id, and full/boundary-only mode. A cross-process lock is acquired before evidence construction and held through both gates. Full verification runs acceptance then safety against one evidence hash; an acceptance concern/block stops safety, visual oracles become boundary-only, and opt-outs dispatch neither gate. Each fresh gate receives its package role prompt plus a Pi execution contract, exactly two role-owned tools, no ambient resources, and a strict isolated provider runtime. Verdicts must be one exact JSON object bound to evidence, role definition, composed prompt, and capability profile hashes. Host code rejects stale refs, runtime identity changes, skipped required tools, malformed envelopes, unsafe finding paths, and a pass over a failed oracle. Retry classification is host-owned; refs remain untouched. A controlled declarative OpenAI-compatible provider drives real isolated acceptance and safety children through tool calls and final verdicts; five model requests cover preflight, both role-tool rounds, and both final responses. The canonical `karta-verify` skill routes Pi through this fixed entry while preserving existing Claude Code and Codex resolution.
 
 ### 3C-1 — acceptance reviewer
 

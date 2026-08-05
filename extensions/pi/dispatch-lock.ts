@@ -107,6 +107,7 @@ export class DispatchLockLease {
   readonly lockPath: string;
   readonly owner: LockOwner;
   #released = false;
+  #releasePromise: Promise<void> | undefined;
 
   constructor(lockPath: string, owner: LockOwner) {
     this.lockPath = lockPath;
@@ -115,6 +116,17 @@ export class DispatchLockLease {
 
   async release(): Promise<void> {
     if (this.#released) return;
+    if (this.#releasePromise) return this.#releasePromise;
+    this.#releasePromise = this.#release();
+    try {
+      await this.#releasePromise;
+    } catch (error) {
+      this.#releasePromise = undefined;
+      throw error;
+    }
+  }
+
+  async #release(): Promise<void> {
     const inspection = await inspectDispatchLock(this.lockPath);
     if (!inspection.readable || inspection.owner?.nonce !== this.owner.nonce) {
       throw new DispatchLockError(

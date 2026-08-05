@@ -21,6 +21,12 @@ The caller names the mode at dispatch; unnamed means **full**.
 - **full** (default) — the pipeline as written below: Phase 0, Phase 1 (acceptance), Phase 2 (boundary scan), Phase 3 (aggregate).
 - **boundary-only** — runs only the safety-auditor boundary gate (no acceptance phase): Phase 0, then Phase 2 directly, then report the safety verdict alone (Phase 3's aggregate table does not apply — PASS → `pass`, VIOLATION → the kickback loop under the same cap of 3, BLOCKED → `blocked`). karta-build's Phase 6 dispatches this mode for visual-oracle items BEFORE karta-validate runs; a VIOLATION or BLOCKED halts the item before any dev-server work. Acceptance for a visual oracle stays with karta-validate and is never judged here.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, complete Phase 0, then call it once with `action: runVerification`, the binder slug, work item id, and mode. The tool derives the binder, refs, tips, diff, packs, and prompt from the installed package and Git. Do not pass or re-derive paths, prompts, tools, commands, models, providers, or diff ranges. Do not resolve the legacy agents below or run either review inline; `karta_dispatch` creates both fresh read-only children and holds one dispatch lock across them.
+
+Use the returned `karta-verification-v1` result as Phase 3's aggregate. `pass`, `concerns`, `blocked`, and `skipped` map directly to the routing rules below. The host classifies a gate concern as retryable; this orchestrator still owns the existing caps—two acceptance attempts and three safety attempts—and the Git-native halt/escalation behavior. A tool error is `blocked`, never a reason to fall back to an inline review. Use the legacy agent resolution only when `karta_dispatch` is not available.
+
 ## Inputs
 
 The caller must supply:
@@ -113,7 +119,7 @@ This skill is read-only throughout all phases.
 - **Floor first.** A change that cannot clear compile / type-check / lint never reaches the agents. See `references/definition-of-done.md`.
 - **Read-only.** This skill never edits code, tests, the binder, or any other file. Neither do the agents. If an edit is needed, it goes back to karta-build.
 - **Fresh session per dispatch.** Each agent dispatch is a new session with no build-session context. Pass only the four inputs — the one exception is the safety-auditor's stack-pack Review checklists, resolved here and passed only when the binder pins `sme[]`. No build-session state travels.
-- **The agents do the reading.** `karta-acceptance-reviewer` and `karta-safety-auditor` read the diff and the binder directly. This skill does not pre-read those files for them.
+- **The gates do the reading.** On Pi, package code builds hash-bound Git evidence and exposes it through fixed read-only tools. On other hosts, `karta-acceptance-reviewer` and `karta-safety-auditor` read the diff and binder directly. This skill does not pre-read those files for them.
 - **Escalate only on exhaustion; this gate never records an accept.** No human review gate fires during delivery except safety-auditor cap exhaustion (3 attempts). The acceptance gate (2 attempts) and a SPEC-SUSPECT halt with a call to action, not a human escalation. A human may accept or defer the halted item, but only at the delivery orchestrator's Phase-4 halt through the host's user-input facility — this read-only gate surfaces the halt and never writes the `accepted` ref.
 - **Caps are per-agent, not shared.** The acceptance cap (2) and the safety cap (3) are independent. Exhausting one does not reset the other.
 - **Opt-out items skip this gate.** Items with `oracle.opt_out: true` are not dispatched here. The build step reports the opt-out; karta-verify is not invoked.

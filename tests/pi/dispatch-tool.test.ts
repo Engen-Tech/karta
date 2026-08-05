@@ -107,6 +107,31 @@ test("dispatch fails before role loading or preflight in an untrusted project", 
   assert.equal(calls, 0);
 });
 
+test("dispatch runs verification from fixed Git identity without role or prompt input", async () => {
+  let received: unknown;
+  const tool = createKartaDispatchTool(
+    { ensure: async () => preflightReport },
+    new ChildRegistry(),
+    {
+      async run(_ctx, binder, item, mode) {
+        received = { binder, item, mode };
+        return { evidenceHash: "a".repeat(64), status: "pass" };
+      },
+    },
+  );
+  const response = await tool.execute(
+    "verification",
+    { action: "runVerification", binder: "demo", item: "item-a", mode: "full" },
+    undefined,
+    undefined,
+    context(),
+  );
+  assert.equal((response as { isError?: boolean }).isError, false);
+  assert.deepEqual(received, { binder: "demo", item: "item-a", mode: "full" });
+  assert.equal(response.details?.role, undefined);
+  assert.equal(response.details?.evidenceHash, "a".repeat(64));
+});
+
 test("dispatch schema contains no caller-controlled prompt, path, tool, or provider fields", () => {
   const tool = createKartaDispatchTool(
     { ensure: async () => preflightReport },

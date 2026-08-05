@@ -75,7 +75,7 @@ test("dispatch lock is exclusive, nonce-owned, and reusable after release", asyn
     await lease.release();
     const replacement = await acquireDispatchLock(repo, "binder-one");
     assert.notEqual(replacement.owner.nonce, lease.owner.nonce);
-    await replacement.release();
+    await Promise.all([replacement.release(), replacement.release()]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
