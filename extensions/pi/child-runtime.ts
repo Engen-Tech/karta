@@ -13,7 +13,7 @@ import {
 import { Type } from "typebox";
 import { LifecycleRegistry, type LifecycleRole } from "./lifecycle-registry.ts";
 
-export type ChildRuntimePolicy = "probe" | "gate";
+export type ChildRuntimePolicy = "probe" | "gate" | "worker";
 
 export interface ChildRuntimeReport {
   provider: string;
@@ -206,6 +206,16 @@ export async function createGateChildSession(
 ): Promise<{ session: AgentSession; report: ChildRuntimeReport }> {
   if (customTools.length === 0) throw new Error("Karta gate child requires explicit tools");
   return createChild(ctx, systemPrompt, customTools, "gate", cwd);
+}
+
+export async function createWorkerChildSession(
+  ctx: ExtensionContext,
+  systemPrompt: string,
+  customTools: ToolDefinition[],
+  cwd: string,
+): Promise<{ session: AgentSession; report: ChildRuntimeReport }> {
+  if (customTools.length === 0) throw new Error("Karta worker child requires explicit tools");
+  return createChild(ctx, systemPrompt, customTools, "worker", cwd);
 }
 
 function bindAbort(session: AgentSession, signal: AbortSignal | undefined): () => void {

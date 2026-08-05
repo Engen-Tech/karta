@@ -15,9 +15,9 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, and 3D|
 |In progress|Phase 4 — authoritative build and delivery entry|
-|First next action|Add the isolated build-worker capability profile and fixed `buildItem` retry loop around the Git classifier and finalizer|
+|First next action|Add the fixed `buildItem` worktree/retry loop around the isolated worker, Git classifier, and exact-tree finalizer|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Phase 3D plus Phase 4 recovery classification and candidate finalization are committed on `feat/pi-package`|
+|Commit state|Phase 3D plus Phase 4 recovery, finalization, and isolated-worker foundations are committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the candidate-finalization increment. The Pi suite currently runs 97 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the isolated-worker increment. The Pi suite currently runs 102 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -330,7 +330,9 @@ No child receives the parent `karta_script` tool wholesale.
 
 **Progress:** a read-only Git classifier now derives each item's state and single next action from branches, worktrees, dirty index/worktree state, ancestry, and `built`/`failed`/`done`/`accepted` refs. It distinguishes not-started, branch-only, dirty resumable worktree, committed-unmarked, built, failed, merged-without-done, interrupted accept merge, done, and inconsistent states. Contradictory and orphaned markers fail closed. `karta_dispatch inspectItemState` exposes the result from binder/item identity only.
 
-The host-owned candidate finalizer now stages the whole worktree, rejects protected orchestration changes, runs the package secret scanner, executes the binder oracle, binds its receipt to the staged tree, runs both gates under the delivery-owned lease, verifies tree freshness again, commits the exact reviewed tree, and writes `built` ref-last with an expected-absent check. Concerns preserve the staged candidate for retry; blocked, timed-out, and cancelled checks never become receipts or commits; no-change workers write no completion ref. The isolated worker profile, bounded retry loop, committed-unmarked recovery path, and delivery action still need to consume these foundations.
+The host-owned candidate finalizer now stages the whole worktree, rejects protected orchestration changes, runs the package secret scanner, executes the binder oracle, binds its receipt to the staged tree, runs both gates under the delivery-owned lease, verifies tree freshness again, commits the exact reviewed tree, and writes `built` ref-last with an expected-absent check. Concerns preserve the staged candidate for retry; blocked, timed-out, and cancelled checks never become receipts or commits; no-change workers write no completion ref.
+
+The isolated build worker now receives an exact package-owned role and execution contract, in-memory resources with no ambient skills/extensions/context, and only read/write/edit plus trusted Bash rooted initially in its assigned worktree. File tools reject lexical traversal and symlink escape. The contract explicitly leaves staging, scans, checks, gates, commits, tags, merges, and refs to the host. Worker results are strict role/profile/binder/item-bound JSON envelopes. Bash remains honestly documented as high authority rather than mislabeled confinement. The fixed worktree/retry loop, committed-unmarked recovery path, and delivery action still need to consume these foundations.
 
 1. Add package-owned fixed entries for planning, building one item, and delivering one binder. Planning accepts user problem text, but its system prompt, tools, validation, and commit gate remain package-owned.
 2. Validate the binder and derive the frontier from Git on every invocation.
