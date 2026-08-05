@@ -17,7 +17,7 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |In progress|Phase 3B — package-owned roles, dispatch lock, evidence, and capability profiles|
 |First next action|Implement the fixed acceptance-oracle runner and concrete read-only gate capability profiles|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Foundation committed as `6ddecb6`; current Phase 3B role, lock, and evidence increments are uncommitted|
+|Commit state|All work through the Phase 3B evidence increment is committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
