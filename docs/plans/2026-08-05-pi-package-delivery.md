@@ -15,9 +15,9 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, and 3D|
 |In progress|Phase 4 — authoritative build and delivery entry|
-|First next action|Implement the Git-derived recovery-state classifier, then add the fixed build-item entry around it|
+|First next action|Add the fixed build-item entry around the Git-derived recovery classifier|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|All work through Phase 3D is committed on `feat/pi-package`|
+|Commit state|Phase 3D and the first Phase 4 recovery-state increment are committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after Phase 3D. The Pi suite currently runs 91 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the first Phase 4 increment. The Pi suite currently runs 94 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -327,6 +327,8 @@ No child receives the parent `karta_script` tool wholesale.
 ## Phase 4 — build and delivery
 
 ### 4A — authoritative entry and resume
+
+**Progress:** a read-only Git classifier now derives each item's state and single next action from branches, worktrees, dirty index/worktree state, ancestry, and `built`/`failed`/`done`/`accepted` refs. It distinguishes not-started, branch-only, dirty resumable worktree, committed-unmarked, built, failed, merged-without-done, interrupted accept merge, done, and inconsistent states. Contradictory and orphaned markers fail closed. `karta_dispatch inspectItemState` exposes the result from binder/item identity only. The fixed build and delivery actions still need to consume it.
 
 1. Add package-owned fixed entries for planning, building one item, and delivering one binder. Planning accepts user problem text, but its system prompt, tools, validation, and commit gate remain package-owned.
 2. Validate the binder and derive the frontier from Git on every invocation.

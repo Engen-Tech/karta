@@ -7,6 +7,7 @@ import {
   ChildRegistry,
   type GateProviderPreflightReport,
 } from "./child-runtime.ts";
+import { deriveItemGitState } from "./git-state.ts";
 import { loadKartaRole, type KartaRoleDefinition } from "./role-catalog.ts";
 
 const roleId = Type.Union([
@@ -30,6 +31,11 @@ const dispatchParameters = Type.Union([
   Type.Object({
     action: Type.Literal("preflightGate"),
     role: gateRoleId,
+  }),
+  Type.Object({
+    action: Type.Literal("inspectItemState"),
+    binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+    item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
   }),
   Type.Object({
     action: Type.Literal("runVerification"),
@@ -112,6 +118,15 @@ export function createKartaDispatchTool(
         );
       }
       try {
+        if (params.action === "inspectItemState") {
+          const state = await deriveItemGitState(ctx.cwd, params.binder, params.item);
+          return textResult(JSON.stringify(state, null, 2), {
+            action: params.action,
+            binder: params.binder,
+            item: params.item,
+            status: state.state,
+          });
+        }
         if (params.action === "runVerification") {
           if (!verification) throw new Error("Karta verification runner is unavailable");
           const result = await verification.run(ctx, params.binder, params.item, params.mode);
