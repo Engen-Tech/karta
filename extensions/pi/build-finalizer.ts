@@ -71,7 +71,7 @@ async function rejectProtectedCandidate(cwd: string): Promise<void> {
   const changed = await git(cwd, ["diff", "--cached", "--name-only", "-z"]);
   const paths = changed.split("\0").filter(Boolean);
   const protectedPath = paths.find(
-    (path) => path.startsWith(".karta/binders/") || path.startsWith(".karta/roundtable/"),
+    (path) => path === ".git" || path.startsWith(".git/") || path === ".karta" || path.startsWith(".karta/"),
   );
   if (protectedPath) {
     throw new Error(`Karta build candidate modifies protected orchestration state: ${protectedPath}`);

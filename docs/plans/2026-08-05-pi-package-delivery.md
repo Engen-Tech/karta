@@ -14,10 +14,10 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, and 3D|
-|In progress|Phase 4 — authoritative build and delivery entry|
-|First next action|Add the fixed `buildItem` worktree/retry loop around the isolated worker, Git classifier, and exact-tree finalizer|
+|In progress|Phase 3E — close evidence and transaction gaps found before `buildItem`|
+|First next action|Replace the single check receipt with an ordered full-floor receipt manifest and remove stale pack/citation evidence paths|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Phase 3D plus Phase 4 recovery, finalization, and isolated-worker foundations are committed on `feat/pi-package`|
+|Commit state|The Phase 3E/4 redesign and its first evidence/worker-policy corrections are committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the isolated-worker increment. The Pi suite currently runs 102 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the first redesign increment. The Pi suite currently runs 102 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -60,7 +60,8 @@ All five checks pass after the isolated-worker increment. The Pi suite currently
 |3B — Dispatch foundation|Complete|Role catalog, evidence builder, cross-process lock, and capability profiles pass|
 |3C — Read-only gates|Complete|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
 |3D — Contract alignment|Complete|Gates bind staged candidates, proposed merge trees, host-run checks, composed rules, and explicit lock ownership|
-|4 — Build and delivery|In progress|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
+|3E — Transaction closure|In progress|Full-floor receipts, stable-tree convergence, complete citations, and dependency-correct rules close pre-worker evidence gaps|
+|4 — Build and delivery|Redesigned, blocked on 3E|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
 |5 — Narrow writers|Not started|Doc-gardner and kaizen run with confined capabilities and labeled commits|
 |6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
 
@@ -324,58 +325,98 @@ No child receives the parent `karta_script` tool wholesale.
 - Raw packs, missing check receipts, changed staged trees, bad citations, and nested lock acquisition all fail closed.
 - No final commit, merge, or ref may claim a verdict over a different tree.
 
-## Phase 4 — build and delivery
+## Phase 3E — transaction and evidence closure
 
-### 4A — authoritative entry and resume
+The early Phase 4 finalizer exposed gaps that must be closed before `buildItem` can become authoritative. A Roundtable critique/convergence was run through the installed Pi MCP adapter. Provider degradation prevented a genuine multi-provider quorum—Antigravity completed while Copilot exited empty, Claude OAuth was expired, and Codex attempts timed out or rejected an unavailable model—so the review is evidence, not claimed consensus. Its converged recommendations agree with the deterministic code review below: host ownership, full-floor receipts, exact-tree commits, strict recovery, and managed process trees move in front of worker orchestration.
 
-**Progress:** a read-only Git classifier now derives each item's state and single next action from branches, worktrees, dirty index/worktree state, ancestry, and `built`/`failed`/`done`/`accepted` refs. It distinguishes not-started, branch-only, dirty resumable worktree, committed-unmarked, built, failed, merged-without-done, interrupted accept merge, done, and inconsistent states. Contradictory and orphaned markers fail closed. `karta_dispatch inspectItemState` exposes the result from binder/item identity only.
+### 3E-1 — complete floor evidence
 
-The host-owned candidate finalizer now stages the whole worktree, rejects protected orchestration changes, runs the package secret scanner, executes the binder oracle, binds its receipt to the staged tree, runs both gates under the delivery-owned lease, verifies tree freshness again, commits the exact reviewed tree, and writes `built` ref-last with an expected-absent check. Concerns preserve the staged candidate for retry; blocked, timed-out, and cancelled checks never become receipts or commits; no-change workers write no completion ref.
+1. Replace the single check receipt with an ordered `karta-check-manifest-v1` containing unique receipts for every final project floor command plus the binder oracle.
+2. The worker may propose the stack-appropriate floor command/cwd list in its strict result; that proposal grants no execution or completion authority. Host code validates bounds and containment, canonicalizes and deduplicates it, adds the immutable binder oracle, and executes the final list itself.
+3. Bind each command hash, repo-relative cwd, bounded environment policy, exit/timeout result, output, duration, and final target tree. Acceptance reads the manifest and cannot pass a missing, failed, reordered, duplicate, or stale required check.
+4. For visual or explicitly opted-out oracles, retain their existing boundary-only semantics while still recording every applicable project floor command.
 
-The isolated build worker now receives an exact package-owned role and execution contract, in-memory resources with no ambient skills/extensions/context, and only read/write/edit plus trusted Bash rooted initially in its assigned worktree. File tools reject lexical traversal and symlink escape. The contract explicitly leaves staging, scans, checks, gates, commits, tags, merges, and refs to the host. Worker results are strict role/profile/binder/item-bound JSON envelopes. Bash remains honestly documented as high authority rather than mislabeled confinement. The fixed worktree/retry loop, committed-unmarked recovery path, and delivery action still need to consume these foundations.
+### 3E-2 — stable-tree convergence
 
-1. Add package-owned fixed entries for planning, building one item, and delivering one binder. Planning accepts user problem text, but its system prompt, tools, validation, and commit gate remain package-owned.
-2. Validate the binder and derive the frontier from Git on every invocation.
-3. Acquire the binder dispatch lock before creating worktrees or children.
-4. Implement the recovery lattice before dispatch: no branch; branch with dirty or staged worktree; candidate commit without `built`/`failed`; `built` without `done`; `failed`; merge commit without `done`; and archive move/commit interruption.
-5. Resume from branches, worktree metadata, indexes, commit markers, refs, and tags. Never infer durable progress from Pi history.
-6. Pi uses merge commits, never rebase, when an item must catch a moving integration tip.
+1. Run the complete host check list, stage permitted outputs, and compute the candidate tree.
+2. If a check generated a tracked candidate change, repeat the complete ordered list against the new worktree state. Cap convergence deterministically; never sleep and guess.
+3. Once the tree stabilizes, rerun the complete list one final time, require zero tracked/untracked drift, secret-scan the staged diff, and bind all receipts to that exact tree.
+4. Gate only the stable tree. A non-converging generator, cancelled process, failed check, or post-check mutation blocks before commit or refs.
 
-### 4B — wave dispatch
+### 3E-3 — complete policy evidence
 
-1. Create item branches and isolated Git worktrees using the existing naming protocol.
-2. Register one lifecycle child per worker under the binder owner.
-3. Dispatch only dependency-ready items and serialize known collision surfaces.
-4. Give workers a package-owned prompt, explicit project instructions, root-checked read/write/edit tools, scoped Karta support actions, and trusted Bash in their worktree. Bash is high authority and is not sandboxed; the worktree is collision isolation, not a security boundary.
-5. Host code runs the final floor/oracle command and records its receipt. Then stage the exact candidate, secret-scan it, write its tree, gate that tree, and commit only that tree.
-6. A clean wave worker writes `built` only after its commit tree matches the gated tree. A capped halt commits the scanned candidate and writes `failed`; a no-change worker writes no completion ref.
-7. Manage wave environments and dev servers through Karta-owned process handles so cancellation and shutdown terminate only owned process trees.
-8. Wave tags remain the orchestrator's job; workers commit and write item refs but do not invent per-item tags.
+1. Discover `KARTA-SME-OVERRIDE` repo-rule citations from bounded full touched blobs, not only diff hunks, so an unchanged marker in a touched file remains visible.
+2. Missing, binary, oversized, ambiguous, or out-of-tree cited artifacts block safety review.
+3. Remove the composed-pack cache until its key covers the entire resolved `extends` dependency graph and exclusions. Correctness beats shaving seconds from tests.
+4. Pin normalized rule provenance and every dependency hash in evidence.
 
-### 4C — serial integration
+### Phase 3E gate
 
-1. Keep Karta's existing serial merge queue.
-2. Derive a proposed merge tree from the current integration tip and built item tip. A conflict stops before any ref moves.
-3. Materialize that tree, run the final floor, and re-run verification against the same tree. On stale evidence, rebuild/reverify within the bounded policy or halt.
-4. Create the real no-ff merge only after checks pass, then assert its tree ID equals the gated merge tree.
-5. Update refs last with expected-old-object checks. A crash after merge but before `done` must be recoverable from ancestry, commit trailers, and tree identity.
-6. Roll back the whole wave according to the existing marker and branch protocol when an item cannot land safely.
-7. Archive the binder only after every item is done and the archive commit exists on the integration branch.
+- Multi-command, reordered, duplicate, failed, missing, and stale-tree receipt fixtures fail closed.
+- A generated tracked artifact either converges and is rechecked on the final tree or reaches the deterministic cap without a commit.
+- An unchanged override marker outside the diff hunk still supplies its exact repository-rule citation.
+- Changing a base pack changes the resolved evidence hash even when the leaf pack is byte-identical.
 
-### 4D — interruption behavior
+## Phase 4 — authoritative build and delivery
 
-1. Every durable branch/ref/commit checkpoint lands before the dispatch tool returns.
-2. Shutdown aborts children and releases only owned locks; it does not invent completion state.
-3. Deterministic failure-injection hooks cover child creation, first edit, staging, tree creation, check receipt, gate completion, commit, merge, ref update, archive move, and archive commit. Tests synchronize on those hooks; they do not guess with sleeps.
-4. A fresh Pi process must resume each injected state from Git alone.
+### 4A — authority and recovery
+
+**Existing foundations, not yet sufficient:** the Git classifier derives coarse item states; the candidate finalizer demonstrates stage/scan/check/gate/commit/ref-last ordering; the isolated worker has fixed role/profile-bound tools and output. Phase 4 now hardens rather than discards them.
+
+1. The Pi host is the sole owner of staging, scans, final checks, gates, commits, tags, merges, and Karta refs. Model workers edit and self-check only. Apply the same boundary to Phase 5 writers.
+2. Upgrade recovery to validate first-parent integration reachability, mandatory item markers, accepted trailer/ref pairing, built/failed/done exclusivity, expected tree identities, and archive transitions.
+3. Distinguish a genuinely absent ref from every Git execution, permission, corruption, and object error. Operational failures fail closed.
+4. Derive repository object format and null object IDs; support SHA-1 and SHA-256 without hard-coded 40-character assumptions.
+5. Load relevant project instructions explicitly, record their blob identities and provenance, and append them below package-owned policy only for writer workers—never gates.
+6. Reject native providers and executable ambient provider hooks for workers as well as gates. Declarative provider/model/auth reproduction remains allowed.
+
+### 4B — mutation and process ownership
+
+1. File tools deny `.git`, binders, roundtable records, SME packs, and every other host-owned surface not granted by the role. These are guardrails, never a Bash sandbox claim.
+2. Snapshot and attest branch, HEAD, index baseline, Karta refs/tags, repository/worktree config, hooks identity, worktree registry, protected paths, and sibling worktrees around every worker. Unexpected authority use blocks finalization.
+3. Register a binder lifecycle owner, each worker beneath it, and every spawned process beneath the responsible worker or host operation.
+4. Use one Karta-owned process-tree abstraction for host checks, worker Bash, dev servers, visual-validation services, and wave environments. Shutdown performs bounded graceful termination then force-kill and leaves no descendants.
+
+### 4C — exact-tree finalization
+
+1. Consume Phase 3E's stable-tree receipt manifest under the existing binder lease.
+2. Define one hook policy: run applicable repository checks before gating, then create the reviewed commit without allowing commit hooks to mutate the index. Assert `commit^{tree}` equals the gated tree before any completion ref.
+3. Preserve the repository's commit-subject convention while always carrying the mandatory Karta item marker.
+4. A gate concern returns bounded findings to the worker. At the acceptance/safety cap, commit only the already scanned stable candidate and write `failed` ref-last; no-change writes no completion ref.
+5. Every ref update uses expected-old-object checks and lands only after the durable commit it indexes.
+
+### 4D — fixed `buildItem`
+
+1. Add the package-owned fixed entry with binder/item identity only; callers cannot select prompts, tools, paths, commands, providers, or models.
+2. Acquire or receive the binder lease, validate the binder, derive the Git frontier, and create or resume the existing item worktree without clobbering it.
+3. Dispatch the isolated worker, attest its return, run exact-tree finalization, and apply Karta's existing acceptance and safety retry caps.
+4. Recover committed-without-marker, built, failed, no-change, and interrupted finalization states from Git alone.
+5. Write every durable branch/commit/ref checkpoint before returning success.
+
+### 4E — waves and serial integration
+
+1. Add the fixed binder delivery entry. Hold one binder lease while dependency-ready workers execute in parallel waves; serialize declared collision surfaces.
+2. Keep the integration tip single-writer and process built items FIFO.
+3. Derive and materialize each proposed merge-result tree from the current integration tip and item tip. Conflicts stop before refs move.
+4. Run Phase 3E's full floor and both gates on that exact proposed tree, then create a real no-ff merge and assert tree equality.
+5. Update `done`/`accepted`/`failed` refs and wave tags in the existing order with expected-old-object checks. Preserve first-parent and trailer doctrine.
+6. On post-wave failure, restore branch and all affected refs exactly as the existing revert protocol requires. Archive only after every item is durably done.
+
+### 4F — interruption behavior
+
+1. Deterministic injection points cover owner/worker/process creation, first edit, attestation, every convergence pass, receipt binding, gate completion, commit creation, branch update, merge, each ref/tag update, archive move, and archive commit.
+2. Tests synchronize on hooks, never timing sleeps.
+3. Shutdown aborts children and owned process trees, then releases only owned locks. It never invents progress.
+4. A fresh Pi process resumes every injected state from Git with no session data.
 
 ### Phase 4 gate
 
-- Parallel waves preserve dependency and collision constraints.
-- Integration remains serial and moving-tip safe.
+- Forged refs/trailers, protected-path mutations, Git failures, and SHA-256 fixtures fail closed.
+- Forced shutdown during worker, check, dev-server, and merge preparation leaves no child or process descendant.
+- Parallel waves preserve dependencies while integration remains serial and moving-tip safe.
 - Two Pi processes cannot deliver the same binder concurrently.
-- Every crash fixture resumes from Git with no Pi session data.
-- Existing Claude Code and Codex delivery behavior remains unchanged.
+- Every crash fixture resumes from Git alone.
+- Existing Claude Code and Codex behavior remains unchanged.
 
 ## Phase 5 — narrow writers
 
@@ -384,16 +425,16 @@ The isolated build worker now receives an exact package-owned role and execution
 1. Respect `.karta/doc-gardner.json`; absent or disabled means no run.
 2. Use the package-owned prompt and a capability-limited writer child.
 3. Permit only README, `docs/`, `AGENTS.md`, `ARCHITECTURE*`, top-level Markdown, and `.gitignore` according to the existing confinement contract.
-4. Validate the final diff, commit to the integration branch, and return the commit ID.
-5. Any out-of-surface mutation fails closed and rolls back the writer worktree.
+4. The child returns edits only. Host code attests the surface, runs applicable checks, creates the exact-tree commit on integration, and returns its ID.
+5. Any out-of-surface mutation fails closed and discards the disposable writer worktree before integration moves.
 
 ### 5B — kaizen
 
 1. Respect `.karta/kaizen.json`; absent or disabled means no run.
 2. Preserve Karta's seed, inheritance, override, and never-weaken rules.
 3. Permit only `.karta/sme/` and `.karta/kaizen.json`.
-4. Run package validation before and after edits.
-5. Commit only labeled `kaizen:` changes for human review.
+4. Run package validation before and after edits through host-owned checks.
+5. Host code commits only an attested exact-tree `kaizen:` change for human review; the child never commits or writes refs.
 
 ### Phase 5 gate
 
@@ -412,7 +453,8 @@ Run native tests on:
 - Windows, including directory-symlink privilege handling;
 - paths with spaces, Unicode, symlinks, and linked worktrees;
 - stored, environment, runtime-key, declarative custom, and OAuth provider classes, each through a complete gate tool-call and verdict roundtrip rather than an auth-only probe;
-- staged-tree and merge-tree plumbing under each native Git implementation;
+- staged-tree and merge-tree plumbing under each native Git implementation, including SHA-1 and SHA-256 repositories;
+- shutdown during host checks, worker commands, dev servers, merge preparation, and provider streams;
 - TUI, print, JSON, and RPC modes where relevant.
 
 Container or compatibility-layer results may supplement native runs but do not replace them.

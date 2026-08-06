@@ -108,18 +108,19 @@ export async function createMirroredModelRuntime(
   const providerId = ctx.model.provider;
   const nativeProvider = ctx.modelRegistry.getRegisteredNativeProvider(providerId);
   const providerConfig = ctx.modelRegistry.getRegisteredProviderConfig(providerId);
-  if (policy === "gate" && nativeProvider) {
+  const isolatedPolicy = policy === "gate" || policy === "worker";
+  if (isolatedPolicy && nativeProvider) {
     throw new Error(
-      `Karta gates do not inherit dynamic native provider '${providerId}' because it contains ambient extension code`,
+      `Karta ${policy} children do not inherit dynamic native provider '${providerId}' because it contains ambient extension code`,
     );
   }
   if (
-    policy === "gate" &&
+    isolatedPolicy &&
     providerConfig &&
     (providerConfig.streamSimple || providerConfig.refreshModels || providerConfig.oauth)
   ) {
     throw new Error(
-      `Karta gates do not inherit executable provider hooks for '${providerId}' from an ambient extension`,
+      `Karta ${policy} children do not inherit executable provider hooks for '${providerId}' from an ambient extension`,
     );
   }
 
@@ -149,9 +150,9 @@ export async function createMirroredModelRuntime(
   }
 
   const exactModel = runtime.getModel(providerId, ctx.model.id);
-  if (policy === "gate" && !exactModel) {
+  if (isolatedPolicy && !exactModel) {
     throw new Error(
-      `Karta gate runtime cannot resolve exact model '${providerId}/${ctx.model.id}' without the parent runtime`,
+      `Karta ${policy} runtime cannot resolve exact model '${providerId}/${ctx.model.id}' without the parent runtime`,
     );
   }
   const childModel = exactModel ?? ctx.model;

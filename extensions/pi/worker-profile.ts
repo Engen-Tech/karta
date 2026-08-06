@@ -58,7 +58,17 @@ function confineFileTool(tool: AnyToolDefinition, worktree: string): AnyToolDefi
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const path = (params as { path?: unknown }).path;
       if (typeof path !== "string") throw new Error(`Karta worker tool '${tool.name}' requires a path`);
-      requireWorktreePath(worktree, path);
+      const resolved = requireWorktreePath(worktree, path);
+      const repoPath = relative(realpathSync(worktree), resolved).split("\\").join("/");
+      if (repoPath === ".git" || repoPath.startsWith(".git/")) {
+        throw new Error(`Karta worker file tools cannot access Git administration paths: ${path}`);
+      }
+      if (
+        ["write", "edit"].includes(tool.name) &&
+        (repoPath === ".karta" || repoPath.startsWith(".karta/"))
+      ) {
+        throw new Error(`Karta worker file tools cannot mutate host-owned Karta state: ${path}`);
+      }
       return execute(toolCallId, params, signal, onUpdate, ctx);
     },
   };

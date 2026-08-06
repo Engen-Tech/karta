@@ -389,11 +389,12 @@ async function loadTouchedFiles(
   return files;
 }
 
-function citationRequests(diff: string): Array<{ path: string; locator: string }> {
-  const requests: Array<{ path: string; locator: string }> = [];
-  const seen = new Set<string>();
-  for (const line of diff.split("\n")) {
-    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+function addCitationRequests(
+  text: string,
+  requests: Array<{ path: string; locator: string }>,
+  seen: Set<string>,
+): void {
+  for (const line of text.split("\n")) {
     const marker = line.match(/repo-rule:\s+([^\s:]+):([^\]\n;]+)/i);
     if (!marker) continue;
     const path = marker[1];
@@ -403,6 +404,36 @@ function citationRequests(diff: string): Array<{ path: string; locator: string }
     if (!seen.has(key)) {
       seen.add(key);
       requests.push({ path, locator });
+    }
+  }
+}
+
+async function grepOmittedFileForCitations(cwd: string, file: EvidenceFile): Promise<string> {
+  try {
+    const { stdout } = await exec(
+      "git",
+      ["-C", cwd, "grep", "-n", "-I", "-e", "repo-rule:", file.sourceTree, "--", file.path],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    return stdout;
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) return "";
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    throw new Error(stderr || `git grep failed for evidence path: ${file.path}`);
+  }
+}
+
+async function citationRequests(
+  cwd: string,
+  files: EvidenceFile[],
+): Promise<Array<{ path: string; locator: string }>> {
+  const requests: Array<{ path: string; locator: string }> = [];
+  const seen = new Set<string>();
+  for (const file of files) {
+    if (file.content !== undefined) {
+      addCitationRequests(file.content, requests, seen);
+    } else if (file.objectType === "blob" && file.omitted === "too-large") {
+      addCitationRequests(await grepOmittedFileForCitations(cwd, file), requests, seen);
     }
   }
   if (requests.length > MAX_EVIDENCE_CITATIONS) {
@@ -417,10 +448,10 @@ async function loadCitations(
   cwd: string,
   integrationTip: string,
   targetTree: string,
-  diff: string,
+  files: EvidenceFile[],
 ): Promise<EvidenceCitation[]> {
   const citations: EvidenceCitation[] = [];
-  for (const [index, request] of citationRequests(diff).entries()) {
+  for (const [index, request] of (await citationRequests(cwd, files)).entries()) {
     let file = await treeFile(cwd, targetTree, request.path, index, "present");
     if (file.state === "missing") {
       file = await treeFile(cwd, integrationTip, request.path, index, "present");
@@ -430,15 +461,10 @@ async function loadCitations(
   return citations;
 }
 
-const checklistCache = new Map<string, EvidenceChecklistItem[]>();
-
 async function resolvePackChecklist(
   id: string,
   content: string,
 ): Promise<EvidenceChecklistItem[]> {
-  const cacheKey = `${id}\0${sha256(content)}`;
-  const cached = checklistCache.get(cacheKey);
-  if (cached) return cached.map((item) => ({ ...item }));
   const root = await mkdtemp(join(tmpdir(), "karta-evidence-pack-"));
   const path = join(root, `${id}.md`);
   const environment = { ...process.env };
@@ -473,9 +499,7 @@ async function resolvePackChecklist(
     ) {
       throw new Error(`Karta pack '${id}' resolver returned an invalid checklist`);
     }
-    const resolved = checklist as EvidenceChecklistItem[];
-    checklistCache.set(cacheKey, resolved.map((item) => ({ ...item })));
-    return resolved;
+    return checklist as EvidenceChecklistItem[];
   } catch (error) {
     const output = `${(error as { stdout?: string }).stdout ?? ""}${(error as { stderr?: string }).stderr ?? ""}`.trim();
     throw new Error(output || `Karta pack '${id}' checklist resolution failed`);
@@ -622,11 +646,16 @@ export async function buildKartaEvidence(
   }
   const touchedPaths = touchedRaw.split("\0").filter(Boolean).sort();
   touchedPaths.forEach(validateGitPath);
-  const [packs, files, citations] = await Promise.all([
+  const [packs, files] = await Promise.all([
     loadPacks(repositoryRoot, integrationTip, document.sme ?? []),
     loadTouchedFiles(repositoryRoot, integrationTip, target.tree, touchedPaths),
-    loadCitations(repositoryRoot, integrationTip, target.tree, diffContent),
   ]);
+  const citations = await loadCitations(
+    repositoryRoot,
+    integrationTip,
+    target.tree,
+    files,
+  );
   const checks = { oracle: checkEvidence(workItem, target.tree, options.checkReceipt) };
   const payload: KartaEvidencePayload = {
     binder: {

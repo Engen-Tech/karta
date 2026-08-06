@@ -56,7 +56,11 @@ async function fixture(): Promise<{ repo: string; cleanup(): Promise<void> }> {
     join(repo, ".karta", "sme", "project-pack.md"),
     "---\nname: project-pack\ndescription: fixture\nextends: minimalism\nexclude_rules: [\"min.4\"]\n---\n## Review checklist\n- [ ] project.1 — Review.\n",
   );
-  await writeFile(join(repo, "src", "file.txt"), "base\n");
+  const unchangedOverride =
+    "// KARTA-SME-OVERRIDE(project.1): repo-rule: AGENTS.md:Safety\n" +
+    Array.from({ length: 10 }, (_, index) => `filler-${index + 1}`).join("\n") +
+    "\n";
+  await writeFile(join(repo, "src", "file.txt"), `${unchangedOverride}base\n`);
   await writeFile(join(repo, "AGENTS.md"), "## Safety\nUse the repository token convention.\n");
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Evidence"]);
@@ -66,11 +70,8 @@ async function fixture(): Promise<{ repo: string; cleanup(): Promise<void> }> {
   await git(repo, ["commit", "--no-gpg-sign", "-m", "base"]);
   await git(repo, ["branch", "karta/demo/integration"]);
   await git(repo, ["checkout", "-b", "karta/demo/item-item-a"]);
-  await writeFile(join(repo, "src", "file.txt"), "changed\n");
-  await writeFile(
-    join(repo, "src", "new.txt"),
-    "new\n// KARTA-SME-OVERRIDE(project.1): repo-rule: AGENTS.md:Safety\n",
-  );
+  await writeFile(join(repo, "src", "file.txt"), `${unchangedOverride}changed\n`);
+  await writeFile(join(repo, "src", "new.txt"), "new\n");
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "item"]);
   return { repo, cleanup: () => rm(root, { recursive: true, force: true }) };
@@ -93,6 +94,7 @@ test("evidence binds binder, item, tips, diff, and project/package packs", async
     assert.match(evidence.evidenceHash, /^[a-f0-9]{64}$/);
     assert.deepEqual(evidence.payload.diff.touchedPaths, ["src/file.txt", "src/new.txt"]);
     assert.match(evidence.payload.diff.content, /changed/);
+    assert.doesNotMatch(evidence.payload.diff.content, /KARTA-SME-OVERRIDE/);
     assert.deepEqual(evidence.payload.files.map((file) => file.path), ["src/file.txt", "src/new.txt"]);
     assert.match(evidence.payload.files[0].content ?? "", /changed/);
     assert.deepEqual(
@@ -288,7 +290,7 @@ test("evidence reader exposes fixed sections and bounded diff pages only", async
       undefined,
       TOOL_CONTEXT,
     );
-    assert.match(text(touchedFile), /changed/);
+    assert.match(text(touchedFile), /KARTA-SME-OVERRIDE/);
     const citation = await tool.execute(
       "citation",
       { action: "citation", index: 0, offset: 0, limit: 200 },

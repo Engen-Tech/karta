@@ -46,7 +46,7 @@ test("isolated child loader ignores ambient resources and context", async () => 
   }
 });
 
-test("strict gate runtime rejects ambient native providers before copying them", async () => {
+test("isolated gate and worker runtimes reject ambient native providers", async () => {
   const ctx = {
     model: { provider: "native-fixture", id: "model" },
     modelRegistry: {
@@ -54,13 +54,15 @@ test("strict gate runtime rejects ambient native providers before copying them",
       getRegisteredProviderConfig: () => undefined,
     },
   } as unknown as ExtensionCommandContext;
-  await assert.rejects(
-    () => createMirroredModelRuntime(ctx, "gate"),
-    /do not inherit dynamic native provider/,
-  );
+  for (const policy of ["gate", "worker"] as const) {
+    await assert.rejects(
+      () => createMirroredModelRuntime(ctx, policy),
+      /do not inherit dynamic native provider/,
+    );
+  }
 });
 
-test("strict gate runtime rejects executable hooks in provider configuration", async () => {
+test("isolated gate and worker runtimes reject executable provider hooks", async () => {
   const ctx = {
     model: { provider: "oauth-fixture", id: "model" },
     modelRegistry: {
@@ -68,10 +70,12 @@ test("strict gate runtime rejects executable hooks in provider configuration", a
       getRegisteredProviderConfig: () => ({ oauth: { name: "fixture" } }),
     },
   } as unknown as ExtensionCommandContext;
-  await assert.rejects(
-    () => createMirroredModelRuntime(ctx, "gate"),
-    /do not inherit executable provider hooks/,
-  );
+  for (const policy of ["gate", "worker"] as const) {
+    await assert.rejects(
+      () => createMirroredModelRuntime(ctx, policy),
+      /do not inherit executable provider hooks/,
+    );
+  }
 });
 
 test("strict gate runtime rejects a model absent from its isolated runtime", async () => {

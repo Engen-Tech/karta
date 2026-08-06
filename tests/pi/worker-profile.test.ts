@@ -28,6 +28,8 @@ test("build worker profile exposes only explicit worktree tools", async () => {
 test("worker file tools allow in-root writes and reject traversal", async () => {
   const root = await mkdtemp(join(tmpdir(), "karta-worker-write-"));
   await mkdir(join(root, "src"));
+  await mkdir(join(root, ".git"));
+  await mkdir(join(root, ".karta"));
   try {
     const profile = createBuildWorkerCapabilityProfile(root, "karta/demo/item-item-a");
     const write = profile.tools.find((tool) => tool.name === "write");
@@ -50,6 +52,28 @@ test("worker file tools allow in-root writes and reject traversal", async () => 
           { cwd: root } as ExtensionContext,
         ),
       /escapes its worktree/,
+    );
+    await assert.rejects(
+      () =>
+        write.execute(
+          "git-admin",
+          { path: ".git/config", content: "no\n" },
+          undefined,
+          undefined,
+          { cwd: root } as ExtensionContext,
+        ),
+      /Git administration paths/,
+    );
+    await assert.rejects(
+      () =>
+        write.execute(
+          "karta-state",
+          { path: ".karta/state.json", content: "no\n" },
+          undefined,
+          undefined,
+          { cwd: root } as ExtensionContext,
+        ),
+      /host-owned Karta state/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
