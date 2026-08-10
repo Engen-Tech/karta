@@ -9,6 +9,10 @@ import type { DispatchLockManager } from "./dispatch-lock.ts";
 import { deriveItemGitState } from "./git-state.ts";
 import type { KartaIntegrationResult, KartaIntegrationRunner } from "./integration-runner.ts";
 import { KartaProcessManager } from "./process-manager.ts";
+import type {
+  KartaWaveFinalizationResult,
+  KartaWaveRunner,
+} from "./wave-runner.ts";
 import { KartaBuildWorkerRunner } from "./worker-runner.ts";
 
 const exec = promisify(execFile);
@@ -31,6 +35,7 @@ export interface KartaDeliveryWave {
   items: string[];
   builds: KartaBuildItemResult[];
   integrations: KartaIntegrationResult[];
+  finalization?: KartaWaveFinalizationResult;
 }
 
 export interface KartaDeliveryResult {
@@ -148,6 +153,7 @@ export class KartaDeliveryRunner {
   readonly #builds: KartaBuildItemRunner;
   readonly #integrations: KartaIntegrationRunner;
   readonly #workers: KartaBuildWorkerRunner;
+  readonly #waves: KartaWaveRunner;
 
   constructor(
     locks: DispatchLockManager,
@@ -155,12 +161,14 @@ export class KartaDeliveryRunner {
     builds: KartaBuildItemRunner,
     integrations: KartaIntegrationRunner,
     workers: KartaBuildWorkerRunner,
+    waves: KartaWaveRunner,
   ) {
     this.#locks = locks;
     this.#processes = processes;
     this.#builds = builds;
     this.#integrations = integrations;
     this.#workers = workers;
+    this.#waves = waves;
   }
 
   async #ensureIntegrationWorktree(repoRoot: string, binder: string): Promise<string> {
@@ -192,12 +200,22 @@ export class KartaDeliveryRunner {
       const parents = (await git(expected, ["rev-list", "--parents", "-n", "1", "HEAD"]))
         .split(/\s+/).slice(1);
       const subject = await git(expected, ["show", "-s", "--format=%s", "HEAD"]);
+      const baseTags = (await git(expected, [
+        "for-each-ref",
+        "--format=%(objectname)",
+        `refs/tags/karta/${binder}/wave-*-base`,
+      ])).split("\n").filter(Boolean);
+      const recoverableTrees = new Set<string>();
+      if (parents[0]) recoverableTrees.add(await git(expected, ["rev-parse", `${parents[0]}^{tree}`]));
+      for (const tag of baseTags) {
+        recoverableTrees.add(await git(expected, ["rev-parse", `${tag}^{tree}`]));
+      }
       if (
         parents.length !== 2 ||
-        indexTree !== await git(expected, ["rev-parse", `${parents[0]}^{tree}`]) ||
+        !recoverableTrees.has(indexTree) ||
         !subject.startsWith("[karta:merge-item-")
       ) {
-        throw new Error("Karta integration index differs from HEAD outside a recoverable ref-first merge");
+        throw new Error("Karta integration index differs from HEAD outside a recoverable ref-first transaction");
       }
       await git(expected, ["read-tree", "--reset", "-u", "HEAD"]);
     }
@@ -234,7 +252,18 @@ export class KartaDeliveryRunner {
       );
       const integrationWorktree = await this.#ensureIntegrationWorktree(repoRoot, binder);
       const waves: KartaDeliveryWave[] = [];
-      for (let wave = 1; wave <= document.work_items.length * 2 + 1; wave += 1) {
+      const existingTags = await git(repoRoot, [
+        "for-each-ref",
+        "--format=%(refname)",
+        `refs/tags/karta/${binder}/wave-*`,
+      ]);
+      let waveNumber = Math.max(
+        0,
+        ...existingTags.split("\n").map((ref) =>
+          Number(ref.match(/\/wave-(\d+)(?:-base)?$/)?.[1] ?? 0),
+        ),
+      ) + 1;
+      for (let pass = 1; pass <= document.work_items.length * 2 + 1; pass += 1) {
         const states = new Map(
           await Promise.all(document.work_items.map(async (item) => [
             item.id,
@@ -283,7 +312,7 @@ export class KartaDeliveryRunner {
           batch.map((item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner)),
         );
         const waveResult: KartaDeliveryWave = {
-          wave,
+          wave: waveNumber,
           items: batch.map((item) => item.id),
           builds,
           integrations: [],
@@ -302,6 +331,16 @@ export class KartaDeliveryRunner {
             message: `Item '${failedBuild.item}' did not produce a mergeable built checkpoint.`,
           };
         }
+        const anchor = await this.#waves.start(
+          binder,
+          waveNumber,
+          integrationWorktree,
+          lease,
+        );
+        const waveChecks: KartaCheckPlanEntry[] = builds.flatMap((build) =>
+          build.worker?.checks.map((check) => ({ ...check, purpose: "floor" as const })) ?? [],
+        );
+        let integrationFailed = false;
         for (const [index, item] of batch.entries()) {
           let state = await deriveItemGitState(repoRoot, binder, item.id);
           if (state.state === "done") continue;
@@ -341,6 +380,7 @@ export class KartaDeliveryRunner {
               ...check,
               purpose: "floor",
             }));
+            waveChecks.push(...checks);
           }
           const integrated = await this.#integrations.integrate(
             ctx,
@@ -353,16 +393,33 @@ export class KartaDeliveryRunner {
           );
           waveResult.integrations.push(integrated);
           if (integrated.status !== "integrated") {
-            return {
-              schema: "karta-delivery-v1",
-              binder,
-              status: "blocked",
-              integrationWorktree,
-              waves,
-              message: `Item '${item.id}' failed proposed-tree integration.`,
-            };
+            integrationFailed = true;
+            break;
           }
         }
+        const waveFinalization = await this.#waves.finish(
+          ctx,
+          anchor,
+          integrationWorktree,
+          lease,
+          waveResult.integrations,
+          waveChecks,
+          { manager: this.#processes, owner },
+        );
+        waveResult.finalization = waveFinalization;
+        if (integrationFailed || waveFinalization.status === "rolled-back") {
+          return {
+            schema: "karta-delivery-v1",
+            binder,
+            status: "blocked",
+            integrationWorktree,
+            waves,
+            message: integrationFailed
+              ? "A proposed-tree integration failed; the partial wave was rolled back."
+              : "Post-wave validation failed; the wave was rolled back.",
+          };
+        }
+        waveNumber += 1;
       }
       throw new Error("Karta delivery exceeded its deterministic wave bound");
     } finally {

@@ -20,6 +20,7 @@ import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
 import { KartaProcessManager } from "./process-manager.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
 import { KartaVerificationRunner } from "./verification-runner.ts";
+import { KartaWaveRunner } from "./wave-runner.ts";
 import { KartaBuildWorkerRunner } from "./worker-runner.ts";
 
 export default function kartaPi(extension: ExtensionAPI): void {
@@ -33,12 +34,14 @@ export default function kartaPi(extension: ExtensionAPI): void {
   const finalizer = new KartaBuildFinalizer(dispatchLocks, verification);
   const buildItems = new KartaBuildItemRunner(dispatchLocks, workers, finalizer, processes);
   const integrations = new KartaIntegrationRunner(dispatchLocks, verification);
+  const waves = new KartaWaveRunner(dispatchLocks);
   const deliveries = new KartaDeliveryRunner(
     dispatchLocks,
     processes,
     buildItems,
     integrations,
     workers,
+    waves,
   );
   const guards = registerGuardAdapters(extension);
   extension.registerTool(createKartaScriptTool(extension));

@@ -12,6 +12,7 @@ import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import type { KartaIntegrationRunner } from "../../extensions/pi/integration-runner.ts";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
 import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
+import type { KartaWaveRunner } from "../../extensions/pi/wave-runner.ts";
 import type { KartaBuildWorkerRunner } from "../../extensions/pi/worker-runner.ts";
 
 const exec = promisify(execFile);
@@ -142,8 +143,28 @@ function createRunner(repo: string): { runner: KartaDeliveryRunner; maxParallel(
       throw new Error("floor discovery should not run for fresh builds");
     },
   } as unknown as KartaBuildWorkerRunner;
+  const waves = {
+    async start(binder: string, wave: number) {
+      return {
+        binder,
+        wave,
+        base: await git(repo, ["rev-parse", `refs/heads/karta/${binder}/integration`]),
+        baseTag: `refs/tags/karta/${binder}/wave-${wave}-base`,
+      };
+    },
+    async finish(_ctx: unknown, anchor: unknown) {
+      return {
+        schema: "karta-wave-finalization-v1",
+        status: "passed",
+        anchor,
+        tip: await git(repo, ["rev-parse", "refs/heads/karta/demo/integration"]),
+        successTag: "refs/tags/karta/demo/wave-fixture",
+        message: "passed",
+      };
+    },
+  } as unknown as KartaWaveRunner;
   return {
-    runner: new KartaDeliveryRunner(locks, processes, builds, integrations, workers),
+    runner: new KartaDeliveryRunner(locks, processes, builds, integrations, workers, waves),
     maxParallel: () => maximum,
   };
 }
