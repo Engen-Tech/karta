@@ -263,6 +263,17 @@ test("merge evidence binds the proposed merged tree, not a divergent two-tip dif
       await git(repo, ["rev-parse", "HEAD^{tree}"]),
       evidence.payload.git.targetTree,
     );
+    const landed = await buildKartaEvidence({
+      cwd: repo,
+      binder: "demo",
+      item: "item-a",
+      target: "landed",
+    });
+    assert.equal(landed.payload.git.targetKind, "landed-merge-tip");
+    assert.equal(landed.payload.git.targetTree, evidence.payload.git.targetTree);
+    assert.equal(landed.payload.git.mergeBase, integrationTip);
+    assert.deepEqual(landed.payload.diff.touchedPaths, ["src/file.txt", "src/new.txt"]);
+    await verifyEvidenceFreshness(landed);
   } finally {
     await cleanup();
   }

@@ -48,7 +48,11 @@ export interface EvidencePack {
   checklist: EvidenceChecklistItem[];
 }
 
-export type KartaEvidenceTargetKind = "candidate-tree" | "committed-tip" | "merge-tree";
+export type KartaEvidenceTargetKind =
+  | "candidate-tree"
+  | "committed-tip"
+  | "merge-tree"
+  | "landed-merge-tip";
 
 export interface EvidenceFile {
   index: number;
@@ -148,7 +152,7 @@ export interface BuildEvidenceOptions {
   cwd: string;
   binder: string;
   item: string;
-  target?: "auto" | "candidate" | "committed" | "merge";
+  target?: "auto" | "candidate" | "committed" | "merge" | "landed";
   checkManifest?: KartaCheckManifest;
   maxDiffBytes?: number;
 }
@@ -311,6 +315,19 @@ async function resolveEvidenceTarget(
 ): Promise<{ kind: KartaEvidenceTargetKind; tree: string }> {
   if (requested === "merge") {
     return { kind: "merge-tree", tree: await mergeTree(cwd, integrationTip, itemTip) };
+  }
+  if (requested === "landed") {
+    const parents = (await git(cwd, ["rev-list", "--parents", "-n", "1", integrationTip]))
+      .trim()
+      .split(/\s+/)
+      .slice(1);
+    if (parents.length !== 2 || parents[1] !== itemTip) {
+      throw new Error("Karta landed evidence requires integration to be the two-parent item merge");
+    }
+    return {
+      kind: "landed-merge-tip",
+      tree: (await git(cwd, ["rev-parse", `${integrationTip}^{tree}`])).trim(),
+    };
   }
   if (requested !== "committed") {
     const candidate = await candidateTree(cwd, expectedBranch);
@@ -710,15 +727,18 @@ export async function buildKartaEvidence(
     itemTip,
     options.target ?? "auto",
   );
-  const mergeBase = (await git(repositoryRoot, ["merge-base", integrationTip, itemTip])).trim();
+  const mergeBase = target.kind === "landed-merge-tip"
+    ? (await git(repositoryRoot, ["rev-parse", `${integrationTip}^1`])).trim()
+    : (await git(repositoryRoot, ["merge-base", integrationTip, itemTip])).trim();
+  const policyTip = target.kind === "landed-merge-tip" ? mergeBase : integrationTip;
   const binderPath = `.karta/binders/${options.binder}.json`;
-  const binderRaw = await git(repositoryRoot, ["show", `${integrationTip}:${binderPath}`]);
+  const binderRaw = await git(repositoryRoot, ["show", `${policyTip}:${binderPath}`]);
   if (Buffer.byteLength(binderRaw) > MAX_BINDER_BYTES) {
     throw new Error(`Karta binder '${options.binder}' exceeds ${MAX_BINDER_BYTES} bytes`);
   }
   const parsedBinder = parseBinder(binderRaw, options.binder, options.item);
   await validateBinderSource(binderRaw, options.binder);
-  const binderBlob = (await git(repositoryRoot, ["rev-parse", `${integrationTip}:${binderPath}`])).trim();
+  const binderBlob = (await git(repositoryRoot, ["rev-parse", `${policyTip}:${binderPath}`])).trim();
   const { document, workItem } = parsedBinder;
   const [diffContent, touchedRaw] = await Promise.all([
     git(repositoryRoot, [
@@ -726,7 +746,7 @@ export async function buildKartaEvidence(
       "--binary",
       "--no-color",
       "--no-ext-diff",
-      integrationTip,
+      policyTip,
       target.tree,
       "--",
     ]),
@@ -735,7 +755,7 @@ export async function buildKartaEvidence(
       "--name-only",
       "-z",
       "--no-ext-diff",
-      integrationTip,
+      policyTip,
       target.tree,
       "--",
     ]),
@@ -748,12 +768,12 @@ export async function buildKartaEvidence(
   const touchedPaths = touchedRaw.split("\0").filter(Boolean).sort();
   touchedPaths.forEach(validateGitPath);
   const [packs, files] = await Promise.all([
-    loadPacks(repositoryRoot, integrationTip, document.sme ?? []),
-    loadTouchedFiles(repositoryRoot, integrationTip, target.tree, touchedPaths),
+    loadPacks(repositoryRoot, policyTip, document.sme ?? []),
+    loadTouchedFiles(repositoryRoot, policyTip, target.tree, touchedPaths),
   ]);
   const citations = await loadCitations(
     repositoryRoot,
-    integrationTip,
+    policyTip,
     target.tree,
     files,
   );
@@ -832,6 +852,18 @@ export async function verifyEvidenceFreshness(manifest: KartaEvidenceManifest): 
     const tree = await mergeTree(manifest.repositoryRoot, integrationTip, itemTip);
     if (tree !== evidenceGit.targetTree) {
       throw new Error("Karta evidence is stale because the proposed merge tree changed");
+    }
+  } else if (evidenceGit.targetKind === "landed-merge-tip") {
+    const parents = (await git(manifest.repositoryRoot, [
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      integrationTip,
+    ])).trim().split(/\s+/).slice(1);
+    const tree = (await git(manifest.repositoryRoot, ["rev-parse", `${integrationTip}^{tree}`])).trim();
+    if (parents.length !== 2 || parents[1] !== itemTip || tree !== evidenceGit.targetTree) {
+      throw new Error("Karta evidence is stale because the landed item merge changed");
     }
   }
 }

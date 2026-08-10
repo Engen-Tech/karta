@@ -7,7 +7,10 @@ import { promisify } from "node:util";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KartaBuildFinalizer } from "../../extensions/pi/build-finalizer.ts";
-import { KartaBuildItemRunner } from "../../extensions/pi/build-runner.ts";
+import {
+  KartaBuildItemRunner,
+  type KartaBuildCheckpoint,
+} from "../../extensions/pi/build-runner.ts";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
 import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
@@ -104,6 +107,7 @@ function runner(
   repo: string,
   workerRun: (...args: any[]) => Promise<KartaWorkerResult>,
   finalizer: Record<string, (...args: any[]) => Promise<any>>,
+  checkpoint: KartaBuildCheckpoint = () => {},
 ): KartaBuildItemRunner {
   const locks = new DispatchLockManager();
   return new KartaBuildItemRunner(
@@ -111,6 +115,7 @@ function runner(
     { run: workerRun } as unknown as KartaBuildWorkerRunner,
     finalizer as unknown as KartaBuildFinalizer,
     new KartaProcessManager(new LifecycleRegistry(), 10),
+    checkpoint,
   );
 }
 
@@ -158,6 +163,43 @@ test("fixed build creates the deterministic item worktree and owns finalization"
   }
 });
 
+test("deterministic crash after worker attestation leaves resumable Git state", async () => {
+  const state = await fixture();
+  try {
+    const crashed = runner(
+      state.repo,
+      async (_ctx, worktree, _branch, binder, item) => {
+        await writeFile(join(worktree, "subject.txt"), "candidate\n");
+        return workerResult(binder, item);
+      },
+      {},
+      (name) => {
+        if (name === "worker-attested") throw new Error("injected worker crash");
+      },
+    );
+    await assert.rejects(
+      () => crashed.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a"),
+      /injected worker crash/,
+    );
+    const worktree = join(dirname(state.repo), "repo-worktrees", "karta-demo-item-item-a");
+    assert.match(await git(worktree, ["status", "--short"]), /subject\.txt/);
+
+    const resumed = runner(
+      state.repo,
+      async (_ctx, _worktree, _branch, binder, item) => workerResult(binder, item),
+      {
+        async finalizeCandidate(_ctx, binder, item) {
+          return { status: "built", binder, item, commit: "e".repeat(40), message: "resumed" };
+        },
+      },
+    );
+    const result = await resumed.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "built");
+  } finally {
+    await state.cleanup();
+  }
+});
+
 test("acceptance concerns cap at two attempts and write failed through the host", async () => {
   const state = await fixture();
   try {
@@ -194,6 +236,76 @@ test("acceptance concerns cap at two attempts and write failed through the host"
     assert.equal(result.attempts, 2);
     assert.equal(workers, 2);
     assert.equal(failedRecords, 1);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("committed-unmarked reuses the worker only for floor discovery and host recovery", async () => {
+  const state = await fixture();
+  try {
+    await git(state.repo, ["branch", "karta/demo/item-item-a", "karta/demo/integration"]);
+    const worktree = join(state.root, "committed-item");
+    await git(state.repo, ["worktree", "add", worktree, "karta/demo/item-item-a"]);
+    await writeFile(join(worktree, "subject.txt"), "candidate\n");
+    await git(worktree, ["add", "."]);
+    await git(worktree, ["commit", "--no-gpg-sign", "-m", "[karta:item-item-a] committed"]);
+    let mode: string | undefined;
+    let recoveries = 0;
+    const build = runner(
+      state.repo,
+      async (_ctx, _worktree, _branch, binder, item, _assignment, _feedback, _parent, workerMode) => {
+        mode = workerMode;
+        return workerResult(binder, item);
+      },
+      {
+        async recoverCommittedCandidate(_ctx, binder, item) {
+          recoveries += 1;
+          return { status: "built", binder, item, commit: "c".repeat(40), message: "recovered" };
+        },
+      },
+    );
+    const result = await build.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "recovered");
+    assert.equal(mode, "recover-committed");
+    assert.equal(recoveries, 1);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("merged-unmarked revalidates through the host without editing or redispatching implementation", async () => {
+  const state = await fixture();
+  try {
+    await git(state.repo, ["branch", "karta/demo/item-item-a", "karta/demo/integration"]);
+    const worktree = join(state.root, "merged-item");
+    await git(state.repo, ["worktree", "add", worktree, "karta/demo/item-item-a"]);
+    await writeFile(join(worktree, "subject.txt"), "candidate\n");
+    await git(worktree, ["add", "."]);
+    await git(worktree, ["commit", "--no-gpg-sign", "-m", "[karta:item-item-a] built"]);
+    const itemTip = await git(worktree, ["rev-parse", "HEAD"]);
+    await git(worktree, ["update-ref", "refs/karta/demo/item-item-a/built", itemTip]);
+    await git(state.repo, ["checkout", "karta/demo/integration"]);
+    await git(state.repo, ["merge", "--no-ff", "--no-gpg-sign", "-m", "merge item", itemTip]);
+    let mode: string | undefined;
+    let recoveries = 0;
+    const build = runner(
+      state.repo,
+      async (_ctx, _worktree, _branch, binder, item, _assignment, _feedback, _parent, workerMode) => {
+        mode = workerMode;
+        return workerResult(binder, item);
+      },
+      {
+        async recoverMergedCandidate(_ctx, binder, item) {
+          recoveries += 1;
+          return { status: "built", binder, item, commit: "d".repeat(40), message: "recovered" };
+        },
+      },
+    );
+    const result = await build.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "recovered");
+    assert.equal(mode, "recover-merged");
+    assert.equal(recoveries, 1);
   } finally {
     await state.cleanup();
   }

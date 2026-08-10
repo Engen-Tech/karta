@@ -15,6 +15,7 @@ anywhere in the worktree is seen regardless of where the scan starts.
 
 Usage:
   uv run skills/karta-build/scripts/scan_secrets.py            # scan staged diff, exit 0/1
+  uv run skills/karta-build/scripts/scan_secrets.py --base <commit> --target <commit>
   uv run skills/karta-build/scripts/scan_secrets.py --allowlist .karta/secret-scan-allowlist
   uv run skills/karta-build/scripts/scan_secrets.py --self-test  # embedded fixtures, exit 0/1
 
@@ -73,20 +74,29 @@ def shannon_entropy(s: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
-def staged_added_lines() -> list[tuple[str, int, str]]:
-    """Return (path, line_no, text) for every added line in the staged diff.
+def added_lines(base: str | None = None, target: str | None = None) -> list[tuple[str, int, str]]:
+    """Return (path, line_no, text) for every added line in one exact diff.
 
-    Reads the full staged diff with `git diff --cached -U0` — no path scope,
-    so a secret staged anywhere in the worktree is seen. No grep/find.
-    Returns [] when git is absent or nothing is staged.
+    With no revisions, reads the full staged diff. With both revisions, reads
+    that committed range. Supplying only one revision is invalid.
     """
+    if (base is None) != (target is None):
+        raise ValueError("--base and --target must be supplied together")
+    command = ["git", "diff"]
+    if base is None:
+        command.append("--cached")
+    else:
+        command.extend([base, target])
+    command.extend(["--no-color", "-U0"])
     try:
         out = subprocess.run(
-            ["git", "diff", "--cached", "--no-color", "-U0"],
+            command,
             text=True, capture_output=True, check=True,
         ).stdout
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return []
+    except FileNotFoundError as exc:
+        raise RuntimeError("git is unavailable during secret scan") from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(exc.stderr.strip() or "git diff failed during secret scan") from exc
     rows: list[tuple[str, int, str]] = []
     path = ""
     new_line = 0
@@ -195,12 +205,16 @@ def _run_self_test() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Scan the staged diff for committed secrets.")
     ap.add_argument("--allowlist", type=Path, default=Path(".karta/secret-scan-allowlist"))
+    ap.add_argument("--base")
+    ap.add_argument("--target")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
         return _run_self_test()
+    if (args.base is None) != (args.target is None):
+        ap.error("--base and --target must be supplied together")
     allow = load_allowlist(args.allowlist)
-    findings = scan_lines(staged_added_lines(), allow)
+    findings = scan_lines(added_lines(args.base, args.target), allow)
     if findings:
         print("SECRET SCAN: BLOCKED")
         for f in findings:

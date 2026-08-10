@@ -61,11 +61,12 @@ test("item recovery state advances from Git alone through the clean delivery pat
 
     await git(repo, ["checkout", "karta/demo/integration"]);
     await git(repo, ["merge", "--no-ff", "--no-gpg-sign", "-m", "merge item", itemTip]);
+    const integrationTip = await git(repo, ["rev-parse", "HEAD"]);
     const merged = await deriveItemGitState(repo, "demo", "item-a");
     assert.equal(merged.state, "merged-unmarked");
+    assert.equal(merged.mergeCommit, integrationTip);
     assert.match(merged.nextAction, /write done ref-last/);
 
-    const integrationTip = await git(repo, ["rev-parse", "HEAD"]);
     await git(repo, ["update-ref", "refs/karta/demo/item-item-a/done", integrationTip]);
     assert.equal((await deriveItemGitState(repo, "demo", "item-a")).state, "done");
   } finally {
@@ -150,6 +151,21 @@ test("missing commit markers and malformed refs fail closed without cleanup", as
       () => deriveItemGitState(repo, "demo", "item-a"),
       /reference broken|bad ref|not a valid ref|invalid object/i,
     );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("fast-forwarded built items are inconsistent rather than recoverable merges", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    await git(repo, ["checkout", "-b", "karta/demo/item-item-a", "karta/demo/integration"]);
+    const itemTip = await commitItem(repo);
+    await git(repo, ["update-ref", "refs/karta/demo/item-item-a/built", itemTip]);
+    await git(repo, ["update-ref", "refs/heads/karta/demo/integration", itemTip]);
+    const state = await deriveItemGitState(repo, "demo", "item-a");
+    assert.equal(state.state, "inconsistent");
+    assert.match(state.diagnostics.join(" "), /no first-parent two-parent merge/);
   } finally {
     await cleanup();
   }

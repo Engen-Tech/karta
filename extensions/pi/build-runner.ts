@@ -15,6 +15,18 @@ const MAX_GIT_OUTPUT = 8 * 1024 * 1024;
 const MAX_ACCEPTANCE_ATTEMPTS = 2;
 const MAX_SAFETY_ATTEMPTS = 3;
 
+export type KartaBuildCheckpoint = (
+  name:
+    | "lock-acquired"
+    | "owner-created"
+    | "state-derived"
+    | "worktree-ready"
+    | "before-worker"
+    | "worker-attested"
+    | "before-finalization"
+    | "finalization-returned",
+) => Promise<void> | void;
+
 export interface KartaBuildItemResult {
   schema: "karta-build-item-v1";
   binder: string;
@@ -95,7 +107,7 @@ function terminalRecovery(
       message: state.nextAction,
     };
   }
-  if (state.state === "failed" || state.state === "accept-merge-pending" || state.state === "merged-unmarked") {
+  if (state.state === "failed" || state.state === "accept-merge-pending") {
     return {
       schema: "karta-build-item-v1",
       binder,
@@ -108,7 +120,7 @@ function terminalRecovery(
       message: state.nextAction,
     };
   }
-  if (state.state === "inconsistent" || state.state === "committed-unmarked") {
+  if (state.state === "inconsistent") {
     return {
       schema: "karta-build-item-v1",
       binder,
@@ -135,30 +147,36 @@ export class KartaBuildItemRunner {
   readonly #workers: KartaBuildWorkerRunner;
   readonly #finalizer: KartaBuildFinalizer;
   readonly #processes: KartaProcessManager;
+  readonly #checkpoint: KartaBuildCheckpoint;
 
   constructor(
     locks: DispatchLockManager,
     workers: KartaBuildWorkerRunner,
     finalizer: KartaBuildFinalizer,
     processes: KartaProcessManager,
+    checkpoint: KartaBuildCheckpoint = () => {},
   ) {
     this.#locks = locks;
     this.#workers = workers;
     this.#finalizer = finalizer;
     this.#processes = processes;
+    this.#checkpoint = checkpoint;
   }
 
   async run(ctx: ExtensionContext, binder: string, item: string): Promise<KartaBuildItemResult> {
     const lease = await this.#locks.acquire(ctx.cwd, binder);
     let owner;
     try {
+      await this.#checkpoint("lock-acquired");
       owner = this.#processes.createBinderOwner(ctx.cwd, binder);
+      await this.#checkpoint("owner-created");
     } catch (error) {
       await this.#locks.release(lease);
       throw error;
     }
     try {
       let state = await deriveItemGitState(ctx.cwd, binder, item);
+      await this.#checkpoint("state-derived");
       const terminal = terminalRecovery(binder, item, state);
       if (terminal) return terminal;
 
@@ -188,6 +206,7 @@ export class KartaBuildItemRunner {
           throw new Error("Karta could not prove ownership of the item worktree it created");
         }
       }
+      await this.#checkpoint("worktree-ready");
 
       let feedback: unknown[] = [];
       let attempts = 0;
@@ -195,6 +214,10 @@ export class KartaBuildItemRunner {
       let safetyAttempts = 0;
       while (attempts < MAX_SAFETY_ATTEMPTS) {
         attempts += 1;
+        const beforeWorker = await deriveItemGitState(worktree, binder, item);
+        const recoverCommitted = beforeWorker.state === "committed-unmarked";
+        const recoverMerged = beforeWorker.state === "merged-unmarked";
+        await this.#checkpoint("before-worker");
         const worker = await this.#workers.run(
           ctx,
           worktree,
@@ -204,7 +227,9 @@ export class KartaBuildItemRunner {
           assignment,
           feedback,
           owner.id,
+          recoverCommitted ? "recover-committed" : recoverMerged ? "recover-merged" : "implement",
         );
+        await this.#checkpoint("worker-attested");
         if (worker.outcome === "blocked") {
           return {
             schema: "karta-build-item-v1",
@@ -222,21 +247,73 @@ export class KartaBuildItemRunner {
           ...check,
           purpose: "floor",
         }));
-        const finalization = await this.#finalizer.finalizeCandidate(
-          ctx,
-          binder,
-          item,
-          worktree,
-          lease,
-          checks,
-          { manager: this.#processes, owner },
-        );
+        const afterWorker = await deriveItemGitState(worktree, binder, item);
+        if (recoverMerged && afterWorker.state !== "merged-unmarked") {
+          return {
+            schema: "karta-build-item-v1",
+            binder,
+            item,
+            status: "blocked",
+            recoveryState: state.state,
+            attempts,
+            worktree,
+            message: "Worker changed the item worktree during landed-merge recovery.",
+            worker,
+          };
+        }
+        const recoveringExactCommit = afterWorker.state === "committed-unmarked";
+        await this.#checkpoint("before-finalization");
+        const finalization = recoverMerged
+          ? await this.#finalizer.recoverMergedCandidate(
+              ctx,
+              binder,
+              item,
+              worktree,
+              lease,
+              checks,
+              { manager: this.#processes, owner },
+            )
+          : recoveringExactCommit
+            ? await this.#finalizer.recoverCommittedCandidate(
+              ctx,
+              binder,
+              item,
+              worktree,
+              lease,
+              checks,
+              { manager: this.#processes, owner },
+            )
+          : await this.#finalizer.finalizeCandidate(
+              ctx,
+              binder,
+              item,
+              worktree,
+              lease,
+              checks,
+              { manager: this.#processes, owner },
+            );
+        await this.#checkpoint("finalization-returned");
         if (finalization.status === "built" || finalization.status === "no-change") {
           return {
             schema: "karta-build-item-v1",
             binder,
             item,
-            status: finalization.status,
+            status: recoverMerged || recoveringExactCommit ? "recovered" : finalization.status,
+            recoveryState: state.state,
+            attempts,
+            worktree,
+            commit: finalization.commit,
+            message: finalization.message,
+            worker,
+            finalization,
+          };
+        }
+        if (recoverMerged) {
+          return {
+            schema: "karta-build-item-v1",
+            binder,
+            item,
+            status: "blocked",
             recoveryState: state.state,
             attempts,
             worktree,
@@ -268,14 +345,22 @@ export class KartaBuildItemRunner {
         const capped =
           acceptanceAttempts >= MAX_ACCEPTANCE_ATTEMPTS || safetyAttempts >= MAX_SAFETY_ATTEMPTS;
         if (capped) {
-          const failed = await this.#finalizer.recordFailedCandidate(
-            ctx,
-            binder,
-            item,
-            worktree,
-            lease,
-            finalization,
-          );
+          const failed = recoveringExactCommit
+            ? await this.#finalizer.recordRecoveredFailedCandidate(
+                binder,
+                item,
+                worktree,
+                lease,
+                finalization,
+              )
+            : await this.#finalizer.recordFailedCandidate(
+                ctx,
+                binder,
+                item,
+                worktree,
+                lease,
+                finalization,
+              );
           return {
             schema: "karta-build-item-v1",
             binder,

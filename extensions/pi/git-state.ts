@@ -28,6 +28,7 @@ export interface KartaItemGitState {
   itemRef: string;
   itemTip?: string;
   worktree?: string;
+  mergeCommit?: string;
   dirty: {
     staged: boolean;
     unstaged: boolean;
@@ -146,9 +147,24 @@ async function hasItemMarker(cwd: string, commit: string, item: string): Promise
   );
 }
 
-async function mergeParentCount(cwd: string, commit: string): Promise<number> {
+async function commitParents(cwd: string, commit: string): Promise<string[]> {
   const line = (await git(cwd, ["rev-list", "--parents", "-n", "1", commit])).trim();
-  return Math.max(0, line.split(/\s+/).length - 1);
+  return line.split(/\s+/).slice(1);
+}
+
+async function landedItemMerge(
+  cwd: string,
+  integrationTip: string,
+  itemTip: string,
+): Promise<string | undefined> {
+  const firstParent = (await git(cwd, ["rev-list", "--first-parent", integrationTip]))
+    .split("\n")
+    .filter(Boolean);
+  for (const commit of firstParent) {
+    const parents = await commitParents(cwd, commit);
+    if (parents.length === 2 && parents[1] === itemTip) return commit;
+  }
+  return undefined;
 }
 
 async function trailer(cwd: string, commit: string, key: string): Promise<string> {
@@ -190,6 +206,10 @@ export async function deriveItemGitState(
     worktreeForBranch(cwd, itemRef),
   ]);
   const dirty = await dirtyState(worktree);
+  const itemMerged = Boolean(itemTip && integrationTip && await isAncestor(cwd, itemTip, integrationTip));
+  const mergeCommit = itemMerged && itemTip && integrationTip
+    ? await landedItemMerge(cwd, integrationTip, itemTip)
+    : undefined;
   const diagnostics: string[] = [];
   const base = {
     binder,
@@ -201,6 +221,7 @@ export async function deriveItemGitState(
     itemRef,
     itemTip,
     worktree,
+    mergeCommit,
     dirty,
     refs: { built, failed, done, accepted },
     diagnostics,
@@ -239,11 +260,11 @@ export async function deriveItemGitState(
     if (!(await isFirstParentReachable(cwd, done, integrationTip))) {
       diagnostics.push("done ref is not first-parent-reachable from integration");
     }
-    if ((await mergeParentCount(cwd, done)) < 2) {
-      diagnostics.push("done ref does not name a merge commit");
+    if ((await commitParents(cwd, done)).length !== 2) {
+      diagnostics.push("done ref does not name a two-parent merge commit");
     }
-    if (!(await isAncestor(cwd, itemTip, done))) {
-      diagnostics.push("done merge does not contain the item tip");
+    if (mergeCommit !== done) {
+      diagnostics.push("done ref does not name the first-parent merge whose second parent is the item tip");
     }
     if (!accepted && !built) diagnostics.push("clean done state is missing its built ref");
   }
@@ -255,11 +276,12 @@ export async function deriveItemGitState(
       diagnostics.push("accepted done merge is missing Karta-Accept-Reason trailer");
     }
   }
+  if ((built || failed || done || accepted) && itemMerged && !mergeCommit) {
+    diagnostics.push("integrated item has no first-parent two-parent merge with the item tip as second parent");
+  }
   if (diagnostics.length > 0) {
     return result(base, "inconsistent", "preserve current state and repair contradictory Git evidence manually");
   }
-
-  const itemMerged = await isAncestor(cwd, itemTip, integrationTip);
   if (done) return result(base, "done", "skip this completed item");
   if (failed && itemMerged) {
     return result(

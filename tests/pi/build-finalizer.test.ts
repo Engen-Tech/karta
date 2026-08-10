@@ -6,10 +6,14 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { KartaBuildFinalizer } from "../../extensions/pi/build-finalizer.ts";
+import {
+  KartaBuildFinalizer,
+  type KartaFinalizationCheckpoint,
+} from "../../extensions/pi/build-finalizer.ts";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import type { GateModelInvoker } from "../../extensions/pi/gate-runner.ts";
+import { deriveItemGitState } from "../../extensions/pi/git-state.ts";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
 import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
 import { KartaVerificationRunner } from "../../extensions/pi/verification-runner.ts";
@@ -80,7 +84,10 @@ function gateInvoker(verdict: "pass" | "concerns" = "pass"): GateModelInvoker {
   };
 }
 
-async function fixture(invoker = gateInvoker()): Promise<{
+async function fixture(
+  invoker = gateInvoker(),
+  checkpoint: KartaFinalizationCheckpoint = () => {},
+): Promise<{
   repo: string;
   locks: DispatchLockManager;
   finalizer: KartaBuildFinalizer;
@@ -134,7 +141,7 @@ async function fixture(invoker = gateInvoker()): Promise<{
   return {
     repo,
     locks,
-    finalizer: new KartaBuildFinalizer(locks, verification),
+    finalizer: new KartaBuildFinalizer(locks, verification, checkpoint),
     ctx: { cwd: repo } as ExtensionContext,
     async cleanup() {
       await locks.releaseAll();
@@ -169,6 +176,143 @@ test("finalizer scans, checks, gates, commits, then writes built ref", async () 
       result.commit,
     );
     assert.match(await git(state.repo, ["log", "-1", "--format=%s"]), /^\[karta:item-item-a\]/);
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("committed-unmarked recovery reruns checks, gates, hooks, and writes built ref-last", async () => {
+  const state = await fixture();
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const built = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(built.status, "built");
+    await git(state.repo, ["update-ref", "-d", "refs/karta/demo/item-item-a/built"]);
+    const recovered = await state.finalizer.recoverCommittedCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(recovered.status, "built");
+    assert.equal(recovered.commit, built.commit);
+    assert.equal(
+      await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/built"]),
+      built.commit,
+    );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("committed recovery scans the exact committed range rather than an empty index", async () => {
+  const state = await fixture();
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    await writeFile(
+      join(state.repo, "secret.txt"),
+      `token = ghp_${"a".repeat(36)}\n`,
+    );
+    await git(state.repo, ["add", "."]);
+    await git(state.repo, ["commit", "--no-gpg-sign", "-m", "[karta:item-item-a] committed"]);
+    await assert.rejects(
+      () => state.finalizer.recoverCommittedCandidate(
+        state.ctx,
+        "demo",
+        "item-a",
+        state.repo,
+        lease,
+      ),
+      /SECRET SCAN: BLOCKED|github-token/,
+    );
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
+    );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("merged-unmarked recovery validates the landed merge before done ref-last", async () => {
+  const state = await fixture();
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const built = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(built.status, "built");
+    await git(state.repo, ["checkout", "karta/demo/integration"]);
+    await git(state.repo, [
+      "merge",
+      "--no-ff",
+      "--no-gpg-sign",
+      "-m",
+      "merge item-a",
+      "karta/demo/item-item-a",
+    ]);
+    const merge = await git(state.repo, ["rev-parse", "HEAD"]);
+    const recovered = await state.finalizer.recoverMergedCandidate(
+      { ...state.ctx, cwd: state.repo },
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(recovered.status, "built");
+    assert.equal(recovered.commit, merge);
+    assert.equal(
+      await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/done"]),
+      merge,
+    );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("deterministic crash after branch movement recovers from committed-unmarked", async () => {
+  let inject = true;
+  const state = await fixture(gateInvoker(), (name) => {
+    if (inject && name === "item-branch-updated") throw new Error("injected branch crash");
+  });
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    await assert.rejects(
+      () => state.finalizer.finalizeCandidate(state.ctx, "demo", "item-a", state.repo, lease),
+      /injected branch crash/,
+    );
+    const interrupted = await deriveItemGitState(state.repo, "demo", "item-a");
+    assert.equal(interrupted.state, "committed-unmarked");
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
+    );
+    inject = false;
+    const recovered = await state.finalizer.recoverCommittedCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(recovered.status, "built");
   } finally {
     await state.locks.release(lease);
     await state.cleanup();

@@ -231,6 +231,7 @@ export class KartaBuildWorkerRunner {
     assignment: Record<string, unknown>,
     feedback: unknown[] = [],
     parentId?: string,
+    mode: "implement" | "recover-committed" | "recover-merged" = "implement",
   ): Promise<KartaWorkerResult> {
     const instructions = await this.#loadInstructions(worktree);
     const profile = createBuildWorkerCapabilityProfile(worktree, branch, instructions);
@@ -249,8 +250,13 @@ export class KartaBuildWorkerRunner {
         item,
         assignment,
         feedback,
+        mode,
         instruction:
-            "Implement this assignment in the current worktree. Obey the host-owned finalization boundary.",
+          mode === "recover-committed"
+            ? "The item tip was committed before its completion ref. Do not edit files. Inspect and self-check the committed implementation, then return the complete floor-command proposal for host revalidation."
+            : mode === "recover-merged"
+              ? "The item was merged before its done ref was written. Do not edit files. Inspect the project and return the complete floor-command proposal for host revalidation of the landed merge."
+              : "Implement this assignment in the current worktree. Obey the host-owned finalization boundary.",
         }),
       });
     } catch (error) {
