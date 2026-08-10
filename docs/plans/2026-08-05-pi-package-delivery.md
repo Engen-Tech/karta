@@ -13,11 +13,11 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, 3D, 3E, and 4A|
-|In progress|Phase 4B — mutation attestation and process ownership|
-|First next action|Add pre/post worker Git mutation attestation, then wire the binder lifecycle owner into fixed `buildItem`|
+|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, 3D, 3E, 4A, 4B, and 4C|
+|In progress|Phase 4D — fixed `buildItem` recovery closure|
+|First next action|Recover committed-unmarked and merged-unmarked crash points, then add deterministic build fault injection|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Phase 3E plus doctrine-grade recovery, disposable hook validation, and binder-owned process management are committed on `feat/pi-package`|
+|Commit state|Worker authority attestation and the first fixed `buildItem` implementation are ready on `feat/pi-package`; crash-point recovery remains before Phase 4D closes|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the Phase 4A/lifecycle increment. The Pi suite currently runs 116 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the Phase 4B/4D increment. The Pi suite currently runs 125 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -376,7 +376,7 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 
 ### 4B — mutation and process ownership
 
-**Progress:** binder lifecycle owners and child process records now share the extension lifecycle registry. Host checks register detached process groups under their binder owner, normal exit forgets them, owner stop performs bounded TERM/KILL, and session shutdown reaches the same resources. Worker Bash remains owned through its registered child session. Pre/post worker mutation attestation remains.
+**Status: complete.** Binder lifecycle owners and child process records share the extension lifecycle registry. Host checks register detached process groups under their binder owner, normal exit forgets them, owner stop performs bounded TERM/KILL, and session shutdown reaches the same resources. Worker sessions are registered beneath their binder owner. Every worker is now bracketed by pre/post authority snapshots covering branch, HEAD, index flags and entries, Karta heads/refs and tags, repository/worktree config, hook identity, worktree registration, host-owned `.karta` paths, and sibling worktree state. Unexpected mutation blocks before result parsing or finalization.
 
 1. File tools deny `.git`, binders, roundtable records, SME packs, and every other host-owned surface not granted by the role. These are guardrails, never a Bash sandbox claim.
 2. Snapshot and attest branch, HEAD, index baseline, Karta refs/tags, repository/worktree config, hooks identity, worktree registry, protected paths, and sibling worktrees around every worker. Unexpected authority use blocks finalization.
@@ -385,6 +385,8 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 
 ### 4C — exact-tree finalization
 
+**Status: complete.** Clean candidates and gate-capped failed candidates both preserve the reviewed tree through disposable hook validation, `commit-tree`, expected-old branch movement, tree equality assertions, and completion-ref-last ordering.
+
 1. Consume Phase 3E's stable-tree receipt manifest under the existing binder lease.
 2. Define one hook policy: run applicable repository checks before gating, then create the reviewed commit without allowing commit hooks to mutate the index. Assert `commit^{tree}` equals the gated tree before any completion ref.
 3. Preserve the repository's commit-subject convention while always carrying the mandatory Karta item marker.
@@ -392,6 +394,8 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 5. Every ref update uses expected-old-object checks and lands only after the durable commit it indexes.
 
 ### 4D — fixed `buildItem`
+
+**Progress:** `karta_dispatch buildItem` accepts only binder/item identity, takes the binder lease, derives recovery state, creates or resumes the deterministic item worktree, binds the worker session to the binder lifecycle owner, attests worker authority, validates host-owned floor proposals, finalizes under the same lease, applies acceptance-two/safety-three retry caps, and writes `built` or `failed` ref-last. Existing `built`, `done`, and failed/human-decision states do not redispatch. Recovery after a branch commit but before its completion ref, and after integration merge but before `done`, remains.
 
 1. Add the package-owned fixed entry with binder/item identity only; callers cannot select prompts, tools, paths, commands, providers, or models.
 2. Acquire or receive the binder lease, validate the binder, derive the Git frontier, and create or resume the existing item worktree without clobbering it.

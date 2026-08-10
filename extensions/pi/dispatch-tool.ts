@@ -38,6 +38,11 @@ const dispatchParameters = Type.Union([
     item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
   }),
   Type.Object({
+    action: Type.Literal("buildItem"),
+    binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+    item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+  }),
+  Type.Object({
     action: Type.Literal("runVerification"),
     binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
     item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
@@ -62,6 +67,8 @@ interface DispatchDetails {
   provider?: string;
   model?: string;
   cached?: boolean;
+  attempts?: number;
+  worktree?: string;
 }
 
 function roleSummary(role: KartaRoleDefinition): Record<string, unknown> {
@@ -74,6 +81,14 @@ function roleSummary(role: KartaRoleDefinition): Record<string, unknown> {
     promptHash: role.promptHash,
     definitionHash: role.definitionHash,
   };
+}
+
+interface BuildItemRunner {
+  run(
+    ctx: ExtensionContext,
+    binder: string,
+    item: string,
+  ): Promise<{ status: string; attempts: number; worktree?: string }>;
 }
 
 interface VerificationRunner {
@@ -97,12 +112,13 @@ export function createKartaDispatchTool(
   preflight: GatePreflight,
   children: ChildRegistry,
   verification?: VerificationRunner,
+  buildItems?: BuildItemRunner,
 ): ToolDefinition<typeof dispatchParameters, DispatchDetails> {
   return {
     name: "karta_dispatch",
     label: "Karta dispatch",
     description:
-      "Package-owned Karta role entrypoint. Describes a fixed role, preflights a read-only gate, or runs hash-bound verification. Callers cannot supply prompts, paths, tools, commands, models, or provider hooks.",
+      "Package-owned Karta role entrypoint. Describes a fixed role, preflights a read-only gate, runs hash-bound verification, or builds one binder-bound item. Callers cannot supply prompts, paths, tools, commands, models, or provider hooks.",
     parameters: dispatchParameters,
     async execute(_toolCallId, params: KartaDispatchParameters, _signal, _onUpdate, ctx) {
       if (!ctx?.isProjectTrusted()) {
@@ -125,6 +141,18 @@ export function createKartaDispatchTool(
             binder: params.binder,
             item: params.item,
             status: state.state,
+          });
+        }
+        if (params.action === "buildItem") {
+          if (!buildItems) throw new Error("Karta build-item runner is unavailable");
+          const result = await buildItems.run(ctx, params.binder, params.item);
+          return textResult(JSON.stringify(result, null, 2), {
+            action: params.action,
+            binder: params.binder,
+            item: params.item,
+            status: result.status,
+            attempts: result.attempts,
+            worktree: result.worktree,
           });
         }
         if (params.action === "runVerification") {

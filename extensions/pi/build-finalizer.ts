@@ -23,7 +23,7 @@ import type { KartaVerificationResult, KartaVerificationRunner } from "./verific
 const exec = promisify(execFile);
 const MAX_GIT_OUTPUT = 4 * 1024 * 1024;
 
-export type KartaBuildFinalizationStatus = "built" | "retry" | "blocked" | "no-change";
+export type KartaBuildFinalizationStatus = "built" | "failed" | "retry" | "blocked" | "no-change";
 
 export interface KartaBuildFinalizationResult {
   status: KartaBuildFinalizationStatus;
@@ -115,6 +115,76 @@ export class KartaBuildFinalizer {
   constructor(locks: DispatchLockManager, verification: KartaVerificationRunner) {
     this.#locks = locks;
     this.#verification = verification;
+  }
+
+  async recordFailedCandidate(
+    ctx: ExtensionContext,
+    binder: string,
+    item: string,
+    worktree: string,
+    lease: DispatchLockLease,
+    candidate: KartaBuildFinalizationResult,
+  ): Promise<KartaBuildFinalizationResult> {
+    if (!(await this.#locks.owns(lease))) {
+      throw new Error("Karta failed-candidate recording requires the active binder lock lease");
+    }
+    if (candidate.status !== "retry" || !candidate.targetTree || !candidate.verification) {
+      throw new Error("Karta can record failed only from a scanned, gate-reviewed retry candidate");
+    }
+    const currentTree = await git(worktree, ["write-tree"]);
+    if (currentTree !== candidate.targetTree) {
+      throw new Error("Karta failed candidate changed after its gate verdict");
+    }
+    if (candidate.checks && candidate.checks.targetTree !== currentTree) {
+      throw new Error("Karta failed candidate check manifest is stale");
+    }
+    const parent = await git(worktree, ["rev-parse", "HEAD"]);
+    const expectedBranch = `karta/${binder}/item-${item}`;
+    const branch = await git(worktree, ["branch", "--show-current"]);
+    if (branch !== expectedBranch) {
+      throw new Error(`Karta finalizer expected branch '${expectedBranch}', found '${branch}'`);
+    }
+    const proposedMessage = `[karta:item-${item}] halted after bounded gate retries`;
+    const hookValidation = await validateCandidateHooks({
+      worktree,
+      candidateTree: currentTree,
+      parent,
+      message: proposedMessage,
+      signal: ctx.signal,
+    });
+    if (hookValidation.status !== "passed") {
+      return {
+        ...candidate,
+        status: "blocked",
+        hookValidation,
+        message: "Repository hooks blocked the failed-candidate checkpoint.",
+      };
+    }
+    const message = hookValidation.message ?? proposedMessage;
+    if (
+      !message.split("\n", 1)[0].includes(`[karta:item-${item}]`) &&
+      !new RegExp(`^Karta-Item:\\s*item-${item}$`, "mi").test(message)
+    ) {
+      throw new Error("Karta commit hooks removed the mandatory item marker");
+    }
+    const commit = await git(worktree, ["commit-tree", currentTree, "-p", parent, "-m", message]);
+    await git(worktree, ["update-ref", `refs/heads/${expectedBranch}`, commit, parent]);
+    if ((await git(worktree, ["rev-parse", "HEAD^{tree}"])) !== currentTree) {
+      throw new Error("Karta failed checkpoint does not preserve the reviewed tree");
+    }
+    await git(worktree, [
+      "update-ref",
+      `refs/karta/${binder}/item-${item}/failed`,
+      commit,
+      await nullObjectId(worktree),
+    ]);
+    return {
+      ...candidate,
+      status: "failed",
+      commit,
+      hookValidation,
+      message: "Gate-capped candidate committed and failed ref written ref-last.",
+    };
   }
 
   async finalizeCandidate(

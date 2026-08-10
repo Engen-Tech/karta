@@ -132,6 +132,33 @@ test("dispatch runs verification from fixed Git identity without role or prompt 
   assert.equal(response.details?.evidenceHash, "a".repeat(64));
 });
 
+test("dispatch runs fixed buildItem with binder and item identity only", async () => {
+  let received: unknown;
+  const tool = createKartaDispatchTool(
+    { ensure: async () => preflightReport },
+    new ChildRegistry(),
+    undefined,
+    {
+      async run(_ctx, binder, item) {
+        received = { binder, item };
+        return { status: "built", attempts: 1, worktree: "/fixture/item" };
+      },
+    },
+  );
+  const response = await tool.execute(
+    "build",
+    { action: "buildItem", binder: "demo", item: "item-a" },
+    undefined,
+    undefined,
+    context(),
+  );
+  assert.equal((response as { isError?: boolean }).isError, false);
+  assert.deepEqual(received, { binder: "demo", item: "item-a" });
+  assert.equal(response.details?.status, "built");
+  assert.equal(response.details?.attempts, 1);
+  assert.equal(response.details?.worktree, "/fixture/item");
+});
+
 test("dispatch schema contains no caller-controlled prompt, path, tool, or provider fields", () => {
   const tool = createKartaDispatchTool(
     { ensure: async () => preflightReport },

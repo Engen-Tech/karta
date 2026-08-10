@@ -226,6 +226,42 @@ test("retryable gate findings preserve the staged candidate without refs", async
   }
 });
 
+test("a gate-capped candidate is committed exactly before failed ref-last", async () => {
+  const state = await fixture(gateInvoker("concerns"));
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const retry = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(retry.status, "retry");
+    const failed = await state.finalizer.recordFailedCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+      retry,
+    );
+    assert.equal(failed.status, "failed");
+    assert.equal(await git(state.repo, ["rev-parse", "HEAD^{tree}"]), retry.targetTree);
+    assert.equal(
+      await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/failed"]),
+      failed.commit,
+    );
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
+    );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
 test("protected orchestration changes fail before checks or gates", async () => {
   const state = await fixture();
   const lease = await state.locks.acquire(state.repo, "demo");

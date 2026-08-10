@@ -1,6 +1,12 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, createWorkerChildSession, type ChildRuntimeReport } from "./child-runtime.ts";
 import {
+  attestWorkerAuthority,
+  snapshotWorkerAuthority,
+  type WorkerAuthorityAttestation,
+  type WorkerAuthoritySnapshot,
+} from "./worker-attestation.ts";
+import {
   loadWorkerProjectInstructions,
   type WorkerProjectInstruction,
 } from "./worker-instructions.ts";
@@ -30,6 +36,7 @@ export interface KartaWorkerResult {
   summary: string;
   checks: KartaWorkerCheckProposal[];
   runtime: ChildRuntimeReport;
+  attestation: WorkerAuthorityAttestation;
 }
 
 export interface BuildWorkerInvocation {
@@ -38,6 +45,7 @@ export interface BuildWorkerInvocation {
   profile: BuildWorkerCapabilityProfile;
   systemPrompt: string;
   userPrompt: string;
+  parentId?: string;
 }
 
 export type BuildWorkerModelInvoker = (
@@ -57,6 +65,7 @@ async function invokeBuildWorker(
     cwd: invocation.profile.worktree,
     role: "build-worker",
     label: invocation.profile.branch,
+    parentId: invocation.parentId,
   });
   const abort = () => void session.abort();
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
@@ -84,7 +93,7 @@ function parseWorkerResult(
   item: string,
   profile: BuildWorkerCapabilityProfile,
   runtime: ChildRuntimeReport,
-): KartaWorkerResult {
+): Omit<KartaWorkerResult, "attestation"> {
   let value: unknown;
   try {
     value = JSON.parse(text.trim());
@@ -146,7 +155,10 @@ function parseWorkerResult(
     }
     checkIds.add(check.id);
   }
-  return { ...(result as Omit<KartaWorkerResult, "runtime">), runtime };
+  return {
+    ...(result as Omit<KartaWorkerResult, "runtime" | "attestation">),
+    runtime,
+  } as Omit<KartaWorkerResult, "attestation">;
 }
 
 function workerSystemPrompt(profile: BuildWorkerCapabilityProfile): string {
@@ -182,19 +194,32 @@ export type WorkerInstructionLoader = (
   worktree: string,
 ) => Promise<WorkerProjectInstruction[]>;
 
+interface WorkerAuthorityInspector {
+  snapshot(worktree: string): Promise<WorkerAuthoritySnapshot>;
+  attest(before: WorkerAuthoritySnapshot, after: WorkerAuthoritySnapshot): WorkerAuthorityAttestation;
+}
+
+const defaultAuthorityInspector: WorkerAuthorityInspector = {
+  snapshot: snapshotWorkerAuthority,
+  attest: attestWorkerAuthority,
+};
+
 export class KartaBuildWorkerRunner {
   readonly #registry: ChildRegistry;
   readonly #invoke: BuildWorkerModelInvoker;
   readonly #loadInstructions: WorkerInstructionLoader;
+  readonly #authority: WorkerAuthorityInspector;
 
   constructor(
     registry: ChildRegistry,
     invoke: BuildWorkerModelInvoker = invokeBuildWorker,
     loadInstructions: WorkerInstructionLoader = loadWorkerProjectInstructions,
+    authority: WorkerAuthorityInspector = defaultAuthorityInspector,
   ) {
     this.#registry = registry;
     this.#invoke = invoke;
     this.#loadInstructions = loadInstructions;
+    this.#authority = authority;
   }
 
   async run(
@@ -205,23 +230,42 @@ export class KartaBuildWorkerRunner {
     item: string,
     assignment: Record<string, unknown>,
     feedback: unknown[] = [],
+    parentId?: string,
   ): Promise<KartaWorkerResult> {
     const instructions = await this.#loadInstructions(worktree);
     const profile = createBuildWorkerCapabilityProfile(worktree, branch, instructions);
-    const response = await this.#invoke({
-      ctx,
-      registry: this.#registry,
-      profile,
-      systemPrompt: workerSystemPrompt(profile),
-      userPrompt: JSON.stringify({
+    const before = await this.#authority.snapshot(worktree);
+    let response: { text: string; runtime: ChildRuntimeReport } | undefined;
+    let invocationError: unknown;
+    try {
+      response = await this.#invoke({
+        ctx,
+        registry: this.#registry,
+        profile,
+        parentId,
+        systemPrompt: workerSystemPrompt(profile),
+        userPrompt: JSON.stringify({
         binder,
         item,
         assignment,
         feedback,
         instruction:
-          "Implement this assignment in the current worktree. Obey the host-owned finalization boundary.",
-      }),
-    });
-    return parseWorkerResult(response.text, binder, item, profile, response.runtime);
+            "Implement this assignment in the current worktree. Obey the host-owned finalization boundary.",
+        }),
+      });
+    } catch (error) {
+      invocationError = error;
+    }
+    const after = await this.#authority.snapshot(worktree);
+    const attestation = this.#authority.attest(before, after);
+    if (!attestation.passed) {
+      throw new Error(`Karta worker violated host authority: ${attestation.issues.join("; ")}`);
+    }
+    if (invocationError) throw invocationError;
+    if (!response) throw new Error("Karta build worker returned no response");
+    return {
+      ...parseWorkerResult(response.text, binder, item, profile, response.runtime),
+      attestation,
+    };
   }
 }

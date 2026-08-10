@@ -7,6 +7,35 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
 import { KartaBuildWorkerRunner } from "../../extensions/pi/worker-runner.ts";
 
+const authoritySnapshot = {
+  schema: "karta-worker-authority-snapshot-v1" as const,
+  worktree: "/fixture",
+  branch: "karta/demo/item-item-a",
+  head: "a".repeat(40),
+  index: "b".repeat(64),
+  refs: "c".repeat(64),
+  config: "d".repeat(64),
+  hooks: "e".repeat(64),
+  worktrees: "f".repeat(64),
+  protectedPaths: "1".repeat(64),
+  siblings: "2".repeat(64),
+};
+
+const authority = {
+  async snapshot() {
+    return authoritySnapshot;
+  },
+  attest(before: typeof authoritySnapshot, after: typeof authoritySnapshot) {
+    return {
+      schema: "karta-worker-authority-attestation-v1" as const,
+      passed: true,
+      issues: [],
+      before,
+      after,
+    };
+  },
+};
+
 const runtime: ChildRuntimeReport = {
   provider: "fixture",
   model: "fixture",
@@ -51,7 +80,7 @@ test("worker runner binds package prompt, assignment, profile, and result hashes
         sha256: "b".repeat(64),
         content: "Use the repository convention.\n",
       },
-    ]);
+    ], authority);
     const result = await runner.run(
       { cwd: worktree } as ExtensionContext,
       worktree,
@@ -63,6 +92,58 @@ test("worker runner binds package prompt, assignment, profile, and result hashes
     assert.equal(result.outcome, "ready");
     assert.deepEqual(result.checks, [{ id: "unit", command: "npm test", cwd: "." }]);
     assert.equal(result.runtime.policy, "worker");
+    assert.equal(result.attestation.passed, true);
+  } finally {
+    await rm(worktree, { recursive: true, force: true });
+  }
+});
+
+test("worker runner rejects protected authority changes before parsing a valid envelope", async () => {
+  const worktree = await mkdtemp(join(tmpdir(), "karta-worker-authority-"));
+  try {
+    const violatingAuthority = {
+      ...authority,
+      attest(before: typeof authoritySnapshot, after: typeof authoritySnapshot) {
+        return {
+          schema: "karta-worker-authority-attestation-v1" as const,
+          passed: false,
+          issues: ["worker changed protected authority surface: refs"],
+          before,
+          after,
+        };
+      },
+    };
+    const runner = new KartaBuildWorkerRunner(
+      new ChildRegistry(),
+      async (invocation) => ({
+        runtime,
+        text: JSON.stringify({
+          schema: "karta-worker-result-v2",
+          role: "build-worker",
+          binder: "demo",
+          item: "item-a",
+          roleDefinitionHash: invocation.profile.role.definitionHash,
+          profileHash: invocation.profile.profileHash,
+          outcome: "ready",
+          summary: "Attempted unauthorized Git mutation.",
+          checks: [],
+        }),
+      }),
+      async () => [],
+      violatingAuthority,
+    );
+    await assert.rejects(
+      () =>
+        runner.run(
+          { cwd: worktree } as ExtensionContext,
+          worktree,
+          "karta/demo/item-item-a",
+          "demo",
+          "item-a",
+          {},
+        ),
+      /violated host authority.*refs/,
+    );
   } finally {
     await rm(worktree, { recursive: true, force: true });
   }
@@ -75,6 +156,7 @@ test("worker runner rejects prose and stale envelopes", async () => {
       new ChildRegistry(),
       async () => ({ runtime, text: "done" }),
       async () => [],
+      authority,
     );
     await assert.rejects(
       () =>
@@ -105,6 +187,7 @@ test("worker runner rejects prose and stale envelopes", async () => {
         }),
       }),
       async () => [],
+      authority,
     );
     await assert.rejects(
       () =>
@@ -135,6 +218,7 @@ test("worker runner rejects prose and stale envelopes", async () => {
         }),
       }),
       async () => [],
+      authority,
     );
     await assert.rejects(
       () =>

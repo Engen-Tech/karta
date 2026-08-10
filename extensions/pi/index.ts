@@ -1,4 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { KartaBuildFinalizer } from "./build-finalizer.ts";
+import { KartaBuildItemRunner } from "./build-runner.ts";
 import {
   ChildRegistry,
   GateProviderPreflight,
@@ -16,6 +18,7 @@ import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
 import { KartaProcessManager } from "./process-manager.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
 import { KartaVerificationRunner } from "./verification-runner.ts";
+import { KartaBuildWorkerRunner } from "./worker-runner.ts";
 
 export default function kartaPi(extension: ExtensionAPI): void {
   const releaseInstance = claimExtensionInstance(PACKAGE_ROOT);
@@ -24,9 +27,12 @@ export default function kartaPi(extension: ExtensionAPI): void {
   const processes = new KartaProcessManager(children.lifecycles);
   const gatePreflight = new GateProviderPreflight();
   const verification = new KartaVerificationRunner(gatePreflight, children, dispatchLocks);
+  const workers = new KartaBuildWorkerRunner(children);
+  const finalizer = new KartaBuildFinalizer(dispatchLocks, verification);
+  const buildItems = new KartaBuildItemRunner(dispatchLocks, workers, finalizer, processes);
   const guards = registerGuardAdapters(extension);
   extension.registerTool(createKartaScriptTool(extension));
-  extension.registerTool(createKartaDispatchTool(gatePreflight, children, verification));
+  extension.registerTool(createKartaDispatchTool(gatePreflight, children, verification, buildItems));
 
   extension.on("resources_discover", (_event, ctx) => {
     if (!ctx.isProjectTrusted()) return {};
