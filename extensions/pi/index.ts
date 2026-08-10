@@ -10,10 +10,12 @@ import {
   runMultiChildShutdownProbe,
   runResponseProbe,
 } from "./child-runtime.ts";
+import { KartaDeliveryRunner } from "./delivery-runner.ts";
 import { DispatchLockManager } from "./dispatch-lock.ts";
 import { createKartaDispatchTool } from "./dispatch-tool.ts";
 import { claimExtensionInstance } from "./extension-instance.ts";
 import { registerGuardAdapters } from "./guard-adapter.ts";
+import { KartaIntegrationRunner } from "./integration-runner.ts";
 import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
 import { KartaProcessManager } from "./process-manager.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
@@ -30,9 +32,19 @@ export default function kartaPi(extension: ExtensionAPI): void {
   const workers = new KartaBuildWorkerRunner(children);
   const finalizer = new KartaBuildFinalizer(dispatchLocks, verification);
   const buildItems = new KartaBuildItemRunner(dispatchLocks, workers, finalizer, processes);
+  const integrations = new KartaIntegrationRunner(dispatchLocks, verification);
+  const deliveries = new KartaDeliveryRunner(
+    dispatchLocks,
+    processes,
+    buildItems,
+    integrations,
+    workers,
+  );
   const guards = registerGuardAdapters(extension);
   extension.registerTool(createKartaScriptTool(extension));
-  extension.registerTool(createKartaDispatchTool(gatePreflight, children, verification, buildItems));
+  extension.registerTool(
+    createKartaDispatchTool(gatePreflight, children, verification, buildItems, deliveries),
+  );
 
   extension.on("resources_discover", (_event, ctx) => {
     if (!ctx.isProjectTrusted()) return {};

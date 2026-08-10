@@ -5,9 +5,12 @@ import { promisify } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { KartaBuildFinalizer, type KartaBuildFinalizationResult } from "./build-finalizer.ts";
 import type { KartaCheckPlanEntry } from "./check-convergence.ts";
-import type { DispatchLockManager } from "./dispatch-lock.ts";
+import type { DispatchLockLease, DispatchLockManager } from "./dispatch-lock.ts";
 import { deriveItemGitState, type KartaItemRecoveryState } from "./git-state.ts";
-import { KartaProcessManager } from "./process-manager.ts";
+import {
+  KartaProcessManager,
+  type BinderLifecycleOwner,
+} from "./process-manager.ts";
 import { KartaBuildWorkerRunner, type KartaWorkerResult } from "./worker-runner.ts";
 
 const exec = promisify(execFile);
@@ -165,7 +168,7 @@ export class KartaBuildItemRunner {
 
   async run(ctx: ExtensionContext, binder: string, item: string): Promise<KartaBuildItemResult> {
     const lease = await this.#locks.acquire(ctx.cwd, binder);
-    let owner;
+    let owner: BinderLifecycleOwner;
     try {
       await this.#checkpoint("lock-acquired");
       owner = this.#processes.createBinderOwner(ctx.cwd, binder);
@@ -175,6 +178,36 @@ export class KartaBuildItemRunner {
       throw error;
     }
     try {
+      return await this.#runLocked(ctx, binder, item, lease, owner);
+    } finally {
+      try {
+        await this.#processes.stopOwner(owner);
+      } finally {
+        await this.#locks.release(lease);
+      }
+    }
+  }
+
+  async runWithLease(
+    ctx: ExtensionContext,
+    binder: string,
+    item: string,
+    lease: DispatchLockLease,
+    owner: BinderLifecycleOwner,
+  ): Promise<KartaBuildItemResult> {
+    if (!(await this.#locks.owns(lease)) || owner.binder !== binder) {
+      throw new Error("Karta build item requires its delivery-owned binder lease and lifecycle");
+    }
+    return this.#runLocked(ctx, binder, item, lease, owner);
+  }
+
+  async #runLocked(
+    ctx: ExtensionContext,
+    binder: string,
+    item: string,
+    lease: DispatchLockLease,
+    owner: BinderLifecycleOwner,
+  ): Promise<KartaBuildItemResult> {
       let state = await deriveItemGitState(ctx.cwd, binder, item);
       await this.#checkpoint("state-derived");
       const terminal = terminalRecovery(binder, item, state);
@@ -378,12 +411,5 @@ export class KartaBuildItemRunner {
         feedback = [finalization.verification];
       }
       throw new Error("Karta build retry accounting reached an impossible state");
-    } finally {
-      try {
-        await this.#processes.stopOwner(owner);
-      } finally {
-        await this.#locks.release(lease);
-      }
-    }
   }
 }

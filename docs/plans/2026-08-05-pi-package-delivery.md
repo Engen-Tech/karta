@@ -15,9 +15,9 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, 3D, 3E, 4A, 4B, 4C, and 4D|
 |In progress|Phase 4E — waves and serial integration|
-|First next action|Add the fixed binder delivery entry and serial proposed-tree integration queue|
+|First next action|Add wave tags, post-wave floor/shared-term checks, and exact rollback before closing Phase 4E|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Fixed `buildItem`, committed/merged crash recovery, exact committed-range secret scans, and deterministic build checkpoints are ready on `feat/pi-package`|
+|Commit state|The fixed binder delivery entry, dependency/collision-aware parallel build waves, and serial exact-tree integration queue are ready on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after Phase 4D recovery closure. The Pi suite currently runs 133 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass during Phase 4E. The Pi suite currently runs 140 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -404,6 +404,8 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 5. Write every durable branch/commit/ref checkpoint before returning success.
 
 ### 4E — waves and serial integration
+
+**Progress:** `karta_dispatch deliverBinder` now accepts only binder identity, holds one binder lease and lifecycle owner, derives dependency-ready frontiers from Git, parallelizes non-colliding items, serializes declared collision surfaces, and integrates built items FIFO. Each integration is checked on a disposable materialization of `git merge-tree --write-tree`, secret-scanned, gated against merge-tree evidence, reproduced through merge hooks, and written as an exact two-parent `commit-tree` merge followed by `done` ref-last. Ref-first integration crashes classify as `merged-unmarked`; deterministic integration-worktree repair handles the exact clean parent-index shape. Wave tags, post-wave project/shared-term checks, exact rollback, and human accept/defer routing remain.
 
 1. Add the fixed binder delivery entry. Hold one binder lease while dependency-ready workers execute in parallel waves; serialize declared collision surfaces.
 2. Keep the integration tip single-writer and process built items FIFO.

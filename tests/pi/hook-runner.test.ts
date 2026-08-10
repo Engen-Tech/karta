@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { validateCandidateHooks } from "../../extensions/pi/hook-runner.ts";
+import {
+  validateCandidateHooks,
+  validateMergeHooks,
+} from "../../extensions/pi/hook-runner.ts";
 
 const exec = promisify(execFile);
 
@@ -55,6 +58,34 @@ test("commit-msg hooks may refine the message without changing the candidate tre
     assert.equal(result.status, "passed");
     assert.equal(result.hookTree, state.tree);
     assert.match(result.message ?? "", /Reviewed-By: hook/);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("merge hooks reproduce the exact two-parent candidate and may refine its message", async () => {
+  const state = await fixture();
+  try {
+    const item = await git(state.repo, [
+      "commit-tree",
+      state.tree,
+      "-p",
+      state.parent,
+      "-m",
+      "[karta:item-item-a] item",
+    ]);
+    await hook(state.repo, "commit-msg", "printf '\\nReviewed-By: merge-hook\\n' >> \"$1\"");
+    const result = await validateMergeHooks({
+      worktree: state.repo,
+      integrationTip: state.parent,
+      itemTip: item,
+      candidateTree: state.tree,
+      message: "[karta:merge-item-item-a] merge",
+    });
+    assert.equal(result.status, "passed");
+    assert.equal(result.hookTree, state.tree);
+    assert.match(result.message ?? "", /Reviewed-By: merge-hook/);
+    assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), state.parent);
   } finally {
     await state.cleanup();
   }

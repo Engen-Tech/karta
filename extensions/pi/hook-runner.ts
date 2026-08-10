@@ -38,6 +38,106 @@ async function git(
   }
 }
 
+export async function validateMergeHooks(options: {
+  worktree: string;
+  integrationTip: string;
+  itemTip: string;
+  candidateTree: string;
+  message: string;
+  signal?: AbortSignal;
+}): Promise<HookValidationResult> {
+  for (const object of [options.integrationTip, options.itemTip, options.candidateTree]) {
+    if (!/^[a-f0-9]{40,64}$/.test(object)) {
+      throw new Error("Karta merge-hook validation requires valid object ids");
+    }
+  }
+  const root = await mkdtemp(join(tmpdir(), "karta-merge-hook-validation-"));
+  const disposable = join(root, "worktree");
+  let registered = false;
+  try {
+    await git(options.worktree, [
+      "worktree",
+      "add",
+      "--detach",
+      disposable,
+      options.integrationTip,
+    ]);
+    registered = true;
+    const merged = await git(
+      disposable,
+      ["merge", "--no-ff", "--no-commit", options.itemTip],
+      { signal: options.signal, allowFailure: true },
+    );
+    if (merged.code !== 0) {
+      return {
+        status: "failed",
+        candidateTree: options.candidateTree,
+        stdout: merged.stdout,
+        stderr: merged.stderr,
+      };
+    }
+    const stagedTree = (await git(disposable, ["write-tree"])).stdout.trim();
+    if (stagedTree !== options.candidateTree) {
+      return {
+        status: "drifted",
+        candidateTree: options.candidateTree,
+        hookTree: stagedTree,
+        stdout: merged.stdout,
+        stderr: merged.stderr,
+      };
+    }
+    const committed = await git(
+      disposable,
+      ["commit", "--no-gpg-sign", "-m", options.message],
+      { signal: options.signal, allowFailure: true },
+    );
+    if (committed.code !== 0) {
+      return {
+        status: "failed",
+        candidateTree: options.candidateTree,
+        stdout: `${merged.stdout}${committed.stdout}`,
+        stderr: `${merged.stderr}${committed.stderr}`,
+      };
+    }
+    const hookTree = (await git(disposable, ["rev-parse", "HEAD^{tree}"])).stdout.trim();
+    const parents = (await git(disposable, ["rev-list", "--parents", "-n", "1", "HEAD"]))
+      .stdout.trim().split(/\s+/).slice(1);
+    const message = (await git(disposable, ["log", "-1", "--format=%B"])).stdout.trimEnd();
+    const dirty = (await git(disposable, ["status", "--porcelain=v1", "-z"])).stdout;
+    if (
+      hookTree !== options.candidateTree ||
+      parents.length !== 2 ||
+      parents[0] !== options.integrationTip ||
+      parents[1] !== options.itemTip ||
+      dirty.length > 0
+    ) {
+      return {
+        status: "drifted",
+        candidateTree: options.candidateTree,
+        hookTree,
+        message,
+        stdout: `${merged.stdout}${committed.stdout}`,
+        stderr: `${merged.stderr}${committed.stderr}`,
+      };
+    }
+    return {
+      status: "passed",
+      candidateTree: options.candidateTree,
+      hookTree,
+      message,
+      stdout: `${merged.stdout}${committed.stdout}`,
+      stderr: `${merged.stderr}${committed.stderr}`,
+    };
+  } finally {
+    if (registered) {
+      await git(options.worktree, ["worktree", "remove", "--force", disposable], {
+        allowFailure: true,
+      }).catch(() => undefined);
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 export async function validateCandidateHooks(options: {
   worktree: string;
   candidateTree: string;

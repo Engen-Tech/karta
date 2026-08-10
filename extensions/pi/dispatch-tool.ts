@@ -38,6 +38,10 @@ const dispatchParameters = Type.Union([
     item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
   }),
   Type.Object({
+    action: Type.Literal("deliverBinder"),
+    binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+  }),
+  Type.Object({
     action: Type.Literal("buildItem"),
     binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
     item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
@@ -69,6 +73,7 @@ interface DispatchDetails {
   cached?: boolean;
   attempts?: number;
   worktree?: string;
+  waves?: number;
 }
 
 function roleSummary(role: KartaRoleDefinition): Record<string, unknown> {
@@ -81,6 +86,13 @@ function roleSummary(role: KartaRoleDefinition): Record<string, unknown> {
     promptHash: role.promptHash,
     definitionHash: role.definitionHash,
   };
+}
+
+interface DeliveryRunner {
+  run(
+    ctx: ExtensionContext,
+    binder: string,
+  ): Promise<{ status: string; waves: unknown[]; integrationWorktree: string }>;
 }
 
 interface BuildItemRunner {
@@ -113,6 +125,7 @@ export function createKartaDispatchTool(
   children: ChildRegistry,
   verification?: VerificationRunner,
   buildItems?: BuildItemRunner,
+  deliveries?: DeliveryRunner,
 ): ToolDefinition<typeof dispatchParameters, DispatchDetails> {
   return {
     name: "karta_dispatch",
@@ -141,6 +154,17 @@ export function createKartaDispatchTool(
             binder: params.binder,
             item: params.item,
             status: state.state,
+          });
+        }
+        if (params.action === "deliverBinder") {
+          if (!deliveries) throw new Error("Karta delivery runner is unavailable");
+          const result = await deliveries.run(ctx, params.binder);
+          return textResult(JSON.stringify(result, null, 2), {
+            action: params.action,
+            binder: params.binder,
+            status: result.status,
+            waves: result.waves.length,
+            worktree: result.integrationWorktree,
           });
         }
         if (params.action === "buildItem") {

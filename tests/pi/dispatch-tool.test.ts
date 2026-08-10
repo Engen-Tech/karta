@@ -159,6 +159,37 @@ test("dispatch runs fixed buildItem with binder and item identity only", async (
   assert.equal(response.details?.worktree, "/fixture/item");
 });
 
+test("dispatch runs fixed deliverBinder with binder identity only", async () => {
+  let received: unknown;
+  const tool = createKartaDispatchTool(
+    { ensure: async () => preflightReport },
+    new ChildRegistry(),
+    undefined,
+    undefined,
+    {
+      async run(_ctx, binder) {
+        received = { binder };
+        return {
+          status: "complete",
+          waves: [{ wave: 1 }],
+          integrationWorktree: "/fixture/integration",
+        };
+      },
+    },
+  );
+  const response = await tool.execute(
+    "deliver",
+    { action: "deliverBinder", binder: "demo" },
+    undefined,
+    undefined,
+    context(),
+  );
+  assert.equal((response as { isError?: boolean }).isError, false);
+  assert.deepEqual(received, { binder: "demo" });
+  assert.equal(response.details?.status, "complete");
+  assert.equal(response.details?.waves, 1);
+});
+
 test("dispatch schema contains no caller-controlled prompt, path, tool, or provider fields", () => {
   const tool = createKartaDispatchTool(
     { ensure: async () => preflightReport },
