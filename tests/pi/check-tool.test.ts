@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CHECK_ENVIRONMENT_HASH } from "../../extensions/pi/check-runner.ts";
 import { createCheckEvidenceTool } from "../../extensions/pi/check-tool.ts";
 import {
   hashEvidencePayload,
-  type KartaCheckEvidence,
+  type KartaCheckManifestEvidence,
   type KartaEvidenceManifest,
   type KartaEvidencePayload,
 } from "../../extensions/pi/evidence.ts";
 
-function manifest(check: KartaCheckEvidence): KartaEvidenceManifest {
+function manifest(check: KartaCheckManifestEvidence): KartaEvidenceManifest {
   const workItem = {
     id: "item-a",
     title: "Check fixture",
@@ -41,13 +42,13 @@ function manifest(check: KartaCheckEvidence): KartaEvidenceManifest {
       touchedPaths: [],
       content: "",
     },
-    checks: { oracle: check },
+    checks: { manifest: check },
     files: [],
     citations: [],
     packs: [],
   };
   return {
-    schema: "karta-evidence-v1",
+    schema: "karta-evidence-v2",
     generatedAt: "2026-08-05T00:00:00.000Z",
     repositoryRoot: "/not-used",
     evidenceHash: hashEvidencePayload(payload),
@@ -55,23 +56,39 @@ function manifest(check: KartaCheckEvidence): KartaEvidenceManifest {
   };
 }
 
-test("check tool returns only the receipt already bound into evidence", async () => {
-  const check: KartaCheckEvidence = {
-    status: "passed",
-    targetTree: "d".repeat(40),
+test("check tool returns only the manifest already bound into evidence", async () => {
+  const targetTree = "d".repeat(40);
+  const receipt = {
+    schema: "karta-check-receipt-v1" as const,
+    targetTree,
     commandHash: "f".repeat(64),
-    receipt: {
-      schema: "karta-check-receipt-v1",
-      targetTree: "d".repeat(40),
-      commandHash: "f".repeat(64),
-      cwd: ".",
-      status: "passed",
-      code: 0,
-      stdout: "tests passed\n",
-      stderr: "",
-      stdoutTruncated: false,
-      stderrTruncated: false,
-      durationMs: 25,
+    cwd: ".",
+    status: "passed" as const,
+    code: 0,
+    stdout: "tests passed\n",
+    stderr: "",
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    durationMs: 25,
+  };
+  const check: KartaCheckManifestEvidence = {
+    status: "passed",
+    targetTree,
+    manifest: {
+      schema: "karta-check-manifest-v1",
+      targetTree,
+      entries: [
+        {
+          id: "oracle",
+          sequence: 0,
+          purpose: "oracle",
+          required: true,
+          preTree: targetTree,
+          postTree: targetTree,
+          environmentHash: CHECK_ENVIRONMENT_HASH,
+          receipt,
+        },
+      ],
     },
   };
   const evidence = manifest(check);
@@ -94,7 +111,6 @@ test("check tool reports missing evidence without gaining execution authority", 
     manifest({
       status: "missing",
       targetTree: "d".repeat(40),
-      commandHash: "f".repeat(64),
     }),
   );
   const schema = JSON.stringify(tool.parameters);

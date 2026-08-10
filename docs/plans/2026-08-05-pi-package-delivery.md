@@ -15,9 +15,9 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, and 3D|
 |In progress|Phase 3E — close evidence and transaction gaps found before `buildItem`|
-|First next action|Replace the single check receipt with an ordered full-floor receipt manifest and remove stale pack/citation evidence paths|
+|First next action|Finish Phase 3E with exact hookless commit policy and non-destructive recovery invariants, then harden lifecycle ownership|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|The Phase 3E/4 redesign and its first evidence/worker-policy corrections are committed on `feat/pi-package`|
+|Commit state|The redesign baseline plus evidence v2, check-manifest v1, stable-tree convergence, worker-result v2, and instruction provenance are committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the first redesign increment. The Pi suite currently runs 102 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the Phase 3E transaction-schema increment. The Pi suite currently runs 107 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -240,7 +240,7 @@ The package root is ready to own dispatch and gate assets. The claim that a proj
 
 ### 3B-4 — capability profiles
 
-**Status: gate profiles complete; writer profiles remain for Phases 4–5.** Acceptance receives only `karta_evidence` plus `karta_checks`; safety receives only `karta_evidence` plus `karta_boundary`. `karta_checks` never executes code: it reads a host-generated check receipt bound to the evidence tree and command hash, preserving Karta's rule that the floor runs while acceptance inspects. Boundary inspection derives cues without choosing a verdict. Profile hashes include an explicit capability-profile version. Tests prove there is no Bash, write, edit, `karta_script`, caller command, path, ref, prompt, model, provider, environment, or timeout authority.
+**Status: gate profiles complete; writer profiles remain for Phases 4–5.** Acceptance receives only `karta_evidence` plus `karta_checks`; safety receives only `karta_evidence` plus `karta_boundary`. `karta_checks` never executes code: it reads an ordered host-generated check manifest whose receipts bind the stable evidence tree, preserving Karta's rule that the floor runs while acceptance inspects. Boundary inspection derives cues without choosing a verdict. Profile hashes include an explicit capability-profile version. Tests prove there is no Bash, write, edit, `karta_script`, caller command, path, ref, prompt, model, provider, environment, or timeout authority.
 
 - Acceptance gate: evidence reads and acceptance runner only.
 - Safety gate: evidence reads and boundary inspection only.
@@ -327,12 +327,14 @@ No child receives the parent `karta_script` tool wholesale.
 
 ## Phase 3E — transaction and evidence closure
 
-The early Phase 4 finalizer exposed gaps that must be closed before `buildItem` can become authoritative. A Roundtable critique/convergence was run through the installed Pi MCP adapter. Provider degradation prevented a genuine multi-provider quorum—Antigravity completed while Copilot exited empty, Claude OAuth was expired, and Codex attempts timed out or rejected an unavailable model—so the review is evidence, not claimed consensus. Its converged recommendations agree with the deterministic code review below: host ownership, full-floor receipts, exact-tree commits, strict recovery, and managed process trees move in front of worker orchestration.
+The early Phase 4 finalizer exposed gaps that must be closed before `buildItem` can become authoritative. **Progress:** evidence v2 now carries an ordered check-manifest v1; worker-result/profile v2 supplies bounded floor proposals and committed instruction provenance; stable-tree checks converge generated artifacts, rerun the final list, and bind equal pre/post/target trees; composed packs carry dependency hashes; and exact candidate commits use `commit-tree` plus expected-old branch/ref updates with repository-format null IDs. Hook execution in a disposable finalization context and doctrine-grade non-destructive recovery remain.
+
+A Roundtable critique/convergence was run through the installed Pi MCP adapter. Provider degradation prevented a genuine multi-provider quorum—Antigravity completed while Copilot exited empty, Claude OAuth was expired, and Codex attempts timed out or rejected an unavailable model—so the review is evidence, not claimed consensus. Its converged recommendations agree with the deterministic code review below: host ownership, full-floor receipts, exact-tree commits, strict recovery, and managed process trees move in front of worker orchestration.
 
 ### 3E-1 — complete floor evidence
 
-1. Replace the single check receipt with an ordered `karta-check-manifest-v1` containing unique receipts for every final project floor command plus the binder oracle.
-2. The worker may propose the stack-appropriate floor command/cwd list in its strict result; that proposal grants no execution or completion authority. Host code validates bounds and containment, canonicalizes and deduplicates it, adds the immutable binder oracle, and executes the final list itself.
+1. Replace the single check receipt with an ordered `karta-check-manifest-v1` containing unique receipts for every final project floor command plus the binder oracle. This changes the enclosing payload to `karta-evidence-v2` and the gate capability profile to v3; mixed versions fail closed.
+2. `karta-worker-result-v2` may propose the stack-appropriate floor command/cwd list; that proposal grants no execution or completion authority. Worker profile v2 binds the result to committed project-instruction blob identities. Host code validates bounds and containment, canonicalizes and deduplicates it, adds the immutable binder oracle, and executes the final list itself.
 3. Bind each command hash, repo-relative cwd, bounded environment policy, exit/timeout result, output, duration, and final target tree. Acceptance reads the manifest and cannot pass a missing, failed, reordered, duplicate, or stale required check.
 4. For visual or explicitly opted-out oracles, retain their existing boundary-only semantics while still recording every applicable project floor command.
 

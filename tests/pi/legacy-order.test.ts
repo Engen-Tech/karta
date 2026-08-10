@@ -8,7 +8,11 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
-import { bindCheckReceipt, runBoundCheck } from "../../extensions/pi/check-runner.ts";
+import {
+  bindCheckManifestEntry,
+  createCheckManifest,
+  runBoundCheck,
+} from "../../extensions/pi/check-runner.ts";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import { buildKartaEvidence } from "../../extensions/pi/evidence.ts";
 import type { GateModelInvoker } from "../../extensions/pi/gate-runner.ts";
@@ -125,7 +129,14 @@ test("legacy build order gates a scanned staged tree and commits that exact tree
       item: "item-a",
       target: "candidate",
     });
-    const receipt = bindCheckReceipt(check, candidate.payload.git.targetTree);
+    const checkManifest = createCheckManifest(candidate.payload.git.targetTree, [
+      bindCheckManifestEntry(check, {
+        id: "oracle",
+        sequence: 0,
+        purpose: "oracle",
+        targetTree: candidate.payload.git.targetTree,
+      }),
+    ]);
     const ctx = { cwd: repo } as ExtensionContext;
     const runner = new KartaVerificationRunner(
       { async ensure() { return { ...runtime, cached: false }; } },
@@ -139,7 +150,7 @@ test("legacy build order gates a scanned staged tree and commits that exact tree
       "item-a",
       "full",
       lease,
-      { cwd: repo, target: "candidate", checkReceipt: receipt },
+      { cwd: repo, target: "candidate", checkManifest },
     );
     assert.equal(verification.status, "pass");
     assert.equal(locks.size, 1);

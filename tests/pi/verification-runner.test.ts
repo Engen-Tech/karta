@@ -65,7 +65,7 @@ async function fixture(oracle: Record<string, unknown> = { type: "unit" }): Prom
       touchedPaths: ["subject.txt"],
       content: "",
     },
-    checks: { oracle: { status: "not-required", targetTree: tip } },
+    checks: { manifest: { status: "not-required", targetTree: tip } },
     files: [],
     citations: [],
     packs: [],
@@ -73,7 +73,7 @@ async function fixture(oracle: Record<string, unknown> = { type: "unit" }): Prom
   return {
     repo,
     manifest: {
-      schema: "karta-evidence-v1",
+      schema: "karta-evidence-v2",
       generatedAt: new Date().toISOString(),
       repositoryRoot: repo,
       evidenceHash: hashEvidencePayload(payload),

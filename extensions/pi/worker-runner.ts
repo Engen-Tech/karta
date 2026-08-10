@@ -1,13 +1,23 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, createWorkerChildSession, type ChildRuntimeReport } from "./child-runtime.ts";
 import {
+  loadWorkerProjectInstructions,
+  type WorkerProjectInstruction,
+} from "./worker-instructions.ts";
+import {
   createBuildWorkerCapabilityProfile,
   type BuildWorkerCapabilityProfile,
 } from "./worker-profile.ts";
 
-const WORKER_SCHEMA = "karta-worker-result-v1";
+const WORKER_SCHEMA = "karta-worker-result-v2";
 
 export type KartaWorkerOutcome = "ready" | "no-change" | "blocked";
+
+export interface KartaWorkerCheckProposal {
+  id: string;
+  command: string;
+  cwd: string;
+}
 
 export interface KartaWorkerResult {
   schema: typeof WORKER_SCHEMA;
@@ -18,6 +28,7 @@ export interface KartaWorkerResult {
   profileHash: string;
   outcome: KartaWorkerOutcome;
   summary: string;
+  checks: KartaWorkerCheckProposal[];
   runtime: ChildRuntimeReport;
 }
 
@@ -93,6 +104,7 @@ function parseWorkerResult(
     "profileHash",
     "outcome",
     "summary",
+    "checks",
   ]);
   if (
     result.schema !== WORKER_SCHEMA ||
@@ -102,17 +114,57 @@ function parseWorkerResult(
     result.roleDefinitionHash !== profile.role.definitionHash ||
     result.profileHash !== profile.profileHash ||
     !["ready", "no-change", "blocked"].includes(String(result.outcome)) ||
+    !Array.isArray(result.checks) ||
+    result.checks.length > 16 ||
     typeof result.summary !== "string" ||
     !result.summary.trim() ||
     result.summary.length > 2000
   ) {
     throw new Error("Malformed or stale Karta worker result envelope");
   }
+  const checkIds = new Set<string>();
+  for (const proposal of result.checks) {
+    if (!proposal || typeof proposal !== "object" || Array.isArray(proposal)) {
+      throw new Error("Malformed Karta worker check proposal");
+    }
+    const check = proposal as Record<string, unknown>;
+    exactKeys(check, ["id", "command", "cwd"]);
+    const cwd = typeof check.cwd === "string" ? check.cwd.replaceAll("\\", "/") : "";
+    if (
+      typeof check.id !== "string" ||
+      !/^[a-z][a-z0-9-]{0,63}$/.test(check.id) ||
+      check.id === "oracle" ||
+      checkIds.has(check.id) ||
+      typeof check.command !== "string" ||
+      !check.command.trim() ||
+      check.command.length > 16 * 1024 ||
+      !cwd ||
+      cwd.startsWith("/") ||
+      cwd.split("/").includes("..")
+    ) {
+      throw new Error("Malformed Karta worker check proposal");
+    }
+    checkIds.add(check.id);
+  }
   return { ...(result as Omit<KartaWorkerResult, "runtime">), runtime };
 }
 
 function workerSystemPrompt(profile: BuildWorkerCapabilityProfile): string {
+  const projectInstructions = profile.instructions.length === 0
+    ? "No committed AGENTS.md or CLAUDE.md files were present at the assigned item tip."
+    : profile.instructions
+        .map(
+          (instruction) =>
+            `### ${instruction.path} (blob ${instruction.blob}, sha256 ${instruction.sha256})\n\n${instruction.content}`,
+        )
+        .join("\n\n");
   return `${profile.role.prompt}
+
+## Committed project instructions
+
+These instructions are explicitly loaded from the assigned item tip. Follow the applicable directory-scoped instruction for every path you touch unless it conflicts with the authoritative Pi execution contract below.
+
+${projectInstructions}
 
 ## Pi build-worker execution contract — authoritative
 
@@ -121,16 +173,28 @@ You are an isolated implementation worker in exactly one assigned Git worktree. 
 The host owns staging, secret scanning, acceptance commands, gates, commits, tags, merges, and Karta refs. Do not run git add, git commit, git tag, git merge, git reset, git checkout, git switch, git worktree, or git update-ref. Do not edit .karta/binders or .karta/roundtable. Implement and self-check the requested item, but leave all candidate changes uncommitted for the host.
 
 Return exactly one JSON object and no prose using this envelope:
-{"schema":"${WORKER_SCHEMA}","role":"build-worker","binder":"<bound binder>","item":"<bound item>","roleDefinitionHash":"${profile.role.definitionHash}","profileHash":"${profile.profileHash}","outcome":"ready|no-change|blocked","summary":"plain-language result"}`;
+{"schema":"${WORKER_SCHEMA}","role":"build-worker","binder":"<bound binder>","item":"<bound item>","roleDefinitionHash":"${profile.role.definitionHash}","profileHash":"${profile.profileHash}","outcome":"ready|no-change|blocked","summary":"plain-language result","checks":[{"id":"stable-floor-id","command":"exact command to rerun","cwd":"repo-relative cwd"}]}
+
+List every final lint, test, type-check, build, or other project-floor command you used and the host must rerun. Do not include the binder oracle; the host adds it. This list is an untrusted proposal, never proof that a command passed.`;
 }
+
+export type WorkerInstructionLoader = (
+  worktree: string,
+) => Promise<WorkerProjectInstruction[]>;
 
 export class KartaBuildWorkerRunner {
   readonly #registry: ChildRegistry;
   readonly #invoke: BuildWorkerModelInvoker;
+  readonly #loadInstructions: WorkerInstructionLoader;
 
-  constructor(registry: ChildRegistry, invoke: BuildWorkerModelInvoker = invokeBuildWorker) {
+  constructor(
+    registry: ChildRegistry,
+    invoke: BuildWorkerModelInvoker = invokeBuildWorker,
+    loadInstructions: WorkerInstructionLoader = loadWorkerProjectInstructions,
+  ) {
     this.#registry = registry;
     this.#invoke = invoke;
+    this.#loadInstructions = loadInstructions;
   }
 
   async run(
@@ -142,7 +206,8 @@ export class KartaBuildWorkerRunner {
     assignment: Record<string, unknown>,
     feedback: unknown[] = [],
   ): Promise<KartaWorkerResult> {
-    const profile = createBuildWorkerCapabilityProfile(worktree, branch);
+    const instructions = await this.#loadInstructions(worktree);
+    const profile = createBuildWorkerCapabilityProfile(worktree, branch, instructions);
     const response = await this.#invoke({
       ctx,
       registry: this.#registry,

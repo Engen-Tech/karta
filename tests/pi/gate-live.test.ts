@@ -142,7 +142,7 @@ async function repositoryFixture(): Promise<{
       touchedPaths: ["subject.txt"],
       content: "",
     },
-    checks: { oracle: { status: "not-required", targetTree: tree } },
+    checks: { manifest: { status: "not-required", targetTree: tree } },
     files: [],
     citations: [],
     packs: [],
@@ -151,7 +151,7 @@ async function repositoryFixture(): Promise<{
     root,
     repo,
     manifest: {
-      schema: "karta-evidence-v1",
+      schema: "karta-evidence-v2",
       generatedAt: new Date().toISOString(),
       repositoryRoot: repo,
       evidenceHash: hashEvidencePayload(payload),

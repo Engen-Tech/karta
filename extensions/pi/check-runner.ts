@@ -1,13 +1,32 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
   hashCheckCommand,
+  type KartaCheckManifest,
+  type KartaCheckManifestEntry,
   type KartaCheckReceipt,
 } from "./evidence.ts";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT = 10 * 60 * 1000;
+
+export const CHECK_ENVIRONMENT_HASH = createHash("sha256")
+  .update(
+    JSON.stringify({
+      inherit: "host",
+      remove: [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      ],
+      ci: "default-1",
+    }),
+  )
+  .digest("hex");
 
 export interface UnboundCheckResult {
   commandHash: string;
@@ -181,5 +200,39 @@ export function bindCheckReceipt(
     stdoutTruncated: result.stdoutTruncated,
     stderrTruncated: result.stderrTruncated,
     durationMs: result.durationMs,
+  };
+}
+
+export function bindCheckManifestEntry(
+  result: UnboundCheckResult,
+  options: {
+    id: string;
+    sequence: number;
+    purpose: "floor" | "oracle";
+    targetTree: string;
+    preTree?: string;
+    postTree?: string;
+  },
+): KartaCheckManifestEntry {
+  return {
+    id: options.id,
+    sequence: options.sequence,
+    purpose: options.purpose,
+    required: true,
+    preTree: options.preTree ?? options.targetTree,
+    postTree: options.postTree ?? options.targetTree,
+    environmentHash: CHECK_ENVIRONMENT_HASH,
+    receipt: bindCheckReceipt(result, options.targetTree),
+  };
+}
+
+export function createCheckManifest(
+  targetTree: string,
+  entries: KartaCheckManifestEntry[],
+): KartaCheckManifest {
+  return {
+    schema: "karta-check-manifest-v1",
+    targetTree,
+    entries,
   };
 }

@@ -211,7 +211,7 @@ function piExecutionContract(
 ): string {
   const roleInstruction =
     profile.role.id === "acceptance-gate"
-      ? "Call karta_checks once. It reports the host-run check bound to the exact evidence tree; it never executes a command."
+      ? "Call karta_checks once. It reports the ordered host-run check manifest bound to the exact evidence tree; it never executes a command."
       : "Call karta_boundary once. Treat its cues as evidence, not as an automatic verdict.";
   return `
 
@@ -312,10 +312,10 @@ function validateRoleToolResult(
   }
   const check = details as CheckToolDetails;
   if (verdict.verdict === "pass" && ["failed", "missing"].includes(check.status)) {
-    throw new Error("Karta acceptance gate cannot pass without a passing bound check receipt");
+    throw new Error("Karta acceptance gate cannot pass without a passing bound check manifest");
   }
   if (check.status === "missing" && verdict.verdict !== "blocked") {
-    throw new Error("Karta acceptance gate must block when its bound check receipt is missing");
+    throw new Error("Karta acceptance gate must block when its bound check manifest is missing");
   }
 }
 

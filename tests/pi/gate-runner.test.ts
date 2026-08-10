@@ -76,13 +76,13 @@ async function fixture(): Promise<{
       touchedPaths: ["subject.txt"],
       content: "",
     },
-    checks: { oracle: { status: "not-required", targetTree: tree } },
+    checks: { manifest: { status: "not-required", targetTree: tree } },
     files: [],
     citations: [],
     packs: [],
   };
   const manifest: KartaEvidenceManifest = {
-    schema: "karta-evidence-v1",
+    schema: "karta-evidence-v2",
     generatedAt: new Date().toISOString(),
     repositoryRoot: repo,
     evidenceHash: hashEvidencePayload(payload),
@@ -245,14 +245,13 @@ test("gate fails closed when the required role tool is skipped", async () => {
   }
 });
 
-test("acceptance cannot pass without a bound check receipt", async () => {
+test("acceptance cannot pass without a bound check manifest", async () => {
   const { manifest, ctx, cleanup } = await fixture();
   try {
     manifest.payload.workItem.oracle = { type: "unit", command: "npm test" };
-    manifest.payload.checks.oracle = {
+    manifest.payload.checks.manifest = {
       status: "missing",
       targetTree: manifest.payload.git.targetTree,
-      commandHash: "f".repeat(64),
     };
     manifest.evidenceHash = hashEvidencePayload(manifest.payload);
     await assert.rejects(
@@ -265,7 +264,7 @@ test("acceptance cannot pass without a bound check receipt", async () => {
           new ChildRegistry(),
           validInvoker("pass"),
         ),
-      /cannot pass without a passing bound check receipt/,
+      /cannot pass without a passing bound check manifest/,
     );
   } finally {
     await cleanup();

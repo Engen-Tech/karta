@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { bindCheckReceipt, runBoundCheck } from "../../extensions/pi/check-runner.ts";
+import {
+  bindCheckManifestEntry,
+  bindCheckReceipt,
+  createCheckManifest,
+  runBoundCheck,
+} from "../../extensions/pi/check-runner.ts";
 
 test("host check runner executes in the assigned worktree and binds a later tree", async () => {
   const worktree = await mkdtemp(join(tmpdir(), "karta-check-runner-"));
@@ -21,6 +26,17 @@ test("host check runner executes in the assigned worktree and binds a later tree
     assert.equal(receipt.targetTree, "a".repeat(40));
     assert.equal(receipt.status, "passed");
     assert.match(receipt.commandHash, /^[a-f0-9]{64}$/);
+    const entry = bindCheckManifestEntry(result, {
+      id: "unit",
+      sequence: 0,
+      purpose: "floor",
+      targetTree: "a".repeat(40),
+    });
+    const manifest = createCheckManifest("a".repeat(40), [entry]);
+    assert.equal(manifest.schema, "karta-check-manifest-v1");
+    assert.equal(entry.preTree, manifest.targetTree);
+    assert.equal(entry.postTree, manifest.targetTree);
+    assert.match(entry.environmentHash, /^[a-f0-9]{64}$/);
   } finally {
     await rm(worktree, { recursive: true, force: true });
   }

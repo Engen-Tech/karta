@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CHECK_ENVIRONMENT_HASH } from "../../extensions/pi/check-runner.ts";
 import {
   buildKartaEvidence,
   canonicalJson,
@@ -88,7 +89,7 @@ test("evidence binds binder, item, tips, diff, and project/package packs", async
     const evidence = await buildKartaEvidence({ cwd: repo, binder: "demo", item: "item-a" });
     verifyEvidenceIntegrity(evidence);
     await verifyEvidenceFreshness(evidence);
-    assert.equal(evidence.schema, "karta-evidence-v1");
+    assert.equal(evidence.schema, "karta-evidence-v2");
     assert.equal(evidence.payload.binder.slug, "demo");
     assert.equal(evidence.payload.workItem.id, "item-a");
     assert.match(evidence.evidenceHash, /^[a-f0-9]{64}$/);
@@ -110,6 +111,16 @@ test("evidence binds binder, item, tips, diff, and project/package packs", async
       ],
     );
     assert.match(evidence.payload.packs[1].blob ?? "", /^[a-f0-9]{40,64}$/);
+    assert.deepEqual(
+      evidence.payload.packs[1].dependencies.map(({ id, path }) => ({ id, path })),
+      [
+        {
+          id: "minimalism",
+          path: "skills/karta-plan/references/sme/minimalism.md",
+        },
+      ],
+    );
+    assert.match(evidence.payload.packs[1].dependencies[0].sha256, /^[a-f0-9]{64}$/);
   } finally {
     await cleanup();
   }
@@ -124,7 +135,7 @@ test("staged candidate evidence binds the index tree before the final commit", a
     assert.equal(evidence.payload.git.targetKind, "candidate-tree");
     assert.notEqual(evidence.payload.git.targetTree, evidence.payload.git.itemTip);
     assert.match(evidence.payload.diff.content, /candidate/);
-    assert.equal(evidence.payload.checks.oracle.status, "missing");
+    assert.equal(evidence.payload.checks.manifest.status, "missing");
     await verifyEvidenceFreshness(evidence);
 
     await writeFile(join(repo, "src", "file.txt"), "changed after evidence\n");
@@ -137,7 +148,7 @@ test("staged candidate evidence binds the index tree before the final commit", a
   }
 });
 
-test("check receipts must bind the exact candidate tree, command, and cwd", async () => {
+test("check manifests must bind ordered receipts to the exact candidate tree, command, and cwd", async () => {
   const { repo, cleanup } = await fixture();
   try {
     await writeFile(join(repo, "src", "file.txt"), "candidate\n");
@@ -156,21 +167,60 @@ test("check receipts must bind the exact candidate tree, command, and cwd", asyn
       stderrTruncated: false,
       durationMs: 12,
     };
+    const checkManifest = {
+      schema: "karta-check-manifest-v1" as const,
+      targetTree: candidate.payload.git.targetTree,
+      entries: [
+        {
+          id: "unit",
+          sequence: 0,
+          purpose: "floor" as const,
+          required: true as const,
+          preTree: candidate.payload.git.targetTree,
+          postTree: candidate.payload.git.targetTree,
+          environmentHash: CHECK_ENVIRONMENT_HASH,
+          receipt: { ...receipt, commandHash: hashCheckCommand("npm test") },
+        },
+        {
+          id: "oracle",
+          sequence: 1,
+          purpose: "oracle" as const,
+          required: true as const,
+          preTree: candidate.payload.git.targetTree,
+          postTree: candidate.payload.git.targetTree,
+          environmentHash: CHECK_ENVIRONMENT_HASH,
+          receipt,
+        },
+      ],
+    };
     const evidence = await buildKartaEvidence({
       cwd: repo,
       binder: "demo",
       item: "item-a",
-      checkReceipt: receipt,
+      checkManifest,
     });
-    assert.equal(evidence.payload.checks.oracle.status, "passed");
-    assert.deepEqual(evidence.payload.checks.oracle.receipt, receipt);
+    assert.equal(evidence.payload.checks.manifest.status, "passed");
+    assert.deepEqual(evidence.payload.checks.manifest.manifest, checkManifest);
     await assert.rejects(
       () =>
         buildKartaEvidence({
           cwd: repo,
           binder: "demo",
           item: "item-a",
-          checkReceipt: { ...receipt, targetTree: "f".repeat(40) },
+          checkManifest: {
+            ...checkManifest,
+            entries: [...checkManifest.entries].reverse(),
+          },
+        }),
+      /reordered/,
+    );
+    await assert.rejects(
+      () =>
+        buildKartaEvidence({
+          cwd: repo,
+          binder: "demo",
+          item: "item-a",
+          checkManifest: { ...checkManifest, targetTree: "f".repeat(40) },
         }),
       /does not bind/,
     );

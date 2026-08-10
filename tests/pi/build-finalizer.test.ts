@@ -154,7 +154,7 @@ test("finalizer scans, checks, gates, commits, then writes built ref", async () 
       lease,
     );
     assert.equal(result.status, "built");
-    assert.equal(result.check?.status, "passed");
+    assert.equal(result.checks?.entries[0].receipt.status, "passed");
     assert.equal(await git(state.repo, ["rev-parse", "HEAD^{tree}"]), result.targetTree);
     assert.equal(
       await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/built"]),

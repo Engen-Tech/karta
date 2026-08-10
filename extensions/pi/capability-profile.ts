@@ -10,7 +10,7 @@ import {
 } from "./evidence.ts";
 import { loadKartaRole, type KartaRoleDefinition, type KartaRoleId } from "./role-catalog.ts";
 
-export const GATE_CAPABILITY_PROFILE_VERSION = 2;
+export const GATE_CAPABILITY_PROFILE_VERSION = 3;
 
 export type KartaGateRoleId = Extract<KartaRoleId, "acceptance-gate" | "safety-gate">;
 

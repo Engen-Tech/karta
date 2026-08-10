@@ -2,11 +2,11 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   verifyEvidenceIntegrity,
-  type KartaCheckEvidence,
+  type KartaCheckManifestEvidence,
   type KartaEvidenceManifest,
 } from "./evidence.ts";
 
-export interface CheckToolDetails extends KartaCheckEvidence {
+export interface CheckToolDetails extends KartaCheckManifestEvidence {
   evidenceHash: string;
 }
 
@@ -20,14 +20,14 @@ export function createCheckEvidenceTool(
     name: "karta_checks",
     label: "Karta check evidence",
     description:
-      "Read the host-generated check receipt bound to this evidence tree. It cannot execute or select commands, paths, environments, refs, or timeouts.",
+      "Read the ordered host-generated check manifest bound to this evidence tree. It cannot execute or select commands, paths, environments, refs, or timeouts.",
     parameters: checkParameters,
     async execute() {
       try {
         verifyEvidenceIntegrity(manifest);
         const details: CheckToolDetails = {
           evidenceHash: manifest.evidenceHash,
-          ...manifest.payload.checks.oracle,
+          ...manifest.payload.checks.manifest,
         };
         return {
           content: [{ type: "text", text: JSON.stringify(details, null, 2) }],

@@ -9,8 +9,9 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadKartaRole, type KartaRoleDefinition } from "./role-catalog.ts";
+import type { WorkerProjectInstruction } from "./worker-instructions.ts";
 
-const WORKER_PROFILE_VERSION = "karta-build-worker-profile-v1";
+const WORKER_PROFILE_VERSION = "karta-build-worker-profile-v2";
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 
@@ -19,6 +20,7 @@ export interface BuildWorkerCapabilityProfile {
   role: KartaRoleDefinition;
   worktree: string;
   branch: string;
+  instructions: WorkerProjectInstruction[];
   tools: AnyToolDefinition[];
   toolNames: string[];
   profileHash: string;
@@ -77,6 +79,7 @@ function confineFileTool(tool: AnyToolDefinition, worktree: string): AnyToolDefi
 export function createBuildWorkerCapabilityProfile(
   worktree: string,
   branch: string,
+  instructions: WorkerProjectInstruction[] = [],
 ): BuildWorkerCapabilityProfile {
   const root = realpathSync(worktree);
   const role = loadKartaRole("build-worker");
@@ -98,6 +101,7 @@ export function createBuildWorkerCapabilityProfile(
         roleDefinitionHash: role.definitionHash,
         worktree: root,
         branch,
+        instructions: instructions.map(({ path, blob, sha256 }) => ({ path, blob, sha256 })),
         tools: toolNames,
       }),
     )
@@ -107,6 +111,7 @@ export function createBuildWorkerCapabilityProfile(
     role,
     worktree: root,
     branch,
+    instructions: instructions.map((instruction) => ({ ...instruction })),
     tools,
     toolNames,
     profileHash,

@@ -62,7 +62,7 @@ function manifest(): KartaEvidenceManifest {
         "diff --git a/src/auth/token.ts b/src/auth/token.ts\n+delete token forcibly\n+// KARTA-SME-OVERRIDE(min.1): compatibility\n",
     },
     checks: {
-      oracle: { status: "not-required", targetTree: "c".repeat(40) },
+      manifest: { status: "not-required", targetTree: "c".repeat(40) },
     },
     files: [],
     citations: [],
@@ -72,12 +72,13 @@ function manifest(): KartaEvidenceManifest {
         source: "package",
         path: "skills/karta-plan/references/sme/minimalism.md",
         sha256: "e".repeat(64),
+        dependencies: [],
         checklist: [{ id: "min.1", text: "Keep it small.", source: "minimalism.md" }],
       },
     ],
   };
   return {
-    schema: "karta-evidence-v1",
+    schema: "karta-evidence-v2",
     generatedAt: "2026-08-05T00:00:00.000Z",
     repositoryRoot: "/not-used-by-boundary-profile",
     evidenceHash: hashEvidencePayload(payload),

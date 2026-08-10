@@ -37,7 +37,7 @@ interface GatePreflight {
 export type EvidenceBuilder = (options: BuildEvidenceOptions) => Promise<KartaEvidenceManifest>;
 
 export type EvidenceGateExecutor = typeof executeGateOnEvidence;
-export type VerificationEvidenceOptions = Pick<BuildEvidenceOptions, "target" | "checkReceipt"> & {
+export type VerificationEvidenceOptions = Pick<BuildEvidenceOptions, "target" | "checkManifest"> & {
   cwd?: string;
 };
 

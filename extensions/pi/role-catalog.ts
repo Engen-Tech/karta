@@ -26,7 +26,7 @@ interface RoleCatalogEntry {
   expectedName: string;
   authority: KartaRoleAuthority;
   capabilities: readonly KartaCapability[];
-  outputSchema: "gate-verdict-v1" | "worker-result-v1" | "writer-result-v1";
+  outputSchema: "gate-verdict-v1" | "worker-result-v2" | "writer-result-v1";
 }
 
 const ROLE_CATALOG: Record<KartaRoleId, RoleCatalogEntry> = {
@@ -49,7 +49,7 @@ const ROLE_CATALOG: Record<KartaRoleId, RoleCatalogEntry> = {
     expectedName: "karta-build",
     authority: "worktree-write",
     capabilities: ["worktree.read", "worktree.write", "command.run"],
-    outputSchema: "worker-result-v1",
+    outputSchema: "worker-result-v2",
   },
   "doc-gardner": {
     source: "agents/karta-doc-gardner.md",

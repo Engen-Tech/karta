@@ -32,12 +32,19 @@ export interface EvidenceChecklistItem {
   source: string;
 }
 
+export interface EvidencePackDependency {
+  id: string;
+  path: string;
+  sha256: string;
+}
+
 export interface EvidencePack {
   id: string;
   source: "project" | "package";
   path: string;
   blob?: string;
   sha256: string;
+  dependencies: EvidencePackDependency[];
   checklist: EvidenceChecklistItem[];
 }
 
@@ -75,11 +82,27 @@ export interface KartaCheckReceipt {
   durationMs: number;
 }
 
-export interface KartaCheckEvidence {
+export interface KartaCheckManifestEntry {
+  id: string;
+  sequence: number;
+  purpose: "floor" | "oracle";
+  required: true;
+  preTree: string;
+  postTree: string;
+  environmentHash: string;
+  receipt: KartaCheckReceipt;
+}
+
+export interface KartaCheckManifest {
+  schema: "karta-check-manifest-v1";
+  targetTree: string;
+  entries: KartaCheckManifestEntry[];
+}
+
+export interface KartaCheckManifestEvidence {
   status: "passed" | "failed" | "missing" | "not-required";
   targetTree: string;
-  commandHash?: string;
-  receipt?: KartaCheckReceipt;
+  manifest?: KartaCheckManifest;
 }
 
 export interface KartaEvidencePayload {
@@ -107,14 +130,14 @@ export interface KartaEvidencePayload {
     touchedPaths: string[];
     content: string;
   };
-  checks: { oracle: KartaCheckEvidence };
+  checks: { manifest: KartaCheckManifestEvidence };
   files: EvidenceFile[];
   citations: EvidenceCitation[];
   packs: EvidencePack[];
 }
 
 export interface KartaEvidenceManifest {
-  schema: "karta-evidence-v1";
+  schema: "karta-evidence-v2";
   generatedAt: string;
   repositoryRoot: string;
   evidenceHash: string;
@@ -126,7 +149,7 @@ export interface BuildEvidenceOptions {
   binder: string;
   item: string;
   target?: "auto" | "candidate" | "committed" | "merge";
-  checkReceipt?: KartaCheckReceipt;
+  checkManifest?: KartaCheckManifest;
   maxDiffBytes?: number;
 }
 
@@ -461,6 +484,33 @@ async function loadCitations(
   return citations;
 }
 
+function packExtends(content: string): string | undefined {
+  if (!content.startsWith("---\n")) return undefined;
+  const end = content.indexOf("\n---\n", 4);
+  if (end < 0) return undefined;
+  const match = content.slice(4, end).match(/^extends:\s*["']?([a-z0-9][a-z0-9-]*)["']?\s*$/m);
+  return match?.[1];
+}
+
+async function resolvePackDependencies(
+  content: string,
+  seen = new Set<string>(),
+): Promise<EvidencePackDependency[]> {
+  const parent = packExtends(content);
+  if (!parent) return [];
+  if (seen.has(parent)) throw new Error(`Karta pack dependency cycle includes '${parent}'`);
+  seen.add(parent);
+  const relativePath = `skills/karta-plan/references/sme/${parent}.md`;
+  const parentContent = await readFile(requirePackagePath(relativePath), "utf8");
+  if (Buffer.byteLength(parentContent) > MAX_PACK_BYTES) {
+    throw new Error(`Karta package pack dependency '${parent}' exceeds ${MAX_PACK_BYTES} bytes`);
+  }
+  return [
+    { id: parent, path: relativePath, sha256: sha256(parentContent) },
+    ...(await resolvePackDependencies(parentContent, seen)),
+  ];
+}
+
 async function resolvePackChecklist(
   id: string,
   content: string,
@@ -508,43 +558,91 @@ async function resolvePackChecklist(
   }
 }
 
-function checkEvidence(
+function validReceipt(receipt: KartaCheckReceipt, targetTree: string): boolean {
+  return (
+    receipt.schema === "karta-check-receipt-v1" &&
+    receipt.targetTree === targetTree &&
+    /^[a-f0-9]{64}$/.test(receipt.commandHash) &&
+    typeof receipt.cwd === "string" &&
+    !receipt.cwd.startsWith("/") &&
+    !receipt.cwd.replaceAll("\\", "/").split("/").includes("..") &&
+    ["passed", "failed"].includes(receipt.status) &&
+    Number.isInteger(receipt.code) &&
+    (receipt.status !== "passed" || receipt.code === 0) &&
+    (receipt.status !== "failed" || receipt.code !== 0) &&
+    typeof receipt.stdout === "string" &&
+    typeof receipt.stderr === "string" &&
+    typeof receipt.stdoutTruncated === "boolean" &&
+    typeof receipt.stderrTruncated === "boolean" &&
+    Number.isFinite(receipt.durationMs) &&
+    receipt.durationMs >= 0 &&
+    Buffer.byteLength(receipt.stdout) <= 64 * 1024 &&
+    Buffer.byteLength(receipt.stderr) <= 64 * 1024
+  );
+}
+
+function checkManifestEvidence(
   workItem: Record<string, unknown>,
   targetTree: string,
-  receipt: KartaCheckReceipt | undefined,
-): KartaCheckEvidence {
+  manifest: KartaCheckManifest | undefined,
+): KartaCheckManifestEvidence {
   const oracle = workItem.oracle;
   if (!oracle || typeof oracle !== "object" || Array.isArray(oracle)) {
     throw new Error("Karta work item has no valid oracle after binder validation");
   }
   const command = (oracle as Record<string, unknown>).command;
-  if (command === undefined) return { status: "not-required", targetTree };
-  if (typeof command !== "string" || !command.trim()) {
+  if (command !== undefined && (typeof command !== "string" || !command.trim())) {
     throw new Error("Karta oracle command is invalid after binder validation");
   }
-  const commandHash = hashCheckCommand(command);
-  if (!receipt) return { status: "missing", targetTree, commandHash };
-  if (
-    receipt.schema !== "karta-check-receipt-v1" ||
-    receipt.targetTree !== targetTree ||
-    receipt.commandHash !== commandHash ||
-    receipt.cwd !== ((oracle as Record<string, unknown>).cwd ?? ".") ||
-    !["passed", "failed"].includes(receipt.status) ||
-    !Number.isInteger(receipt.code) ||
-    (receipt.status === "passed" && receipt.code !== 0) ||
-    (receipt.status === "failed" && receipt.code === 0) ||
-    typeof receipt.stdout !== "string" ||
-    typeof receipt.stderr !== "string" ||
-    typeof receipt.stdoutTruncated !== "boolean" ||
-    typeof receipt.stderrTruncated !== "boolean" ||
-    !Number.isFinite(receipt.durationMs) ||
-    receipt.durationMs < 0 ||
-    Buffer.byteLength(receipt.stdout) > 64 * 1024 ||
-    Buffer.byteLength(receipt.stderr) > 64 * 1024
-  ) {
-    throw new Error("Karta oracle check receipt does not bind to the candidate tree and command");
+  if (!manifest) {
+    return { status: command === undefined ? "not-required" : "missing", targetTree };
   }
-  return { status: receipt.status, targetTree, commandHash, receipt };
+  if (
+    manifest.schema !== "karta-check-manifest-v1" ||
+    manifest.targetTree !== targetTree ||
+    !Array.isArray(manifest.entries) ||
+    manifest.entries.length === 0 ||
+    manifest.entries.length > 32
+  ) {
+    throw new Error("Karta check manifest does not bind to the candidate tree");
+  }
+  const ids = new Set<string>();
+  for (const [index, entry] of manifest.entries.entries()) {
+    if (
+      !/^[a-z][a-z0-9-]{0,63}$/.test(entry.id) ||
+      ids.has(entry.id) ||
+      entry.sequence !== index ||
+      !["floor", "oracle"].includes(entry.purpose) ||
+      entry.required !== true ||
+      entry.preTree !== targetTree ||
+      entry.postTree !== targetTree ||
+      !/^[a-f0-9]{64}$/.test(entry.environmentHash) ||
+      !validReceipt(entry.receipt, targetTree)
+    ) {
+      throw new Error("Karta check manifest contains a malformed, duplicate, reordered, or stale entry");
+    }
+    ids.add(entry.id);
+  }
+  const oracleEntries = manifest.entries.filter((entry) => entry.purpose === "oracle");
+  if (typeof command === "string") {
+    const expectedCwd = String((oracle as Record<string, unknown>).cwd ?? ".");
+    if (
+      oracleEntries.length !== 1 ||
+      oracleEntries[0].receipt.commandHash !== hashCheckCommand(command) ||
+      oracleEntries[0].receipt.cwd !== expectedCwd
+    ) {
+      throw new Error("Karta check manifest does not contain the required binder oracle");
+    }
+  } else if (oracleEntries.length !== 0) {
+    throw new Error("Karta check manifest contains an oracle not required by the binder");
+  }
+  return {
+    status: manifest.entries.some((entry) => entry.receipt.status === "failed")
+      ? "failed"
+      : "passed",
+    targetTree,
+    manifest,
+  };
 }
 
 async function loadPacks(
@@ -555,8 +653,9 @@ async function loadPacks(
   const packs: EvidencePack[] = [];
   for (const id of ids) {
     const projectPath = `.karta/sme/${id}.md`;
-    const projectContent = await gitOptional(cwd, ["show", `${policyTip}:${projectPath}`]);
-    if (projectContent !== undefined) {
+    const projectListing = await git(cwd, ["ls-tree", "-z", policyTip, "--", projectPath]);
+    if (projectListing) {
+      const projectContent = await git(cwd, ["show", `${policyTip}:${projectPath}`]);
       const blob = (await git(cwd, ["rev-parse", `${policyTip}:${projectPath}`])).trim();
       if (Buffer.byteLength(projectContent) > MAX_PACK_BYTES) {
         throw new Error(`Karta project pack '${id}' exceeds ${MAX_PACK_BYTES} bytes`);
@@ -567,6 +666,7 @@ async function loadPacks(
         path: projectPath,
         blob,
         sha256: sha256(projectContent),
+        dependencies: await resolvePackDependencies(projectContent),
         checklist: await resolvePackChecklist(id, projectContent),
       });
       continue;
@@ -581,6 +681,7 @@ async function loadPacks(
       source: "package",
       path: relative(requirePackagePath("."), packagePath).split(sep).join("/"),
       sha256: sha256(packageContent),
+      dependencies: await resolvePackDependencies(packageContent),
       checklist: await resolvePackChecklist(id, packageContent),
     });
   }
@@ -656,7 +757,9 @@ export async function buildKartaEvidence(
     target.tree,
     files,
   );
-  const checks = { oracle: checkEvidence(workItem, target.tree, options.checkReceipt) };
+  const checks = {
+    manifest: checkManifestEvidence(workItem, target.tree, options.checkManifest),
+  };
   const payload: KartaEvidencePayload = {
     binder: {
       slug: options.binder,
@@ -688,7 +791,7 @@ export async function buildKartaEvidence(
     packs,
   };
   return {
-    schema: "karta-evidence-v1",
+    schema: "karta-evidence-v2",
     generatedAt: new Date().toISOString(),
     repositoryRoot,
     evidenceHash: hashEvidencePayload(payload),
@@ -697,7 +800,7 @@ export async function buildKartaEvidence(
 }
 
 export function verifyEvidenceIntegrity(manifest: KartaEvidenceManifest): void {
-  if (manifest.schema !== "karta-evidence-v1") throw new Error("Unknown Karta evidence schema");
+  if (manifest.schema !== "karta-evidence-v2") throw new Error("Unknown Karta evidence schema");
   const actual = hashEvidencePayload(manifest.payload);
   if (actual !== manifest.evidenceHash) {
     throw new Error(`Karta evidence hash mismatch: expected ${manifest.evidenceHash}, found ${actual}`);
