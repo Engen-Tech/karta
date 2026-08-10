@@ -13,11 +13,11 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, and 3D|
-|In progress|Phase 3E — close evidence and transaction gaps found before `buildItem`|
-|First next action|Finish Phase 3E with exact hookless commit policy and non-destructive recovery invariants, then harden lifecycle ownership|
+|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, 3D, 3E, and 4A|
+|In progress|Phase 4B — mutation attestation and process ownership|
+|First next action|Add pre/post worker Git mutation attestation, then wire the binder lifecycle owner into fixed `buildItem`|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|The redesign baseline plus evidence v2, check-manifest v1, stable-tree convergence, worker-result v2, and instruction provenance are committed on `feat/pi-package`|
+|Commit state|Phase 3E plus doctrine-grade recovery, disposable hook validation, and binder-owned process management are committed on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after the Phase 3E transaction-schema increment. The Pi suite currently runs 107 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after the Phase 4A/lifecycle increment. The Pi suite currently runs 116 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -60,8 +60,8 @@ All five checks pass after the Phase 3E transaction-schema increment. The Pi sui
 |3B — Dispatch foundation|Complete|Role catalog, evidence builder, cross-process lock, and capability profiles pass|
 |3C — Read-only gates|Complete|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
 |3D — Contract alignment|Complete|Gates bind staged candidates, proposed merge trees, host-run checks, composed rules, and explicit lock ownership|
-|3E — Transaction closure|In progress|Full-floor receipts, stable-tree convergence, complete citations, and dependency-correct rules close pre-worker evidence gaps|
-|4 — Build and delivery|Redesigned, blocked on 3E|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
+|3E — Transaction closure|Complete|Full-floor receipts, stable-tree convergence, complete citations, dependency-correct rules, and exact hook-validated commits pass|
+|4 — Build and delivery|In progress|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
 |5 — Narrow writers|Not started|Doc-gardner and kaizen run with confined capabilities and labeled commits|
 |6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
 
@@ -327,7 +327,7 @@ No child receives the parent `karta_script` tool wholesale.
 
 ## Phase 3E — transaction and evidence closure
 
-The early Phase 4 finalizer exposed gaps that must be closed before `buildItem` can become authoritative. **Progress:** evidence v2 now carries an ordered check-manifest v1; worker-result/profile v2 supplies bounded floor proposals and committed instruction provenance; stable-tree checks converge generated artifacts, rerun the final list, and bind equal pre/post/target trees; composed packs carry dependency hashes; and exact candidate commits use `commit-tree` plus expected-old branch/ref updates with repository-format null IDs. Hook execution in a disposable finalization context and doctrine-grade non-destructive recovery remain.
+The early Phase 4 finalizer exposed gaps that must be closed before `buildItem` can become authoritative. **Progress:** evidence v2 now carries an ordered check-manifest v1; worker-result/profile v2 supplies bounded floor proposals and committed instruction provenance; stable-tree checks converge generated artifacts, rerun the final list, and bind equal pre/post/target trees; composed packs carry dependency hashes; and exact candidate commits use `commit-tree` plus expected-old branch/ref updates with repository-format null IDs. Repository hooks now run in a disposable finalization worktree: message-only refinement is retained, while hook failure, tree drift, or worktree residue blocks the real branch. Final commits still use `commit-tree` and expected-old ref updates. Recovery now distinguishes missing refs from Git errors, validates item markers, first-parent merge reachability, accepted trailers/ref pairings, SHA-1/SHA-256 object formats, and returns preserve-first actions for dirty or contradictory state.
 
 A Roundtable critique/convergence was run through the installed Pi MCP adapter. Provider degradation prevented a genuine multi-provider quorum—Antigravity completed while Copilot exited empty, Claude OAuth was expired, and Codex attempts timed out or rejected an unavailable model—so the review is evidence, not claimed consensus. Its converged recommendations agree with the deterministic code review below: host ownership, full-floor receipts, exact-tree commits, strict recovery, and managed process trees move in front of worker orchestration.
 
@@ -363,7 +363,9 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 
 ### 4A — authority and recovery
 
-**Existing foundations, not yet sufficient:** the Git classifier derives coarse item states; the candidate finalizer demonstrates stage/scan/check/gate/commit/ref-last ordering; the isolated worker has fixed role/profile-bound tools and output. Phase 4 now hardens rather than discards them.
+**Status: complete.** Git recovery is fail-closed and non-destructive; instruction blobs and isolated provider policy are bound before worker dispatch; host/model authority is explicit.
+
+**Existing foundations:** the Git classifier derives coarse item states; the candidate finalizer demonstrates stage/scan/check/gate/commit/ref-last ordering; the isolated worker has fixed role/profile-bound tools and output. Phase 4 now hardens rather than discards them.
 
 1. The Pi host is the sole owner of staging, scans, final checks, gates, commits, tags, merges, and Karta refs. Model workers edit and self-check only. Apply the same boundary to Phase 5 writers.
 2. Upgrade recovery to validate first-parent integration reachability, mandatory item markers, accepted trailer/ref pairing, built/failed/done exclusivity, expected tree identities, and archive transitions.
@@ -373,6 +375,8 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 6. Reject native providers and executable ambient provider hooks for workers as well as gates. Declarative provider/model/auth reproduction remains allowed.
 
 ### 4B — mutation and process ownership
+
+**Progress:** binder lifecycle owners and child process records now share the extension lifecycle registry. Host checks register detached process groups under their binder owner, normal exit forgets them, owner stop performs bounded TERM/KILL, and session shutdown reaches the same resources. Worker Bash remains owned through its registered child session. Pre/post worker mutation attestation remains.
 
 1. File tools deny `.git`, binders, roundtable records, SME packs, and every other host-owned surface not granted by the role. These are guardrails, never a Bash sandbox claim.
 2. Snapshot and attest branch, HEAD, index baseline, Karta refs/tags, repository/worktree config, hooks identity, worktree registry, protected paths, and sibling worktrees around every worker. Unexpected authority use blocks finalization.

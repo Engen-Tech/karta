@@ -13,12 +13,12 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return (await exec("git", args, { cwd })).stdout.trim();
 }
 
-async function fixture(): Promise<{ repo: string; cleanup(): Promise<void> }> {
+async function fixture(objectFormat: "sha1" | "sha256" = "sha1"): Promise<{ repo: string; cleanup(): Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), "karta-pi-git-state-"));
   const repo = join(root, "repo");
   await mkdir(repo);
   await writeFile(join(repo, "subject.txt"), "base\n");
-  await git(repo, ["init", "--initial-branch=main"]);
+  await git(repo, ["init", `--object-format=${objectFormat}`, "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Git State"]);
   await git(repo, ["config", "user.email", "git-state@invalid.example"]);
   await git(repo, ["config", "commit.gpgSign", "false"]);
@@ -38,7 +38,10 @@ async function commitItem(repo: string): Promise<string> {
 test("item recovery state advances from Git alone through the clean delivery path", async () => {
   const { repo, cleanup } = await fixture();
   try {
-    assert.equal((await deriveItemGitState(repo, "demo", "item-a")).state, "not-started");
+    const initial = await deriveItemGitState(repo, "demo", "item-a");
+    assert.equal(initial.state, "not-started");
+    assert.equal(initial.objectFormat, "sha1");
+    assert.equal(initial.nullObjectId, "0".repeat(40));
     await git(repo, ["checkout", "-b", "karta/demo/item-item-a", "karta/demo/integration"]);
     assert.equal((await deriveItemGitState(repo, "demo", "item-a")).state, "branch-only");
 
@@ -83,6 +86,70 @@ test("failed and interrupted accept states remain distinct", async () => {
     const pending = await deriveItemGitState(repo, "demo", "item-a");
     assert.equal(pending.state, "accept-merge-pending");
     assert.match(pending.nextAction, /recover or revert/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("accepted completion requires first-parent merge provenance and waiver trailers", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    await git(repo, ["checkout", "-b", "karta/demo/item-item-a", "karta/demo/integration"]);
+    const itemTip = await commitItem(repo);
+    await git(repo, ["checkout", "karta/demo/integration"]);
+    await git(repo, ["merge", "--no-ff", "--no-gpg-sign", "-m", "accept item", itemTip]);
+    let mergeTip = await git(repo, ["rev-parse", "HEAD"]);
+    await git(repo, ["update-ref", "refs/karta/demo/item-item-a/done", mergeTip]);
+    await git(repo, ["update-ref", "refs/karta/demo/item-item-a/accepted", itemTip]);
+    const unstamped = await deriveItemGitState(repo, "demo", "item-a");
+    assert.equal(unstamped.state, "inconsistent");
+    assert.match(unstamped.diagnostics.join(" "), /missing Karta-Accepted trailer/);
+
+    await git(repo, [
+      "commit",
+      "--amend",
+      "--no-gpg-sign",
+      "-m",
+      "accept item\n\nKarta-Accepted: unmet assertion\nKarta-Accept-Reason: human waiver",
+    ]);
+    mergeTip = await git(repo, ["rev-parse", "HEAD"]);
+    await git(repo, ["update-ref", "refs/karta/demo/item-item-a/done", mergeTip]);
+    assert.equal((await deriveItemGitState(repo, "demo", "item-a")).state, "done");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("SHA-256 repositories derive native object and null-id widths", async () => {
+  const { repo, cleanup } = await fixture("sha256");
+  try {
+    const state = await deriveItemGitState(repo, "demo", "item-a");
+    assert.equal(state.objectFormat, "sha256");
+    assert.equal(state.nullObjectId, "0".repeat(64));
+    assert.match(state.integrationTip ?? "", /^[a-f0-9]{64}$/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("missing commit markers and malformed refs fail closed without cleanup", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    await git(repo, ["checkout", "-b", "karta/demo/item-item-a", "karta/demo/integration"]);
+    await writeFile(join(repo, "subject.txt"), "unmarked\n");
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "--no-gpg-sign", "-m", "unmarked item"]);
+    const unmarked = await deriveItemGitState(repo, "demo", "item-a");
+    assert.equal(unmarked.state, "inconsistent");
+    assert.match(unmarked.diagnostics.join(" "), /has no item-item-a marker/);
+
+    const refDir = join(repo, ".git", "refs", "karta", "demo", "item-item-a");
+    await mkdir(refDir, { recursive: true });
+    await writeFile(join(refDir, "built"), "not-an-object\n");
+    await assert.rejects(
+      () => deriveItemGitState(repo, "demo", "item-a"),
+      /reference broken|bad ref|not a valid ref|invalid object/i,
+    );
   } finally {
     await cleanup();
   }

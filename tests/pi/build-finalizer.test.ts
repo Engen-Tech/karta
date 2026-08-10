@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,8 @@ import { KartaBuildFinalizer } from "../../extensions/pi/build-finalizer.ts";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import type { GateModelInvoker } from "../../extensions/pi/gate-runner.ts";
+import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
+import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
 import { KartaVerificationRunner } from "../../extensions/pi/verification-runner.ts";
 
 const exec = promisify(execFile);
@@ -146,13 +148,19 @@ test("finalizer scans, checks, gates, commits, then writes built ref", async () 
   const lease = await state.locks.acquire(state.repo, "demo");
   try {
     await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const processManager = new KartaProcessManager(new LifecycleRegistry(), 10);
+    const owner = processManager.createBinderOwner(state.repo, "demo");
     const result = await state.finalizer.finalizeCandidate(
       state.ctx,
       "demo",
       "item-a",
       state.repo,
       lease,
+      [],
+      { manager: processManager, owner },
     );
+    assert.equal(processManager.size, 0);
+    await processManager.stopOwner(owner);
     assert.equal(result.status, "built");
     assert.equal(result.checks?.entries[0].receipt.status, "passed");
     assert.equal(await git(state.repo, ["rev-parse", "HEAD^{tree}"]), result.targetTree);
@@ -161,6 +169,34 @@ test("finalizer scans, checks, gates, commits, then writes built ref", async () 
       result.commit,
     );
     assert.match(await git(state.repo, ["log", "-1", "--format=%s"]), /^\[karta:item-item-a\]/);
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("hook-induced tree drift blocks the real commit and built ref", async () => {
+  const state = await fixture();
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    const before = await git(state.repo, ["rev-parse", "HEAD"]);
+    const hook = join(state.repo, ".git", "hooks", "pre-commit");
+    await writeFile(hook, "#!/bin/sh\nprintf 'hooked\\n' > hook.txt\ngit add hook.txt\n");
+    await chmod(hook, 0o755);
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const result = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(result.status, "blocked");
+    assert.equal(result.hookValidation?.status, "drifted");
+    assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), before);
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
+    );
   } finally {
     await state.locks.release(lease);
     await state.cleanup();

@@ -13,6 +13,7 @@ import { createKartaDispatchTool } from "./dispatch-tool.ts";
 import { claimExtensionInstance } from "./extension-instance.ts";
 import { registerGuardAdapters } from "./guard-adapter.ts";
 import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
+import { KartaProcessManager } from "./process-manager.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
 import { KartaVerificationRunner } from "./verification-runner.ts";
 
@@ -20,6 +21,7 @@ export default function kartaPi(extension: ExtensionAPI): void {
   const releaseInstance = claimExtensionInstance(PACKAGE_ROOT);
   const children = new ChildRegistry();
   const dispatchLocks = new DispatchLockManager();
+  const processes = new KartaProcessManager(children.lifecycles);
   const gatePreflight = new GateProviderPreflight();
   const verification = new KartaVerificationRunner(gatePreflight, children, dispatchLocks);
   const guards = registerGuardAdapters(extension);
@@ -44,6 +46,7 @@ export default function kartaPi(extension: ExtensionAPI): void {
               packageRoot: PACKAGE_ROOT,
               model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null,
               activeChildren: children.size,
+              activeProcesses: processes.size,
               lifecycles: children.lifecycles.snapshot(),
               gatePreflights: gatePreflight.size,
               dispatchLocks: dispatchLocks.size,

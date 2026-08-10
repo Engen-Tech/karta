@@ -21,6 +21,8 @@ export interface KartaItemGitState {
   item: string;
   state: KartaItemRecoveryState;
   nextAction: string;
+  objectFormat: "sha1" | "sha256";
+  nullObjectId: string;
   integrationRef: string;
   integrationTip?: string;
   itemRef: string;
@@ -40,34 +42,77 @@ export interface KartaItemGitState {
   diagnostics: string[];
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
+interface GitResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+async function gitResult(cwd: string, args: string[]): Promise<GitResult> {
   try {
-    const { stdout } = await exec("git", ["-C", cwd, ...args], {
+    const { stdout, stderr } = await exec("git", ["-C", cwd, ...args], {
       encoding: "utf8",
       maxBuffer: 4 * 1024 * 1024,
     });
-    return stdout;
+    return { code: 0, stdout, stderr };
   } catch (error) {
-    const stderr = (error as { stderr?: string }).stderr?.trim();
-    throw new Error(stderr || `git ${args[0] ?? "command"} failed`);
+    const value = error as { code?: number | string; stdout?: string; stderr?: string };
+    if (typeof value.code === "number") {
+      return { code: value.code, stdout: value.stdout ?? "", stderr: value.stderr ?? "" };
+    }
+    throw error;
   }
 }
 
-async function optionalRef(cwd: string, ref: string): Promise<string | undefined> {
-  try {
-    return (await git(cwd, ["rev-parse", "--verify", `${ref}^{commit}`])).trim();
-  } catch {
-    return undefined;
+function gitFailure(args: string[], result: GitResult): Error {
+  return new Error(result.stderr.trim() || `git ${args[0] ?? "command"} failed with ${result.code}`);
+}
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  const result = await gitResult(cwd, args);
+  if (result.code !== 0) throw gitFailure(args, result);
+  return result.stdout;
+}
+
+async function referenceSnapshot(cwd: string): Promise<Map<string, string>> {
+  const shown = await gitResult(cwd, ["show-ref"]);
+  if (shown.code === 1 && !shown.stderr.trim()) return new Map();
+  if (shown.code !== 0) throw gitFailure(["show-ref"], shown);
+  const refs = new Map<string, string>();
+  for (const line of shown.stdout.split("\n").filter(Boolean)) {
+    const separator = line.indexOf(" ");
+    if (separator <= 0) throw new Error("git show-ref returned malformed output");
+    refs.set(line.slice(separator + 1), line.slice(0, separator));
   }
+  return refs;
+}
+
+async function commitRef(
+  cwd: string,
+  refs: Map<string, string>,
+  ref: string,
+): Promise<string | undefined> {
+  const hash = refs.get(ref);
+  if (!hash) return undefined;
+  return (await git(cwd, ["rev-parse", "--verify", `${hash}^{commit}`])).trim();
+}
+
+async function predicate(cwd: string, args: string[]): Promise<boolean> {
+  const result = await gitResult(cwd, args);
+  if (result.code === 0) return true;
+  if (result.code === 1) return false;
+  throw gitFailure(args, result);
 }
 
 async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
-  try {
-    await git(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
-    return true;
-  } catch {
-    return false;
-  }
+  return predicate(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
+}
+
+async function isFirstParentReachable(cwd: string, commit: string, tip: string): Promise<boolean> {
+  const commits = new Set(
+    (await git(cwd, ["rev-list", "--first-parent", tip])).split("\n").filter(Boolean),
+  );
+  return commits.has(commit);
 }
 
 async function worktreeForBranch(cwd: string, branchRef: string): Promise<string | undefined> {
@@ -84,19 +129,30 @@ async function worktreeForBranch(cwd: string, branchRef: string): Promise<string
 async function dirtyState(worktree: string | undefined): Promise<KartaItemGitState["dirty"]> {
   if (!worktree) return { staged: false, unstaged: false, untracked: false };
   const [staged, unstaged, untracked] = await Promise.all([
-    git(worktree, ["diff", "--cached", "--quiet", "--"]).then(
-      () => false,
-      () => true,
-    ),
-    git(worktree, ["diff", "--quiet", "--no-ext-diff", "--"]).then(
-      () => false,
-      () => true,
-    ),
+    predicate(worktree, ["diff", "--cached", "--quiet", "--"]).then((clean) => !clean),
+    predicate(worktree, ["diff", "--quiet", "--no-ext-diff", "--"]).then((clean) => !clean),
     git(worktree, ["ls-files", "--others", "--exclude-standard", "-z"]).then(
       (output) => output.length > 0,
     ),
   ]);
   return { staged, unstaged, untracked };
+}
+
+async function hasItemMarker(cwd: string, commit: string, item: string): Promise<boolean> {
+  const message = await git(cwd, ["show", "-s", "--format=%s%n%b", commit]);
+  return (
+    message.split("\n", 1)[0].includes(`[karta:item-${item}]`) ||
+    new RegExp(`^Karta-Item:\\s*item-${item}$`, "mi").test(message)
+  );
+}
+
+async function mergeParentCount(cwd: string, commit: string): Promise<number> {
+  const line = (await git(cwd, ["rev-list", "--parents", "-n", "1", commit])).trim();
+  return Math.max(0, line.split(/\s+/).length - 1);
+}
+
+async function trailer(cwd: string, commit: string, key: string): Promise<string> {
+  return (await git(cwd, ["show", "-s", `--format=%(trailers:key=${key},valueonly)`, commit])).trim();
 }
 
 function result(
@@ -114,16 +170,23 @@ export async function deriveItemGitState(
 ): Promise<KartaItemGitState> {
   if (!IDENTIFIER.test(binder)) throw new Error(`Invalid Karta binder slug: ${binder}`);
   if (!IDENTIFIER.test(item)) throw new Error(`Invalid Karta item id: ${item}`);
+  const format = (await git(cwd, ["rev-parse", "--show-object-format"])).trim();
+  if (format !== "sha1" && format !== "sha256") {
+    throw new Error(`Karta does not support Git object format '${format}'`);
+  }
+  const objectFormat = format as "sha1" | "sha256";
+  const nullObjectId = "0".repeat(objectFormat === "sha1" ? 40 : 64);
   const integrationRef = `refs/heads/karta/${binder}/integration`;
   const itemRef = `refs/heads/karta/${binder}/item-${item}`;
   const markerRoot = `refs/karta/${binder}/item-${item}`;
+  const refs = await referenceSnapshot(cwd);
   const [integrationTip, itemTip, built, failed, done, accepted, worktree] = await Promise.all([
-    optionalRef(cwd, integrationRef),
-    optionalRef(cwd, itemRef),
-    optionalRef(cwd, `${markerRoot}/built`),
-    optionalRef(cwd, `${markerRoot}/failed`),
-    optionalRef(cwd, `${markerRoot}/done`),
-    optionalRef(cwd, `${markerRoot}/accepted`),
+    commitRef(cwd, refs, integrationRef),
+    commitRef(cwd, refs, itemRef),
+    commitRef(cwd, refs, `${markerRoot}/built`),
+    commitRef(cwd, refs, `${markerRoot}/failed`),
+    commitRef(cwd, refs, `${markerRoot}/done`),
+    commitRef(cwd, refs, `${markerRoot}/accepted`),
     worktreeForBranch(cwd, itemRef),
   ]);
   const dirty = await dirtyState(worktree);
@@ -131,6 +194,8 @@ export async function deriveItemGitState(
   const base = {
     binder,
     item,
+    objectFormat,
+    nullObjectId,
     integrationRef,
     integrationTip,
     itemRef,
@@ -143,25 +208,55 @@ export async function deriveItemGitState(
 
   if (!integrationTip) {
     diagnostics.push("integration branch is missing");
-    return result(base, "inconsistent", "create or recover the binder integration branch");
+    return result(base, "inconsistent", "recover the binder integration branch without resetting unowned state");
   }
   if (!itemTip) {
     if (built || failed || done || accepted || worktree) {
       diagnostics.push("item markers or worktree exist without an item branch");
-      return result(base, "inconsistent", "inspect and repair the orphaned item state");
+      return result(base, "inconsistent", "preserve and inspect the orphaned item state; do not reset it");
     }
     return result(base, "not-started", "create the item branch and worktree from integration");
+  }
+
+  const ahead = (await git(cwd, ["rev-list", `${integrationTip}..${itemTip}`]))
+    .split("\n")
+    .filter(Boolean);
+  const markerCommits = ahead.length > 0 ? ahead : built || failed || done || accepted ? [itemTip] : [];
+  for (const commit of markerCommits) {
+    if (!(await hasItemMarker(cwd, commit, item))) {
+      diagnostics.push(`item commit ${commit} has no item-${item} marker`);
+    }
   }
   if (built && built !== itemTip) diagnostics.push("built ref does not match the item tip");
   if (failed && failed !== itemTip) diagnostics.push("failed ref does not match the item tip");
   if (accepted && accepted !== itemTip) diagnostics.push("accepted ref does not match the item tip");
   if (built && failed) diagnostics.push("built and failed refs both exist");
+  if (done && failed) diagnostics.push("done and failed refs both exist");
+  if (accepted && built) diagnostics.push("accepted and built refs both exist");
+  if (accepted && failed) diagnostics.push("accepted and failed refs both exist");
   if (accepted && !done) diagnostics.push("accepted exists without done");
-  if (done && !(await isAncestor(cwd, done, integrationTip))) {
-    diagnostics.push("done ref is not an ancestor of integration");
+  if (done) {
+    if (!(await isFirstParentReachable(cwd, done, integrationTip))) {
+      diagnostics.push("done ref is not first-parent-reachable from integration");
+    }
+    if ((await mergeParentCount(cwd, done)) < 2) {
+      diagnostics.push("done ref does not name a merge commit");
+    }
+    if (!(await isAncestor(cwd, itemTip, done))) {
+      diagnostics.push("done merge does not contain the item tip");
+    }
+    if (!accepted && !built) diagnostics.push("clean done state is missing its built ref");
+  }
+  if (accepted && done) {
+    if (!(await trailer(cwd, done, "Karta-Accepted"))) {
+      diagnostics.push("accepted done merge is missing Karta-Accepted trailer");
+    }
+    if (!(await trailer(cwd, done, "Karta-Accept-Reason"))) {
+      diagnostics.push("accepted done merge is missing Karta-Accept-Reason trailer");
+    }
   }
   if (diagnostics.length > 0) {
-    return result(base, "inconsistent", "inspect and repair contradictory Git markers");
+    return result(base, "inconsistent", "preserve current state and repair contradictory Git evidence manually");
   }
 
   const itemMerged = await isAncestor(cwd, itemTip, integrationTip);
@@ -170,7 +265,7 @@ export async function deriveItemGitState(
     return result(
       base,
       "accept-merge-pending",
-      "recover or revert the interrupted human-accept merge before continuing",
+      "recover or revert the interrupted human-accept merge without discarding the item worktree",
     );
   }
   if (built && itemMerged) {
@@ -179,10 +274,9 @@ export async function deriveItemGitState(
   if (failed) return result(base, "failed", "route the halted item to the existing human decision flow");
   if (built) return result(base, "built", "enqueue the committed item for serial integration");
   if (dirty.staged || dirty.unstaged || dirty.untracked) {
-    return result(base, "worktree-dirty", "resume the existing item worktree without clobbering it");
+    return result(base, "worktree-dirty", "resume the existing item worktree without resetting or clobbering it");
   }
-  const commitsAhead = Number((await git(cwd, ["rev-list", "--count", `${integrationTip}..${itemTip}`])).trim());
-  if (commitsAhead > 0) {
+  if (ahead.length > 0) {
     return result(
       base,
       "committed-unmarked",

@@ -31,6 +31,7 @@ export interface RunCheckConvergenceOptions {
   signal?: AbortSignal;
   maxPasses?: number;
   onProcessStart?: (pid: number) => void;
+  onProcessExit?: (pid: number) => Promise<void> | void;
   checkpoint?: (
     point: CheckConvergenceCheckpoint,
     details: { pass: number; tree: string },
@@ -117,6 +118,7 @@ async function runPlan(
       cwd: check.cwd,
       signal: options.signal,
       onProcessStart: options.onProcessStart,
+      onProcessExit: options.onProcessExit,
     });
     if (result.status !== "passed") {
       return { status: "halted", id: check.id, result: result as HaltedUnboundCheckResult };

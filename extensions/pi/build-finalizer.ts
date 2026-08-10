@@ -12,7 +12,12 @@ import {
   verifyEvidenceFreshness,
   type KartaCheckManifest,
 } from "./evidence.ts";
+import { validateCandidateHooks, type HookValidationResult } from "./hook-runner.ts";
 import { requirePackagePath } from "./package-paths.ts";
+import {
+  KartaProcessManager,
+  type BinderLifecycleOwner,
+} from "./process-manager.ts";
 import type { KartaVerificationResult, KartaVerificationRunner } from "./verification-runner.ts";
 
 const exec = promisify(execFile);
@@ -28,6 +33,7 @@ export interface KartaBuildFinalizationResult {
   commit?: string;
   checks?: KartaCheckManifest;
   checkFailure?: CheckConvergenceResult;
+  hookValidation?: HookValidationResult;
   verification?: KartaVerificationResult;
   message: string;
 }
@@ -118,6 +124,7 @@ export class KartaBuildFinalizer {
     worktree: string,
     lease: DispatchLockLease,
     floorChecks: KartaCheckPlanEntry[] = [],
+    processContext?: { manager: KartaProcessManager; owner: BinderLifecycleOwner },
   ): Promise<KartaBuildFinalizationResult> {
     if (!(await this.#locks.owns(lease))) {
       throw new Error("Karta build finalization requires the active binder lock lease");
@@ -154,6 +161,18 @@ export class KartaBuildFinalizer {
         worktree,
         checks: checkPlan,
         signal: ctx.signal,
+        onProcessStart: processContext
+          ? (pid) =>
+              processContext.manager.registerProcess(pid, {
+                cwd: worktree,
+                parentId: processContext.owner.id,
+                label: `${item} final check`,
+                role: "host-check",
+              })
+          : undefined,
+        onProcessExit: processContext
+          ? (pid) => processContext.manager.forgetProcess(pid)
+          : undefined,
       });
       if (convergence.status !== "stable") {
         return {
@@ -217,7 +236,36 @@ export class KartaBuildFinalizer {
     if (branch !== expectedBranch) {
       throw new Error(`Karta finalizer expected branch '${expectedBranch}', found '${branch}'`);
     }
-    const message = `[karta:item-${item}] ${String(evidence.payload.workItem.title ?? item)}`;
+    const proposedMessage = `[karta:item-${item}] ${String(evidence.payload.workItem.title ?? item)}`;
+    const hookValidation = await validateCandidateHooks({
+      worktree,
+      candidateTree: evidence.payload.git.targetTree,
+      parent,
+      message: proposedMessage,
+      signal: ctx.signal,
+    });
+    if (hookValidation.status !== "passed") {
+      return {
+        status: "blocked",
+        binder,
+        item,
+        targetTree: evidence.payload.git.targetTree,
+        checks,
+        verification,
+        hookValidation,
+        message:
+          hookValidation.status === "failed"
+            ? "A repository commit hook failed in the disposable finalization worktree."
+            : "A repository commit hook changed the reviewed tree; finalization stopped.",
+      };
+    }
+    const message = hookValidation.message ?? proposedMessage;
+    if (
+      !message.split("\n", 1)[0].includes(`[karta:item-${item}]`) &&
+      !new RegExp(`^Karta-Item:\\s*item-${item}$`, "mi").test(message)
+    ) {
+      throw new Error("Karta commit hooks removed the mandatory item marker");
+    }
     const commit = await git(worktree, [
       "commit-tree",
       evidence.payload.git.targetTree,
@@ -253,6 +301,7 @@ export class KartaBuildFinalizer {
       targetTree: commitTree,
       commit,
       checks,
+      hookValidation,
       verification,
       message: "Candidate committed and built ref written after exact-tree verification.",
     };

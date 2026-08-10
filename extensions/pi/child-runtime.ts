@@ -43,13 +43,14 @@ export class ChildRegistry {
 
   add(
     session: ManagedSession,
-    options: { cwd?: string; role?: LifecycleRole; label?: string } = {},
+    options: { cwd?: string; role?: LifecycleRole; label?: string; parentId?: string } = {},
   ): void {
     if (this.#sessions.has(session)) throw new Error("Karta child session is already registered");
     const id = this.lifecycles.register({
       role: options.role ?? "phase0-probe",
       cwd: options.cwd ?? process.cwd(),
       label: options.label,
+      parentId: options.parentId,
       resource: session,
     });
     this.#sessions.set(session, id);

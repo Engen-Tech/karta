@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 export type LifecycleRole =
   | "phase0-probe"
   | "provider-preflight"
+  | "delivery"
+  | "host-check"
+  | "managed-process"
   | "acceptance-gate"
   | "safety-gate"
   | "build-worker"
@@ -75,6 +78,34 @@ export class LifecycleRegistry {
 
   get size(): number {
     return this.#records.size;
+  }
+
+  async stop(id: string): Promise<void> {
+    const root = this.#records.get(id);
+    if (!root) return;
+    const belongsTo = (record: LifecycleRecord): boolean => {
+      let current: LifecycleRecord | undefined = record;
+      while (current) {
+        if (current.id === id) return true;
+        current = current.parentId ? this.#records.get(current.parentId) : undefined;
+      }
+      return false;
+    };
+    const depth = (record: LifecycleRecord): number => {
+      let value = 0;
+      let parentId = record.parentId;
+      while (parentId) {
+        value += 1;
+        parentId = this.#records.get(parentId)?.parentId;
+      }
+      return value;
+    };
+    const records = [...this.#records.values()]
+      .filter(belongsTo)
+      .sort((left, right) => depth(right) - depth(left) || right.startedAt - left.startedAt);
+    await Promise.allSettled(records.map((record) => Promise.resolve().then(() => record.resource.abort())));
+    await Promise.allSettled(records.map((record) => Promise.resolve().then(() => record.resource.dispose())));
+    for (const record of records) this.#records.delete(record.id);
   }
 
   shutdown(): Promise<void> {

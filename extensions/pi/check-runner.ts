@@ -47,6 +47,7 @@ export interface RunCheckOptions {
   signal?: AbortSignal;
   timeout?: number;
   onProcessStart?: (pid: number) => void;
+  onProcessExit?: (pid: number) => Promise<void> | void;
 }
 
 interface BoundedOutput {
@@ -151,10 +152,13 @@ export async function runBoundCheck(options: RunCheckOptions): Promise<UnboundCh
     child.stdout.on("data", (chunk) => appendBounded(stdout, chunk));
     child.stderr.on("data", (chunk) => appendBounded(stderr, chunk));
     child.once("error", (error) => {
-      clearTimeout(timer);
-      if (forceKill) clearTimeout(forceKill);
-      options.signal?.removeEventListener("abort", abort);
-      rejectRun(error);
+      void (async () => {
+        clearTimeout(timer);
+        if (forceKill) clearTimeout(forceKill);
+        options.signal?.removeEventListener("abort", abort);
+        if (child.pid) await options.onProcessExit?.(child.pid);
+        rejectRun(error);
+      })().catch(rejectRun);
     });
     child.once("close", (code) => {
       void (async () => {
@@ -162,6 +166,7 @@ export async function runBoundCheck(options: RunCheckOptions): Promise<UnboundCh
         if (forceKill) clearTimeout(forceKill);
         options.signal?.removeEventListener("abort", abort);
         if (stopped) await stopProcessTree(child.pid, true);
+        if (child.pid) await options.onProcessExit?.(child.pid);
         resolveRun({
           commandHash: hashCheckCommand(options.command),
           cwd: commandCwd,
