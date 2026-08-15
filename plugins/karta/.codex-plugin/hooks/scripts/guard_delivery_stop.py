@@ -38,7 +38,7 @@ exits 0, because a stray Stop trap is strictly worse than a missed nudge. Keep
 the detection semantics in step with the Claude twin — the two files are
 maintained by hand, not generated.
 
-  guard_delivery_stop.py              # hook mode: payload on stdin, exit 0/2
+  guard_delivery_stop.py              # hook mode: JSON payload/output, exit 0/2
   guard_delivery_stop.py --self-test  # run embedded fixtures, exit 0/1
 """
 from __future__ import annotations
@@ -274,7 +274,8 @@ def _run_self_test() -> int:
     def git(repo: Path, *a: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["git", "-C", str(repo), "-c", "user.email=karta@test",
-             "-c", "user.name=karta", *a], capture_output=True, text=True)
+             "-c", "user.name=karta", "-c", "commit.gpgsign=false", *a],
+            capture_output=True, text=True)
 
     def init_repo(td: str, name: str) -> Path:
         repo = Path(td) / name
@@ -490,6 +491,28 @@ def _run_self_test() -> int:
         flag("block_json emits decision=block with the reason",
              parsed == {"decision": "block", "reason": "fix the delivery"})
 
+        # 25. Hook-mode allow output must satisfy Codex's Stop JSON schema.
+        allowed = subprocess.run(
+            [sys.executable, __file__],
+            input=json.dumps({"hook_event_name": "Stop"}),
+            capture_output=True, text=True)
+        try:
+            allowed_output = json.loads(allowed.stdout)
+        except json.JSONDecodeError:
+            allowed_output = None
+        flag("hook-mode allow emits an empty JSON object",
+             allowed.returncode == 0 and allowed_output == {})
+
+        malformed = subprocess.run(
+            [sys.executable, __file__], input="{not json",
+            capture_output=True, text=True)
+        try:
+            malformed_output = json.loads(malformed.stdout)
+        except json.JSONDecodeError:
+            malformed_output = None
+        flag("hook-mode fail-open emits an empty JSON object",
+             malformed.returncode == 0 and malformed_output == {})
+
     total = len(results)
     failures = results.count(False)
     print(f"\n{total - failures}/{total} checks passed")
@@ -506,10 +529,13 @@ def main() -> int:
         payload = json.load(sys.stdin)
         code, reason = decide(payload)
     except Exception:  # noqa: BLE001
+        print("{}")
         return 0  # fail open: a stray Stop trap is worse than a missed nudge
     if code == 2:
         print(block_json(reason))          # Codex Stop decision channel
         print(reason, file=sys.stderr)     # exit-code channel
+    else:
+        print("{}")                        # Codex requires JSON on every pass
     return code
 
 
