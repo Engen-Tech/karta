@@ -19,6 +19,7 @@ import { KartaIntegrationRunner } from "./integration-runner.ts";
 import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
 import { KartaProcessManager } from "./process-manager.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
+import { KartaShutdownCoordinator } from "./shutdown-coordinator.ts";
 import { KartaVerificationRunner } from "./verification-runner.ts";
 import { KartaWaveRunner } from "./wave-runner.ts";
 import { KartaBuildWorkerRunner } from "./worker-runner.ts";
@@ -44,6 +45,13 @@ export default function kartaPi(extension: ExtensionAPI): void {
     waves,
   );
   const guards = registerGuardAdapters(extension);
+  const shutdown = new KartaShutdownCoordinator({
+    children,
+    locks: dispatchLocks,
+    guards,
+    preflight: gatePreflight,
+    releaseInstance,
+  });
   extension.registerTool(createKartaScriptTool(extension));
   extension.registerTool(
     createKartaDispatchTool(gatePreflight, children, verification, buildItems, deliveries),
@@ -119,13 +127,6 @@ export default function kartaPi(extension: ExtensionAPI): void {
   });
 
   extension.on("session_shutdown", async () => {
-    guards.shutdown();
-    gatePreflight.clear();
-    try {
-      await children.abortAll();
-    } finally {
-      await dispatchLocks.releaseAll();
-      releaseInstance();
-    }
+    await shutdown.shutdown();
   });
 }

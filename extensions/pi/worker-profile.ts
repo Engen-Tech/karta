@@ -53,7 +53,11 @@ export function requireWorktreePath(worktree: string, requested: string): string
   return lexical;
 }
 
-function confineFileTool(tool: AnyToolDefinition, worktree: string): AnyToolDefinition {
+function confineFileTool(
+  tool: AnyToolDefinition,
+  worktree: string,
+  onMutation?: () => Promise<void> | void,
+): AnyToolDefinition {
   const execute = tool.execute.bind(tool);
   return {
     ...tool,
@@ -71,6 +75,7 @@ function confineFileTool(tool: AnyToolDefinition, worktree: string): AnyToolDefi
       ) {
         throw new Error(`Karta worker file tools cannot mutate host-owned Karta state: ${path}`);
       }
+      if (["write", "edit"].includes(tool.name)) await onMutation?.();
       return execute(toolCallId, params, signal, onUpdate, ctx);
     },
   };
@@ -80,13 +85,20 @@ export function createBuildWorkerCapabilityProfile(
   worktree: string,
   branch: string,
   instructions: WorkerProjectInstruction[] = [],
+  onFirstMutation?: () => Promise<void> | void,
 ): BuildWorkerCapabilityProfile {
   const root = realpathSync(worktree);
   const role = loadKartaRole("build-worker");
+  let mutationReported = false;
+  const reportMutation = async (): Promise<void> => {
+    if (mutationReported) return;
+    mutationReported = true;
+    await onFirstMutation?.();
+  };
   const tools: AnyToolDefinition[] = [
     confineFileTool(createReadToolDefinition(root), root),
-    confineFileTool(createWriteToolDefinition(root), root),
-    confineFileTool(createEditToolDefinition(root), root),
+    confineFileTool(createWriteToolDefinition(root), root, reportMutation),
+    confineFileTool(createEditToolDefinition(root), root, reportMutation),
     {
       ...createBashToolDefinition(root),
       description:

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,11 +16,73 @@ export interface HookValidationResult {
   stderr: string;
 }
 
+interface HookProcessOptions {
+  onProcessStart?: (pid: number) => void;
+  onProcessExit?: (pid: number) => Promise<void> | void;
+}
+
 async function git(
   cwd: string,
   args: string[],
-  options: { signal?: AbortSignal; allowFailure?: boolean } = {},
+  options: {
+    signal?: AbortSignal;
+    allowFailure?: boolean;
+    onProcessStart?: HookProcessOptions["onProcessStart"];
+    onProcessExit?: HookProcessOptions["onProcessExit"];
+  } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
+  if (options.onProcessStart || options.onProcessExit) {
+    return new Promise((resolve, reject) => {
+      const child = spawn("git", ["-C", cwd, ...args], {
+        stdio: ["ignore", "pipe", "pipe"],
+        signal: options.signal,
+        detached: process.platform !== "win32",
+      });
+      let stdout = "";
+      let stderr = "";
+      let overflow = false;
+      let settled = false;
+      const append = (target: "stdout" | "stderr", chunk: Buffer): void => {
+        if (overflow) return;
+        if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) + chunk.length > MAX_HOOK_OUTPUT) {
+          overflow = true;
+          child.kill("SIGKILL");
+          return;
+        }
+        if (target === "stdout") stdout += chunk.toString();
+        else stderr += chunk.toString();
+      };
+      child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
+      child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
+      child.once("error", (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
+      child.once("close", (code) => {
+        if (settled) return;
+        settled = true;
+        void (async () => {
+          if (child.pid) await options.onProcessExit?.(child.pid);
+          if (overflow) throw new Error("Karta hook output exceeded its bound");
+          const exitCode = code ?? 1;
+          if (exitCode === 0 || options.allowFailure) {
+            resolve({ stdout, stderr, code: exitCode });
+            return;
+          }
+          reject(new Error(stderr.trim() || `git ${args[0] ?? "command"} failed during hook validation`));
+        })().catch(reject);
+      });
+      if (child.pid) {
+        try {
+          options.onProcessStart?.(child.pid);
+        } catch (error) {
+          child.kill("SIGKILL");
+          reject(error);
+        }
+      }
+    });
+  }
   try {
     const { stdout, stderr } = await exec("git", ["-C", cwd, ...args], {
       encoding: "utf8",
@@ -45,6 +107,8 @@ export async function validateMergeHooks(options: {
   candidateTree: string;
   message: string;
   signal?: AbortSignal;
+  onProcessStart?: HookProcessOptions["onProcessStart"];
+  onProcessExit?: HookProcessOptions["onProcessExit"];
 }): Promise<HookValidationResult> {
   for (const object of [options.integrationTip, options.itemTip, options.candidateTree]) {
     if (!/^[a-f0-9]{40,64}$/.test(object)) {
@@ -66,7 +130,12 @@ export async function validateMergeHooks(options: {
     const merged = await git(
       disposable,
       ["merge", "--no-ff", "--no-commit", options.itemTip],
-      { signal: options.signal, allowFailure: true },
+      {
+        signal: options.signal,
+        allowFailure: true,
+        onProcessStart: options.onProcessStart,
+        onProcessExit: options.onProcessExit,
+      },
     );
     if (merged.code !== 0) {
       return {
@@ -89,7 +158,12 @@ export async function validateMergeHooks(options: {
     const committed = await git(
       disposable,
       ["commit", "--no-gpg-sign", "-m", options.message],
-      { signal: options.signal, allowFailure: true },
+      {
+        signal: options.signal,
+        allowFailure: true,
+        onProcessStart: options.onProcessStart,
+        onProcessExit: options.onProcessExit,
+      },
     );
     if (committed.code !== 0) {
       return {
@@ -144,6 +218,8 @@ export async function validateCandidateHooks(options: {
   parent: string;
   message: string;
   signal?: AbortSignal;
+  onProcessStart?: HookProcessOptions["onProcessStart"];
+  onProcessExit?: HookProcessOptions["onProcessExit"];
 }): Promise<HookValidationResult> {
   if (!/^[a-f0-9]{40,64}$/.test(options.candidateTree) || !/^[a-f0-9]{40,64}$/.test(options.parent)) {
     throw new Error("Karta hook validation requires valid candidate and parent object ids");
@@ -165,7 +241,12 @@ export async function validateCandidateHooks(options: {
     const committed = await git(
       disposable,
       ["commit", "--no-gpg-sign", "-m", options.message],
-      { signal: options.signal, allowFailure: true },
+      {
+        signal: options.signal,
+        allowFailure: true,
+        onProcessStart: options.onProcessStart,
+        onProcessExit: options.onProcessExit,
+      },
     );
     if (committed.code !== 0) {
       return {

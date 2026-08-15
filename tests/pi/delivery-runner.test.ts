@@ -73,7 +73,10 @@ async function fixture(collide = false): Promise<{ repo: string; root: string; c
   return { repo, root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
-function createRunner(repo: string): { runner: KartaDeliveryRunner; maxParallel(): number } {
+function createRunner(
+  repo: string,
+  beforeBuild: () => Promise<void> = async () => {},
+): { runner: KartaDeliveryRunner; maxParallel(): number } {
   const locks = new DispatchLockManager();
   const processes = new KartaProcessManager(new LifecycleRegistry(), 10);
   let active = 0;
@@ -81,6 +84,7 @@ function createRunner(repo: string): { runner: KartaDeliveryRunner; maxParallel(
   const builds = {
     async runWithLease(_ctx: unknown, binder: string, item: string) {
       active += 1;
+      await beforeBuild();
       maximum = Math.max(maximum, active);
       await new Promise((resolve) => setTimeout(resolve, 20));
       const integration = await git(repo, ["rev-parse", `refs/heads/karta/${binder}/integration`]);
@@ -241,6 +245,35 @@ async function seedFailedItem(repo: string, item = "item-a"): Promise<string> {
   await git(repo, ["update-ref", `refs/karta/demo/item-${item}/failed`, commit]);
   return commit;
 }
+
+test("a second delivery process cannot enter the same binder lease", async () => {
+  const state = await fixture();
+  try {
+    let releaseBuild!: () => void;
+    let reportEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { reportEntered = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseBuild = resolve; });
+    let reported = false;
+    const first = createRunner(state.repo, async () => {
+      if (!reported) {
+        reported = true;
+        reportEntered();
+      }
+      await blocked;
+    });
+    const firstRun = first.runner.run({ cwd: state.repo } as ExtensionContext, "demo");
+    await entered;
+    const second = createRunner(state.repo);
+    await assert.rejects(
+      () => second.runner.run({ cwd: state.repo } as ExtensionContext, "demo"),
+      /already locked|lock/i,
+    );
+    releaseBuild();
+    assert.equal((await firstRun).status, "complete");
+  } finally {
+    await state.cleanup();
+  }
+});
 
 test("interactive human acceptance records reason and resumes delivery", async () => {
   const state = await fixture();

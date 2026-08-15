@@ -15,9 +15,9 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, 3D, 3E, 4A, 4B, 4C, 4D, and 4E|
 |In progress|Phase 4F — interruption behavior|
-|First next action|Complete the deterministic interruption matrix for wave rollback, accepted merges, shutdown, and multi-process resume|
+|First next action|Close Phase 4F with managed dev-server/wave-environment shutdown coverage and archive checkpoints after Phase 5 writers land|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Live human fix/accept/defer routing, exact-finding waivers, accepted-merge recovery, and accepted-wave rollback are ready on `feat/pi-package`|
+|Commit state|Shutdown ordering, hook-process ownership, first-edit fault injection, fresh-process Git recovery, and competing-delivery lock tests are ready on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after Phase 4E. The Pi suite currently runs 149 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass during Phase 4F. The Pi suite currently runs 157 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -415,6 +415,8 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 6. On post-wave failure, restore branch and all affected refs exactly as the existing revert protocol requires. Archive only after every item is durably done.
 
 ### 4F — interruption behavior
+
+**Progress:** deterministic checkpoints now cover lock/owner creation, first file edit, worker attestation, convergence/manifest binding, gates, commit and merge creation, branch movement, accepted refs, wave tags, and atomic rollback. Fresh Node processes classify injected commit/build/merge/done states from Git alone. Shutdown is one idempotent coordinator: guards and preflight close first, children and registered process groups abort next, only owned locks release afterward, and the extension claim releases last even on abort failure. Hook-bearing Git processes run in owned detached groups; a hook-synchronized test proves binder shutdown kills the hook and its descendant. Competing delivery owners cannot enter one binder lease. Managed dev-server/wave-environment shutdown fixtures remain; archive checkpoints follow the Phase 5 writer-before-archive sequence.
 
 1. Deterministic injection points cover owner/worker/process creation, first edit, attestation, every convergence pass, receipt binding, gate completion, commit creation, branch update, merge, each ref/tag update, archive move, and archive commit.
 2. Tests synchronize on hooks, never timing sleeps.

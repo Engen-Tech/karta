@@ -572,6 +572,16 @@ export class KartaIntegrationRunner {
         candidateTree: targetTree,
         message: proposedMessage,
         signal: ctx.signal,
+        onProcessStart: processContext
+          ? (pid) => processContext.manager.registerProcess(pid, {
+              cwd: integrationWorktree,
+              parentId: processContext.owner.id,
+              label: `${item} merge hook validation`,
+            })
+          : undefined,
+        onProcessExit: processContext
+          ? (pid) => processContext.manager.forgetProcess(pid)
+          : undefined,
       });
       if (hookValidation.status !== "passed") {
         return {

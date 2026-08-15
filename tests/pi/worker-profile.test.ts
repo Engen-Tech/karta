@@ -80,6 +80,40 @@ test("worker file tools allow in-root writes and reject traversal", async () => 
   }
 });
 
+test("first file mutation exposes one deterministic checkpoint before editing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "karta-worker-first-edit-"));
+  try {
+    let checkpoints = 0;
+    const profile = createBuildWorkerCapabilityProfile(
+      root,
+      "karta/demo/item-item-a",
+      [],
+      () => {
+        checkpoints += 1;
+      },
+    );
+    const write = profile.tools.find((tool) => tool.name === "write");
+    assert.ok(write);
+    await write.execute(
+      "first",
+      { path: "first.txt", content: "first\n" },
+      undefined,
+      undefined,
+      { cwd: root } as ExtensionContext,
+    );
+    await write.execute(
+      "second",
+      { path: "second.txt", content: "second\n" },
+      undefined,
+      undefined,
+      { cwd: root } as ExtensionContext,
+    );
+    assert.equal(checkpoints, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("worker file paths cannot escape through an existing symlink", async () => {
   const parent = await mkdtemp(join(tmpdir(), "karta-worker-symlink-"));
   const root = join(parent, "worktree");

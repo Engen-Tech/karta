@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, watch, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,8 @@ import {
   validateCandidateHooks,
   validateMergeHooks,
 } from "../../extensions/pi/hook-runner.ts";
+import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
+import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
 
 const exec = promisify(execFile);
 
@@ -86,6 +88,72 @@ test("merge hooks reproduce the exact two-parent candidate and may refine its me
     assert.equal(result.hookTree, state.tree);
     assert.match(result.message ?? "", /Reviewed-By: merge-hook/);
     assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), state.parent);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("binder shutdown kills a running merge hook and its descendant", { timeout: 60_000 }, async (context) => {
+  if (process.platform === "win32") {
+    context.skip("native Windows process-tree coverage runs in the release matrix");
+    return;
+  }
+  const state = await fixture();
+  try {
+    const item = await git(state.repo, [
+      "commit-tree",
+      state.tree,
+      "-p",
+      state.parent,
+      "-m",
+      "[karta:item-item-a] item",
+    ]);
+    const ready = join(state.repo, "hook-ready");
+    const descendantFile = join(state.repo, "hook-descendant");
+    await hook(
+      state.repo,
+      "pre-commit",
+      `tail -f /dev/null &\nprintf '%s' "$!" > '${descendantFile}'\nprintf ready > '${ready}'\nwait`,
+    );
+    const lifecycles = new LifecycleRegistry();
+    const manager = new KartaProcessManager(lifecycles, 25);
+    const owner = manager.createBinderOwner(state.repo, "demo");
+    const watchAbort = new AbortController();
+    const watcher = watch(state.repo, { signal: watchAbort.signal });
+    const validation = validateMergeHooks({
+      worktree: state.repo,
+      integrationTip: state.parent,
+      itemTip: item,
+      candidateTree: state.tree,
+      message: "[karta:merge-item-item-a] merge",
+      onProcessStart(pid) {
+        manager.registerProcess(pid, {
+          cwd: state.repo,
+          parentId: owner.id,
+          label: "merge hooks",
+        });
+      },
+      onProcessExit(pid) {
+        manager.forgetProcess(pid);
+      },
+    });
+    try {
+      await access(ready);
+    } catch {
+      for await (const event of watcher) {
+        if (event.filename === "hook-ready") break;
+      }
+    } finally {
+      watchAbort.abort();
+    }
+    const descendant = Number(await readFile(descendantFile, "utf8"));
+    assert.ok(Number.isInteger(descendant) && descendant > 0);
+    await manager.stopOwner(owner);
+    const stopped = await validation;
+    assert.equal(stopped.status, "failed");
+    assert.throws(() => process.kill(descendant, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH");
+    assert.equal(manager.size, 0);
+    assert.equal(lifecycles.size, 0);
   } finally {
     await state.cleanup();
   }

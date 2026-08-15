@@ -25,6 +25,7 @@ export type KartaBuildCheckpoint = (
     | "state-derived"
     | "worktree-ready"
     | "before-worker"
+    | "first-worker-edit"
     | "worker-attested"
     | "before-finalization"
     | "finalization-returned",
@@ -265,6 +266,7 @@ export class KartaBuildItemRunner {
           feedback,
           owner.id,
           recoverCommitted ? "recover-committed" : recoverMerged ? "recover-merged" : "implement",
+          () => this.#checkpoint("first-worker-edit"),
         );
         await this.#checkpoint("worker-attested");
         if (worker.outcome === "blocked") {
@@ -397,6 +399,7 @@ export class KartaBuildItemRunner {
                 worktree,
                 lease,
                 finalization,
+                { manager: this.#processes, owner },
               );
           return {
             schema: "karta-build-item-v1",

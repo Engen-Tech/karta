@@ -397,6 +397,16 @@ export class KartaBuildFinalizer {
       parent,
       message: committedMessage,
       signal: ctx.signal,
+      onProcessStart: processContext
+        ? (pid) => processContext.manager.registerProcess(pid, {
+            cwd: worktree,
+            parentId: processContext.owner.id,
+            label: `${item} committed hook validation`,
+          })
+        : undefined,
+      onProcessExit: processContext
+        ? (pid) => processContext.manager.forgetProcess(pid)
+        : undefined,
     });
     if (hookValidation.status !== "passed" || hookValidation.message !== committedMessage) {
       return {
@@ -487,6 +497,7 @@ export class KartaBuildFinalizer {
     worktree: string,
     lease: DispatchLockLease,
     candidate: KartaBuildFinalizationResult,
+    processContext?: { manager: KartaProcessManager; owner: BinderLifecycleOwner },
   ): Promise<KartaBuildFinalizationResult> {
     if (!(await this.#locks.owns(lease))) {
       throw new Error("Karta failed-candidate recording requires the active binder lock lease");
@@ -514,6 +525,16 @@ export class KartaBuildFinalizer {
       parent,
       message: proposedMessage,
       signal: ctx.signal,
+      onProcessStart: processContext
+        ? (pid) => processContext.manager.registerProcess(pid, {
+            cwd: worktree,
+            parentId: processContext.owner.id,
+            label: `${item} failed hook validation`,
+          })
+        : undefined,
+      onProcessExit: processContext
+        ? (pid) => processContext.manager.forgetProcess(pid)
+        : undefined,
     });
     if (hookValidation.status !== "passed") {
       return {
@@ -682,6 +703,16 @@ export class KartaBuildFinalizer {
       parent,
       message: proposedMessage,
       signal: ctx.signal,
+      onProcessStart: processContext
+        ? (pid) => processContext.manager.registerProcess(pid, {
+            cwd: worktree,
+            parentId: processContext.owner.id,
+            label: `${item} candidate hook validation`,
+          })
+        : undefined,
+      onProcessExit: processContext
+        ? (pid) => processContext.manager.forgetProcess(pid)
+        : undefined,
     });
     if (hookValidation.status !== "passed") {
       return {

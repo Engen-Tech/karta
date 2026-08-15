@@ -232,9 +232,15 @@ export class KartaBuildWorkerRunner {
     feedback: unknown[] = [],
     parentId?: string,
     mode: "implement" | "recover-committed" | "recover-merged" = "implement",
+    onFirstMutation?: () => Promise<void> | void,
   ): Promise<KartaWorkerResult> {
     const instructions = await this.#loadInstructions(worktree);
-    const profile = createBuildWorkerCapabilityProfile(worktree, branch, instructions);
+    const profile = createBuildWorkerCapabilityProfile(
+      worktree,
+      branch,
+      instructions,
+      onFirstMutation,
+    );
     const before = await this.#authority.snapshot(worktree);
     let response: { text: string; runtime: ChildRuntimeReport } | undefined;
     let invocationError: unknown;

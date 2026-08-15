@@ -7,8 +7,12 @@ import { promisify } from "node:util";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
+import { deriveItemGitState } from "../../extensions/pi/git-state.ts";
 import type { KartaIntegrationResult } from "../../extensions/pi/integration-runner.ts";
-import { KartaWaveRunner } from "../../extensions/pi/wave-runner.ts";
+import {
+  KartaWaveRunner,
+  type KartaWaveCheckpoint,
+} from "../../extensions/pi/wave-runner.ts";
 
 const exec = promisify(execFile);
 
@@ -17,7 +21,10 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function fixture(sharedTerms = false): Promise<{
+async function fixture(
+  sharedTerms = false,
+  checkpoint: KartaWaveCheckpoint = () => {},
+): Promise<{
   root: string;
   integration: string;
   locks: DispatchLockManager;
@@ -51,7 +58,7 @@ async function fixture(sharedTerms = false): Promise<{
     root,
     integration,
     locks,
-    runner: new KartaWaveRunner(locks),
+    runner: new KartaWaveRunner(locks, checkpoint),
     async cleanup() {
       await locks.releaseAll();
       await rm(root, { recursive: true, force: true });
@@ -179,6 +186,35 @@ test("accepted wave rollback removes accepted and restores failed instead of bui
     await assert.rejects(() =>
       git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/built"]),
     );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("crash after atomic rollback refs leaves Git at the resumable committed-unmarked frontier", async () => {
+  const state = await fixture(false, (name) => {
+    if (name === "rollback-refs-committed") throw new Error("injected rollback crash");
+  });
+  const lease = await state.locks.acquire(state.integration, "demo");
+  try {
+    const anchor = await state.runner.start("demo", 1, state.integration, lease);
+    const integration = await landItem(state.integration);
+    await assert.rejects(
+      () => state.runner.finish(
+        { cwd: state.integration } as ExtensionContext,
+        anchor,
+        state.integration,
+        lease,
+        [integration],
+        [{ id: "floor", purpose: "floor", command: "false", cwd: "." }],
+      ),
+      /injected rollback crash/,
+    );
+    assert.equal(await git(state.integration, ["rev-parse", "HEAD"]), anchor.base);
+    await assert.rejects(() => git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/done"]));
+    await assert.rejects(() => git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/built"]));
+    assert.equal((await deriveItemGitState(state.integration, "demo", "item-a")).state, "committed-unmarked");
   } finally {
     await state.locks.release(lease);
     await state.cleanup();

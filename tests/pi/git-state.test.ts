@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { promisify } from "node:util";
 import { deriveItemGitState } from "../../extensions/pi/git-state.ts";
@@ -69,6 +70,34 @@ test("item recovery state advances from Git alone through the clean delivery pat
 
     await git(repo, ["update-ref", "refs/karta/demo/item-item-a/done", integrationTip]);
     assert.equal((await deriveItemGitState(repo, "demo", "item-a")).state, "done");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("fresh Node processes resume injected commit, built, merge, and done states from Git alone", async () => {
+  const { repo, cleanup } = await fixture();
+  const inspector = fileURLToPath(new URL("fixtures/inspect-item-state.ts", import.meta.url));
+  const inspect = async () => {
+    const { stdout } = await exec(
+      process.execPath,
+      ["--experimental-strip-types", inspector, repo, "demo", "item-a"],
+      { encoding: "utf8" },
+    );
+    return JSON.parse(stdout) as { state: string };
+  };
+  try {
+    await git(repo, ["checkout", "-b", "karta/demo/item-item-a", "karta/demo/integration"]);
+    const itemTip = await commitItem(repo);
+    assert.equal((await inspect()).state, "committed-unmarked");
+    await git(repo, ["update-ref", "refs/karta/demo/item-item-a/built", itemTip]);
+    assert.equal((await inspect()).state, "built");
+    await git(repo, ["checkout", "karta/demo/integration"]);
+    await git(repo, ["merge", "--no-ff", "--no-gpg-sign", "-m", "merge item", itemTip]);
+    assert.equal((await inspect()).state, "merged-unmarked");
+    const merge = await git(repo, ["rev-parse", "HEAD"]);
+    await git(repo, ["update-ref", "refs/karta/demo/item-item-a/done", merge]);
+    assert.equal((await inspect()).state, "done");
   } finally {
     await cleanup();
   }
