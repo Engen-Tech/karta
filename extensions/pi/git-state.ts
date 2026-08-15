@@ -13,6 +13,7 @@ export type KartaItemRecoveryState =
   | "failed"
   | "merged-unmarked"
   | "accept-merge-pending"
+  | "accept-ref-pending"
   | "done"
   | "inconsistent";
 
@@ -251,8 +252,14 @@ export async function deriveItemGitState(
   if (built && built !== itemTip) diagnostics.push("built ref does not match the item tip");
   if (failed && failed !== itemTip) diagnostics.push("failed ref does not match the item tip");
   if (accepted && accepted !== itemTip) diagnostics.push("accepted ref does not match the item tip");
+  const acceptedTrailer = done ? await trailer(cwd, done, "Karta-Accepted") : "";
+  const acceptReasonTrailer = done ? await trailer(cwd, done, "Karta-Accept-Reason") : "";
+  const acceptStampedMerge = Boolean(acceptedTrailer && acceptReasonTrailer);
+  if (Boolean(acceptedTrailer) !== Boolean(acceptReasonTrailer)) {
+    diagnostics.push("done merge has incomplete Karta accept trailers");
+  }
   if (built && failed) diagnostics.push("built and failed refs both exist");
-  if (done && failed) diagnostics.push("done and failed refs both exist");
+  if (done && failed && !acceptStampedMerge) diagnostics.push("done and failed refs both exist");
   if (accepted && built) diagnostics.push("accepted and built refs both exist");
   if (accepted && failed) diagnostics.push("accepted and failed refs both exist");
   if (accepted && !done) diagnostics.push("accepted exists without done");
@@ -266,21 +273,21 @@ export async function deriveItemGitState(
     if (mergeCommit !== done) {
       diagnostics.push("done ref does not name the first-parent merge whose second parent is the item tip");
     }
-    if (!accepted && !built) diagnostics.push("clean done state is missing its built ref");
+    if (!accepted && !built && !acceptStampedMerge) {
+      diagnostics.push("clean done state is missing its built ref");
+    }
   }
-  if (accepted && done) {
-    if (!(await trailer(cwd, done, "Karta-Accepted"))) {
-      diagnostics.push("accepted done merge is missing Karta-Accepted trailer");
-    }
-    if (!(await trailer(cwd, done, "Karta-Accept-Reason"))) {
-      diagnostics.push("accepted done merge is missing Karta-Accept-Reason trailer");
-    }
+  if (accepted && done && !acceptStampedMerge) {
+    diagnostics.push("accepted done merge is missing complete Karta accept trailers");
   }
   if ((built || failed || done || accepted) && itemMerged && !mergeCommit) {
     diagnostics.push("integrated item has no first-parent two-parent merge with the item tip as second parent");
   }
   if (diagnostics.length > 0) {
     return result(base, "inconsistent", "preserve current state and repair contradictory Git evidence manually");
+  }
+  if (done && acceptStampedMerge && !accepted) {
+    return result(base, "accept-ref-pending", "finish failed-ref removal and write accepted ref-last");
   }
   if (done) return result(base, "done", "skip this completed item");
   if (failed && itemMerged) {

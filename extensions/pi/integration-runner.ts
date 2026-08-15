@@ -14,6 +14,7 @@ import {
   verifyEvidenceFreshness,
   type KartaCheckManifest,
 } from "./evidence.ts";
+import type { KartaGateFinding } from "./gate-runner.ts";
 import { validateMergeHooks, type HookValidationResult } from "./hook-runner.ts";
 import { requirePackagePath } from "./package-paths.ts";
 import {
@@ -32,7 +33,10 @@ export type KartaIntegrationCheckpoint = (
     | "gates-complete"
     | "merge-commit-created"
     | "integration-ref-updated"
-    | "done-ref-updated",
+    | "done-ref-updated"
+    | "failed-ref-deleted"
+    | "accepted-ref-updated"
+    | "accept-merge-reverted",
 ) => Promise<void> | void;
 
 export interface KartaIntegrationResult {
@@ -46,7 +50,9 @@ export interface KartaIntegrationResult {
   mergeCommit?: string;
   checks?: KartaCheckManifest;
   verification?: KartaVerificationResult;
+  safetyVerification?: KartaVerificationResult;
   hookValidation?: HookValidationResult;
+  accepted?: boolean;
   message: string;
 }
 
@@ -62,6 +68,20 @@ async function git(cwd: string, args: string[], allowFailure = false): Promise<s
     const stderr = (error as { stderr?: string }).stderr?.trim();
     throw new Error(stderr || `git ${args[0] ?? "command"} failed during integration`);
   }
+}
+
+async function optionalCommitRef(cwd: string, ref: string): Promise<string | undefined> {
+  try {
+    await exec("git", ["-C", cwd, "show-ref", "--verify", "--quiet", ref], {
+      encoding: "utf8",
+      maxBuffer: MAX_OUTPUT,
+    });
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) return undefined;
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    throw new Error(stderr || `git show-ref failed for ${ref}`);
+  }
+  return git(cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
 }
 
 async function nullObjectId(cwd: string): Promise<string> {
@@ -85,11 +105,20 @@ function oracleCheck(workItem: Record<string, unknown>): KartaCheckPlanEntry | u
   };
 }
 
-async function scanSecrets(cwd: string): Promise<void> {
+async function scanSecrets(
+  cwd: string,
+  committedRange?: { base: string; target: string },
+): Promise<void> {
+  const args = [
+    "run",
+    "--script",
+    requirePackagePath("skills/karta-build/scripts/scan_secrets.py"),
+  ];
+  if (committedRange) args.push("--base", committedRange.base, "--target", committedRange.target);
   try {
     await exec(
       "uv",
-      ["run", "--script", requirePackagePath("skills/karta-build/scripts/scan_secrets.py")],
+      args,
       { cwd, encoding: "utf8", maxBuffer: MAX_OUTPUT },
     );
   } catch (error) {
@@ -113,7 +142,7 @@ export class KartaIntegrationRunner {
     this.#checkpoint = checkpoint;
   }
 
-  async integrate(
+  async recoverAccepted(
     ctx: ExtensionContext,
     binder: string,
     item: string,
@@ -123,18 +152,222 @@ export class KartaIntegrationRunner {
     processContext?: { manager: KartaProcessManager; owner: BinderLifecycleOwner },
   ): Promise<KartaIntegrationResult> {
     if (!(await this.#locks.owns(lease))) {
+      throw new Error("Karta accepted recovery requires the active binder lock lease");
+    }
+    const integrationRef = `refs/heads/karta/${binder}/integration`;
+    const itemRef = `refs/heads/karta/${binder}/item-${item}`;
+    const [mergeCommit, itemTip, failed, done, accepted] = await Promise.all([
+      git(integrationWorktree, ["rev-parse", integrationRef]),
+      git(integrationWorktree, ["rev-parse", itemRef]),
+      optionalCommitRef(integrationWorktree, `refs/karta/${binder}/item-${item}/failed`),
+      optionalCommitRef(integrationWorktree, `refs/karta/${binder}/item-${item}/done`),
+      optionalCommitRef(integrationWorktree, `refs/karta/${binder}/item-${item}/accepted`),
+    ]);
+    const parents = (await git(integrationWorktree, [
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      mergeCommit,
+    ])).split(/\s+/).slice(1);
+    const message = await git(integrationWorktree, ["show", "-s", "--format=%B", mergeCommit]);
+    if (
+      parents.length !== 2 ||
+      parents[1] !== itemTip ||
+      (failed !== undefined && failed !== itemTip) ||
+      (done !== undefined && done !== mergeCommit) ||
+      accepted !== undefined ||
+      !/^Karta-Accepted:\s*\S+/mi.test(message) ||
+      !/^Karta-Accept-Reason:\s*\S+/mi.test(message)
+    ) {
+      throw new Error("Karta accepted recovery found contradictory merge or ref evidence");
+    }
+    const targetTree = await git(integrationWorktree, ["rev-parse", `${mergeCommit}^{tree}`]);
+    const revertAccepted = async (reason: string): Promise<KartaIntegrationResult> => {
+      await git(integrationWorktree, ["read-tree", "--reset", "-u", parents[0]]);
+      await git(integrationWorktree, ["update-ref", integrationRef, parents[0], mergeCommit]);
+      if (done) {
+        await git(integrationWorktree, [
+          "update-ref",
+          "-d",
+          `refs/karta/${binder}/item-${item}/done`,
+          mergeCommit,
+        ]);
+      }
+      if (!failed) {
+        await git(integrationWorktree, [
+          "update-ref",
+          `refs/karta/${binder}/item-${item}/failed`,
+          itemTip,
+          await nullObjectId(integrationWorktree),
+        ]);
+      }
+      await this.#checkpoint("accept-merge-reverted");
+      return {
+        schema: "karta-integration-item-v1",
+        binder,
+        item,
+        status: "blocked",
+        base: parents[0],
+        itemTip,
+        targetTree,
+        mergeCommit,
+        accepted: false,
+        message: reason,
+      };
+    };
+    const preliminaryEvidence = await buildKartaEvidence({
+      cwd: integrationWorktree,
+      binder,
+      item,
+      target: "landed",
+    });
+    const oracle = oracleCheck(preliminaryEvidence.payload.workItem);
+    const oracleKey = oracle ? `${oracle.cwd}\0${oracle.command}` : undefined;
+    const plan: KartaCheckPlanEntry[] = floorChecks
+      .filter((check) => `${check.cwd}\0${check.command}` !== oracleKey)
+      .map((check) => ({ ...check, purpose: "floor" as const }));
+    if (oracle) plan.push(oracle);
+    let checks: KartaCheckManifest | undefined;
+    if (plan.length > 0) {
+      const convergence = await runStableTreeChecks({
+        worktree: integrationWorktree,
+        checks: plan,
+        signal: ctx.signal,
+        onProcessStart: processContext
+          ? (pid) => processContext.manager.registerProcess(pid, {
+              cwd: integrationWorktree,
+              parentId: processContext.owner.id,
+              label: `${item} accepted recovery floor`,
+              role: "host-check",
+            })
+          : undefined,
+        onProcessExit: processContext
+          ? (pid) => processContext.manager.forgetProcess(pid)
+          : undefined,
+      });
+      if (convergence.status !== "stable" || convergence.targetTree !== targetTree) {
+        return revertAccepted("Accepted recovery floor failed; merge reverted and failed ref restored.");
+      }
+      checks = convergence.manifest;
+    }
+    await scanSecrets(integrationWorktree, { base: parents[0], target: mergeCommit });
+    const evidence = await buildKartaEvidence({
+      cwd: integrationWorktree,
+      binder,
+      item,
+      target: "landed",
+      checkManifest: checks,
+    });
+    await verifyEvidenceFreshness(evidence);
+    const verification = await this.#verification.runWithLease(
+      ctx,
+      binder,
+      item,
+      "full",
+      lease,
+      { cwd: integrationWorktree, target: "landed", checkManifest: checks },
+    );
+    let safetyVerification: KartaVerificationResult | undefined;
+    let reviewPassed = verification.status === "pass" || verification.status === "skipped";
+    if (verification.status === "concerns" && verification.gates.acceptance?.verdict === "concerns") {
+      const waivedCodes = new Set(
+        [...message.matchAll(/^Karta-Accepted:\s*([^@\s]+)/gmi)].map((match) => match[1]),
+      );
+      reviewPassed = verification.gates.acceptance.findings.every((finding) =>
+        waivedCodes.has(finding.code),
+      );
+      if (reviewPassed) {
+        safetyVerification = await this.#verification.runWithLease(
+          ctx,
+          binder,
+          item,
+          "boundary-only",
+          lease,
+          { cwd: integrationWorktree, target: "landed", checkManifest: checks },
+        );
+        reviewPassed = safetyVerification.status === "pass" || safetyVerification.status === "skipped";
+      }
+    }
+    if (!reviewPassed) {
+      return revertAccepted(
+        "Accepted recovery found new or unsafe findings; merge reverted and failed ref restored.",
+      );
+    }
+    if (!done) {
+      await git(integrationWorktree, [
+        "update-ref",
+        `refs/karta/${binder}/item-${item}/done`,
+        mergeCommit,
+        await nullObjectId(integrationWorktree),
+      ]);
+      await this.#checkpoint("done-ref-updated");
+    }
+    if (failed) {
+      await git(integrationWorktree, [
+        "update-ref",
+        "-d",
+        `refs/karta/${binder}/item-${item}/failed`,
+        itemTip,
+      ]);
+      await this.#checkpoint("failed-ref-deleted");
+    }
+    await git(integrationWorktree, [
+      "update-ref",
+      `refs/karta/${binder}/item-${item}/accepted`,
+      itemTip,
+      await nullObjectId(integrationWorktree),
+    ]);
+    await this.#checkpoint("accepted-ref-updated");
+    return {
+      schema: "karta-integration-item-v1",
+      binder,
+      item,
+      status: "integrated",
+      base: parents[0],
+      itemTip,
+      targetTree,
+      mergeCommit,
+      checks,
+      verification,
+      safetyVerification,
+      accepted: true,
+      message: "Accepted merge recovery completed with accepted ref-last.",
+    };
+  }
+
+  async integrate(
+    ctx: ExtensionContext,
+    binder: string,
+    item: string,
+    integrationWorktree: string,
+    lease: DispatchLockLease,
+    floorChecks: KartaCheckPlanEntry[] = [],
+    processContext?: { manager: KartaProcessManager; owner: BinderLifecycleOwner },
+    acceptance?: {
+      authorize(findings: KartaGateFinding[]): Promise<{ reason: string } | undefined>;
+    },
+  ): Promise<KartaIntegrationResult> {
+    if (!(await this.#locks.owns(lease))) {
       throw new Error("Karta integration requires the active binder lock lease");
     }
     const integrationRef = `refs/heads/karta/${binder}/integration`;
     const itemRef = `refs/heads/karta/${binder}/item-${item}`;
-    const [base, itemTip, built, branch, status] = await Promise.all([
+    const [base, itemTip, built, failed, branch, status] = await Promise.all([
       git(integrationWorktree, ["rev-parse", integrationRef]),
       git(integrationWorktree, ["rev-parse", itemRef]),
-      git(integrationWorktree, ["rev-parse", `refs/karta/${binder}/item-${item}/built`]),
+      optionalCommitRef(integrationWorktree, `refs/karta/${binder}/item-${item}/built`),
+      optionalCommitRef(integrationWorktree, `refs/karta/${binder}/item-${item}/failed`),
       git(integrationWorktree, ["branch", "--show-current"]),
       git(integrationWorktree, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]),
     ]);
-    if (built !== itemTip) throw new Error("Karta integration requires built ref at the item tip");
+    if (acceptance) {
+      if (failed !== itemTip || built) {
+        throw new Error("Karta acceptance requires failed ref at the item tip and no built ref");
+      }
+    } else if (built !== itemTip) {
+      throw new Error("Karta integration requires built ref at the item tip");
+    }
     if (branch !== `karta/${binder}/integration` || status) {
       throw new Error("Karta integration worktree is not the clean owned integration branch");
     }
@@ -229,7 +462,82 @@ export class KartaIntegrationRunner {
         { cwd: integrationWorktree, target: "merge", checkManifest: checks },
       );
       await this.#checkpoint("gates-complete");
-      if (verification.status !== "pass" && verification.status !== "skipped") {
+      let safetyVerification: KartaVerificationResult | undefined;
+      let waiver: { reason: string; findings: KartaGateFinding[] } | undefined;
+      if (acceptance) {
+        let findings: KartaGateFinding[] = [];
+        if (verification.status === "concerns") {
+          if (verification.gates.acceptance?.verdict !== "concerns") {
+            return {
+              schema: "karta-integration-item-v1",
+              binder,
+              item,
+              status: "blocked",
+              base,
+              itemTip,
+              targetTree,
+              checks,
+              verification,
+              message: "Human acceptance cannot waive a safety-gate concern.",
+            };
+          }
+          findings = verification.gates.acceptance.findings;
+          safetyVerification = await this.#verification.runWithLease(
+            ctx,
+            binder,
+            item,
+            "boundary-only",
+            lease,
+            { cwd: integrationWorktree, target: "merge", checkManifest: checks },
+          );
+          if (safetyVerification.status !== "pass" && safetyVerification.status !== "skipped") {
+            return {
+              schema: "karta-integration-item-v1",
+              binder,
+              item,
+              status: "blocked",
+              base,
+              itemTip,
+              targetTree,
+              checks,
+              verification,
+              safetyVerification,
+              message: "Human acceptance cannot waive a safety-gate failure.",
+            };
+          }
+        } else if (verification.status !== "pass" && verification.status !== "skipped") {
+          return {
+            schema: "karta-integration-item-v1",
+            binder,
+            item,
+            status: "blocked",
+            base,
+            itemTip,
+            targetTree,
+            checks,
+            verification,
+            message: "Failed item could not be freshly reviewed for human acceptance.",
+          };
+        }
+        const authorization = await acceptance.authorize(findings);
+        const reason = authorization?.reason.replace(/\s+/g, " ").trim() ?? "";
+        if (!reason || reason.length > 1_000) {
+          return {
+            schema: "karta-integration-item-v1",
+            binder,
+            item,
+            status: "blocked",
+            base,
+            itemTip,
+            targetTree,
+            checks,
+            verification,
+            safetyVerification,
+            message: "Human acceptance was cancelled or supplied no bounded reason.",
+          };
+        }
+        waiver = { reason, findings };
+      } else if (verification.status !== "pass" && verification.status !== "skipped") {
         return {
           schema: "karta-integration-item-v1",
           binder,
@@ -243,7 +551,20 @@ export class KartaIntegrationRunner {
           message: "Proposed integration tree did not pass fresh verification.",
         };
       }
-      const proposedMessage = `[karta:merge-item-${item}] integrate item-${item}`;
+      const acceptTrailers = waiver
+        ? [
+            ...(waiver.findings.length > 0
+              ? waiver.findings.map((finding) =>
+                  `Karta-Accepted: ${finding.code}${finding.path ? `@${finding.path}${finding.line ? `:${finding.line}` : ""}` : ""}`,
+                )
+              : ["Karta-Accepted: fresh-review-passed"]),
+            `Karta-Accept-Reason: ${waiver.reason}`,
+          ]
+        : [];
+      const proposedMessage = [
+        `[karta:merge-item-${item}] integrate item-${item}`,
+        ...(acceptTrailers.length > 0 ? ["", ...acceptTrailers] : []),
+      ].join("\n");
       const hookValidation = await validateMergeHooks({
         worktree: integrationWorktree,
         integrationTip: base,
@@ -271,6 +592,13 @@ export class KartaIntegrationRunner {
       if (!message.split("\n", 1)[0].includes(`[karta:merge-item-${item}]`)) {
         throw new Error("Karta merge hooks removed the mandatory merge marker");
       }
+      if (
+        waiver &&
+        (!/^Karta-Accepted:\s*\S+/mi.test(message) ||
+          !/^Karta-Accept-Reason:\s*\S+/mi.test(message))
+      ) {
+        throw new Error("Karta merge hooks removed mandatory human-accept trailers");
+      }
       const mergeCommit = await git(integrationWorktree, [
         "commit-tree",
         targetTree,
@@ -296,6 +624,49 @@ export class KartaIntegrationRunner {
       ) {
         throw new Error("Karta integration commit does not preserve the verified merge transaction");
       }
+      if (waiver && plan.length > 0) {
+        const postAccept = await runStableTreeChecks({
+          worktree: integrationWorktree,
+          checks: plan,
+          signal: ctx.signal,
+          onProcessStart: processContext
+            ? (pid) => processContext.manager.registerProcess(pid, {
+                cwd: integrationWorktree,
+                parentId: processContext.owner.id,
+                label: `${item} post-accept floor`,
+                role: "host-check",
+              })
+            : undefined,
+          onProcessExit: processContext
+            ? (pid) => processContext.manager.forgetProcess(pid)
+            : undefined,
+        });
+        if (postAccept.status !== "stable" || postAccept.targetTree !== targetTree) {
+          await git(integrationWorktree, ["read-tree", "--reset", "-u", base]);
+          try {
+            await git(integrationWorktree, ["update-ref", integrationRef, base, mergeCommit]);
+          } catch (error) {
+            await git(integrationWorktree, ["read-tree", "--reset", "-u", mergeCommit]);
+            throw error;
+          }
+          await this.#checkpoint("accept-merge-reverted");
+          return {
+            schema: "karta-integration-item-v1",
+            binder,
+            item,
+            status: "blocked",
+            base,
+            itemTip,
+            targetTree,
+            checks,
+            verification,
+            safetyVerification,
+            hookValidation,
+            accepted: false,
+            message: "Post-accept floor failed; the accepted merge was reverted and failed ref preserved.",
+          };
+        }
+      }
       await git(integrationWorktree, [
         "update-ref",
         `refs/karta/${binder}/item-${item}/done`,
@@ -303,6 +674,22 @@ export class KartaIntegrationRunner {
         await nullObjectId(integrationWorktree),
       ]);
       await this.#checkpoint("done-ref-updated");
+      if (waiver) {
+        await git(integrationWorktree, [
+          "update-ref",
+          "-d",
+          `refs/karta/${binder}/item-${item}/failed`,
+          itemTip,
+        ]);
+        await this.#checkpoint("failed-ref-deleted");
+        await git(integrationWorktree, [
+          "update-ref",
+          `refs/karta/${binder}/item-${item}/accepted`,
+          itemTip,
+          await nullObjectId(integrationWorktree),
+        ]);
+        await this.#checkpoint("accepted-ref-updated");
+      }
       return {
         schema: "karta-integration-item-v1",
         binder,
@@ -314,8 +701,12 @@ export class KartaIntegrationRunner {
         mergeCommit,
         checks,
         verification,
+        safetyVerification,
         hookValidation,
-        message: "Verified no-ff merge committed and done ref written ref-last.",
+        accepted: Boolean(waiver),
+        message: waiver
+          ? "Human-waived merge passed safety and post-accept floor; accepted ref written last."
+          : "Verified no-ff merge committed and done ref written ref-last.",
       };
     } finally {
       if (registered) {

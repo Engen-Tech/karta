@@ -110,10 +110,40 @@ function createRunner(repo: string): { runner: KartaDeliveryRunner; maxParallel(
     },
   } as unknown as KartaBuildItemRunner;
   const integrations = {
-    async integrate(_ctx: unknown, binder: string, item: string) {
+    async integrate(
+      _ctx: unknown,
+      binder: string,
+      item: string,
+      _worktree: string,
+      _lease: unknown,
+      _checks: unknown,
+      _process: unknown,
+      acceptance?: { authorize(findings: unknown[]): Promise<{ reason: string } | undefined> },
+    ) {
       const base = await git(repo, ["rev-parse", `refs/heads/karta/${binder}/integration`]);
       const itemTip = await git(repo, ["rev-parse", `refs/heads/karta/${binder}/item-${item}`]);
       const tree = await git(repo, ["rev-parse", `${base}^{tree}`]);
+      const authorization = acceptance
+        ? await acceptance.authorize([{
+            code: "fixture-gap",
+            message: "Fixture acceptance gap.",
+            severity: "major",
+          }])
+        : undefined;
+      if (acceptance && !authorization) {
+        return {
+          schema: "karta-integration-item-v1",
+          binder,
+          item,
+          status: "blocked",
+          base,
+          itemTip,
+          message: "cancelled",
+        };
+      }
+      const message = acceptance
+        ? `[karta:merge-item-${item}] fixture\n\nKarta-Accepted: fixture-gap\nKarta-Accept-Reason: ${authorization!.reason}`
+        : `[karta:merge-item-${item}] fixture`;
       const merge = await git(repo, [
         "commit-tree",
         tree,
@@ -122,10 +152,14 @@ function createRunner(repo: string): { runner: KartaDeliveryRunner; maxParallel(
         "-p",
         itemTip,
         "-m",
-        `[karta:merge-item-${item}] fixture`,
+        message,
       ]);
       await git(repo, ["update-ref", `refs/heads/karta/${binder}/integration`, merge, base]);
       await git(repo, ["update-ref", `refs/karta/${binder}/item-${item}/done`, merge]);
+      if (acceptance) {
+        await git(repo, ["update-ref", "-d", `refs/karta/${binder}/item-${item}/failed`, itemTip]);
+        await git(repo, ["update-ref", `refs/karta/${binder}/item-${item}/accepted`, itemTip]);
+      }
       return {
         schema: "karta-integration-item-v1",
         binder,
@@ -134,13 +168,17 @@ function createRunner(repo: string): { runner: KartaDeliveryRunner; maxParallel(
         base,
         itemTip,
         mergeCommit: merge,
+        accepted: Boolean(acceptance),
         message: "integrated",
       };
     },
   } as unknown as KartaIntegrationRunner;
   const workers = {
     async run() {
-      throw new Error("floor discovery should not run for fresh builds");
+      return {
+        outcome: "ready",
+        checks: [{ id: "floor", command: "true", cwd: "." }],
+      };
     },
   } as unknown as KartaBuildWorkerRunner;
   const waves = {
@@ -183,6 +221,109 @@ test("delivery builds dependency-ready items in parallel and integrates them FIF
     for (const item of ["item-a", "item-b", "item-c"]) {
       assert.ok(await git(state.repo, ["rev-parse", `refs/karta/demo/item-${item}/done`]));
     }
+  } finally {
+    await state.cleanup();
+  }
+});
+
+async function seedFailedItem(repo: string, item = "item-a"): Promise<string> {
+  const integration = await git(repo, ["rev-parse", "refs/heads/karta/demo/integration"]);
+  const tree = await git(repo, ["rev-parse", `${integration}^{tree}`]);
+  const commit = await git(repo, [
+    "commit-tree",
+    tree,
+    "-p",
+    integration,
+    "-m",
+    `[karta:item-${item}] failed fixture`,
+  ]);
+  await git(repo, ["update-ref", `refs/heads/karta/demo/item-${item}`, commit]);
+  await git(repo, ["update-ref", `refs/karta/demo/item-${item}/failed`, commit]);
+  return commit;
+}
+
+test("interactive human acceptance records reason and resumes delivery", async () => {
+  const state = await fixture();
+  try {
+    const itemTip = await seedFailedItem(state.repo);
+    const delivery = createRunner(state.repo);
+    const prompts: string[] = [];
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select() {
+          prompts.push("select");
+          return "Accept exact current findings";
+        },
+        async confirm(_title: string, message: string) {
+          prompts.push(message);
+          return true;
+        },
+        async input() {
+          prompts.push("input");
+          return "Approved fixture gap.";
+        },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "complete");
+    assert.ok(prompts.some((prompt) => prompt.includes("fixture-gap")));
+    assert.equal(
+      await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/accepted"]),
+      itemTip,
+    );
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/failed"]),
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("fix-and-rerun clears only the expected failed ref and rebuilds", async () => {
+  const state = await fixture();
+  try {
+    const failedTip = await seedFailedItem(state.repo);
+    const delivery = createRunner(state.repo);
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select() { return "Fix and rerun"; },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "complete");
+    const finalItemTip = await git(state.repo, ["rev-parse", "refs/heads/karta/demo/item-item-a"]);
+    assert.notEqual(finalItemTip, failedTip);
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/failed"]),
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("defer leaves the failed ref intact and stops without model authority", async () => {
+  const state = await fixture();
+  try {
+    const itemTip = await seedFailedItem(state.repo);
+    const delivery = createRunner(state.repo);
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select() { return "Defer and stop delivery"; },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "blocked");
+    assert.match(result.message, /remains deferred/);
+    assert.equal(
+      await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/failed"]),
+      itemTip,
+    );
   } finally {
     await state.cleanup();
   }

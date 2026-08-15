@@ -104,7 +104,7 @@ test("accepted completion requires first-parent merge provenance and waiver trai
     await git(repo, ["update-ref", "refs/karta/demo/item-item-a/accepted", itemTip]);
     const unstamped = await deriveItemGitState(repo, "demo", "item-a");
     assert.equal(unstamped.state, "inconsistent");
-    assert.match(unstamped.diagnostics.join(" "), /missing Karta-Accepted trailer/);
+    assert.match(unstamped.diagnostics.join(" "), /missing complete Karta accept trailers/);
 
     await git(repo, [
       "commit",

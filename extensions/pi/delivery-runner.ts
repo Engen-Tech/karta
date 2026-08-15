@@ -234,6 +234,74 @@ export class KartaDeliveryRunner {
     return expected;
   }
 
+  async #pendingWaveAnchor(
+    repoRoot: string,
+    binder: string,
+  ): Promise<{ binder: string; wave: number; base: string; baseTag: string } | undefined> {
+    const refs = (await git(repoRoot, [
+      "for-each-ref",
+      "--format=%(refname) %(objectname)",
+      `refs/tags/karta/${binder}/wave-*-base`,
+    ])).split("\n").filter(Boolean).map((line) => {
+      const [ref, object] = line.split(" ");
+      return {
+        ref,
+        object,
+        wave: Number(ref.match(/\/wave-(\d+)-base$/)?.[1] ?? 0),
+      };
+    }).sort((left, right) => right.wave - left.wave);
+    const currentTip = await git(repoRoot, ["rev-parse", `refs/heads/karta/${binder}/integration`]);
+    for (const candidate of refs) {
+      const terminalRefs = [
+        `refs/tags/karta/${binder}/wave-${candidate.wave}`,
+        `refs/tags/karta/${binder}/wave-${candidate.wave}-rolled-back`,
+      ];
+      const terminal = await Promise.all(terminalRefs.map((ref) =>
+        git(repoRoot, ["show-ref", "--verify", "--quiet", ref])
+          .then(() => true)
+          .catch(() => false),
+      ));
+      if (!terminal.some(Boolean) && candidate.object !== currentTip) {
+        return {
+          binder,
+          wave: candidate.wave,
+          base: candidate.object,
+          baseTag: candidate.ref,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  async #discoverFloorChecks(
+    ctx: ExtensionContext,
+    repoRoot: string,
+    binder: string,
+    item: DeliveryItem,
+    ownerId: string,
+    mode: "recover-committed" | "recover-merged",
+  ): Promise<KartaCheckPlanEntry[]> {
+    const worktree = await this.#ensureItemWorktree(repoRoot, binder, item.id);
+    const discovery = await this.#workers.run(
+      ctx,
+      worktree,
+      `karta/${binder}/item-${item.id}`,
+      binder,
+      item.id,
+      item,
+      [],
+      ownerId,
+      mode,
+    );
+    if (discovery.outcome === "blocked") {
+      throw new Error(`Karta floor discovery was blocked for item '${item.id}'`);
+    }
+    return discovery.checks.map((check): KartaCheckPlanEntry => ({
+      ...check,
+      purpose: "floor",
+    }));
+  }
+
   async run(ctx: ExtensionContext, binder: string): Promise<KartaDeliveryResult> {
     const lease = await this.#locks.acquire(ctx.cwd, binder);
     let owner;
@@ -263,7 +331,7 @@ export class KartaDeliveryRunner {
           Number(ref.match(/\/wave-(\d+)(?:-base)?$/)?.[1] ?? 0),
         ),
       ) + 1;
-      for (let pass = 1; pass <= document.work_items.length * 2 + 1; pass += 1) {
+      for (let pass = 1; pass <= document.work_items.length * 4 + 4; pass += 1) {
         const states = new Map(
           await Promise.all(document.work_items.map(async (item) => [
             item.id,
@@ -271,6 +339,84 @@ export class KartaDeliveryRunner {
           ] as const)),
         );
         if (document.work_items.every((item) => states.get(item.id)?.state === "done")) {
+          const pending = await this.#pendingWaveAnchor(repoRoot, binder);
+          if (pending) {
+            const landed = new Set((await git(repoRoot, [
+              "rev-list",
+              "--first-parent",
+              `${pending.base}..refs/heads/karta/${binder}/integration`,
+            ])).split("\n").filter(Boolean));
+            const integrations: KartaIntegrationResult[] = [];
+            const checks: KartaCheckPlanEntry[] = [];
+            for (const item of document.work_items) {
+              const state = states.get(item.id);
+              if (!state?.refs.done || !state.itemTip || !landed.has(state.refs.done)) continue;
+              const parents = (await git(repoRoot, [
+                "rev-list",
+                "--parents",
+                "-n",
+                "1",
+                state.refs.done,
+              ])).split(/\s+/).slice(1);
+              integrations.push({
+                schema: "karta-integration-item-v1",
+                binder,
+                item: item.id,
+                status: "integrated",
+                base: parents[0],
+                itemTip: state.itemTip,
+                mergeCommit: state.refs.done,
+                accepted: Boolean(state.refs.accepted),
+                message: "Recovered pending wave integration.",
+              });
+              checks.push(...await this.#discoverFloorChecks(
+                ctx,
+                repoRoot,
+                binder,
+                item,
+                owner.id,
+                "recover-merged",
+              ));
+            }
+            if (integrations.length === 0) {
+              return {
+                schema: "karta-delivery-v1",
+                binder,
+                status: "blocked",
+                integrationWorktree,
+                waves,
+                message: "Pending wave tag has no recoverable first-parent item merges.",
+              };
+            }
+            const waveResult: KartaDeliveryWave = {
+              wave: pending.wave,
+              items: integrations.map((integration) => integration.item),
+              builds: [],
+              integrations,
+            };
+            waves.push(waveResult);
+            const finalization = await this.#waves.finish(
+              ctx,
+              pending,
+              integrationWorktree,
+              lease,
+              integrations,
+              checks,
+              { manager: this.#processes, owner },
+            );
+            waveResult.finalization = finalization;
+            if (finalization.status !== "passed") {
+              return {
+                schema: "karta-delivery-v1",
+                binder,
+                status: "blocked",
+                integrationWorktree,
+                waves,
+                message: "Recovered pending wave failed validation and was rolled back.",
+              };
+            }
+            continue;
+          }
           return {
             schema: "karta-delivery-v1",
             binder,
@@ -280,18 +426,196 @@ export class KartaDeliveryRunner {
             message: "Every binder item is durably done on the integration branch.",
           };
         }
-        const halted = document.work_items.find((item) =>
-          ["failed", "accept-merge-pending", "inconsistent"].includes(states.get(item.id)?.state ?? ""),
+        const inconsistent = document.work_items.find(
+          (item) => states.get(item.id)?.state === "inconsistent",
         );
-        if (halted) {
+        if (inconsistent) {
           return {
             schema: "karta-delivery-v1",
             binder,
             status: "blocked",
             integrationWorktree,
             waves,
-            message: `Item '${halted.id}' requires human or manual recovery before delivery can continue.`,
+            message: `Item '${inconsistent.id}' has contradictory Git state requiring manual recovery.`,
           };
+        }
+        const acceptPending = document.work_items.find((item) =>
+          ["accept-merge-pending", "accept-ref-pending"].includes(states.get(item.id)?.state ?? ""),
+        );
+        if (acceptPending) {
+          const checks = await this.#discoverFloorChecks(
+            ctx,
+            repoRoot,
+            binder,
+            acceptPending,
+            owner.id,
+            "recover-merged",
+          );
+          const recovered = await this.#integrations.recoverAccepted(
+            ctx,
+            binder,
+            acceptPending.id,
+            integrationWorktree,
+            lease,
+            checks,
+            { manager: this.#processes, owner },
+          );
+          const anchor = await this.#pendingWaveAnchor(repoRoot, binder);
+          if (!anchor) {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "blocked",
+              integrationWorktree,
+              waves,
+              message: "Accepted merge recovered, but its pending wave base tag is missing.",
+            };
+          }
+          const waveResult: KartaDeliveryWave = {
+            wave: anchor.wave,
+            items: [acceptPending.id],
+            builds: [],
+            integrations: [recovered],
+          };
+          waves.push(waveResult);
+          if (recovered.status !== "integrated") {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "blocked",
+              integrationWorktree,
+              waves,
+              message: "Interrupted human-accepted merge could not be recovered.",
+            };
+          }
+          const finalization = await this.#waves.finish(
+            ctx,
+            anchor,
+            integrationWorktree,
+            lease,
+            [recovered],
+            checks,
+            { manager: this.#processes, owner },
+          );
+          waveResult.finalization = finalization;
+          if (finalization.status !== "passed") {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "blocked",
+              integrationWorktree,
+              waves,
+              message: "Recovered accepted merge failed post-wave validation and was rolled back.",
+            };
+          }
+          continue;
+        }
+        const failed = document.work_items.find((item) => states.get(item.id)?.state === "failed");
+        if (failed) {
+          if (!ctx.hasUI) {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "blocked",
+              integrationWorktree,
+              waves,
+              message: `Item '${failed.id}' is failed; rerun interactively to choose fix, accept, or defer.`,
+            };
+          }
+          const choice = await ctx.ui.select(
+            `Karta item '${failed.id}' halted`,
+            ["Fix and rerun", "Accept exact current findings", "Defer and stop delivery"],
+          );
+          if (choice === "Fix and rerun") {
+            const itemTip = states.get(failed.id)?.itemTip;
+            if (!itemTip) throw new Error("Karta failed item has no item tip");
+            await git(repoRoot, [
+              "update-ref",
+              "-d",
+              `refs/karta/${binder}/item-${failed.id}/failed`,
+              itemTip,
+            ]);
+            continue;
+          }
+          if (choice !== "Accept exact current findings") {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "blocked",
+              integrationWorktree,
+              waves,
+              message: `Item '${failed.id}' remains deferred with its failed ref intact.`,
+            };
+          }
+          const checks = await this.#discoverFloorChecks(
+            ctx,
+            repoRoot,
+            binder,
+            failed,
+            owner.id,
+            "recover-committed",
+          );
+          if ((await deriveItemGitState(repoRoot, binder, failed.id)).state !== "failed") {
+            throw new Error("Karta failed item changed during human-accept floor discovery");
+          }
+          const anchor = await this.#waves.start(binder, waveNumber, integrationWorktree, lease);
+          const integrated = await this.#integrations.integrate(
+            ctx,
+            binder,
+            failed.id,
+            integrationWorktree,
+            lease,
+            checks,
+            { manager: this.#processes, owner },
+            {
+              authorize: async (findings) => {
+                const details = findings.length > 0
+                  ? findings.map((finding) =>
+                      `${finding.code}${finding.path ? ` — ${finding.path}${finding.line ? `:${finding.line}` : ""}` : ""}: ${finding.message}`,
+                    ).join("\n")
+                  : "Fresh acceptance and safety review now pass; record why this failed checkpoint is being accepted.";
+                const confirmed = await ctx.ui.confirm(
+                  `Accept exact findings for '${failed.id}'?`,
+                  details,
+                );
+                if (!confirmed) return undefined;
+                const reason = await ctx.ui.input(
+                  "Human acceptance reason",
+                  "Why is accepting this exact gap appropriate?",
+                );
+                return reason?.trim() ? { reason } : undefined;
+              },
+            },
+          );
+          const waveResult: KartaDeliveryWave = {
+            wave: waveNumber,
+            items: [failed.id],
+            builds: [],
+            integrations: [integrated],
+          };
+          waves.push(waveResult);
+          const finalization = await this.#waves.finish(
+            ctx,
+            anchor,
+            integrationWorktree,
+            lease,
+            [integrated],
+            checks,
+            { manager: this.#processes, owner },
+          );
+          waveResult.finalization = finalization;
+          if (integrated.status !== "integrated" || finalization.status !== "passed") {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "blocked",
+              integrationWorktree,
+              waves,
+              message: `Human acceptance for '${failed.id}' was cancelled, blocked, or rolled back.`,
+            };
+          }
+          waveNumber += 1;
+          continue;
         }
         const ready = document.work_items.filter((item) => {
           const state = states.get(item.id)?.state;
@@ -421,7 +745,7 @@ export class KartaDeliveryRunner {
         }
         waveNumber += 1;
       }
-      throw new Error("Karta delivery exceeded its deterministic wave bound");
+      throw new Error("Karta delivery exceeded its deterministic orchestration bound");
     } finally {
       try {
         await this.#processes.stopOwner(owner);

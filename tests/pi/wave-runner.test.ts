@@ -146,6 +146,45 @@ test("shared-term drift rolls back even when the post-wave floor passes", async 
   }
 });
 
+test("accepted wave rollback removes accepted and restores failed instead of built", async () => {
+  const state = await fixture();
+  const lease = await state.locks.acquire(state.integration, "demo");
+  try {
+    const anchor = await state.runner.start("demo", 1, state.integration, lease);
+    const integration = await landItem(state.integration);
+    await git(state.integration, [
+      "update-ref",
+      "-d",
+      "refs/karta/demo/item-item-a/built",
+      integration.itemTip,
+    ]);
+    await git(state.integration, ["update-ref", "refs/karta/demo/item-item-a/accepted", integration.itemTip]);
+    integration.accepted = true;
+    const result = await state.runner.finish(
+      { cwd: state.integration } as ExtensionContext,
+      anchor,
+      state.integration,
+      lease,
+      [integration],
+      [{ id: "floor", purpose: "floor", command: "false", cwd: "." }],
+    );
+    assert.equal(result.status, "rolled-back");
+    assert.equal(
+      await git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/failed"]),
+      integration.itemTip,
+    );
+    await assert.rejects(() =>
+      git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/accepted"]),
+    );
+    await assert.rejects(() =>
+      git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/built"]),
+    );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
 test("failed post-wave floor atomically restores integration and removes done and built", async () => {
   const state = await fixture();
   const lease = await state.locks.acquire(state.integration, "demo");

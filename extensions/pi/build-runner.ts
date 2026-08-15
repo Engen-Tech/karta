@@ -110,7 +110,11 @@ function terminalRecovery(
       message: state.nextAction,
     };
   }
-  if (state.state === "failed" || state.state === "accept-merge-pending") {
+  if (
+    state.state === "failed" ||
+    state.state === "accept-merge-pending" ||
+    state.state === "accept-ref-pending"
+  ) {
     return {
       schema: "karta-build-item-v1",
       binder,

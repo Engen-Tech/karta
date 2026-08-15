@@ -38,6 +38,7 @@ export type KartaWaveCheckpoint = (
     | "post-wave-checks-complete"
     | "rollback-worktree-prepared"
     | "rollback-refs-committed"
+    | "rollback-tag-updated"
     | "success-tag-updated",
 ) => Promise<void> | void;
 
@@ -211,8 +212,17 @@ export class KartaWaveRunner {
       if (!integration.mergeCommit) throw new Error("Karta rollback lacks an integrated merge commit");
       commands.push(
         `delete refs/karta/${anchor.binder}/item-${integration.item}/done ${integration.mergeCommit}`,
-        `delete refs/karta/${anchor.binder}/item-${integration.item}/built ${integration.itemTip}`,
       );
+      if (integration.accepted) {
+        commands.push(
+          `delete refs/karta/${anchor.binder}/item-${integration.item}/accepted ${integration.itemTip}`,
+          `create refs/karta/${anchor.binder}/item-${integration.item}/failed ${integration.itemTip}`,
+        );
+      } else {
+        commands.push(
+          `delete refs/karta/${anchor.binder}/item-${integration.item}/built ${integration.itemTip}`,
+        );
+      }
     }
     try {
       await updateRefsTransaction(integrationWorktree, commands);
@@ -221,6 +231,14 @@ export class KartaWaveRunner {
       throw error;
     }
     await this.#checkpoint("rollback-refs-committed");
+    const rollbackTag = `refs/tags/karta/${anchor.binder}/wave-${anchor.wave}-rolled-back`;
+    await git(integrationWorktree, [
+      "update-ref",
+      rollbackTag,
+      anchor.base,
+      await nullObjectId(integrationWorktree),
+    ]);
+    await this.#checkpoint("rollback-tag-updated");
     const branchTip = await git(integrationWorktree, ["rev-parse", "HEAD"]);
     const indexTree = await git(integrationWorktree, ["write-tree"]);
     const baseTree = await git(integrationWorktree, ["rev-parse", `${anchor.base}^{tree}`]);
