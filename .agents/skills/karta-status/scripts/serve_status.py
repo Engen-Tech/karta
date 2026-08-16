@@ -677,16 +677,23 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
 # the page. `building` carries the spin/shimmer. Shipped to JS verbatim.
 # ---------------------------------------------------------------------------
 
+# `fill` splits the two green treatments: a MERGED item is filled, an item that
+# is built and awaiting merge is outlined. That is the sixth state, and it costs
+# no new colour — the same --green at a different weight.
 _STATE_META = {
-    "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED"},
-    "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "BUILT"},
-    "building": {"color": "var(--amber)", "soft": "var(--amber-soft)", "badge": "building", "word": "RUNNING"},
+    "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED", "fill": "solid"},
+    "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "BUILT",  "fill": "outline"},
+    "building": {"color": "var(--now)",   "soft": "var(--now-soft)",   "badge": "building", "word": "RUNNING", "fill": "solid"},
     # ready renders NEXT — the same word the phase rail and the hub landing use.
-    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT"},
-    # dep-waiting is calm, not alarming: the engine's `blocked` status renders
-    # as a soft steel WAITING chip (an item waiting its turn is normal flow).
-    "blocked":  {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "hourglass", "word": "WAITING"},
-    "failed":   {"color": "var(--block)", "soft": "var(--block-soft)", "badge": "blocked",  "word": "FAILED"},
+    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT",   "fill": "solid"},
+    # dep-waiting is calm, not alarming, and it is no longer steel: steel means
+    # READY now, and an item waiting its turn gets its own --wait so the two
+    # states are told apart by colour rather than by badge alone.
+    "blocked":  {"color": "var(--wait)",  "soft": "var(--wait-soft)",  "badge": "hourglass", "word": "WAITING", "fill": "outline"},
+    # the only state with a solid header bar, so the only one carrying a
+    # foreground token to sit on top of that fill.
+    "failed":   {"color": "var(--halt)",  "soft": "var(--halt-soft)",  "badge": "blocked",  "word": "FAILED", "fill": "solid",
+                 "on": "var(--on-halt)"},
 }
 
 # ---------------------------------------------------------------------------
@@ -698,9 +705,11 @@ _STATE_META = {
 
 _PHASE_META = {
     "past":  {"color": "var(--green)", "mark": "check",     "phrase": "delivered", "pulse": False},
-    "now":   {"color": "var(--amber)", "mark": "send",      "phrase": "in flight", "pulse": True},
+    "now":   {"color": "var(--now)",   "mark": "send",      "phrase": "in flight", "pulse": True},
     "next":  {"color": "var(--steel)", "mark": "clock",     "phrase": "up next",   "pulse": False},
-    "later": {"color": "var(--block)", "mark": "hourglass", "phrase": "waiting",   "pulse": False},
+    # "waiting" is --wait, not the halted colour: a phase queued behind another
+    # is normal flow, and nothing on this page should read halted unless it is.
+    "later": {"color": "var(--wait)",  "mark": "hourglass", "phrase": "waiting",   "pulse": False},
 }
 
 # phase key -> the row label + meaning shown in the timeline header
@@ -717,25 +726,101 @@ _ORACLE_ICON = {"unit": "unit", "integration": "integration", "e2e": "e2e",
 
 
 # ---------------------------------------------------------------------------
-# The two design palettes, ported verbatim from the design's vars().
+# The palette. ONE table, each name carrying both its light and its dark value,
+# so a token can never exist in one theme and not the other — the shape is what
+# guarantees it, and the self-test checks the shape survived into the CSS.
+#
+# The page ships a FOUR-selector cascade over this table: a bare `:root` default,
+# a `prefers-color-scheme` override, and both `data-theme` selectors. The design
+# switches on `data-theme` alone; keeping the wider cascade is what makes the
+# system default AND the `?theme=light|dark` forced override both work.
+#
+# Some names here land ahead of the rule that will read them — --band/--band-kick
+# for the next-action band, --halt-line and --mut-2 for the item cards and the
+# detail grid, --accent-deep/--accent-line and --now-deep for the header. The
+# palette is defined as ONE set on purpose: half a palette shipped per component
+# is how a page ends up with two greens that nearly match.
 # ---------------------------------------------------------------------------
 
-_DARK_VARS = (
-    "--bg:#14161e;--panel:#1c2230;--line:rgba(255,255,255,0.08);"
-    "--tree:rgba(255,255,255,0.16);--ink:#e8e5dd;--mut:#8b8f9a;--on-accent:#171a22;"
-    "--amber:#e0b257;--amber-soft:rgba(224,178,87,0.17);--green:#79ad88;"
-    "--green-soft:rgba(121,173,136,0.17);--steel:#93a0bc;--steel-soft:rgba(147,160,188,0.18);"
-    "--block:#d4926f;--block-soft:rgba(212,146,111,0.17);--star:#e2bd58;"
-    "--chip:rgba(255,255,255,0.07);--live:#79ad88;"
-)
-_LIGHT_VARS = (
-    "--bg:#efece4;--panel:#ffffff;--line:rgba(40,30,10,0.12);"
-    "--tree:rgba(40,30,10,0.18);--ink:#2a2d36;--mut:#797d88;--on-accent:#ffffff;"
-    "--amber:#bc8a2b;--amber-soft:rgba(188,138,43,0.15);--green:#4e8a58;"
-    "--green-soft:rgba(78,138,88,0.15);--steel:#5c6986;--steel-soft:rgba(92,105,134,0.15);"
-    "--block:#aa6238;--block-soft:rgba(170,98,56,0.15);--star:#b8902c;"
-    "--chip:rgba(40,30,10,0.06);--live:#4e8a58;"
-)
+_PALETTE: dict[str, dict[str, str]] = {
+    # grounds and ink
+    "--bg":          {"light": "#F6EFEE", "dark": "#2B0F14"},
+    "--surface":     {"light": "#FFFFFF", "dark": "#3B141B"},
+    "--surface-2":   {"light": "#FBF6F4", "dark": "#451A22"},
+    "--ink":         {"light": "#2E0B12", "dark": "#F6EAEA"},
+    "--mut":         {"light": "#5C3742", "dark": "#CDB4B7"},
+    "--mut-2":       {"light": "#734F58", "dark": "#C0A5AB"},
+    "--line":        {"light": "#DFCBC6", "dark": "rgba(240,214,214,.17)"},
+    "--line-2":      {"light": "#C7A2A6", "dark": "rgba(240,214,214,.31)"},
+    # the accent: wordmark, hand-drawn underline, links
+    "--accent":      {"light": "#B7364A", "dark": "#EE7185"},
+    "--accent-deep": {"light": "#8E2436", "dark": "#F5A3AF"},
+    "--accent-line": {"light": "#D9AEB6", "dark": "rgba(240,175,186,.40)"},
+    # in flight
+    "--now":         {"light": "#330D15", "dark": "#F0B7A0"},
+    "--now-deep":    {"light": "#330D15", "dark": "#F5C9B6"},
+    "--now-soft":    {"light": "rgba(51,13,21,.065)", "dark": "rgba(240,183,160,.15)"},
+    # halted — the only state with a solid header bar, hence its own foreground
+    "--halt":        {"light": "#D2400E", "dark": "#FF7A45"},
+    "--halt-deep":   {"light": "#A83309", "dark": "#FF9C74"},
+    "--on-halt":     {"light": "#FFFFFF", "dark": "#2B0F14"},
+    "--halt-soft":   {"light": "rgba(210,64,14,.10)", "dark": "rgba(255,122,69,.17)"},
+    "--halt-line":   {"light": "#E9B49C", "dark": "rgba(255,122,69,.45)"},
+    # delivered — ONE colour, two treatments (filled = merged, outlined = built)
+    "--green":       {"light": "#4A7544", "dark": "#7FC49A"},
+    "--green-soft":  {"light": "rgba(74,117,68,.13)", "dark": "rgba(127,196,154,.15)"},
+    # ready — steel means READY ONLY now; waiting moved onto --wait
+    "--steel":       {"light": "#3F5878", "dark": "#8FA6C7"},
+    "--steel-soft":  {"light": "rgba(63,88,120,.085)", "dark": "rgba(143,166,199,.14)"},
+    "--wait":        {"light": "#74581F", "dark": "#C3A16D"},
+    "--wait-soft":   {"light": "rgba(116,88,31,.10)", "dark": "rgba(195,161,109,.13)"},
+    # the dark next-action band
+    "--band":        {"light": "#330D15", "dark": "#1C070C"},
+    "--band-kick":   {"light": "#E88A98", "dark": "#F5A3AF"},
+}
+
+
+def _palette_vars(theme: str) -> str:
+    """The palette as one `--name:value;` run for `theme` ("light" or "dark")."""
+    return "".join(f"{name}:{v[theme]};" for name, v in _PALETTE.items())
+
+
+_DARK_VARS = _palette_vars("dark")
+_LIGHT_VARS = _palette_vars("light")
+
+# Where each retired name went. Recorded, not merely deleted: a forward-only
+# "every referenced variable is defined" check cannot catch a metadata entry
+# still naming a retired token, so the mapping is asserted in both directions.
+_RETIRED_TOKENS: dict[str, str] = {
+    "--panel":     "--surface",     # the card ground, renamed
+    # --amber carried two jobs and the new palette splits them: the in-flight
+    # STATUS colour is --now (recorded here as its destination), and the brand
+    # uses it was doing double duty for — k-mark, repo name, links, eyebrows —
+    # moved onto the palette's own --accent.
+    "--amber":     "--now",
+    "--amber-soft": "--now-soft",
+    "--block":     "--halt",        # halted colour, renamed
+    "--block-soft": "--halt-soft",
+    "--tree":      "--line-2",      # the timeline gutter rule
+    "--star":      "--accent",      # highlight; it had no CSS consumer
+    "--chip":      "--surface-2",   # the id/slug chip ground
+    "--on-accent": "--on-halt",     # foreground on any filled colour
+    "--live":      "--green",       # the feed's "this is live" dot
+}
+
+# The five motions of the page, each with the behaviour it settles to when the
+# reader asks for reduced motion. Every one is a deliberate choice, and the
+# self-test asserts each: a spinner that ignores the preference is as much a
+# defect as an alarm that keeps blinking.
+_KEYFRAMES: dict[str, str] = {
+    "karta-breathe": "keeps breathing — a status page that stops signalling "
+                     "life reads as broken, and an opacity fade carries no motion",
+    "karta-spin":    "resolves to a static in-progress mark",
+    "karta-draw":    "renders in its finished state, with no draw",
+    "karta-ring":    "holds its resting ring instead of pulsing outward",
+    "karta-alarm":   "holds its alerting state at full strength, so a halted "
+                     "item still reads urgent through colour and icon",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -800,11 +885,26 @@ body{
 }
 .mono{ font-family:var(--mono); }
 
-@keyframes karta-spin{ to{ transform:rotate(360deg); } }
-@keyframes karta-fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
-@keyframes karta-pulse{ 0%{ box-shadow:0 0 0 0 var(--amber-soft); } 70%,100%{ box-shadow:0 0 0 8px transparent; } }
-@keyframes karta-shimmer{ 0%{ background-position:-140px 0; } 100%{ background-position:240px 0; } }
+/* The page's five motions, and the class each one is applied through. The
+   classes ARE the vocabulary: a component opts into a motion by wearing one,
+   and every motion settles to a stated resting state under a reduced-motion
+   preference (see the reduced-motion block at the foot of this sheet). */
 @keyframes karta-breathe{ 0%,100%{ opacity:.5; } 50%{ opacity:1; } }
+@keyframes karta-spin{ to{ transform:rotate(360deg); } }
+@keyframes karta-draw{ to{ stroke-dashoffset:0; } }
+@keyframes karta-ring{ 0%{ box-shadow:0 0 0 0 var(--now-soft); } 70%,100%{ box-shadow:0 0 0 8px transparent; } }
+@keyframes karta-alarm{ 0%,49%{ opacity:1; } 50%,100%{ opacity:.45; } }
+
+.karta-breathe{ animation:karta-breathe 2s ease-in-out infinite; }
+.karta-spin{ animation:karta-spin 1s linear infinite; }
+.karta-draw{ stroke-dasharray:120; stroke-dashoffset:120; animation:karta-draw .7s ease-out forwards; }
+.karta-ring{ box-shadow:0 0 0 0 var(--now-soft); animation:karta-ring 1.8s ease-out infinite; }
+.karta-alarm{ color:var(--halt); animation:karta-alarm 1.1s steps(1,end) infinite; }
+
+/* Two motions that are not part of the design's five: a disclosure fade and the
+   indeterminate progress sweep. Both settle under reduced motion too. */
+@keyframes karta-fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
+@keyframes karta-shimmer{ 0%{ background-position:-140px 0; } 100%{ background-position:240px 0; } }
 
 .wrap{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:20px; }
 
@@ -816,13 +916,13 @@ body{
 /* The wordmark is the design's one Newsreader element that already exists here,
    so --serif is wired to it now; the rest of the serif scale (headlines, item
    titles, wave numerals) arrives with the typography item. */
-.brand__word{ font-family:var(--serif); font-weight:700; font-size:22px; letter-spacing:-0.5px; }
+.brand__word{ font-family:var(--serif); font-weight:500; font-size:21px; letter-spacing:-0.5px; }
 .brand__live{
   font-size:12px; color:var(--mut); margin-top:1px;
   display:flex; align-items:center; gap:6px;
 }
 .brand__dot{
-  width:6px; height:6px; border-radius:50%; background:var(--live);
+  width:6px; height:6px; border-radius:50%; background:var(--green);
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
 .hdr-right{ display:flex; align-items:center; gap:2px; flex:none; }
@@ -839,20 +939,20 @@ body{
 .shell__kmark{
   width:40px; height:40px; flex:none;
   display:flex; align-items:center; justify-content:center;
-  background:var(--amber); color:var(--on-accent);
-  font-family:var(--mono); font-weight:700; font-size:20px;
+  background:var(--accent); color:var(--on-halt);
+  font-family:var(--mono); font-weight:600; font-size:20px;
   text-decoration:none;
 }
 .shell__home{
   flex:none; font-family:var(--mono); font-size:12px; color:var(--mut);
-  background:var(--panel); border:1px solid var(--line); padding:6px 10px;
+  background:var(--surface); border:1px solid var(--line); padding:6px 10px;
   text-decoration:none; white-space:nowrap;
 }
-.shell__home:hover{ color:var(--amber); border-color:var(--amber); }
+.shell__home:hover{ color:var(--accent); border-color:var(--accent); }
 .shell__txt{ min-width:0; }
 .shell__repo-name{
-  display:block; font-family:var(--mono); font-weight:700; font-size:26px;
-  letter-spacing:-0.5px; color:var(--amber);
+  display:block; font-family:var(--mono); font-weight:600; font-size:26px;
+  letter-spacing:-0.5px; color:var(--accent);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .shell__feed{
@@ -860,7 +960,7 @@ body{
   display:flex; align-items:center; gap:6px;
 }
 .shell__feed-dot{
-  width:6px; height:6px; border-radius:50%; background:var(--live);
+  width:6px; height:6px; border-radius:50%; background:var(--green);
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
 .shell__feed--paused{ color:var(--steel); }
@@ -872,32 +972,32 @@ body{
   font-family:var(--mono); font-size:11px; color:var(--mut);
 }
 .also__link{ color:var(--mut); text-decoration:none; border-bottom:1px solid var(--line); }
-.also__link:hover{ color:var(--amber); border-color:var(--amber); }
+.also__link:hover{ color:var(--accent); border-color:var(--accent); }
 
 /* delivery panel */
-.panel{ background:var(--panel); border:1px solid var(--line); padding:24px 30px 16px; }
+.panel{ background:var(--surface); border:1px solid var(--line); padding:24px 30px 16px; }
 .panel__head{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
 .panel__kicker{
-  font-size:10.5px; letter-spacing:2px; font-weight:700;
-  color:var(--amber); text-transform:uppercase;
+  font-size:10.5px; letter-spacing:2px; font-weight:600;
+  color:var(--accent); text-transform:uppercase;
 }
-.panel__name{ font-family:var(--mono); font-weight:700; font-size:17px; }
+.panel__name{ font-family:var(--mono); font-weight:600; font-size:17px; }
 .panel__summary{ margin-left:auto; font-size:12px; color:var(--mut); }
 .panel__note{ font-size:12.5px; color:var(--mut); line-height:1.5; margin-bottom:18px; }
 
 /* a phase row: tree gutter + content */
 .phase{ display:flex; }
 .phase__gutter{ position:relative; flex:none; width:50px; }
-.phase__line{ position:absolute; left:24px; width:2px; background:var(--tree); }
+.phase__line{ position:absolute; left:24px; width:2px; background:var(--line-2); }
 .phase__mark{
   position:absolute; left:25px; top:23px; transform:translate(-50%,-50%);
   display:flex; align-items:center; justify-content:center;
   width:26px; height:26px; border:2px solid; z-index:1;
 }
-.phase__mark--pulse{ animation:karta-pulse 1.8s ease-out infinite; }
+.phase__mark--pulse{ animation:karta-ring 1.8s ease-out infinite; }
 .phase__body{ flex:1; min-width:0; padding:14px 0 22px; }
 .phase__head{ display:flex; align-items:baseline; gap:9px; margin-bottom:14px; }
-.phase__label{ font-size:11.5px; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; }
+.phase__label{ font-size:11.5px; font-weight:600; letter-spacing:2.5px; text-transform:uppercase; }
 .phase__meaning{ font-size:11.5px; color:var(--mut); }
 .phase__count{ margin-left:auto; font-family:var(--mono); font-size:11px; }
 .phase__empty{ font-size:12px; color:var(--mut); opacity:.5; }
@@ -905,7 +1005,7 @@ body{
 
 /* a binder card */
 .binder{ border:1px solid var(--line); background:var(--bg); }
-.binder--now{ border-color:var(--amber); }
+.binder--now{ border-color:var(--now); }
 .binder--done{ border-color:var(--green); }
 /* a real <button> (keyboard-operable expander) styled to the existing look */
 .binder__header{
@@ -914,16 +1014,16 @@ body{
   appearance:none; -webkit-appearance:none;
   font:inherit; color:inherit;
 }
-.binder__header--now{ background:var(--amber-soft); }
+.binder__header--now{ background:var(--now-soft); }
 .binder__header--done{ background:var(--green-soft); }
 .binder__icon{
   display:flex; align-items:center; justify-content:center; width:25px; height:25px;
-  flex:none; color:var(--on-accent);
+  flex:none; color:var(--on-halt);
 }
 .binder__title{ font-weight:600; font-size:15px; }
 .binder__slug{
   display:flex; align-items:center; gap:4px; font-family:var(--mono); font-size:10px;
-  color:var(--mut); padding:2px 6px; background:var(--chip);
+  color:var(--mut); padding:2px 6px; background:var(--surface-2);
 }
 .binder__blurb{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; padding:13px 18px 16px; }
 .binder__spacer{ margin-left:auto; flex:none; }
@@ -955,8 +1055,8 @@ body{
 .wave{ display:grid; gap:11px; margin-bottom:2px; }
 
 /* a work item */
-.item{ border:1px solid var(--line); background:var(--panel); }
-.item--building{ border-color:var(--amber); }
+.item{ border:1px solid var(--line); background:var(--surface); }
+.item--building{ border-color:var(--now); }
 /* the row is a real <button> (keyboard-operable expander), existing look kept */
 .item__row{
   display:flex; align-items:flex-start; gap:10px; padding:12px 14px; min-width:0;
@@ -966,7 +1066,7 @@ body{
 }
 .item__badge{
   display:flex; align-items:center; justify-content:center; width:22px; height:22px;
-  flex:none; color:var(--on-accent);
+  flex:none; color:var(--on-halt);
 }
 /* the title owns its own line and wraps cleanly; id/oracle/status drop to a meta
    row so a wordy title in a narrow parallel column never gets starved to one word
@@ -977,7 +1077,7 @@ body{
 .item__id{
   flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   display:flex; align-items:center; font-family:var(--mono); font-size:9.5px;
-  color:var(--mut); padding:1px 5px; background:var(--chip);
+  color:var(--mut); padding:1px 5px; background:var(--surface-2);
 }
 .item__oracle{ display:flex; align-items:center; gap:3px; flex:none; font-size:9px; color:var(--mut); }
 .item__desc{
@@ -985,13 +1085,13 @@ body{
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
 .item__chip{ display:flex; align-items:center; gap:4px; flex:none; margin-left:auto; padding:2px 7px; }
-.item__word{ font-family:var(--mono); font-size:8.5px; font-weight:700; letter-spacing:0.5px; white-space:nowrap; }
+.item__word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; white-space:nowrap; }
 
 /* the indeterminate shimmer for a RUNNING item */
 .item__shim{ height:3px; background:var(--line); margin:0 11px 8px 42px; overflow:hidden; }
 .item__shim-fill{
   height:100%;
-  background:linear-gradient(90deg,var(--amber) 0 60%,rgba(255,255,255,.45) 80%,var(--amber));
+  background:linear-gradient(90deg,var(--now) 0 60%,rgba(255,255,255,.45) 80%,var(--now));
   background-size:160px 100%; animation:karta-shimmer 1.1s linear infinite;
 }
 
@@ -1003,7 +1103,7 @@ body{
 .item__detail-head{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--mut); }
 .item__assert{ font-size:11.5px; color:var(--ink); margin-top:6px; }
 .item__cmd{ font-family:var(--mono); font-size:11px; color:var(--mut); margin-top:7px; }
-.item__dep{ display:flex; align-items:center; gap:5px; font-size:11px; color:var(--block); margin-top:7px; }
+.item__dep{ display:flex; align-items:center; gap:5px; font-size:11px; color:var(--halt); margin-top:7px; }
 
 /* empty state (no binders) */
 .empty{ text-align:center; padding:28px 0 34px; }
@@ -1015,16 +1115,33 @@ body{
 .foot{ text-align:center; font-size:12.5px; color:var(--mut); padding-top:2px; }
 
 @media (prefers-reduced-motion: reduce){
-  /* Remove genuine motion — the rotating badge spinner and the expanding-ring
-     pulse. But "a run is live" is essential status, so the live signals must not
-     just freeze: degrade them to a gentle opacity breathe (a fade, not movement,
-     which is reduced-motion-safe). The status line keeps reading as alive. */
-  .phase__mark--pulse, .karta-spin{ animation:none !important; }
+  /* Five motions, five stated settlings. None is left running unconditionally,
+     and none is simply frozen where freezing would delete the signal — the page
+     still has to say "this is alive", "this is running", "this is halted". */
+
+  /* BREATHE keeps breathing. A status page that stops signalling life reads as
+     broken, and an opacity fade is not movement. */
+  .karta-breathe{ animation:karta-breathe 2s ease-in-out infinite; }
+  /* SPIN resolves to a static in-progress mark — still shown, no rotation. */
+  .karta-spin{ animation:none !important; transform:none !important; opacity:1 !important; }
+  /* DRAW renders in its finished state, with no draw. */
+  .karta-draw{ animation:none !important; stroke-dashoffset:0 !important; }
+  /* RING holds its resting ring instead of pulsing outward. */
+  .karta-ring{ animation:none !important; box-shadow:0 0 0 2px var(--now-soft) !important; }
+  /* ALARM holds its alerting state at FULL strength: a halted item keeps
+     reading as urgent through colour and icon rather than through blinking. */
+  .karta-alarm{ animation:none !important; opacity:1 !important; color:var(--halt) !important; }
+
+  /* The two motions outside the design's five settle as well: the disclosure
+     fade drops, and the indeterminate sweep degrades to the same opacity
+     breathe so "this item is running" survives without movement. */
+  .item__detail{ animation:none !important; }
+  .phase__mark--pulse{ animation:none !important; }
   .item__shim-fill{
-    background:var(--amber) !important; background-size:auto !important;
+    background:var(--now) !important; background-size:auto !important;
     animation:karta-breathe 2s ease-in-out infinite !important;
   }
-  .brand__dot{ animation:karta-breathe 2s ease-in-out infinite; }
+  .brand__dot, .shell__feed-dot{ animation:karta-breathe 2s ease-in-out infinite; }
 }
 @media (max-width:560px){
   .wave{ grid-template-columns:1fr !important; }
@@ -1552,8 +1669,8 @@ const app = createApp({
         <div class="phase__gutter">
           <div class="phase__line" :style="p.lineStyle"></div>
           <div class="phase__mark" :class="{ 'phase__mark--pulse': p.pulse }"
-            :style="{ borderColor: p.color, background: p.pulse ? p.color : 'var(--panel)', color: p.pulse ? 'var(--on-accent)' : p.color }">
-            <icon :name="p.mark" :size="13" :color="p.pulse ? 'var(--on-accent)' : p.color" />
+            :style="{ borderColor: p.color, background: p.pulse ? p.color : 'var(--surface)', color: p.pulse ? 'var(--on-halt)' : p.color }">
+            <icon :name="p.mark" :size="13" :color="p.pulse ? 'var(--on-halt)' : p.color" />
           </div>
         </div>
         <div class="phase__body">
@@ -1570,7 +1687,7 @@ const app = createApp({
               <button type="button" class="binder__header" data-kw-binder-header :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
                 @click="toggleBinder(b.slug, b.key)"
                 :aria-expanded="b.open ? 'true' : 'false'">
-                <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-accent)" /></span>
+                <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-halt)" /></span>
                 <span class="binder__title">{{ b.title }}</span>
                 <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
                 <span class="binder__spacer"></span>
@@ -1598,7 +1715,7 @@ const app = createApp({
                     <div class="item" data-kw-item :data-kw-item-status="it.word" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
                       <button type="button" class="item__row" data-kw-item-row @click="toggleItem(b.slug, it.id)"
                         :aria-expanded="isExpanded(b.slug, it.id) ? 'true' : 'false'">
-                        <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-accent)" :spin="it.building" /></span>
+                        <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-halt)" :spin="it.building" /></span>
                         <div class="item__main">
                           <div class="item__title">{{ it.title }}</div>
                           <div class="item__meta">
@@ -1616,7 +1733,7 @@ const app = createApp({
                         <div class="item__detail-head"><icon :name="it.oracleIcon" :size="12" color="var(--mut)" /><span>passes its {{ it.oracle }} check when:</span></div>
                         <div class="item__assert" v-if="it.assert">{{ it.assert }}</div>
                         <div class="item__cmd" v-if="it.cmd">$ {{ it.cmd }}</div>
-                        <div class="item__dep" v-if="it.hasDep"><icon name="arrowdown" :size="12" color="var(--block)" />runs after {{ it.depName }} passes</div>
+                        <div class="item__dep" v-if="it.hasDep"><icon name="arrowdown" :size="12" color="var(--halt)" />runs after {{ it.depName }} passes</div>
                       </div>
                     </div>
                   </div>
@@ -2017,29 +2134,29 @@ def switcher_entries(repos: dict, current_slug: str) -> list[dict]:
 
 # chip colors per card word — the same CSS variables the repo page uses
 _HUB_CHIP = {
-    "NOW":         ("var(--amber)", "var(--amber-soft)"),
+    "NOW":         ("var(--now)", "var(--now-soft)"),
     "NEXT":        ("var(--steel)", "var(--steel-soft)"),
     "CLEAR":       ("var(--green)", "var(--green-soft)"),
-    "WEDGED":      ("var(--block)", "var(--block-soft)"),
-    "UNAVAILABLE": ("var(--block)", "var(--block-soft)"),
+    "WEDGED":      ("var(--halt)", "var(--halt-soft)"),
+    "UNAVAILABLE": ("var(--halt)", "var(--halt-soft)"),
 }
 
 _HUB_CSS = """
 .hub{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:14px; }
-a.repo{ border:1px solid var(--line); background:var(--panel); padding:16px 20px;
+a.repo{ border:1px solid var(--line); background:var(--surface); padding:16px 20px;
   display:flex; flex-direction:column; gap:7px; color:inherit;
   text-decoration:none; }
 a.repo:hover{ border-color:var(--steel); }
 .repo--dim{ opacity:.55; }
 .repo__head{ display:flex; align-items:center; gap:10px; }
-.repo__name{ font-family:var(--mono); font-weight:700; font-size:16px;
+.repo__name{ font-family:var(--mono); font-weight:600; font-size:16px;
   color:var(--ink); }
-.repo__chip{ font-family:var(--mono); font-size:9px; font-weight:700;
+.repo__chip{ font-family:var(--mono); font-size:9px; font-weight:600;
   letter-spacing:.5px; padding:2px 7px; margin-left:auto; flex:none; }
 .repo__counts{ font-size:12px; color:var(--mut); font-family:var(--mono); }
 .repo__next{ font-size:12.5px; color:var(--ink); opacity:.8; }
-.repo__arrow{ color:var(--amber); }
-.repo__note{ font-size:12px; color:var(--block); }
+.repo__arrow{ color:var(--accent); }
+.repo__note{ font-size:12px; color:var(--halt); }
 .repo__root{ font-size:11px; color:var(--mut); font-family:var(--mono);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .top__theme{ appearance:none; -webkit-appearance:none; background:transparent;
@@ -3429,7 +3546,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          " treatment — green chip, no blocked/error styling, no dimming",
          clear_card is not None and clear_card["word"] == "CLEAR"
          and "color:var(--green)" in clear_chunk
-         and "var(--block)" not in clear_chunk
+         and "var(--halt)" not in clear_chunk
          and "repo--dim" not in clear_chunk),
         ("landing: the all-merged copy flows verbatim from the engine —"
          " next_action.human rendered, never hardcoded by the landing",
@@ -3444,9 +3561,11 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and clear_chunk.count("<a ") == 1
          and '<div class="repo__next">' in clear_chunk
          and 'class="repo__root"' in clear_chunk),
-        ("landing: the next-action line is prefixed with the amber '▸ '",
+        ("landing: the next-action line is prefixed with an accent-coloured"
+         " '▸ ' marker the stylesheet actually gives a colour",
          '<span class="repo__arrow" aria-hidden="true">▸ </span>' in sorted_html
-         and ".repo__arrow{ color:var(--amber); }" in sorted_html),
+         and any("var(--accent)" in d.get("color", "")
+                 for d in _decls_for(_HUB_CSS, ".repo__arrow"))),
     ]
 
     # an empty repo — no live binders, no archive — derives blocked in the
@@ -5413,6 +5532,48 @@ def _strip_css_comments(css: str) -> str:
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
+def _palette_decls(css: str, selector: str) -> dict[str, str]:
+    """The palette declarations of `selector`, keyed on the rule that defines
+    --bg. The sheet carries more than one `:root` rule — the palette, and the
+    theme-independent type roles — so "the palette one" needs a marker, and the
+    page ground is the one token a palette cannot be missing."""
+    for decls in _decls_for(css, selector):
+        if "--bg" in decls:
+            return {k: v for k, v in decls.items() if k.startswith("--")}
+    return {}
+
+
+def _reduced_block(css: str) -> str:
+    return _at_rule_body(css, "prefers-reduced-motion")
+
+
+def _drop_reduced_rule(css: str, selector: str) -> str:
+    """The stylesheet with `selector`'s reduced-motion rule removed — the control
+    for "this motion was left with no stated reduced-motion behaviour"."""
+    body = _reduced_block(css)
+    kept = "".join("%s{%s}" % (prelude, inner)
+                   for prelude, inner in _css_sections(body)
+                   if selector not in [s.strip() for s in prelude.split(",")])
+    return css.replace(body, kept)
+
+
+# var(--x) as it appears in a stylesheet, an inline style, or a metadata value.
+_VAR_REF_RE = re.compile(r"var\(\s*(--[a-z0-9-]+)")
+_VAR_DEF_RE = re.compile(r"(--[a-z0-9-]+)\s*:")
+
+
+def _vendored_weights() -> dict[str, set[int]]:
+    """family -> the weights this plugin actually ships a file for."""
+    out: dict[str, set[int]] = {}
+    for family, weight in VENDORED_FACES:
+        out.setdefault(family, set()).add(weight)
+    return out
+
+
+_ROLE_FAMILY = {"--mono": "IBM Plex Mono", "--sans": "IBM Plex Sans",
+                "--serif": "Newsreader"}
+
+
 class _Ns:
     """A stand-in for the handler collaborators a direct method call needs."""
 
@@ -5518,6 +5679,255 @@ def _c_shell_feed_indicator(ctx):
     gated = _class_binding(attrs)
     return (bool(gated) and any(expr and expr in paused for expr in gated.values())
             and ctx["feed_inlined"] == ctx["feed_labels"])
+
+
+# --- the palette, the cascade, and the tokens the page may name --------------
+
+@_covers("palette-light-and-dark-agree", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             "--wait-soft:" + _PALETTE["--wait-soft"]["light"] + ";", "", 1)},
+                 lambda c: {"palette": dict(c["palette"],
+                                            **{"--ghost": {"light": "#000",
+                                                           "dark": "#fff"}})}])
+def _c_palette_light_and_dark_agree(ctx):
+    """Every token exists in BOTH themes. Not "the table has two values" — the
+    two payloads that actually ship must carry the same NAMES, or a rule reading
+    a token that only one theme defines renders unstyled in the other."""
+    css, palette = ctx["css"], ctx["palette"]
+    dark = _palette_decls(css, ":root")
+    light = _palette_decls(_at_rule_body(css, "prefers-color-scheme"), ":root")
+    if not dark or not light:
+        return False
+    return (set(dark) == set(light) == set(palette)
+            and all(dark[n] == palette[n]["dark"] and light[n] == palette[n]["light"]
+                    for n in palette))
+
+
+@_covers("palette-four-selector-cascade", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             ':root[data-theme="light"]{', ':root[data-theme="sepia"]{')},
+                 lambda c: {"css": c["css"].replace(
+                     "@media (prefers-color-scheme: light)",
+                     "@media (min-width: 1px)")},
+                 lambda c: {"theme_attr": lambda t: "dark"}])
+def _c_palette_cascade(ctx):
+    """The design switches on data-theme alone; the shipped page must reach both
+    palettes FOUR ways — the bare root default, the system-preference override,
+    and both explicit theme attributes — or the system default and the
+    ?theme=light|dark forced override break."""
+    css, palette, attr = ctx["css"], ctx["palette"], ctx["theme_attr"]
+    dark = {n: v["dark"] for n, v in palette.items()}
+    light = {n: v["light"] for n, v in palette.items()}
+    bare = _palette_decls(css, ":root")
+    system = _palette_decls(_at_rule_body(css, "prefers-color-scheme"), ":root")
+    forced_dark = _palette_decls(css, ':root[data-theme="dark"]')
+    forced_light = _palette_decls(css, ':root[data-theme="light"]')
+    return (bare == dark and system == light
+            and forced_dark == dark and forced_light == light
+            # and the query string still resolves to those two attributes
+            and attr("light") == "light" and attr("dark") == "dark")
+
+
+@_covers("no-undefined-css-variables", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"] + "\n.ghost{ color:var(--nope); }"},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     ready=dict(c["state_meta"]["ready"], color="var(--nope)"))},
+                 lambda c: {"hub_css": c["hub_css"] + "\n.g{ color:var(--nope); }"}])
+def _c_no_undefined_variables(ctx):
+    """Forward direction: nothing names a variable the sheet never defines. The
+    Python metadata tables and the inlined Vue template count — they hand colour
+    names straight to inline styles, where an undefined one paints nothing."""
+    defined = set(_VAR_DEF_RE.findall(ctx["css"] + ctx["hub_css"]))
+    refs = set(_VAR_REF_RE.findall(
+        ctx["css"] + ctx["hub_css"] + ctx["app_src"]
+        + json.dumps(ctx["state_meta"]) + json.dumps(ctx["phase_meta"])
+        + json.dumps(ctx["hub_chip"])))
+    return bool(refs) and not (refs - defined)
+
+
+@_covers("retired-tokens-unreferenced", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             blocked=dict(c["state_meta"]["blocked"], color="var(--live)"))},
+                 lambda c: {"css": c["css"].replace("var(--surface-2)",
+                                                    "var(--chip)")},
+                 lambda c: {"retired": dict(c["retired"], **{"--tree": "--gone"})}])
+def _c_retired_tokens_unreferenced(ctx):
+    """Reverse direction, and it is the one that matters. A forward-only "every
+    referenced variable is defined" check passes happily while a metadata entry
+    still names --tree, because --tree is simply gone from both sides. So: each
+    retired name is referenced nowhere, and each has a destination that IS
+    defined — a rename with a recorded landing place, not a deletion."""
+    defined = set(_VAR_DEF_RE.findall(ctx["css"] + ctx["hub_css"]))
+    surfaces = (ctx["css"] + ctx["hub_css"] + ctx["app_src"]
+                + json.dumps(ctx["state_meta"]) + json.dumps(ctx["phase_meta"])
+                + json.dumps(ctx["hub_chip"]))
+    for old, new in ctx["retired"].items():
+        if re.search(r"(?<![\w-])" + re.escape(old) + r"(?![\w-])", surfaces):
+            return False
+        if new not in defined:
+            return False
+    return bool(ctx["retired"])
+
+
+@_covers("waiting-state-distinct-from-ready", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             blocked=dict(c["state_meta"]["blocked"], color="var(--steel)",
+                          soft="var(--steel-soft)"))},
+                 lambda c: {"phase_meta": dict(
+                     c["phase_meta"],
+                     later=dict(c["phase_meta"]["later"], color="var(--steel)"))}])
+def _c_waiting_distinct_from_ready(ctx):
+    """--steel means READY only. An item waiting its turn gets --wait, so the
+    two are told apart by colour and not by badge shape alone."""
+    sm, pm = ctx["state_meta"], ctx["phase_meta"]
+    return (sm["blocked"]["color"] == "var(--wait)"
+            and sm["blocked"]["soft"] == "var(--wait-soft)"
+            and sm["ready"]["color"] == "var(--steel)"
+            and sm["ready"]["soft"] == "var(--steel-soft)"
+            and pm["later"]["color"] == "var(--wait)"
+            and pm["next"]["color"] == "var(--steel)"
+            and sm["blocked"]["color"] != sm["ready"]["color"])
+
+
+@_covers("halted-state-carries-a-foreground", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             failed={k: v for k, v in c["state_meta"]["failed"].items()
+                     if k != "on"})},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     failed=dict(c["state_meta"]["failed"], color="var(--wait)"))}])
+def _c_halted_state_foreground(ctx):
+    """Halted is the one state the design fills solid, so it is the one state
+    that needs a foreground token to sit on top of that fill."""
+    failed, palette = ctx["state_meta"]["failed"], ctx["palette"]
+    return (failed["color"] == "var(--halt)"
+            and failed["soft"] == "var(--halt-soft)"
+            and failed.get("on") == "var(--on-halt)"
+            and "--halt" in palette and "--on-halt" in palette)
+
+
+@_covers("delivered-and-built-share-one-green", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], fill="solid"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], color="var(--accent)"))}])
+def _c_delivered_and_built_share_green(ctx):
+    """The sixth state costs no sixth colour: merged is filled, built-awaiting-
+    merge is outlined, and both are the same --green."""
+    sm = ctx["state_meta"]
+    return (sm["done"]["color"] == sm["built"]["color"] == "var(--green)"
+            and sm["done"]["fill"] == "solid" and sm["built"]["fill"] == "outline"
+            and {m.get("fill") for m in sm.values()} <= {"solid", "outline"}
+            and all("fill" in m for m in sm.values()))
+
+
+# --- the five motions and how each one settles -------------------------------
+
+@_covers("five-keyframes-each-settle-under-reduced-motion", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace("@keyframes karta-draw{",
+                                                    "@keyframes zz-draw{")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-breathe")},
+                 lambda c: {"keyframes": dict(c["keyframes"],
+                                              **{"karta-nothing": "unstated"})}])
+def _c_five_keyframes_settle(ctx):
+    """Every motion the page ships is defined, is applied through a class of the
+    same name, and states what it does when the reader asks for reduced motion.
+    A spinner that ignores the preference is as much a defect as an alarm that
+    keeps blinking — so "none" is a stated behaviour, and so is "keeps going"."""
+    css, keyframes = ctx["css"], ctx["keyframes"]
+    reduced = _reduced_block(css)
+    if not reduced or not keyframes:
+        return False
+    for name, settling in keyframes.items():
+        if not settling.strip():
+            return False                      # a motion with no stated behaviour
+        if not _at_rule_body(css, "keyframes " + name):
+            return False
+        base = _decls_for(css, "." + name)
+        if not base or not any(_animates_with(d, name) for d in base):
+            return False                      # defined but applied by nothing
+        settled = _decls_for(reduced, "." + name)
+        if not settled:
+            return False                      # left running unconditionally
+        anim = _norm(settled[0].get("animation", ""))
+        if name == ctx["breathe_keyframe"]:
+            # the one motion that CONTINUES: a status page that stops signalling
+            # life reads as broken, and an opacity fade is not movement.
+            if not _animates_with(settled[0], name):
+                return False
+        elif anim != "none":
+            return False
+    return True
+
+
+@_covers("reduced-motion-keeps-halt-and-run-legible", kind="behaviour",
+         breaks=[lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
+                 lambda c: {"css": c["css"].replace(
+                     "opacity:1 !important; color:var(--halt) !important",
+                     "opacity:.45 !important; color:var(--mut) !important")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-spin")}])
+def _c_reduced_motion_urgency(ctx):
+    """Settling must not delete the signal. With motion removed, a halted item
+    still has to read as urgent — full-strength colour plus its icon, not a
+    dimmed ghost — and a running item still has to read as in progress."""
+    reduced = _reduced_block(ctx["css"])
+    alarm = _decls_for(reduced, ".karta-alarm")
+    spin = _decls_for(reduced, ".karta-spin")
+    if not alarm or not spin:
+        return False
+    a, s = alarm[0], spin[0]
+    return (_norm(a.get("animation", "")) == "none"
+            and _norm(a.get("opacity", "")) == "1"
+            and "var(--halt)" in _norm(a.get("color", ""))
+            and _norm(s.get("animation", "")) == "none"
+            and _norm(s.get("transform", "")) == "none"
+            and _norm(s.get("opacity", "")) == "1")
+
+
+@_covers("type-roles-bound-to-vendored-weights", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             "font-family:var(--serif); font-weight:500",
+             "font-family:var(--serif); font-weight:700")},
+                 lambda c: {"css": c["css"].replace(
+                     'font-family:var(--serif)', 'font-family:var(--mono)')},
+                 lambda c: {"css": c["css"].replace(
+                     "font-family:var(--sans); font-size:15px",
+                     "font-family:sans-serif; font-size:15px")}])
+def _c_type_roles_bound(ctx):
+    """Three families, three roles, and no rule asking for a weight the plugin
+    does not ship. A font-weight with no vendored file is a faux-bold the
+    browser synthesises — the page looks subtly wrong and nothing complains."""
+    css = ctx["css"]
+    roles = {}
+    for decls in _decls_for(css, ":root"):
+        for var, family in _ROLE_FAMILY.items():
+            if var in decls and decls[var].startswith('"' + family + '"'):
+                roles[var] = family
+    if set(roles) != set(_ROLE_FAMILY):
+        return False
+    if not any("var(--sans)" in d.get("font-family", "")
+               for d in _decls_for(css, "body")):
+        return False
+    used, vendored = set(), ctx["vendored_weights"]
+    for _sel, decls in _css_rules(css):
+        stack = decls.get("font-family", "")
+        var = next((v for v in _ROLE_FAMILY if "var(" + v + ")" in stack), None)
+        if var:
+            used.add(var)
+        # a rule with no family of its own inherits body's sans role
+        family = _ROLE_FAMILY[var] if var else (
+            _ROLE_FAMILY["--sans"] if not stack else None)
+        weight = decls.get("font-weight", "").strip()
+        if family and weight.isdigit() and int(weight) not in vendored[family]:
+            return False
+    return used == set(_ROLE_FAMILY)
 
 
 @_covers("reduced-motion-breathes", kind="rendered", hook="data-kw-feed-dot",
@@ -5736,8 +6146,8 @@ def _c_chip_vocabulary(ctx):
         return False
     return (_attrs(item[0]).get(":data-kw-item-status") == "it.word"
             and meta["blocked"]["word"] == "WAITING"
-            and meta["blocked"]["color"] == "var(--steel)"
-            and meta["blocked"]["soft"] == "var(--steel-soft)"
+            and meta["blocked"]["color"] == "var(--wait)"
+            and meta["blocked"]["soft"] == "var(--wait-soft)"
             and all(m["word"] != "BLOCKED" for m in meta.values())
             and ":style" in _attrs(word[0]))
 
@@ -6374,6 +6784,10 @@ def _coverage_context() -> dict:
         "hub_empty": render_hub_html([], key_qs),
         "hub_card_count": len(cards),
         "css": _strip_css_comments(_page_css()),
+        "hub_css": _strip_css_comments(_HUB_CSS),
+        "palette": _PALETTE, "retired": _RETIRED_TOKENS,
+        "keyframes": _KEYFRAMES, "hub_chip": _HUB_CHIP,
+        "vendored_weights": _vendored_weights(),
         "app_src": _APP_JS,
         "repo_dispatch": inspect.getsource(_Handler.do_GET),
         "hub_dispatch": inspect.getsource(_HubHandler.do_GET),

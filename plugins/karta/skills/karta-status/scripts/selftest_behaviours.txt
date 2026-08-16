@@ -23,6 +23,16 @@ shell-home-link
 shell-repo-name
 shell-ephemeral-no-hub
 shell-feed-indicator
+palette-light-and-dark-agree
+palette-four-selector-cascade
+no-undefined-css-variables
+retired-tokens-unreferenced
+waiting-state-distinct-from-ready
+halted-state-carries-a-foreground
+delivered-and-built-share-one-green
+five-keyframes-each-settle-under-reduced-motion
+reduced-motion-keeps-halt-and-run-legible
+type-roles-bound-to-vendored-weights
 reduced-motion-breathes
 show-delivered-aria-pressed
 show-delivered-persistence-key
