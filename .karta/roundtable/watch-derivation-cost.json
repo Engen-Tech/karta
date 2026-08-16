@@ -1,9 +1,9 @@
 {
-  "reviewed_hash": "64a792827bbf4295b3a4a7674d329f6f51e003b15b0578f9a107f9f1b3a007ad",
+  "reviewed_hash": "efb47f1cbcc31b28456ffe37a7a43b914105dbd407e89a5a609ef6158838c594",
   "tool": "roundtable-critique",
   "target_kind": "binder",
   "target_ref": "watch-derivation-cost",
-  "run_at": "2026-08-16T02:00:09.437800+00:00",
+  "run_at": "2026-08-16T02:48:16.157794+00:00",
   "config_snapshot": {
     "enabled": true,
     "tool": "roundtable-critique",
@@ -17,29 +17,29 @@
   },
   "panel": [
     {
-      "provider": "fireworks-deepseek",
-      "verdict": "no blocking defect (confidence ~85%)",
-      "summary": "No blocking defect. Confidence ~85%. Residual non-blocking risks: poll_decision has_etag=False case not pinned by an oracle; annotated-tag peeling verified only on git 2.47.3, other versions could differ; cache-key content hashing is linear in ref count and gated only as 'does not grow faster than the data', not wall-clock bounded, and on network filesystems the 60s max-age plus attribute caching could hold staleness for the full backstop; ETag matching covers a single If-None-Match value, comma-separated lists may miss 304s. Contracts are unusually precise; security ordering (auth before conditional handling, slug resolution against a known set) is correct."
-    },
-    {
       "provider": "fireworks-glm5p2",
       "verdict": "no blocking defect (confidence high)",
-      "summary": "No blocking defect found; confidence high. Four non-blocking issues. Medium: TOCTOU in cache KEY COMPUTATION itself \u2014 a file disappearing between path-listing and statting could raise an unhandled FileNotFoundError; should be caught and treated as a forced cache miss. Low: cache-key cost can grow with non-karta refs, since growth fixtures vary only karta refs. Low: hub-mode effective staleness moves from ~5s to ~65s because the new 60s cache sits underneath RepoEngine's 5s cache. Low: poll_decision edge cases (False,False) and (False,True,False) untested. The binder is remarkably thorough and self-adversarial; eight prior rounds are evident in its pre-emptive handling of all-or-nothing batching, same-tick mtime, loose-to-packed transitions, tag peeling, hook write-back and auth-before-conditional. None of the four would cause incorrect behaviour."
+      "summary": "No blocking defect. The contract is unusually thorough after ten adversarial rounds; remaining gaps are verification shortfalls, not contract errors. Medium: (1) the benchmark's required git-env cleaning has no oracle check, so a GIT_DIR leak could silently measure the wrong repo and write false numbers into the spec; (2) the cache-key growth check claims to cover bytes read but the oracle only counts calls, so a large packed-refs hashed every request could become a new storm undetected. Low: untested same-thread reentrancy (a plain Lock would pass every assertion and deadlock on the anticipated refactor); a same-tick binder-JSON hole the ref content hash does not reach; lean-box-benchmark depends on client-conditional-poll though it only needs batch-git-facts, delaying the item that proves the thesis behind four unrelated items; poll_decision undefined for visible=False with has_etag=False."
     },
     {
       "provider": "fireworks-kimi",
-      "verdict": "no blocking defect (confidence ~75%) \u2014 ship",
-      "summary": "No blocking defect. Confidence ~75% at plan level. Residual: (1) High \u2014 asymmetric same-tick protection: the content-hash requirement is scoped to ref files, but binder JSONs are keyed on path+size+mtime only, so an in-place same-size same-tick binder edit is invisible until the 60s backstop; self-healing and rare, so non-blocking, but should be hashed too or explicitly accepted in the build report. (2) Medium \u2014 the key is over-broad: it hashes every loose ref under refs/ plus packed-refs per request while derivation reads only refs/karta/, refs/heads/karta/ and the default branch. (3) Low \u2014 alternates refusal does not cover partial/promisor clones. Both round-eight fixes are correctly applied; contracts and oracles are internally consistent. Ship, with (1) noted."
+      "verdict": "no blocking defect \u2014 approve (confidence high)",
+      "summary": "Blocking defects: none found. Approve. Ten adversarial rounds have stress-tested this design and the contracts are unusually precise \u2014 every identified failure mode (symref HEAD, same-tick writes, pack-refs path-set drift, failure caching, hook injection, alternates) has a named assertion. Residual non-blocking: no Vary or Cache-Control specified on the state feed, though the localhost Host pin makes real exposure minimal; poll_decision's no-etag branches are not pinned; worktree config could in principle alter ref resolution; the benchmark self-test's need for git on PATH and a writable temp dir is not stated."
     },
     {
       "provider": "fireworks-minimax",
-      "verdict": "no blocking defect (confidence high) \u2014 ship",
-      "summary": "Verdict: no blocking defect, confidence high. The binder is mechanically consistent: the fixed-call-count claim is scoped to ref queries inside gather_git_facts while the per-request total including default-branch resolution is asserted elsewhere; the path-traversal oracle for the optional detail route is explicit and complete; thread-safety, content-hash, path-set, lock-file exclusion, never-cache-failures and HEAD-as-symref resolution all carry pinned oracles. House patterns (mirrored pure functions, hub auth ordering, _inert_json, injectable runner, atomic sampling) are correctly applied. Four residual items \u2014 medium: thread-safety and never-cache-failures interaction under-specified at contract level; low: detached-HEAD cache-key wording, benchmark SIGKILL cleanup note, HEAD-as-probe rationale \u2014 are implementer-discipline issues the oracles catch, not design flaws. Ship."
+      "verdict": "no blocking defect (confidence high)",
+      "summary": "After ten rounds I find no blocking defect in the spec. Two minor gaps, neither gate-blocking: poll_decision is under-specified at the seam \u2014 only three argument triples are asserted, and since the mirrored JS is generated from the Python signature an ambiguous default propagates client-side, so the full truth table should land before the mirror is generated; and the renamed or missing default-branch failure mode should be restated in terms of exit codes rather than textual stderr, which varies across git versions. Contracts are internally consistent, the seven-item chain resolves without cycles, and the round-ten fixes hold. Remaining risk lives in implementation, not in this spec."
     },
     {
       "provider": "fireworks-qwen",
-      "verdict": "no blocking defect at the binder level (8/10)",
-      "summary": "No blocking defect at the binder level. The earlier contradictions are fixed, and the oracle covers the main auth, traversal, cache-invalidation, failure-degradation and call-count regressions. Residual risks, not blockers: cache wording should explicitly require content hashes for packed-refs and the resolved HEAD target, not just loose refs; archived-payload budget versus file:// snapshot can conflict if inline archived summaries are large; the benchmark should clean all GIT_* variables and neutralise copied config and worktree metadata, not only the four named; client visibility behaviour is source-verified, not browser-proven. Confidence 8/10 that this binder can be committed as a contract, 6/10 on runtime correctness without seeing the final implementation."
+      "verdict": "no blocking defect (confidence high, 85%)",
+      "summary": "Final record: no blocking defect. Confidence high, 85%. The last two fixes are coherent. Medium: the cache key mandates content hashes for refs but not binder JSON, so same-tick same-size edits may stay stale up to 60 seconds \u2014 hash binder files too or explicitly accept the bounded staleness; and a pre/post key mismatch discards the derivation without specifying the request's behaviour, so concurrent writes could yield no renderable response \u2014 define the retry or fallback. Low: the benchmark sanitises selected GIT_* variables but omits GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES; and the first-load archived payload remains unbounded, only the polling payload is bounded."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": null,
+      "summary": ""
     },
     {
       "provider": "antigravity",

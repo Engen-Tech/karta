@@ -144,15 +144,6 @@
         "light": "rgba(116,88,31,.10)",
         "dark": "rgba(195,161,109,.13)"
       },
-      "--built": {
-        "light": "#2F6F62",
-        "dark": "#7FC9BC",
-        "note": "NOT in the design source — added here because the engine emits a sixth item state the design has no treatment for. Sits between running and passed: committed on its branch, awaiting merge."
-      },
-      "--built-soft": {
-        "light": "rgba(47,111,98,.12)",
-        "dark": "rgba(127,201,188,.15)"
-      },
       "--band": {
         "light": "#330D15",
         "dark": "#1C070C"
@@ -391,7 +382,7 @@
           "the font manifest, the files on disk and the @font-face declarations agree: every manifest entry has a file whose size and sha256 match, every file is declared, and every declaration's unicode-range matches its manifest entry",
           "the eight font files together are under 400 KB",
           "each family ships a licence file, present and byte-identical in the canonical tree and both Codex mirrors",
-          "the rendered page contains no http:// or https:// reference, so nothing leaks to a CDN",
+          "the rendered page loads nothing over http:// or https:// — checked against fetchable contexts (src, href, url(), @import), so an inline SVG namespace declaration does not false-fail, so nothing leaks to a CDN",
           "every @font-face src is a relative same-origin /assets/fonts/ path",
           "asset-directory confinement still rejects a traversal attempt through the new subdirectory",
           "every font stack names a system fallback after the vendored family",
@@ -411,7 +402,7 @@
       ],
       "design_reference": "tokens",
       "contract": {
-        "exposes": "every token in the binder's token manifest defined in light and dark — the design's own set plus the two added for the item state it omitted — the three font-family roles, and the five keyframes. The manifest is the count, so no number is repeated here to go stale.",
+        "exposes": "every token in the binder's token manifest defined in light and dark, the three font-family roles, and the five keyframes. The manifest is the count, so no number is repeated here to go stale. No token was added for the sixth item state — it reuses --green at a different weight.",
         "consumes": "the vendored fonts from the previous item",
         "theming": "the design switches on data-theme alone; the shipped page keeps its four-selector cascade — bare :root, a prefers-color-scheme override, and both data-theme selectors — so the system default and the ?theme=light|dark forced override both survive",
         "python_side": "the state and phase metadata tables in serve_status.py reference colour variables by name and must move with the palette; the waiting state moves off the steel variable onto its own",
@@ -465,6 +456,11 @@
           "token": "--tree, --star, --chip, --on-accent, --live",
           "from": "current palette",
           "note": "retired or remapped onto the new set; no orphaned variable may remain referenced"
+        },
+        {
+          "token": "--green",
+          "from": "--green",
+          "note": "unchanged, but now carries two treatments: filled for a merged item, outlined for one built and awaiting merge. No token was added for the sixth state"
         }
       ],
       "serialize": true,
@@ -621,7 +617,10 @@
         "no_bypass_fetch": "off-means-off is only real if the decision function gates EVERY request initiator, not a lexical 'poll path'. The predecessor binder's conditional revalidation is itself a fetch, and a visibility, focus or online handler can start one too — any of which would keep touching git while the page claims refresh is off. The rendered client must therefore have exactly one poll timer, distinct from the countdown ticker, and every fetch call site other than the initial load must sit behind a refresh_decision result.",
         "baseline_reset_lives_in_the_caller": "a pure function returning a string cannot reset anything; the elapsed baseline is caller state. The caller resets it when the decision returns poll-now, and that wiring is checked at the source level rather than asserted of the function.",
         "edge_cases": "automatic refresh is ON by default on a first visit; a browser where storage is unavailable falls back to that default rather than failing; and a manual refresh while one is already in flight does not start a second.",
-        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look."
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look.",
+        "visibility_lives_inside_the_decision": "the visible parameter is gated INSIDE refresh_decision, not before the call. If visibility were checked by the caller instead, the parameter would be dead and the claim that every fetch sits behind a refresh_decision result would be false — the visibility gate would be a second, separate, untested path. Inside the function it is covered by the same direct-call assertions as everything else. The predecessor binder's poll_decision handled visibility for the old loop; this function subsumes that and the predecessor's backoff must not survive as a parallel check.",
+        "manual_overrides_hidden": "a manual refresh works on a hidden tab. Someone who clicks refresh has asked for it, and honouring a deliberate action does not reintroduce background polling.",
+        "mirror_check_limits": "one honest limit: a pure-Python gate cannot execute or semantically diff JavaScript, so 'the mirror is logically identical' is not a claim it can make. What it CAN do is hold a shared table of input vectors and expected outcomes, run the Python twin against it directly, and check the rendered JS contains the same table and calls the same function on every branch. That catches drift in the decision table, which is where drift actually happens. It does NOT catch a hostile or careless rewrite that keeps the shape and changes the behaviour — a branch that calls fetch past the decision would satisfy a structural scan. That residue is named here and goes on the human checklist rather than being papered over with a stronger-sounding assertion."
       },
       "serialize": true,
       "shared_resources": [
@@ -650,7 +649,7 @@
           "refresh_decision called directly with mode='auto' returns 'skip' for every elapsed time below the interval and 'poll' at or beyond it, with the interval being 30 seconds and not the former 2.6",
           "refresh_decision called directly with mode='manual-only' returns 'skip' for EVERY elapsed time, however large — this is the enforceable form of off-means-off, asserted on the function that decides rather than on a countdown being hidden",
           "refresh_decision with manual=True returns 'poll-now' exactly once in both modes, and the following call with manual=False does not repeat it",
-          "the mirrored JavaScript copy of refresh_decision is byte-identical in logic to its Python twin, checked the way the existing feedTransition mirror is checked",
+          "the Python twin is exercised directly against a shared table of input vectors and expected outcomes, and the rendered JS carries the same table and routes every branch through the same function — the drift this can catch is decision-table drift, not a behavioural rewrite that keeps the shape",
           "the rendered JS registers exactly one poll timer, distinct from the countdown ticker, and EVERY fetch call site other than the initial load sits behind a refresh_decision result — including the conditional revalidation inherited from the predecessor binder, and any visibility, focus or online handler",
           "the rendered page carries the countdown region when automatic refresh is on and the data-age region when it is off, each reachable by its hook",
           "the rendered JS source reads and writes the automatic-refresh preference under its own storage key, distinct from karta-theme and karta-show-delivered",
@@ -665,7 +664,11 @@
           "automatic refresh defaults to on when no stored preference exists, and an unavailable storage API falls back to that default rather than throwing",
           "a manual refresh while one is in flight does not start a second request",
           "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
-          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "refresh_decision(mode='auto', visible=False, manual=False) returns 'skip' at every elapsed time, however far past the interval — the visibility backoff is gated inside the function, so a broken check fails here rather than passing the whole suite",
+          "refresh_decision(mode='auto', visible=False, manual=True) returns 'poll-now' — a deliberate click is honoured on a hidden tab",
+          "refresh_decision(mode='manual-only', visible=False, manual=False) returns 'skip', as it does when visible",
+          "no second visibility check exists outside refresh_decision in the rendered source: the predecessor's backoff is subsumed rather than left running in parallel"
         ]
       }
     },
@@ -692,7 +695,7 @@
         "why": "both render paths live in the same file and the redesign covers only the per-repo page. Left alone, an operator lands on a page that looks nothing like the pages it links to, and the mismatch is most visible to exactly the multi-repo users the hub exists for",
         "exposes": "the landing page and the switcher on the new tokens, type roles and keyframes",
         "consumes": "the tokens established earlier in this binder; no new state and no new git call",
-        "refresh_alignment": "the landing refreshes itself with a 10 second meta refresh today, re-deriving EVERY watched repository each tick — the most expensive page in the system on the shortest interval. A meta refresh cannot read a stored preference and is not a fetch call site, so it can neither honour the reader's choice nor be caught by a check that gates fetch calls. It is therefore REPLACED by the same script-driven refresh the per-repo page uses, on the same 30 second interval, reading the same karta-auto-refresh preference. Unconditional navigation-based refresh is removed rather than left beside the new path.",
+        "refresh_alignment": "the landing refreshes itself with a 10 second meta refresh today, re-deriving EVERY watched repository each tick — the most expensive page in the system on the shortest interval. A meta refresh cannot read a stored preference and is not a fetch call site, so it can neither honour the reader's choice nor be caught by a check that gates fetch calls. It is therefore REPLACED by the same script-driven refresh the per-repo page uses, on the same 30 second interval, reading the same karta-auto-refresh preference. Unconditional navigation-based refresh is removed rather than left beside the new path. It reuses refresh_decision itself rather than reading the preference and the interval directly. A second implementation of the same rule is how the hub ends up still fetching after the reader turned refresh off — the landing is the most expensive page in the system, so it is the last place that should get its own copy of the logic.",
         "preserved": "every repo card verdict still renders and still reads the same — the running, next-up, clear, wedged and unavailable treatments; card ordering is unchanged; the activity stamp still renders; the empty state for no opted-in repositories still renders; every link still carries the access key; the landing still escapes repository names, and a hostile repository path still renders inert",
         "scope_limit": "this is a restyle plus one behavioural change that cannot be avoided: the refresh mechanism itself. No new visible controls, but replacing a meta refresh with a script-driven one is a real change and is named here rather than smuggled in under 'restyle'.",
         "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look.",
@@ -729,12 +732,14 @@
           "every link on the landing and in the switcher still carries the access key",
           "a repository name containing script markup still renders inert",
           "the landing refreshes on the same interval as the per-repo page rather than the former 10 second cadence",
-          "the landing contains no http:// or https:// reference",
+          "the landing loads nothing over http:// or https:// — checked against fetchable contexts (src, href, url(), @import), so an inline SVG namespace declaration does not false-fail",
           "with the automatic-refresh preference off, the landing does not refresh itself either",
           "the landing contains no meta refresh and no unconditional navigation-based reload — the mechanism is replaced, not supplemented",
           "with the automatic-refresh preference off, the landing's rendered source issues no scheduled request",
           "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
-          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "every fetch call site in the landing's rendered source other than the initial load sits behind a refresh_decision result — the landing does not reimplement the rule by reading the storage key and the interval on its own",
+          "the landing uses the same rendered refresh_decision as the per-repo page rather than carrying its own copy — a second copy on the most expensive page in the system is exactly where a missed fix would hurt most"
         ]
       }
     },
@@ -902,7 +907,7 @@
         },
         {
           "design": "no card exists",
-          "implementation": "the built state — DEFECT FIX: an item committed on its branch but not yet merged renders nothing at all today under the design's five treatments; it needs its own card, visually between running and passed, so a viewer can tell 'finished, awaiting merge' from 'merged'"
+          "implementation": "the built state — DEFECT FIX: an item committed on its branch but not yet merged renders nothing at all under the design's five treatments. It gets a card in the green family, distinguished from passed by weight rather than hue: a green border with no fill, against passed's green fill with a neutral border. A git-merge glyph carries the meaning 'ready to land'."
         },
         {
           "design": "Running card — thick now border, breathing footer strip, spinner",
@@ -950,20 +955,21 @@
         {
           "design": "none — new",
           "key": "built",
-          "use": "built: committed, awaiting merge. A git-merge glyph — two strands joining — which reads as 'ready to land' and is distinct from both the passed check and the running spinner"
+          "use": "built: committed, awaiting merge. A git-merge glyph — two strands joining — distinct from the passed check and the running spinner. Coloured with the existing --green; no new token"
         }
       ],
       "contract": {
         "exposes": "one card treatment per engine state, and a state metadata table with an entry for all six",
         "consumes": "each item's status, title and summary from the feed",
         "defect": "the engine emits six item states and the design covers five; every state must render",
-        "built_treatment_is_specified_here": "the design source answers nothing about this state, so leaving it to build time would mean a colour and an icon chosen in a worktree with no gate. It is fixed here instead: the --built teal added to the token manifest, its --built-soft tint as the card fill, a thin border matching passed rather than the thick border running and halted use, and a git-merge glyph. That combination is distinct from passed (green, check) and from running (now, spinner) in both hue and iconography, so the three do not collapse together for a reader glancing at the wave",
         "vocabulary": "the waiting state keeps its calm wording — an item waiting its turn is normal flow, not an alarm — and the word 'blocked' still appears nowhere on the rendered page",
         "counts": "the counts row does not exist yet at this point in the chain — the panel that carries it lands next, and it covers all six states from the outset because all six cards exist by then.",
         "keys": "each card is keyed on the work-item id, which is stable across polls",
         "ordering_rationale": "this lands BEFORE the panel that counts these states. The other way round leaves a commit where the counts row tallies six states while only five can render, so the totals provably cannot add up and the tree is knowingly incoherent between two items.",
-        "built_treatment_is_provisional": "the design source answers nothing here, so this treatment is specified rather than left to a worktree — but it is a designer's call being made in a plan, and it is marked PROVISIONAL. The teal, the tint and the merge glyph are named tokens precisely so a later design pass can replace them in one place. Flag it for design review rather than letting it harden by default.",
-        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces.",
+        "built_treatment": "the design source has no card for this state, but it does not need a new colour — it already has a grammar for this. Border weight says how much attention a card wants; fill says which state it is in. Passed is a green FILL with a neutral border. Built is the same green as a BORDER, THIN — matching passed and ready, not the 2px that running and halted use, because an item awaiting merge is calm — with NO green fill. Same hue, inverted weight. No token is added: a new hue would be a seventh in a palette of six related warm tones plus one steel, and would read as foreign beside them.",
+        "weight_alone_is_not_the_whole_signal": "fill-versus-outline is a weight difference, not a hue difference, so it survives colour-blindness and greyscale — but it is deliberately not the only cue. The git-merge glyph and the state word carry the distinction independently. A reader who cannot resolve a pale tint against a thin border still reads the icon and the label. Whether the pair actually separates at a scan is a perceptual question the gate cannot answer, so it goes on the closing sweep's human checklist rather than being asserted.",
+        "metadata_exposes_both_roles": "the state metadata table carries THREE named fields per state: the border token, the fill token, and the border weight as a named role — calm or urgent — not a pixel value. Without the third field the weight assertion has no structural source and collapses into matching an exact CSS string, which the self-test migration forbids. With it, calm covers passed, ready and built; urgent covers running and halted; and waiting is calm with a dashed edge."
       },
       "serialize": true,
       "shared_resources": [
@@ -988,7 +994,7 @@
         "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
         "assertions": [
           "a fixture binder carrying all six states renders six cards, one per item, with no item missing",
-          "the built card resolves the --built and --built-soft tokens in both themes, carries the git-merge glyph and its own chip word, and is distinguishable from both the passed card and the running card in colour and in icon",
+          "the state metadata resolves built to a --green border role with no fill, and passed to a --green fill role with a neutral border — two named roles, not a CSS string match",
           "each of the six states has a metadata entry whose badge resolves to a defined icon, so no chip renders blank",
           "the waiting state renders its calm wording, and the word 'blocked' appears nowhere in the page's own chrome — labels, chips, legends and headings. Binder-authored prose is excluded from the check, since a summary may legitimately say an item is blocked on something external",
           "the running card animates on the karta-breathe keyframe and stays animated under reduced motion",
@@ -996,7 +1002,11 @@
           "item titles and summaries reach the page through the inert-JSON path",
           "the inertness check uses several vectors, not just a script tag — an img with an error handler, an svg with a load handler, a mixed-case script tag, and a javascript: URL — since escaping that stops one of these can miss the others",
           "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
-          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "no token named --built or --built-soft exists: the state is expressed with the palette the design already defines",
+          "the built card carries NO green fill: a build that gives it both a green border and a green tint fails, since that is the single slip that would make it near-identical to passed",
+          "built resolves the calm border-weight role, the same as passed and ready, while running and halted resolve the urgent one — read as a named role from the state metadata, not measured off a CSS declaration",
+          "built and passed are distinguished by three independent cues — the border-and-fill roles, the git-merge glyph against the check, and the state word — so losing any one of them still leaves the two readable"
         ]
       }
     },
@@ -1194,7 +1204,7 @@
         "reduced_motion_audit": "all five keyframes get a stated reduced-motion behaviour, not just the breathing indicator — the spinner, the one-shot underline draw, the ring and the alarm each either continue, slow, or resolve to a static state, and each choice is deliberate. A blinking alarm that ignores the preference is an accessibility defect",
         "no_new_surface": "this item adds no feature and no control; it restyles what was missed and asserts what was unguarded",
         "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look.",
-        "human_browser_checklist": "the gate has no browser, so this item also produces a short named checklist for a human to walk in a real browser: first paint on both themes, the empty and degraded states, a saved file:// copy opened offline, one expand and collapse, turning automatic refresh off and confirming the network goes quiet, and the reduced-motion preference applied. Every claim on that list is one the self-test cannot make. Naming them is the honest alternative to asserting them."
+        "human_browser_checklist": "the gate has no browser, so this item also produces a short named checklist for a human to walk in a real browser: first paint on both themes, the empty and degraded states, a saved file:// copy opened offline, one expand and collapse, turning automatic refresh off and confirming the network goes quiet, and the reduced-motion preference applied. Every claim on that list is one the self-test cannot make. Naming them is the honest alternative to asserting them. It also includes one comparison the gate cannot make: a passed card and a built card side by side, in both themes, confirming they separate at a scan rather than only under inspection. It also covers the one thing no static check reaches: with automatic refresh off, watch the network panel across a span that would have produced several requests, through a tab switch and a window focus change, and confirm it stays silent."
       },
       "serialize": true,
       "shared_resources": [
@@ -1224,7 +1234,7 @@
           "the 404 page renders on the new tokens",
           "every data-kw-* hook in the rendered page has a RENDERED registry entry, and every rendered entry resolves to a hook that exists. Behaviour entries — token gating, the Host pin, confinement, escaping, the poll interval — are audited by their checks running, since they have no markup to resolve to",
           "each of the five keyframes has a stated behaviour under a reduced-motion preference, and none of them is left animating unconditionally",
-          "the rendered page contains no http:// or https:// reference in any of these states",
+          "the rendered page loads nothing over http:// or https:// — checked against fetchable contexts (src, href, url(), @import), so an inline SVG namespace declaration does not false-fail in any of these states",
           "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
           "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
           "the item produces the named human browser checklist, and it covers every guarantee the build reports marked as not machine-verifiable — so the unverifiable set is enumerated rather than forgotten"

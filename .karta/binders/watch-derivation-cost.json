@@ -9,7 +9,8 @@
       "skills/karta-status/scripts/serve_status.py — state caching, conditional GET, the archived-binder payload, the client poll loop, and the self-test",
       "the generated Codex mirrors of both scripts under .agents/skills/ and plugins/karta/",
       "benchmarks/perf/ — a reproducible derivation benchmark that runs against real repository history",
-      "docs/specs/2026-08-15-watch-performance-baseline.md — the after-numbers"
+      "docs/specs/2026-08-15-watch-performance-baseline.md — the after-numbers",
+      "docs/how-to/karta-watch.md — only where this binder changes something an operator relies on: the new response header and status code on the state feed, and what the archived-detail change means for a reader of that feed. Every other prose doc stays out; doc-gardner corrects those after delivery"
     ],
     "excluded": [
       "the renderer: a full page renders in 0.5 to 0.8 ms against a 613 ms request, so no rewrite and no compiled-language port",
@@ -18,7 +19,7 @@
       "any wall-clock threshold as a merge gate; timing is reported, never enforced",
       "the refresh interval and the refresh controls, which are user-visible and belong to the redesign binder",
       "any page markup, styling, or feed-field change — that is the redesign binder's work",
-      "prose docs other than the performance spec; doc-gardner corrects those after delivery"
+      "prose docs beyond the operator how-to and the performance spec; doc-gardner corrects those after delivery"
     ]
   },
   "design_facts": {
@@ -74,7 +75,7 @@
       "depends_on": [],
       "contract": {
         "consumes": "the same inputs as today: the loaded binder list and the resolved default branch",
-        "exposes": "gather_git_facts(binders, default_branch, runner=None) returns a byte-for-byte identical dict — {default_branch, binders{<slug>{integration_exists, items{<id>{done, done_in_default, built, failed, branch}}}}} — while issuing a CONSTANT number of git subprocesses that does not grow with binder or item count. Three inside this function; the true per-request figure includes default-branch resolution and is stated below. The optional runner parameter is the injection seam the call-count check needs — without it that check has nothing to hook.",
+        "exposes": "gather_git_facts(binders, default_branch, runner=None) returns a field-for-field identical dict — {default_branch, binders{<slug>{integration_exists, items{<id>{done, done_in_default, built, failed, branch}}}}} — while issuing a CONSTANT number of git subprocesses that does not grow with binder or item count. Three inside this function; the true per-request figure includes default-branch resolution and is stated below. The optional runner parameter is the injection seam the call-count check needs — without it that check has nothing to hook.",
         "implementation": "one `for-each-ref --format=%(refname) refs/karta/` for the done/built/failed marker set, one `for-each-ref refs/heads/karta/` for integration and per-item branches, and one `for-each-ref --merged=<default_branch> refs/karta/` whose result set replaces the per-done-item `merge-base --is-ancestor` exit-code probe",
         "preserved": "done_in_default keeps its exact current meaning — a done ref whose commit is reachable from the default branch — including the case where a done ref points at a commit deliberately not merged, which is what --merged has to get right",
         "default_branch_is_inside_the_budget": "resolving the default branch is part of the request and must be counted. Today _default_branch() runs a `symbolic-ref` plus up to two `rev-parse` calls OUTSIDE gather_git_facts, so a claim of three calls per request would be false. Either fold the resolution into the batched path or resolve it once and reuse it, and state the true per-request budget as a fixed number that does not grow with binder or item count. The invariant being bought is a CONSTANT number of git calls per request, not the number three",
@@ -119,7 +120,8 @@
           "the regenerated Codex mirrors of karta_next.py and serve_status.py are byte-identical to the canonical files",
           "a git call failing mid-derivation yields a renderable state with the affected facts marked unknown, rather than raising — the page degrades the way it did before batching instead of going blank",
           "a refs/karta/ entry pointing at a tag or other non-commit object does not break the derivation",
-          "a renamed default branch is handled as well as a missing one"
+          "a renamed default branch is handled as well as a missing one",
+          "a state carrying unknown facts renders a page: the affected items appear in a degraded form rather than blank or raising at render time — returning without an exception is not the same as rendering"
         ]
       }
     },
@@ -254,12 +256,16 @@
       ],
       "contract": {
         "problem": "measured on a real karta checkout in the constrained container, state.json is 98.5 KB with ZERO live binders, because the 17 archived binders are serialized in full on every request. At 20 live binders about 72% of a 136 KB payload is immutable delivered history being re-sent forever, and the same bytes are inlined into the initial page, which is why the page weighs 133 KB before any live work exists. See docs/specs/2026-08-15-watch-performance-baseline.md",
-        "exposes": "a feed whose size no longer grows with the number of archived binders",
-        "goal_not_mechanism": "the mechanism is one of exactly TWO: serve archived detail from its own route and fetch it when the Delivered group is opened, OR carry a per-archived digest in the feed with detail on demand. Deferring to the conditional-request work is NOT an option and was removed: a 304 only short-circuits a REPEAT fetch, it never shrinks the first one, so it cannot meet a payload budget. Whichever of the two is chosen, the reasoning goes in the build report and the new surface is covered by the oracle.",
+        "exposes": "a feed whose size grows by a small fixed bound per archived binder rather than by that binder's full prose — bounded growth, not zero growth",
+        "goal_not_mechanism": "DECIDED, not left to build time. Delivered binders are immutable, so their detail travels ONCE with the initial page — where it already rides today as the inlined first-paint state — and the repeated poll carries only a compact entry per archived binder: its slug and item counts, no prose. The client keeps the detail it received at load and joins the two. Opening the Delivered group is therefore instant, because nothing has to be fetched to render it. Letting the conditional-request work cover this instead was considered and REJECTED: a 304 only short-circuits a repeat fetch and never shrinks the first one, so it cannot meet a payload budget.",
         "preserved": "the Delivered phase must keep rendering every archived binder exactly as it does today, with its title, summary and item counts intact — archived binders are appended as merged rows by _append_archived and that behaviour is not being changed, only how the bytes travel",
         "constraint": "no additional git call; archived binder detail is read from .karta/binders/archive/ on disk, and the cache from the previous item already covers it",
         "new_surface_is_gated": "if a detail route is introduced it is a new wire surface and inherits every rule the existing ones carry: the token check, the Host pin, asset confinement and _inert_json escaping. A route added without them would be a hole opened by a performance change. A detail route takes a slug, which makes it a path-traversal surface: it must resolve the slug against the known archived set rather than joining it onto a path, exactly as the hub resolves a repo slug through its roster instead of deriving a directory from it.",
-        "snapshot_constrains_the_mechanism": "a saved file:// snapshot cannot fetch anything — the browser blocks it. So a detail route alone would leave the Delivered group empty in a snapshot, and the payload oracle and the snapshot oracle could not both pass. Whichever mechanism is chosen, the snapshot must carry what Delivered needs inline at render time, which is a constraint on the choice and not an afterthought."
+        "snapshot_constrains_the_mechanism": "a saved file:// copy cannot fetch anything. Inlining the detail at page load satisfies that for free — the snapshot already holds everything Delivered needs, which is the main reason this mechanism was chosen over fetching detail on demand.",
+        "newly_archived_mid_session": "a binder archived while the page is open is the one case the client holds a compact entry for with no matching detail, because detail arrived at load and this binder was not archived yet. It renders from the compact entry alone — its slug as the label, with its counts — which is visibly thinner than its neighbours until the next page load. That degradation is ACCEPTED and it is deliberately not repaired by fetching, because a fetch would reintroduce the route this mechanism exists to avoid and would break the saved-copy case. It happens once, when a delivery finishes.",
+        "what_this_does_and_does_not_win": "this removes a REPEATED cost, not a one-time one. The poll stops carrying archived prose, so the 98.5 KB that was re-sent every few seconds becomes about 2 KB. The initial page is unchanged in size, because the detail still rides it — that is the point, since it is what makes a saved copy work. Any claim that first-load weight falls would be false and is not made.",
+        "compact_entry_schema": "the compact entry is exactly: the slug, and the item counts the rail card renders. No prose, no ids, no per-item detail. The 96-byte bound is derived from that shape rather than guessed: a slug is kebab-case ASCII and karta's own slugs run well under 48 characters, counts are small integers, and the JSON framing is fixed — so 96 bytes holds with headroom. The bound is stated as a ceiling FOR A SLUG UP TO 48 BYTES; a longer slug widens the entry proportionally and the check says so rather than failing mysteriously. A richer entry shape breaches it and should fail rather than quietly widen.",
+        "client_join_is_a_tested_seam": "the client merges detail received once at load with compact entries received on every poll, keyed by slug. That merge is the whole mechanism and it must not live only inside the template where the gate cannot reach it. It lands as a pure function — join_archived(detail_by_slug, compact_entries) — mirrored into the client the way poll_decision and feedTransition already are, so the gate exercises it by direct call. A slug mismatch or a dropped retention map would otherwise blank the Delivered group while every other assertion passed."
       },
       "serialize": true,
       "shared_resources": [
@@ -274,7 +280,7 @@
         "flagged": true,
         "signals": [
           "contract — /state.json is a published wire surface and this changes what it carries; a reader that walks archived binder detail inline would see a different shape",
-          "open-question — the mechanism is deliberately left to build time, so the choice and its reasoning want a human read",
+          "contract — the mechanism is DECIDED, not open: archived detail rides the initial page and the poll carries a compact entry. What wants the human read is the wire-shape change itself, since a reader walking archived detail inline in the feed will see a different shape",
           "blast-radius — serve_status.py is edited by every item in this binder",
           "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
         ]
@@ -284,16 +290,20 @@
         "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
         "assertions": [
           "with zero live binders and twenty archived binders, the polled payload is under 8 KB, against the 98.5 KB the same fixture produces today — a fixed budget, not a relative one, so the check cannot be satisfied by a trivial reduction or calibrated to the author's machine",
-          "the polled payload grows by no more than 64 bytes per additional archived binder: going from 20 to 40 archived binders must not add more than 1.3 KB",
-          "every archived binder's title, summary and item counts are present in what the page receives — in the feed, in a digest, or from the detail route. This is asserted as data presence, because the gate has no browser and cannot observe Vue rendering; the rendering guarantee is stated in the build report rather than claimed here",
+          "every archived binder that existed at page load renders with its title, summary and item counts — scoped to at-load binders, because one archived mid-session has no prose by design",
+          "a binder archived mid-session renders from its compact entry alone, showing its slug as the label and its counts, with no blank row and no fetch issued",
+          "join_archived called directly merges detail held from load with compact entries by slug: a slug in both yields the full row, a slug with only a compact entry yields the thin row, and a slug with only stale detail and no compact entry disappears",
+          "the compact entry carries only a slug and counts — an entry containing prose fails",
+          "the bound is measured at both a short slug and a 48-byte slug, and a slug beyond that widens the entry proportionally rather than failing without explanation",
+          "the initial page still carries archived detail inline and is not expected to shrink; the win asserted here is the repeated poll, not the first load",
+          "the polled payload grows by no more than 96 bytes per additional archived binder for a slug of up to 48 bytes, and the check states the slug length it measured so the ceiling is reproducible rather than an artefact of short fixture names",
+          "the initial page still carries archived detail inline, so a saved file:// copy renders the Delivered group with every archived binder's title, summary and counts and no server",
+          "a binder archived while the page is open still renders in the rail from its compact entry alone, without a blank row",
           "an archived binder whose live namesake exists is still won by the live binder, exactly as the current join does",
           "the derivation issues no additional git call for archived binders",
           "archived binder values still reach the page through the inert-JSON path",
           "the file:// snapshot still renders the Delivered group without a server to fetch from",
-          "if a detail route was introduced, fetching it for one archived slug returns that binder's title, summary and item counts",
-          "if a detail route was introduced, it rejects a missing or wrong token and a disallowed Host header exactly as /state.json does, and escapes through _inert_json",
-          "the initial page does not simply absorb the bytes removed from the feed — total first-load weight falls too, rather than the same content moving from one place to another",
-          "if a detail route was introduced, a slug containing traversal segments, percent-encoded traversal, an absolute path, or characters outside the slug alphabet is rejected, and no request can read a file outside the archived-binder set"
+          "the mirrored JavaScript copy of join_archived matches its Python twin in logic, checked the way the existing feedTransition mirror is — without it the Python seam passes while a drifted client blanks the Delivered group"
         ]
       }
     },
@@ -346,7 +356,8 @@
           "a 304 response carries no body and no Content-Length",
           "polling an unchanged repository twice in a row yields the same tag, proving no volatile field leaked into the fingerprint",
           "an unauthorised request receives no ETag header at all, on any route",
-          "HEAD on /state.json and on the hub's per-repo state route returns 200 with the ETag and no body, never 304 — this server routes HEAD through the GET handler, so without the check a refactor turns HEAD into a cheap state probe"
+          "HEAD on /state.json and on the hub's per-repo state route returns 200 with the ETag and no body, never 304 — this server routes HEAD through the GET handler, so without the check a refactor turns HEAD into a cheap state probe",
+          "the operator how-to describes the new response header and the not-modified status, so a reader of the feed learns about the change from the docs rather than from a surprised client"
         ]
       }
     },
@@ -410,7 +421,7 @@
         "exposes": "benchmarks/perf/derivation_bench.py — stdlib only, PEP-723 inline metadata, argparse, and a --self-test mode emitting [PASS]/[FAIL] lines, matching the pattern of benchmarks/perf/mine_sessions.py",
         "real_history_required": "the harness MUST measure against a repository with real commit history, not a synthesised single-commit repo. This is the defect a naive benchmark has: with one commit there is no graph to walk, so `for-each-ref --merged` is free and the measurement understates the true cost by roughly half. Measured on karta's own 385-commit history the current derivation costs 613 ms at 20 binders where a single-commit fixture reported 314 ms. The harness layers synthetic binder refs onto real commits and places unmerged item refs on genuine side branches so the revision walk is actually exercised",
         "never_mutates_the_source_repo": "DECIDED, not left to build time. The harness resolves the real git directory with `git rev-parse --git-common-dir`, since a linked worktree's `.git` is a FILE pointing elsewhere and copying that file yields no refs and no objects. It copies that resolved directory to a temporary location and creates every synthetic ref there, never in the repository it was pointed at. Every git invocation against the copy runs with hooks disabled by pointing the hooks path at an empty directory — `.git/hooks/` is copied along with everything else, and a `reference-transaction` hook fires on ref creation, so an un-neutralised hook could write straight back into the source. It also refuses to run when `objects/info/alternates` is non-empty, because a copy that leaves the alternate object store behind walks a partial graph and reports numbers lower than the truth — the exact error this benchmark exists to prevent. The temporary copy is removed on exit including after a failure.",
-        "behaviour": "builds binder sets at 1, 5, 10, 20 and 40 binders by 10 work items with the ref shapes a real run leaves (refs/karta/<slug>/item-<id>/done|built, per-item branches, an integration branch, and a mix of merged and unmerged done refs), times best-of-5 for each, and prints a table plus a machine-readable JSON block. It restores the repository's ref namespace when it finishes",
+        "behaviour": "builds binder sets at 1, 5, 10, 20 and 40 binders by 10 work items with the ref shapes a real run leaves (refs/karta/<slug>/item-<id>/done|built, per-item branches, an integration branch, and a mix of merged and unmerged done refs), times best-of-5 for each, and prints a table plus a machine-readable JSON block. It removes its temporary copy when it finishes; the source is never written to, so there is nothing to restore.",
         "two_paths": "it times the shipped batched derivation and its own per-item reference walker, so one run reproduces both halves of the before-and-after table on any machine. The reference walker is deliberately duplicated here rather than imported, because the harness must run standalone against any checkout including one predating the batching",
         "reporting_not_gating": "the constrained-container invocation is documented in the spec, not gated — a consumer machine has no Incus, and wall-clock depends on the machine and on history depth, so the enforced invariant remains that git calls stay constant as binder count grows",
         "doc": "docs/specs/2026-08-15-watch-performance-baseline.md gains an after-numbers section beneath the existing before-numbers, method and equivalence proof; the existing before figures are not edited",
