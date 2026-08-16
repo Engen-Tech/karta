@@ -88,7 +88,7 @@ It holds the slug (which names the integration branch and tags), scope, the env 
 | **`karta-doc-gardner`** | Opt-in doc repair. Every delivery ends with one labeled commit: the rewritten docs when prose drifted from the code, or an empty commit recording no drift. |
 | **`karta-kaizen`** | Opt-in stack-pack writer. Improves the packs your project uses from what its builds keep repeating; every edit is a labeled commit you review. |
 | **`karta-debt`** | On-demand debt harvest. Collects every `KARTA-DEFER` and `KARTA-SME-OVERRIDE` marker into a one-shot ledger. Writes nothing. |
-| **`karta-status`** | Shows where a run stands and the single next action, derived fresh from git. Live browser page by default; one-shot terminal map headless. Read-only. Opt a repo in and **Karta Watch** turns persistent: one stable local hub page for every opted-in repo, revived by ordinary karta activity — see [docs/how-to/karta-watch.md](docs/how-to/karta-watch.md). |
+| **`karta-status`** | Shows where a run stands and the single next action, derived from git. Live browser page by default; one-shot terminal map headless. Read-only. Opt a repo in and **Karta Watch** turns persistent: one stable local hub page for every opted-in repo, revived by ordinary karta activity — see [docs/how-to/karta-watch.md](docs/how-to/karta-watch.md). |
 
 ## The four agents
 
