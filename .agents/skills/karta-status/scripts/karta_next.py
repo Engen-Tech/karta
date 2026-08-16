@@ -415,7 +415,84 @@ def load_archived_binders(archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
     return out
 
 
-def gather_git_facts(binders: list[dict], default_branch: str) -> dict:
+def _for_each_ref(args: list[str], runner=None) -> tuple[list[str], bool]:
+    """One `git for-each-ref` subprocess, returning (lines, ok). `runner` is the
+    injection seam gather_git_facts exposes: swap in a stand-in for
+    subprocess.run to count calls or fail one of the three deliberately. `ok`
+    is False on any failure (nonzero exit, or a spawn error) so the caller
+    degrades the facts that call feeds to unknown instead of raising."""
+    run = runner or subprocess.run
+    try:
+        proc = run(["git", "for-each-ref", *args], capture_output=True, text=True)
+    except OSError:
+        return [], False
+    if proc.returncode != 0:
+        return [], False
+    return [line for line in proc.stdout.splitlines() if line], True
+
+
+def gather_git_facts(binders: list[dict], default_branch: str, runner=None) -> dict:
+    """Three whole-namespace ref queries answer every binder's and item's git
+    facts at once, however many binders or items exist:
+      1. every refs/karta/ marker leaf (done/built/failed), one for-each-ref
+      2. every refs/heads/karta/ branch (integration + per-item), one for-each-ref
+      3. the refs/karta/ subset reachable from default_branch — replacing the
+         old per-done-item `merge-base --is-ancestor` exit-code probe; git
+         peels annotated tags here exactly as merge-base does
+    `runner` is the injection seam: a stand-in for subprocess.run, used to
+    count calls (the call-count check) or fail one of the three on purpose
+    (the resilience check). Any one query failing degrades only the facts it
+    feeds — marked None (unknown), never an exception; the rest of the state
+    still renders. `default_branch` not existing (missing/renamed) fails only
+    query 3, so done/built/failed/branch stay known even then."""
+    markers, markers_ok = _for_each_ref(["--format=%(refname)", "refs/karta/"], runner)
+    branches, branches_ok = _for_each_ref(["--format=%(refname)", "refs/heads/karta/"], runner)
+    merged, merged_ok = _for_each_ref(
+        ["--format=%(refname)", f"--merged={default_branch}", "refs/karta/"], runner)
+    marker_set = set(markers) if markers_ok else None
+    branch_set = set(branches) if branches_ok else None
+    merged_set = set(merged) if merged_ok else None
+
+    facts = {"default_branch": default_branch, "binders": {}}
+    for b in binders:
+        slug = b["slug"]
+        item_ids = [it["id"] for it in b.get("work_items", [])]
+        integration = (None if branch_set is None else
+                       f"refs/heads/karta/{slug}/integration" in branch_set)
+        items = {}
+        for i in item_ids:
+            base = f"refs/karta/{slug}/item-{i}"
+            done = None if marker_set is None else f"{base}/done" in marker_set
+            if done is None:
+                done_in_default = None
+            elif not done:
+                done_in_default = False
+            elif merged_set is None:
+                done_in_default = None
+            else:
+                done_in_default = f"{base}/done" in merged_set
+            items[i] = {
+                "done": done,
+                "done_in_default": done_in_default,
+                "built": None if marker_set is None else f"{base}/built" in marker_set,
+                "failed": None if marker_set is None else f"{base}/failed" in marker_set,
+                "branch": (None if branch_set is None else
+                          f"refs/heads/karta/{slug}/item-{i}" in branch_set),
+            }
+        facts["binders"][slug] = {"integration_exists": integration, "items": items}
+    return facts
+
+
+# ---------------------------------------------------------------------------
+# gather_git_facts self-test support (batch-git-facts). `_reference_git_facts`
+# is the ORIGINAL per-binder + per-item walker gather_git_facts replaced —
+# kept here, production-dead, purely as the equivalence oracle: one
+# for-each-ref per binder, one merge-base --is-ancestor exit-code probe per
+# done item. The fixture builders below create real git repos so the oracle
+# and the batched form answer the same actual git state.
+# ---------------------------------------------------------------------------
+
+def _reference_git_facts(binders: list[dict], default_branch: str) -> dict:
     facts = {"default_branch": default_branch, "binders": {}}
     for b in binders:
         slug = b["slug"]
@@ -428,7 +505,6 @@ def gather_git_facts(binders: list[dict], default_branch: str) -> dict:
         for i in item_ids:
             base = f"refs/karta/{slug}/item-{i}"
             done = f"{base}/done" in refs
-            # `merge-base --is-ancestor` answers via exit code, so call subprocess directly:
             done_in_default = done and subprocess.run(
                 ["git", "merge-base", "--is-ancestor", f"{base}/done", default_branch]
             ).returncode == 0
@@ -443,6 +519,326 @@ def gather_git_facts(binders: list[dict], default_branch: str) -> dict:
             }
         facts["binders"][slug] = {"integration_exists": integration, "items": items}
     return facts
+
+
+def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
+    """batch-git-facts: equivalence across ref topologies, a constant git-call
+    count (default-branch resolution included), and graceful degradation on a
+    failing/erroring git call. Every check runs against a real git repo built
+    with plain git — no mocked ref data — so both the oracle and the batched
+    form answer the same actual state."""
+    import contextlib, tempfile
+
+    checks: list[tuple[str, bool]] = []
+
+    @contextlib.contextmanager
+    def _in_dir(path: Path):
+        old = os.getcwd()
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(old)
+
+    def _setup(args: list[str], cwd: Path, **kw) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                              text=True, check=True, **kw)
+
+    def _mk_repo(path: Path) -> str:
+        path.mkdir(parents=True, exist_ok=True)
+        _setup(["init", "-q", "-b", "main", "."], path)
+        _setup(["config", "user.email", "t@example.com"], path)
+        _setup(["config", "user.name", "t"], path)
+        (path / "f").write_text("c1")
+        _setup(["add", "f"], path)
+        _setup(["commit", "-q", "-m", "c1"], path)
+        return _setup(["rev-parse", "HEAD"], path).stdout.strip()
+
+    def _wi(iid: str) -> dict:
+        return {"id": iid, "title": iid, "oracle": {"type": "unit"}}
+
+    def _binder(slug: str, item_ids: list[str]) -> dict:
+        return {"slug": slug, "motivation": "x", "scope": {"included": ["x"]},
+                "work_items": [_wi(i) for i in item_ids]}
+
+    def _topology(path: Path, sha: str, n_binders: int, n_items: int,
+                 with_integration) -> list[dict]:
+        """with_integration: True/False forces it for every binder; None
+        alternates per binder index. Items cycle through every presence
+        combination (done / built / failed / branch-only / nothing)."""
+        binders, updates = [], []
+        for bi in range(n_binders):
+            slug = f"b{bi}"
+            item_ids = [f"i{ii}" for ii in range(n_items)]
+            for ii, iid in enumerate(item_ids):
+                base = f"refs/karta/{slug}/item-{iid}"
+                pat = (bi + ii) % 5
+                if pat == 0:
+                    updates.append(f"update {base}/done {sha}")
+                elif pat == 1:
+                    updates.append(f"update {base}/built {sha}")
+                elif pat == 2:
+                    updates.append(f"update {base}/failed {sha}")
+                elif pat == 3:
+                    updates.append(f"update refs/heads/karta/{slug}/item-{iid} {sha}")
+            wi = with_integration if with_integration is not None else (bi % 2 == 0)
+            if wi:
+                updates.append(f"update refs/heads/karta/{slug}/integration {sha}")
+            binders.append(_binder(slug, item_ids))
+        if updates:
+            _setup(["update-ref", "--stdin"], path, input="\n".join(updates) + "\n")
+        return binders
+
+    def _equivalence(name: str, path: Path, binders: list[dict],
+                     default_branch: str = "main") -> None:
+        with _in_dir(path):
+            ref = _reference_git_facts(binders, default_branch)
+            new = gather_git_facts(binders, default_branch)
+        checks.append((f"equivalence ({name}): batched == per-item reference walker",
+                       ref == new))
+
+    # -- six ref topologies: empty, single, typical (5x10), wide (20x10),
+    # no integration branch, with integration branch --
+    with tempfile.TemporaryDirectory() as sd:
+        root = Path(sd)
+        empty = root / "empty"; _mk_repo(empty)
+        _equivalence("empty", empty, [])
+
+        single = root / "single"; sha = _mk_repo(single)
+        b = _topology(single, sha, 1, 1, True)
+        _equivalence("single", single, b)
+
+        typical = root / "typical"; sha = _mk_repo(typical)
+        b = _topology(typical, sha, 5, 10, None)
+        _equivalence("typical (5x10)", typical, b)
+
+        wide = root / "wide"; sha = _mk_repo(wide)
+        b = _topology(wide, sha, 20, 10, None)
+        _equivalence("wide (20x10)", wide, b)
+
+        no_int = root / "no-integration"; sha = _mk_repo(no_int)
+        b = _topology(no_int, sha, 1, 3, False)
+        _equivalence("no integration branch", no_int, b)
+
+        with_int = root / "with-integration"; sha = _mk_repo(with_int)
+        b = _topology(with_int, sha, 1, 3, True)
+        _equivalence("with integration branch", with_int, b)
+
+        # -- real, multi-commit history with a done ref NOT merged into default --
+        hist = root / "history"; sha1 = _mk_repo(hist)
+        (hist / "f2").write_text("c2")
+        _setup(["add", "f2"], hist); _setup(["commit", "-q", "-m", "c2"], hist)
+        sha2 = _setup(["rev-parse", "HEAD"], hist).stdout.strip()
+        _setup(["checkout", "-q", "-b", "side", sha1], hist)
+        (hist / "f3").write_text("c3")
+        _setup(["add", "f3"], hist); _setup(["commit", "-q", "-m", "c3"], hist)
+        sha3 = _setup(["rev-parse", "HEAD"], hist).stdout.strip()
+        _setup(["checkout", "-q", "main"], hist)
+        _setup(["update-ref", "refs/karta/hb/item-merged/done", sha2], hist)
+        _setup(["update-ref", "refs/karta/hb/item-unmerged/done", sha3], hist)
+        hb = [_binder("hb", ["merged", "unmerged"])]
+        with _in_dir(hist):
+            ref = _reference_git_facts(hb, "main")
+            new = gather_git_facts(hb, "main")
+        checks.append(("equivalence (real history, an unmerged done ref): "
+                       "both forms agree on done_in_default for every item",
+                       ref["binders"]["hb"]["items"]["merged"]["done_in_default"] is True
+                       and ref == new
+                       and new["binders"]["hb"]["items"]["merged"]["done_in_default"] is True
+                       and new["binders"]["hb"]["items"]["unmerged"]["done_in_default"] is False))
+
+        # -- annotated tags: one whose target is merged, one whose target is not.
+        # Pins git's tag-peeling behaviour, verified directly on git 2.47.3:
+        # for-each-ref --merged peels exactly as merge-base --is-ancestor does. --
+        tags = root / "tags"; sha1 = _mk_repo(tags)
+        (tags / "f2").write_text("c2")
+        _setup(["add", "f2"], tags); _setup(["commit", "-q", "-m", "c2"], tags)
+        _setup(["tag", "-a", "-m", "merged", "tm", sha1], tags)
+        _setup(["checkout", "-q", "-b", "side", sha1], tags)
+        (tags / "f3").write_text("c3")
+        _setup(["add", "f3"], tags); _setup(["commit", "-q", "-m", "c3"], tags)
+        sha3 = _setup(["rev-parse", "HEAD"], tags).stdout.strip()
+        _setup(["tag", "-a", "-m", "not merged", "tnm", sha3], tags)
+        _setup(["checkout", "-q", "main"], tags)
+        _setup(["update-ref", "refs/karta/tb/item-merged/done", "refs/tags/tm"], tags)
+        _setup(["update-ref", "refs/karta/tb/item-notmerged/done", "refs/tags/tnm"], tags)
+        tb = [_binder("tb", ["merged", "notmerged"])]
+        with _in_dir(tags):
+            ref = _reference_git_facts(tb, "main")
+            new = gather_git_facts(tb, "main")
+        checks.append(("equivalence (annotated tags, one merged target one not): "
+                       "both forms agree, peeling the tag exactly as merge-base does",
+                       ref == new
+                       and new["binders"]["tb"]["items"]["merged"]["done_in_default"] is True
+                       and new["binders"]["tb"]["items"]["notmerged"]["done_in_default"] is False))
+
+        # -- call count: a whole state derivation (default-branch resolution
+        # included, counted at the subprocess boundary — the real
+        # subprocess.run — rather than inside one helper) issues the same
+        # fixed number of git subprocesses at 1, 5, 10 and 20 binders --
+        cc = root / "callcount"; _mk_repo(cc)
+        orig_run = subprocess.run
+        totals = []
+        with _in_dir(cc):
+            for n in (1, 5, 10, 20):
+                b = [_binder(f"cc{i}", ["a"]) for i in range(n)]
+                seen = [0]
+
+                def counting(*a, __seen=seen, **kw):
+                    __seen[0] += 1
+                    return orig_run(*a, **kw)
+
+                subprocess.run = counting
+                try:
+                    db = _default_branch()
+                    gather_git_facts(b, db)
+                finally:
+                    subprocess.run = orig_run
+                totals.append(seen[0])
+        checks.append(("git-call count is constant across 1/5/10/20 binders "
+                       "(default-branch resolution included, subprocess boundary)",
+                       len(set(totals)) == 1))
+
+        # -- gather_git_facts alone, via its own runner seam, is exactly 3
+        # calls flat regardless of binder count --
+        gf = root / "gf3"; _mk_repo(gf)
+        gf_counts = []
+        with _in_dir(gf):
+            for n in (1, 5, 10, 20):
+                b = [_binder(f"gf{i}", ["a"]) for i in range(n)]
+                calls = []
+                gather_git_facts(b, "main",
+                                 runner=lambda *a, __c=calls, **kw: (
+                                     __c.append(1), orig_run(*a, **kw))[1])
+                gf_counts.append(len(calls))
+        checks.append(("gather_git_facts alone issues exactly 3 git calls via its "
+                       "own runner seam, constant across binder count",
+                       gf_counts == [3, 3, 3, 3]))
+
+        # -- failure injection: one batched call failing degrades only the
+        # facts it feeds, marked None — the rest of the page still renders --
+        fi = root / "failinj"; sha = _mk_repo(fi)
+        _setup(["update-ref", "refs/karta/fi/item-a/done", sha], fi)
+        fib = [_binder("fi", ["a"])]
+        with _in_dir(fi):
+            n = [0]
+
+            def fail_third(*a, __n=n, **kw):
+                __n[0] += 1
+                if __n[0] == 3:
+                    return subprocess.CompletedProcess(a[0], returncode=128,
+                                                        stdout="", stderr="injected")
+                return orig_run(*a, **kw)
+
+            facts = gather_git_facts(fib, "main", runner=fail_third)
+            item = facts["binders"]["fi"]["items"]["a"]
+            checks.append(("failure injection: unaffected facts (done/built/failed/"
+                           "branch) still populate when only the merged-set call fails",
+                           item["done"] is True and item["built"] is False
+                           and item["failed"] is False and item["branch"] is False))
+            checks.append(("failure injection: the affected fact (done_in_default) "
+                           "degrades to None, never raises",
+                           item["done_in_default"] is None))
+
+            def fail_all(*a, **kw):
+                return subprocess.CompletedProcess(a[0], returncode=1,
+                                                    stdout="", stderr="injected")
+
+            facts_all = gather_git_facts(fib, "main", runner=fail_all)
+            item_all = facts_all["binders"]["fi"]["items"]["a"]
+            checks.append(("failure injection: every batched call failing yields "
+                           "all-unknown facts for the item, never raises",
+                           item_all["done"] is None and item_all["built"] is None
+                           and item_all["failed"] is None and item_all["branch"] is None
+                           and item_all["done_in_default"] is None
+                           and facts_all["binders"]["fi"]["integration_exists"] is None))
+
+            state = derive_state(fib, facts_all)
+            try:
+                term = render_terminal(state)
+                foot = render_footer(state, "fi")
+                rendered_ok = bool(term) and bool(foot)
+            except Exception:                                     # noqa: BLE001
+                rendered_ok = False
+            checks.append(("failure injection: a state carrying unknown facts still "
+                           "renders a page (terminal + footer), not blank or raising",
+                           rendered_ok))
+
+            def boom(*a, **kw):
+                raise OSError("git not found")
+
+            facts_boom = gather_git_facts(fib, "main", runner=boom)
+            item_boom = facts_boom["binders"]["fi"]["items"]["a"]
+            checks.append(("failure injection: a spawn OSError degrades to unknown "
+                           "facts too, never raises",
+                           item_boom["done"] is None and item_boom["done_in_default"] is None))
+
+        # -- a refs/karta/ entry pointing at a non-commit object (a blob) does
+        # not break the derivation --
+        blob = root / "blob"; sha = _mk_repo(blob)
+        blob_oid = _setup(["hash-object", "-w", "--stdin"], blob,
+                          input="not a commit").stdout.strip()
+        _setup(["update-ref", "refs/karta/bl/item-a/done", blob_oid], blob)
+        blb = [_binder("bl", ["a"])]
+        with _in_dir(blob):
+            try:
+                facts = gather_git_facts(blb, "main")
+                ok = True
+            except Exception:                                     # noqa: BLE001
+                ok = False
+        checks.append(("a refs/karta/ entry on a non-commit object (a blob) does "
+                       "not break the derivation",
+                       ok and facts["binders"]["bl"]["items"]["a"]["done"] is True))
+
+        # -- empty repository / unborn HEAD: no commits, no refs, no raise --
+        emptyrepo = root / "emptyrepo"
+        emptyrepo.mkdir(parents=True, exist_ok=True)
+        _setup(["init", "-q", "-b", "main", "."], emptyrepo)
+        eb = [_binder("e", ["a"])]
+        with _in_dir(emptyrepo):
+            try:
+                db = _default_branch()
+                facts = gather_git_facts(eb, db)
+                ok = True
+            except Exception:                                     # noqa: BLE001
+                ok = False
+        checks.append(("empty repository / unborn HEAD: default-branch resolution "
+                       "and gather_git_facts both survive, no raise",
+                       ok and facts["binders"]["e"]["items"]["a"]["done"] is False
+                       and facts["binders"]["e"]["items"]["a"]["done_in_default"] is False))
+
+        # -- detached HEAD does not break the derivation --
+        detached = root / "detached"; sha = _mk_repo(detached)
+        _setup(["checkout", "-q", "--detach", sha], detached)
+        db_ = [_binder("d", ["a"])]
+        with _in_dir(detached):
+            try:
+                facts = gather_git_facts(db_, "main")
+                ok = True
+            except Exception:                                     # noqa: BLE001
+                ok = False
+        checks.append(("detached HEAD does not break the derivation",
+                       ok and facts["binders"]["d"]["items"]["a"]["done"] is False))
+
+        # -- a missing or renamed default branch: query 3 fails, but query 1/2
+        # data (done/built/failed/branch) stays known; only done_in_default
+        # for a done item degrades to unknown --
+        missing = root / "missingdefault"; sha = _mk_repo(missing)
+        _setup(["update-ref", "refs/karta/md/item-a/done", sha], missing)
+        mdb = [_binder("md", ["a"])]
+        with _in_dir(missing):
+            try:
+                facts = gather_git_facts(mdb, "trunk-does-not-exist")
+                ok = True
+            except Exception:                                     # noqa: BLE001
+                ok = False
+            item = facts["binders"]["md"]["items"]["a"] if ok else {}
+        checks.append(("missing/renamed default branch: no raise, done stays known, "
+                       "only done_in_default degrades to unknown",
+                       ok and item.get("done") is True
+                       and item.get("done_in_default") is None))
+
+    return checks
 
 
 def _watch_self_test_checks() -> list[tuple[str, bool]]:
@@ -772,6 +1168,7 @@ def _run_self_test() -> int:
         rendered = False; print(f"render raised: {exc}")
     checks.append(("renderers run", rendered))
 
+    checks.extend(_git_facts_self_test_checks())
     checks.extend(_watch_self_test_checks())
 
     failures = 0
