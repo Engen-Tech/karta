@@ -55,6 +55,7 @@ same-origin file.
 from __future__ import annotations
 
 import argparse
+import ast
 import concurrent.futures
 import contextlib
 import datetime
@@ -63,6 +64,7 @@ import hashlib
 import hmac
 import html
 import http.client
+import inspect
 import io
 import json
 import logging
@@ -76,6 +78,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 from collections.abc import Mapping
@@ -987,6 +990,9 @@ body{
 # would light the paused dot on a perfectly healthy page.
 # ---------------------------------------------------------------------------
 
+# The tab/page title suffix both modes render (the repo name heads it).
+_TITLE_SUFFIX = "Karta Watch"
+
 FEED_LIVE_LABEL = "live from git — read-only"
 FEED_PAUSED_LABEL = "snapshot — feed paused"
 FEED_PAUSE_AFTER = 2   # consecutive poll failures before the label flips
@@ -1428,25 +1434,25 @@ const app = createApp({
   template: `
 <div class="wrap">
   <header class="top">
-    <div class="shell">
-      <a v-if="shell.home" class="shell__kmark" :href="shell.home" aria-label="karta watch hub">k</a>
-      <span v-else class="shell__kmark" aria-hidden="true">k</span>
-      <a v-if="shell.home" class="shell__home" :href="shell.home">← home</a>
+    <div class="shell" data-kw-shell>
+      <a v-if="shell.home" class="shell__kmark" data-kw-shell-kmark :href="shell.home" aria-label="karta watch hub">k</a>
+      <span v-else class="shell__kmark" data-kw-shell-kmark aria-hidden="true">k</span>
+      <a v-if="shell.home" class="shell__home" data-kw-shell-home :href="shell.home">← home</a>
       <div class="shell__txt">
-        <span class="shell__repo-name">{{ shell.name }}</span>
-        <div class="shell__feed" :class="{ 'shell__feed--paused': feed.paused }">
-          <span class="shell__feed-dot" aria-hidden="true"></span>{{ feedLabel }}
+        <span class="shell__repo-name" data-kw-shell-repo>{{ shell.name }}</span>
+        <div class="shell__feed" data-kw-feed :class="{ 'shell__feed--paused': feed.paused }" :data-kw-feed-paused="feed.paused ? 'true' : 'false'">
+          <span class="shell__feed-dot" data-kw-feed-dot aria-hidden="true"></span>{{ feedLabel }}
         </div>
       </div>
     </div>
     <div class="hdr-right">
-      <button type="button" class="hctl" :class="{ 'hctl--on': showDelivered }"
+      <button type="button" class="hctl" data-kw-show-delivered :class="{ 'hctl--on': showDelivered }"
         @click="toggleShowDelivered"
         title="show delivered binders"
         :aria-pressed="showDelivered ? 'true' : 'false'">
         <span class="hctl__icon"><icon :name="showDelivered ? 'checksquare' : 'square'" :size="15" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" /></span>show delivered
       </button>
-      <button type="button" class="hctl hctl--icon"
+      <button type="button" class="hctl hctl--icon" data-kw-theme-toggle
         @click="toggleTheme"
         title="toggle light / dark"
         aria-label="toggle theme">
@@ -1455,9 +1461,9 @@ const app = createApp({
     </div>
   </header>
 
-  <nav class="also" v-if="shell.others.length" aria-label="also watching">
+  <nav class="also" data-kw-switcher v-if="shell.others.length" aria-label="also watching">
     <span>also watching:</span>
-    <a class="also__link" v-for="o in shell.others" :key="o.slug" :href="o.href">{{ o.name }}</a>
+    <a class="also__link" data-kw-switcher-link v-for="o in shell.others" :key="o.slug" :href="o.href">{{ o.name }}</a>
   </nav>
 
   <template v-if="hasBinders">
@@ -1470,7 +1476,7 @@ const app = createApp({
       <div class="panel__note">Each binder ships to main on its own. Phases track where each binder
         stands; inside one, the runs are its parallel + serial queue.</div>
 
-      <div class="phase" v-for="p in phases" :key="p.key">
+      <div class="phase" data-kw-phase :data-kw-phase-key="p.key" v-for="p in phases" :key="p.key">
         <div class="phase__gutter">
           <div class="phase__line" :style="p.lineStyle"></div>
           <div class="phase__mark" :class="{ 'phase__mark--pulse': p.pulse }"
@@ -1488,8 +1494,8 @@ const app = createApp({
           <div class="phase__empty" v-if="p.empty">— no binders</div>
 
           <div class="phase__binders">
-            <div class="binder" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
-              <button type="button" class="binder__header" :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
+            <div class="binder" data-kw-binder :data-kw-delivered="b.done ? 'true' : 'false'" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
+              <button type="button" class="binder__header" data-kw-binder-header :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
                 @click="toggleBinder(b.slug, b.key)"
                 :aria-expanded="b.open ? 'true' : 'false'">
                 <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-accent)" /></span>
@@ -1503,7 +1509,7 @@ const app = createApp({
               <div class="binder__blurb" v-if="b.blurb">{{ b.blurb }}</div>
               <div class="binder__bar"><div class="binder__fill" :style="{ width: b.fillW, background: b.color }"></div></div>
 
-              <div class="binder__waves" v-if="b.open">
+              <div class="binder__waves" data-kw-binder-waves v-if="b.open">
                 <div class="queue"><span class="queue__icon"><icon name="fork" :size="12" color="var(--mut)" /></span><span>{{ b.queueLabel }}</span></div>
 
                 <template v-for="(w, wi) in b.waves" :key="wi">
@@ -1517,8 +1523,8 @@ const app = createApp({
                     <span class="parallel__icon"><icon name="fork" :size="11" color="var(--mut)" /></span>{{ w.parallelLabel }}
                   </div>
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
-                    <div class="item" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
-                      <button type="button" class="item__row" @click="toggleItem(b.slug, it.id)"
+                    <div class="item" data-kw-item :data-kw-item-status="it.word" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
+                      <button type="button" class="item__row" data-kw-item-row @click="toggleItem(b.slug, it.id)"
                         :aria-expanded="isExpanded(b.slug, it.id) ? 'true' : 'false'">
                         <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-accent)" :spin="it.building" /></span>
                         <div class="item__main">
@@ -1526,15 +1532,15 @@ const app = createApp({
                           <div class="item__meta">
                             <span class="item__id" :title="it.id">{{ it.id }}</span>
                             <span class="item__oracle"><icon :name="it.oracleIcon" :size="10" color="var(--mut)" />{{ it.oracle }}</span>
-                            <span class="item__chip" :style="{ background: it.soft }">
-                              <icon :name="it.badge" :size="10" :color="it.color" :spin="it.building" /><span class="item__word" :style="{ color: it.color }">{{ it.word }}</span>
+                            <span class="item__chip" data-kw-item-chip :style="{ background: it.soft }">
+                              <icon :name="it.badge" :size="10" :color="it.color" :spin="it.building" /><span class="item__word" data-kw-item-word :style="{ color: it.color }">{{ it.word }}</span>
                             </span>
                           </div>
                           <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
                         </div>
                       </button>
                       <div class="item__shim" v-if="it.building"><div class="item__shim-fill"></div></div>
-                      <div class="item__detail" v-if="isExpanded(b.slug, it.id)">
+                      <div class="item__detail" data-kw-item-detail v-if="isExpanded(b.slug, it.id)">
                         <div class="item__detail-head"><icon :name="it.oracleIcon" :size="12" color="var(--mut)" /><span>passes its {{ it.oracle }} check when:</span></div>
                         <div class="item__assert" v-if="it.assert">{{ it.assert }}</div>
                         <div class="item__cmd" v-if="it.cmd">$ {{ it.cmd }}</div>
@@ -1552,8 +1558,8 @@ const app = createApp({
   </template>
 
   <!-- empty state -->
-  <section class="panel empty" aria-label="no binders" v-else>
-    <img class="empty__mascot" src="/assets/mascot.png__ASSET_QS__" alt="" width="64" height="64">
+  <section class="panel empty" data-kw-empty aria-label="no binders" v-else>
+    <img class="empty__mascot" data-kw-empty-mascot src="/assets/mascot.png__ASSET_QS__" alt="" width="64" height="64">
     <div class="empty__title">no binders planned yet</div>
     <p class="empty__hint">add a binder under <span class="mono">.karta/binders/</span>
       (try <span class="mono">karta-plan</span>) and the delivery will chart itself here.</p>
@@ -1669,8 +1675,8 @@ def render_app_html(state: dict, theme: str | None = None, key_qs: str = "",
         "others": [{"slug": e["slug"], "name": e["name"],
                     "href": f"/r/{e['slug']}/{key_qs}"} for e in (roster or [])],
     }
-    title = (f"{html.escape(repo_name)} — Karta Watch" if repo_name
-             else "Karta Watch")
+    title = (f"{html.escape(repo_name)} — {_TITLE_SUFFIX}" if repo_name
+             else _TITLE_SUFFIX)
     # _inert_json keeps raw markup bytes (and any `</script>` breakout) out of
     # the inline block; the JS engine decodes the escapes to identical strings.
     state_json = _inert_json(state)
@@ -1681,7 +1687,7 @@ def render_app_html(state: dict, theme: str | None = None, key_qs: str = "",
         "<head>"
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title}</title>"
+        f'<title data-kw-title data-kw-repo-name="{html.escape(repo_name, quote=True)}">{title}</title>'
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{key_qs}">'
         f"<style>{_CSS}</style>"
         "</head>"
@@ -1986,7 +1992,9 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
             dim = " repo--dim" if c["word"] in ("WEDGED", "UNAVAILABLE") else ""
             meta = " · ".join(x for x in (c["counts"], c["activity"]) if x)
             bits = [
-                f'<a class="repo{dim}" href="/r/{esc(c["slug"], quote=True)}/'
+                f'<a class="repo{dim}" data-kw-hub-card '
+                f'data-kw-hub-slug="{esc(c["slug"], quote=True)}" '
+                f'href="/r/{esc(c["slug"], quote=True)}/'
                 f'{esc(key_qs, quote=True)}">',
                 '<div class="repo__head">',
                 f'<span class="repo__name">{esc(c["name"])}</span>',
@@ -2007,7 +2015,7 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
             rows.append("".join(bits))
         body = f'<div class="hub">{"".join(rows)}</div>'
     else:
-        body = ('<section class="panel empty" aria-label="no repos">'
+        body = ('<section class="panel empty" data-kw-hub-empty aria-label="no repos">'
                 '<div class="empty__title">no repos opted in</div>'
                 '<p class="empty__hint">opt a repo into the persistent watch '
                 "and its live card appears here.</p></section>")
@@ -3542,7 +3550,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and rec_plain["slug"] not in landing),
         ("hub: the served repo page carries the shell — its own name in the"
          " title, the other opted-in repos in the switcher, never itself",
-         "<title>repo-live — Karta Watch</title>" in page
+         _title_text(page) == "repo-live — " + _TITLE_SUFFIX
          and ('"href":"\\/r\\/%s\\/?key=' % rec_wedged["slug"]) in page
          and ('"href":"\\/r\\/%s\\/?key=' % rec_gone["slug"]) in page
          and ('"\\/r\\/%s\\/' % slug_live) not in page
@@ -5144,6 +5152,1054 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
     return checks
 
 
+# ---------------------------------------------------------------------------
+# Coverage registry — the page's own tests, keyed by BEHAVIOUR
+# ---------------------------------------------------------------------------
+# The rendered-output checks below used to compare against exact CSS text and
+# literal markup, so any restyle broke them and the cheapest repair was to
+# delete the assertion — coverage disappearing silently, the one failure no
+# other check would notice. House rule hvue.4 is the prose form of that rule;
+# this registry is its enforced form.
+#
+# The guard binds a behaviour NAME to the CALLABLE that checks it — never a
+# count, never a list of names. A count or a name list is defeatable three ways,
+# and the registry closes all three:
+#   PADDING   — a new trivial entry cannot stand in for a missing one, because
+#               the floor is keyed on the behaviour's name.
+#   WEAKENING — every entry must FAIL against a deliberately broken artifact, so
+#               a substring check that matches everything cannot survive.
+#   RENAMING  — an entry binds to a callable, so renaming a hook makes that
+#               callable fail rather than silently matching a stale name.
+#
+# Entries carry a KIND, and the split is structural. A RENDERED entry guards
+# something visible and names the data-kw-* hook it binds to. A BEHAVIOUR entry
+# guards something with no markup at all — token gating, the Host pin, asset
+# confinement, inert-JSON escaping, the poll interval — and names the check that
+# exercises it instead. Roughly a third of the inventory has no hook and never
+# will, so without the split an "every entry resolves to a hook" audit would be
+# permanently red or quietly weakened.
+#
+# Every check reads its inputs from the context dict, never from a module
+# global. That is what makes a negative control meaningful: the harness swaps
+# one artifact for a deliberately broken one and the check has to notice.
+#
+# The behaviours that must never disappear are anchored OUTSIDE this file, in
+# selftest_behaviours.txt, which validate_plugin.py compares against as a FLOOR
+# (every anchored behaviour present in the registry; extras are fine, so a later
+# item can add its own). Deleting an entry together with its expectation in one
+# edit still fails, because the anchor is not in the file being edited.
+# ---------------------------------------------------------------------------
+
+KW_PREFIX = "data-kw-"          # the test-hook attribute prefix (cross-item term)
+BREATHE_KEYFRAME = "karta-breathe"   # the reduced-motion keyframe (cross-item term)
+BEHAVIOUR_ANCHOR = _SCRIPT_PATH.parent / "selftest_behaviours.txt"
+
+_COVERAGE_REGISTRY: dict[str, dict] = {}
+# The rendered documents a hook may legitimately live in.
+_DOC_KEYS = ("page", "eph", "empty_page", "degraded_page", "hub", "hub_empty")
+
+
+def _covers(name: str, *, kind: str, hook: str | None = None,
+            check: str | None = None, breaks=()):
+    """Register `fn` as THE check for behaviour `name`.
+
+    kind="rendered" names the data-kw-* hook the check binds to; kind="behaviour"
+    names the check that exercises it (its own callable). `breaks` are the
+    negative controls: each takes the true context and returns the artifact
+    overrides that deliberately break this behaviour."""
+    def deco(fn):
+        _COVERAGE_REGISTRY[name] = {"kind": kind, "hook": hook,
+                                    "check": check or fn.__name__,
+                                    "fn": fn, "breaks": list(breaks)}
+        return fn
+    return deco
+
+
+# --- structural readers: attributes, element relationships, resolved tokens ---
+
+def _tags_with(doc: str, hook: str) -> list[str]:
+    """Every start tag in `doc` carrying `hook` as an attribute name, static
+    (`data-kw-x`) or bound (`:data-kw-x`). Never matches a longer hook."""
+    pat = re.compile(r"(?<![\w-]):?" + re.escape(hook) + r"(?![\w-])")
+    return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
+            if pat.search(m.group(0))]
+
+
+def _tag_name(tag: str) -> str:
+    m = re.match(r"<([a-zA-Z][\w-]*)", tag)
+    return m.group(1) if m else ""
+
+
+_ATTR_RE = re.compile(r'([@:]?[A-Za-z_][\w:.\-]*)(?:\s*=\s*"([^"]*)")?')
+
+
+def _attrs(tag: str) -> dict[str, str]:
+    """A start tag's attributes as {name: value}; a valueless attribute maps to ""."""
+    body = tag[1:-1].rstrip("/")
+    body = body[len(_tag_name(tag)):]
+    return {m.group(1): (m.group(2) or "") for m in _ATTR_RE.finditer(body)}
+
+
+def _class_binding(attrs: dict[str, str]) -> dict[str, str]:
+    """Vue's `:class` object binding as {class name: the expression gating it}."""
+    return {c: e.strip() for c, e in
+            re.findall(r"'([^']+)'\s*:\s*([^,}]+)", attrs.get(":class", ""))}
+
+
+def _first_index(doc: str, hook: str) -> int:
+    tags = _tags_with(doc, hook)
+    return doc.index(tags[0]) if tags else -1
+
+
+def _inlined_state(doc: str) -> dict:
+    """The state the document inlines for first paint (also what a file:// copy renders)."""
+    m = re.search(r"window\.__KARTA_STATE__ = (.*?);window\.__KARTA_THEME__", doc, re.S)
+    return json.loads(m.group(1)) if m else {}
+
+
+def _inlined_const(doc: str, name: str):
+    """A `const <name> = <json>;` the server hands the app (SHELL, FEED, …)."""
+    m = re.search(r"const " + name + r" = (.*?);\n", doc)
+    return json.loads(m.group(1)) if m else None
+
+
+def _title_text(doc: str) -> str:
+    tags = _tags_with(doc, "data-kw-title")
+    if not tags:
+        return ""
+    start = doc.index(tags[0]) + len(tags[0])
+    return doc[start:doc.index("<", start)]
+
+
+def _js_block(src: str, opener: str) -> str:
+    """The `opener` line plus its brace-matched body."""
+    i = src.find(opener)
+    if i == -1:
+        return ""
+    j, depth = i + len(opener), 1
+    while j < len(src) and depth:
+        depth += 1 if src[j] == "{" else -1 if src[j] == "}" else 0
+        j += 1
+    return src[i:j]
+
+
+def _css_sections(css: str) -> list[tuple[str, str]]:
+    """Every top-level `<prelude>{<body>}` in `css`, brace-aware (at-rules nest)."""
+    out, i, n = [], 0, len(css)
+    while i < n:
+        j = css.find("{", i)
+        if j == -1:
+            break
+        depth, k = 1, j + 1
+        while k < n and depth:
+            depth += 1 if css[k] == "{" else -1 if css[k] == "}" else 0
+            k += 1
+        out.append((css[i:j].strip(), css[j + 1:k - 1]))
+        i = k
+    return out
+
+
+def _css_rules(css: str) -> list[tuple[str, dict[str, str]]]:
+    """Top-level style rules as (selector list, {property: value}); at-rules skipped."""
+    rules = []
+    for prelude, body in _css_sections(css):
+        if prelude.startswith("@"):
+            continue
+        decls = {}
+        for decl in body.split(";"):
+            prop, sep, value = decl.partition(":")
+            if sep:
+                decls[prop.strip()] = value.strip()
+        rules.append((prelude, decls))
+    return rules
+
+
+def _at_rule_body(css: str, needle: str) -> str:
+    for prelude, body in _css_sections(css):
+        if prelude.startswith("@") and needle in prelude:
+            return body
+    return ""
+
+
+def _decls_for(css: str, selector: str) -> list[dict[str, str]]:
+    """Declarations of every rule naming `selector` exactly in its selector list."""
+    return [decls for sel, decls in _css_rules(css)
+            if selector in [s.strip() for s in sel.split(",")]]
+
+
+def _norm(value: str) -> str:
+    return value.replace("!important", "").strip()
+
+
+def _animates_with(decls: dict[str, str], keyframe: str) -> bool:
+    return keyframe in _norm(decls.get("animation", "")).split()
+
+
+def _strip_css_comments(css: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+class _Ns:
+    """A stand-in for the handler collaborators a direct method call needs."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _renamed(ctx: dict, hook: str, *doc_keys: str) -> dict:
+    """A context whose `hook` is renamed in `doc_keys` — the RENAMING control."""
+    return {k: ctx[k].replace(hook, hook + "renamed") for k in doc_keys}
+
+
+# --- the registry: one entry per behaviour that must never disappear ---------
+
+@_covers("page-title-repo-name", kind="rendered", hook="data-kw-title",
+         breaks=[lambda c: _renamed(c, "data-kw-title", "page"),
+                 lambda c: {"page": c["page"].replace(c["repo_name"], "other")}])
+def _c_page_title(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-title")
+    if len(tags) != 1 or _tag_name(tags[0]) != "title":
+        return False
+    name = _attrs(tags[0]).get("data-kw-repo-name", "")
+    return (name == ctx["repo_name"]
+            and _title_text(ctx["page"]) == name + " — " + ctx["title_suffix"]
+            and _title_text(ctx["eph"]) == "karta — " + ctx["title_suffix"])
+
+
+@_covers("shell-region", kind="rendered", hook="data-kw-shell",
+         breaks=[lambda c: _renamed(c, "data-kw-shell", "page"),
+                 lambda c: _renamed(c, "data-kw-feed", "page")])
+def _c_shell_region(ctx):
+    page = ctx["page"]
+    shell = _first_index(page, "data-kw-shell")
+    if shell < 0:
+        return False
+    inner = [_first_index(page, h) for h in
+             ("data-kw-shell-kmark", "data-kw-shell-home",
+              "data-kw-shell-repo", "data-kw-feed")]
+    return all(i > shell for i in inner)
+
+
+@_covers("shell-kmark-home-anchor", kind="rendered", hook="data-kw-shell-kmark",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-kmark", "page")])
+def _c_shell_kmark(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-shell-kmark")
+    if len(tags) != 2:
+        return False
+    linked = [t for t in tags if _tag_name(t) == "a"]
+    plain = [t for t in tags if _tag_name(t) != "a"]
+    if len(linked) != 1 or len(plain) != 1:
+        return False
+    return (_attrs(linked[0]).get(":href") == "shell.home"
+            and _attrs(linked[0]).get("v-if") == "shell.home"
+            and "v-else" in _attrs(plain[0]))
+
+
+@_covers("shell-home-link", kind="rendered", hook="data-kw-shell-home",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-home", "page"),
+                 lambda c: {"shell_hub": dict(c["shell_hub"], home=None)}])
+def _c_shell_home_link(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-shell-home")
+    if len(tags) != 1 or _tag_name(tags[0]) != "a":
+        return False
+    attrs = _attrs(tags[0])
+    home = ctx["shell_hub"].get("home") or ""
+    return (attrs.get(":href") == "shell.home"
+            and attrs.get("v-if") == "shell.home"
+            and home.startswith("/") and ctx["key_token"] in home)
+
+
+@_covers("shell-repo-name", kind="rendered", hook="data-kw-shell-repo",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-repo", "page"),
+                 lambda c: {"shell_hub": dict(c["shell_hub"], name="a/path/name")}])
+def _c_shell_repo_name(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-shell-repo")
+    if len(tags) != 1:
+        return False
+    cls = _attrs(tags[0]).get("class", "")
+    name = ctx["shell_hub"].get("name") or ""
+    return (bool(_decls_for(ctx["css"], "." + cls))
+            and name == ctx["repo_name"] and "/" not in name)
+
+
+@_covers("shell-ephemeral-no-hub", kind="behaviour",
+         breaks=[lambda c: {"shell_eph": dict(c["shell_eph"], home="/")},
+                 lambda c: {"shell_hub": dict(c["shell_hub"], others=[])}])
+def _c_shell_ephemeral_no_hub(ctx):
+    hub, eph = ctx["shell_hub"], ctx["shell_eph"]
+    return (hub.get("home") is not None and bool(hub.get("others"))
+            and eph.get("home") is None and eph.get("others") == [])
+
+
+@_covers("shell-feed-indicator", kind="rendered", hook="data-kw-feed",
+         breaks=[lambda c: _renamed(c, "data-kw-feed", "page"),
+                 lambda c: {"feed_labels": {"live": "x", "paused": "y"}},
+                 lambda c: {"feed_inlined": {"live": "x", "paused": "y"}}])
+def _c_shell_feed_indicator(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-feed")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    paused = attrs.get(":data-kw-feed-paused", "")
+    gated = _class_binding(attrs)
+    return (bool(gated) and any(expr and expr in paused for expr in gated.values())
+            and ctx["feed_inlined"] == ctx["feed_labels"])
+
+
+@_covers("reduced-motion-breathes", kind="rendered", hook="data-kw-feed-dot",
+         breaks=[lambda c: _renamed(c, "data-kw-feed-dot", "page"),
+                 lambda c: {"css": c["css"].replace(BREATHE_KEYFRAME, "karta-frozen")},
+                 lambda c: {"css": _frozen_reduced_motion(c["css"])}])
+def _c_reduced_motion_breathes(ctx):
+    css, keyframe = ctx["css"], ctx["breathe_keyframe"]
+    tags = _tags_with(ctx["page"], "data-kw-feed-dot")
+    if len(tags) != 1:
+        return False
+    dot = "." + _attrs(tags[0]).get("class", "")
+    base = _decls_for(css, dot)
+    if not base or not any(_animates_with(d, keyframe) for d in base):
+        return False
+    if not _at_rule_body(css, "keyframes " + keyframe):
+        return False
+    reduced = _at_rule_body(css, "prefers-reduced-motion")
+    if not reduced:
+        return False
+    for sel, decls in _css_rules(reduced):
+        anim = _norm(decls.get("animation", ""))
+        named = [s.strip() for s in sel.split(",")]
+        if dot in named and (not anim or anim == "none"):
+            return False        # the live status indicator was frozen outright
+        if anim and anim != "none" and not _animates_with(decls, keyframe):
+            return False        # a status indicator degraded to some other motion
+    return True
+
+
+@_covers("show-delivered-aria-pressed", kind="rendered",
+         hook="data-kw-show-delivered",
+         breaks=[lambda c: _renamed(c, "data-kw-show-delivered", "page")])
+def _c_show_delivered_aria_pressed(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-show-delivered")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return ("showDelivered" in attrs.get(":aria-pressed", "")
+            and ":aria-expanded" not in attrs
+            and attrs.get("@click") == "toggleShowDelivered")
+
+
+@_covers("show-delivered-persistence-key", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("karta-show-delivered", "x")}])
+def _c_show_delivered_key(ctx):
+    app = ctx["app_src"]
+    return ("localStorage.getItem('karta-show-delivered')" in app
+            and "localStorage.setItem('karta-show-delivered'" in app)
+
+
+@_covers("theme-toggle-control", kind="rendered", hook="data-kw-theme-toggle",
+         breaks=[lambda c: _renamed(c, "data-kw-theme-toggle", "page")])
+def _c_theme_toggle(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-theme-toggle")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("@click") == "toggleTheme"
+            and bool(attrs.get("aria-label")))
+
+
+@_covers("theme-persistence-key", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("karta-theme", "x")},
+                 lambda c: {"hub": c["hub"].replace("karta-theme", "x")}])
+def _c_theme_persistence_key(ctx):
+    app, hub = ctx["app_src"], ctx["hub"]
+    return ("localStorage.getItem('karta-theme')" in app
+            and "localStorage.setItem('karta-theme'" in app
+            and hub.count("karta-theme") >= 2
+            and hub.index("karta-theme") < hub.index("<body>"))
+
+
+@_covers("theme-query-override", kind="behaviour",
+         breaks=[lambda c: {"theme_attr": lambda t: t or "dark"},
+                 lambda c: {"repo_dispatch": c["repo_dispatch"].replace('qs.get("theme"', "x(")}])
+def _c_theme_query_override(ctx):
+    attr = ctx["theme_attr"]
+    return (attr("light") == "light" and attr("dark") == "dark"
+            and attr("sepia") == "dark" and attr(None) == "dark"
+            and 'qs.get("theme"' in ctx["repo_dispatch"]
+            and 'qs.get("theme"' in ctx["hub_dispatch"])
+
+
+@_covers("switcher-also-watching", kind="rendered", hook="data-kw-switcher",
+         breaks=[lambda c: _renamed(c, "data-kw-switcher", "page"),
+                 lambda c: {"shell_hub": dict(
+                     c["shell_hub"],
+                     others=[{"slug": c["current_slug"], "name": "self",
+                              "href": "/r/" + c["current_slug"] + "/"}])}])
+def _c_switcher(ctx):
+    page = ctx["page"]
+    nav = _tags_with(page, "data-kw-switcher")
+    links = _tags_with(page, "data-kw-switcher-link")
+    if len(nav) != 1 or len(links) != 1 or _tag_name(nav[0]) != "nav":
+        return False
+    attrs = _attrs(links[0])
+    others = ctx["shell_hub"].get("others") or []
+    return (attrs.get("v-for", "").endswith("shell.others")
+            and attrs.get(":key") == "o.slug" and attrs.get(":href") == "o.href"
+            and bool(others)
+            and all(o["slug"] != ctx["current_slug"] for o in others)
+            and all(o["href"].startswith("/r/" + o["slug"] + "/") for o in others)
+            and all(ctx["key_token"] in o["href"] for o in others))
+
+
+@_covers("phase-timeline-groups", kind="rendered", hook="data-kw-phase",
+         breaks=[lambda c: _renamed(c, "data-kw-phase", "page"),
+                 lambda c: {"phase_defs": c["phase_defs"][:2]}])
+def _c_phase_timeline(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-phase")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get(":data-kw-phase-key") == "p.key"
+            and attrs.get(":key") == "p.key"
+            and [d["key"] for d in ctx["phase_defs"]] ==
+            ["past", "now", "next", "later"])
+
+
+@_covers("delivered-binder-treatment", kind="rendered", hook="data-kw-binder",
+         breaks=[lambda c: _renamed(c, "data-kw-binder", "page"),
+                 lambda c: {"css": c["css"].replace("var(--green)", "var(--other)")},
+                 lambda c: {"css": c["css"].replace("var(--green-soft)", "var(--other)")}])
+def _c_delivered_binder_treatment(ctx):
+    page, css = ctx["page"], ctx["css"]
+    binder = _tags_with(page, "data-kw-binder")
+    header = _tags_with(page, "data-kw-binder-header")
+    if len(binder) != 1 or len(header) != 1:
+        return False
+    flag = _attrs(binder[0]).get(":data-kw-delivered", "")
+    if not flag:
+        return False
+    delivered_body = [c for c, e in _class_binding(_attrs(binder[0])).items()
+                      if e and e in flag]
+    delivered_head = [c for c, e in _class_binding(_attrs(header[0])).items()
+                      if e and e in flag]
+    green = ctx["state_meta"]["done"]["color"]
+    green_soft = ctx["state_meta"]["done"]["soft"]
+    edge = any(_norm(d.get("border-color", "")) == green
+               for c in delivered_body for d in _decls_for(css, "." + c))
+    fill = any(_norm(d.get("background", "")) == green_soft
+               for c in delivered_head for d in _decls_for(css, "." + c))
+    return (edge and fill
+            and ctx["phase_meta"]["past"]["color"] == green
+            and ctx["phase_meta"]["past"]["mark"] == "check")
+
+
+@_covers("binder-disclosure-aria-expanded", kind="rendered",
+         hook="data-kw-binder-header",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-header", "page")])
+def _c_binder_disclosure(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-binder-header")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("type") == "button"
+            and "b.open" in attrs.get(":aria-expanded", "")
+            and ":aria-pressed" not in attrs
+            and attrs.get("@click", "").startswith("toggleBinder("))
+
+
+@_covers("item-disclosure-aria-expanded", kind="rendered",
+         hook="data-kw-item-row",
+         breaks=[lambda c: _renamed(c, "data-kw-item-row", "page")])
+def _c_item_disclosure(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-item-row")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("type") == "button"
+            and "isExpanded(" in attrs.get(":aria-expanded", "")
+            and ":aria-pressed" not in attrs
+            and attrs.get("@click", "").startswith("toggleItem("))
+
+
+@_covers("expand-collapse-state", kind="rendered", hook="data-kw-binder-waves",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-waves", "page"),
+                 lambda c: {"app_src": c["app_src"].replace("toggleBinder(", "x(")}])
+def _c_expand_collapse_state(ctx):
+    page, app = ctx["page"], ctx["app_src"]
+    waves = _tags_with(page, "data-kw-binder-waves")
+    header = _tags_with(page, "data-kw-binder-header")
+    if len(waves) != 1 or len(header) != 1:
+        return False
+    gate = _attrs(waves[0]).get("v-if", "")
+    return (bool(gate) and gate in _attrs(header[0]).get(":aria-expanded", "")
+            and "toggleBinder(" in app and "isOpen(" in app)
+
+
+@_covers("item-detail-disclosure", kind="rendered", hook="data-kw-item-detail",
+         breaks=[lambda c: _renamed(c, "data-kw-item-detail", "page"),
+                 lambda c: {"app_src": c["app_src"].replace("isExpanded(", "x(")}])
+def _c_item_detail_disclosure(ctx):
+    page, app = ctx["page"], ctx["app_src"]
+    detail = _tags_with(page, "data-kw-item-detail")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(detail) != 1 or len(row) != 1:
+        return False
+    gate = _attrs(detail[0]).get("v-if", "")
+    return (bool(gate) and gate in _attrs(row[0]).get(":aria-expanded", "")
+            and "isExpanded(" in app and "toggleItem(" in app)
+
+
+@_covers("chip-vocabulary", kind="rendered", hook="data-kw-item-chip",
+         breaks=[lambda c: _renamed(c, "data-kw-item-chip", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     blocked=dict(c["state_meta"]["blocked"], word="BLOCKED"))}])
+def _c_chip_vocabulary(ctx):
+    page, meta = ctx["page"], ctx["state_meta"]
+    chip = _tags_with(page, "data-kw-item-chip")
+    word = _tags_with(page, "data-kw-item-word")
+    item = _tags_with(page, "data-kw-item")
+    if len(chip) != 1 or len(word) != 1 or len(item) != 1:
+        return False
+    return (_attrs(item[0]).get(":data-kw-item-status") == "it.word"
+            and meta["blocked"]["word"] == "WAITING"
+            and meta["blocked"]["color"] == "var(--steel)"
+            and meta["blocked"]["soft"] == "var(--steel-soft)"
+            and all(m["word"] != "BLOCKED" for m in meta.values())
+            and ":style" in _attrs(word[0]))
+
+
+@_covers("chip-icons-resolve", kind="behaviour",
+         breaks=[lambda c: {"icons": {k: v for k, v in list(c["icons"].items())[:1]}}])
+def _c_chip_icons_resolve(ctx):
+    icons = ctx["icons"]
+    return (all(m["badge"] in icons for m in ctx["state_meta"].values())
+            and all(m["mark"] in icons for m in ctx["phase_meta"].values()))
+
+
+@_covers("empty-state-mascot", kind="rendered", hook="data-kw-empty",
+         breaks=[lambda c: _renamed(c, "data-kw-empty", "empty_page"),
+                 lambda c: _renamed(c, "data-kw-empty-mascot", "empty_page")])
+def _c_empty_state_mascot(ctx):
+    page = ctx["empty_page"]
+    section = _tags_with(page, "data-kw-empty")
+    mascot = _tags_with(page, "data-kw-empty-mascot")
+    if len(section) != 1 or len(mascot) != 1:
+        return False
+    return (_tag_name(section[0]) == "section"
+            and "v-else" in _attrs(section[0])
+            and _tag_name(mascot[0]) == "img"
+            and _attrs(mascot[0]).get("src", "").startswith("/assets/")
+            and _inlined_state(page).get("binders") == [])
+
+
+@_covers("degraded-state", kind="behaviour",
+         breaks=[lambda c: {"degraded_page": c["degraded_page"].replace(
+             "engine unavailable", "all good")}])
+def _c_degraded_state(ctx):
+    page = ctx["degraded_page"]
+    state = _inlined_state(page)
+    return (state.get("binders") == [] and bool(state.get("errors"))
+            and state.get("next_action", {}).get("level") == "blocked"
+            and "engine unavailable" in (state["next_action"].get("human") or "")
+            and len(_tags_with(page, "data-kw-empty")) == 1)
+
+
+@_covers("hub-landing-cards", kind="rendered", hook="data-kw-hub-card",
+         breaks=[lambda c: _renamed(c, "data-kw-hub-card", "hub"),
+                 lambda c: {"hub": c["hub"].replace("data-kw-hub-slug", "data-kw-x")}])
+def _c_hub_landing_cards(ctx):
+    cards = _tags_with(ctx["hub"], "data-kw-hub-card")
+    if len(cards) != ctx["hub_card_count"]:
+        return False
+    for tag in cards:
+        attrs = _attrs(tag)
+        slug = attrs.get("data-kw-hub-slug", "")
+        if (_tag_name(tag) != "a" or not slug
+                or not attrs.get("href", "").startswith("/r/" + slug + "/")
+                or ctx["key_token"] not in attrs.get("href", "")):
+            return False
+    return True
+
+
+@_covers("hub-landing-empty", kind="rendered", hook="data-kw-hub-empty",
+         breaks=[lambda c: _renamed(c, "data-kw-hub-empty", "hub_empty")])
+def _c_hub_landing_empty(ctx):
+    return (len(_tags_with(ctx["hub_empty"], "data-kw-hub-empty")) == 1
+            and not _tags_with(ctx["hub_empty"], "data-kw-hub-card")
+            and not _tags_with(ctx["hub"], "data-kw-hub-empty"))
+
+
+@_covers("route-repo-page", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'path in ("/", "/index.html")', "False")}])
+def _c_route_repo_page(ctx):
+    src = ctx["repo_dispatch"]
+    return ('path in ("/", "/index.html")' in src and "render_app_html(" in src
+            and "current_state()" in src)
+
+
+@_covers("route-state-json", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'path == "/state.json"', "False")}])
+def _c_route_state_json(ctx):
+    src = ctx["repo_dispatch"]
+    return ('path == "/state.json"' in src and "_state_feed(" in src
+            and "split_archived(" in src)
+
+
+@_covers("route-assets", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'path.startswith("/assets/")', "False")}])
+def _c_route_assets(ctx):
+    src = ctx["repo_dispatch"]
+    return ('path.startswith("/assets/")' in src and "_serve_asset(" in src)
+
+
+@_covers("hub-route-landing", kind="behaviour",
+         breaks=[lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+             "render_hub_html(", "x(")}])
+def _c_hub_route_landing(ctx):
+    src = ctx["hub_dispatch"]
+    return ('path in ("/", "/index.html")' in src and "render_hub_html(" in src
+            and "hub_cards(" in src)
+
+
+@_covers("hub-route-repo-page", kind="behaviour",
+         breaks=[lambda c: {"repo_route": lambda p: None},
+                 lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+                     "_root_for_slug(", "x(")}])
+def _c_hub_route_repo_page(ctx):
+    match = ctx["repo_route"]
+    hit = match("/r/alpha-bbbbbbbb/")
+    return (hit is not None and hit.group(1) == "alpha-bbbbbbbb"
+            and not hit.group(2)
+            and match("/r/a/b/") is None and match("/nope") is None
+            and "_root_for_slug(" in ctx["hub_dispatch"]
+            and "render_app_html(" in ctx["hub_dispatch"])
+
+
+@_covers("hub-route-repo-state-json", kind="behaviour",
+         breaks=[lambda c: {"repo_route": lambda p: None},
+                 lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+                     "_state_feed(", "x(")}])
+def _c_hub_route_repo_state_json(ctx):
+    hit = ctx["repo_route"]("/r/alpha-bbbbbbbb/state.json")
+    return (hit is not None and hit.group(2) == "state.json"
+            and "_state_feed(" in ctx["hub_dispatch"]
+            and "split_archived(" in ctx["hub_dispatch"])
+
+
+@_covers("hub-route-identity", kind="behaviour",
+         breaks=[lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+             'path == "/identity"', "False")}])
+def _c_hub_route_identity(ctx):
+    src = ctx["hub_dispatch"]
+    return ('path == "/identity"' in src and "_identity_payload(" in src)
+
+
+@_covers("hub-token-constant-time", kind="behaviour",
+         breaks=[lambda c: {"hub_key_ok": lambda supplied, token: True},
+                 lambda c: {"hub_key_src": c["hub_key_src"].replace(
+                     "compare_digest", "__eq__")}])
+def _c_hub_token_constant_time(ctx):
+    allow = ctx["hub_key_ok"]
+    return (allow("s3cret", "s3cret") and not allow("", "s3cret")
+            and not allow("s3cre", "s3cret") and not allow("S3CRET", "s3cret")
+            and "compare_digest" in ctx["hub_key_src"])
+
+
+@_covers("ephemeral-key-gate-constant-time", kind="behaviour",
+         breaks=[lambda c: {"key_ok": lambda supplied, required: True},
+                 lambda c: {"key_src": c["key_src"].replace("compare_digest", "__eq__")}])
+def _c_ephemeral_key_gate(ctx):
+    allow = ctx["key_ok"]
+    return (allow("", None) and allow("t0ken", "t0ken")
+            and not allow("wrong", "t0ken")
+            and "compare_digest" in ctx["key_src"])
+
+
+@_covers("hub-host-pinning", kind="behaviour",
+         breaks=[lambda c: {"host_ok": lambda host, port: True},
+                 lambda c: {"host_ok": lambda host, port: str(port) in host}])
+def _c_hub_host_pinning(ctx):
+    allow = ctx["host_ok"]
+    return (allow("127.0.0.1:8765", 8765) and allow("localhost:8765", 8765)
+            and not allow("evil.example:8765", 8765)
+            and not allow("127.0.0.1:9999", 8765)
+            and not allow("127.0.0.1", 8765) and not allow("", 8765))
+
+
+@_covers("asset-directory-confinement", kind="behaviour",
+         breaks=[lambda c: {"asset_probe": lambda rel: 200}])
+def _c_asset_confinement(ctx):
+    probe = ctx["asset_probe"]
+    return (probe("/assets/mascot.png") == 200
+            and probe("/assets/vendor/vue.global.prod.js") == 200
+            and probe("/assets/../../../etc/passwd") == 404
+            and probe("/assets/../serve_status.py") == 404
+            and probe("/assets/nope.png") == 404)
+
+
+@_covers("inert-json-escaping", kind="behaviour",
+         breaks=[lambda c: {"inert": lambda obj, pinned=False:
+                            json.dumps(obj, separators=(",", ":"))}])
+def _c_inert_json_escaping(ctx):
+    inert = ctx["inert"]
+    hostile = "<img src=x onerror=alert(1)>"
+    out = inert({"t": hostile})
+    return (hostile not in out and "<" not in out and ">" not in out
+            and json.loads(out)["t"] == hostile
+            and inert("&") == '"\\u0026"' and inert("/") == '"\\/"')
+
+
+@_covers("poll-loop-interval", kind="behaviour",
+         breaks=[lambda c: {"poll_ms": 0},
+                 lambda c: {"app_src": c["app_src"].replace("setInterval(", "x(")}])
+def _c_poll_loop_interval(ctx):
+    app = ctx["app_src"]
+    return (ctx["poll_ms"] > 0
+            and "setInterval(() => this.step(), POLL_MS)" in app
+            and app.count("setInterval(") == app.count("clearInterval(") == 1
+            and "visibilitychange" in app)
+
+
+@_covers("feed-live-paused-debounce", kind="behaviour",
+         breaks=[lambda c: {"feed_step": lambda state, status:
+                            {"failures": 0, "paused": False}},
+                 lambda c: {"pause_after": 1}])
+def _c_feed_debounce(ctx):
+    step, live = ctx["feed_step"], {"failures": 0, "paused": False}
+    one = step(live, 500)
+    two = step(one, 500)
+    return (step(live, 200) == live and step(live, 304) == live
+            and one["paused"] is False and two["paused"] is True
+            and step(two, 500)["paused"] is True and step(two, 200) == live
+            and ctx["pause_after"] == 2)
+
+
+@_covers("file-snapshot-no-polling", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "location.protocol !== 'file:'", "true")}])
+def _c_file_snapshot_no_polling(ctx):
+    app = ctx["app_src"]
+    mounted = _js_block(app, "mounted() {")
+    guarded = _js_block(mounted, "if (location.protocol !== 'file:') {")
+    if not mounted or not guarded:
+        return False
+    outside = mounted.replace(guarded, "")
+    return ("addEventListener" not in outside and "startPolling" not in outside
+            and "addEventListener" in guarded and "startPolling" in guarded)
+
+
+@_covers("poll-decision-hidden-tab", kind="behaviour",
+         breaks=[lambda c: {"poll_decide": lambda v, w, e: "poll"}])
+def _c_poll_decision(ctx):
+    decide = ctx["poll_decide"]
+    return (decide(False, True, True) == "skip"
+            and decide(False, True, False) == "skip"
+            and decide(True, False, False) == "poll-now"
+            and decide(True, True, False) == "poll"
+            and decide(True, True, True) == "poll")
+
+
+@_covers("no-visual-change-hooks-are-attribute-only", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "</style>", KW_PREFIX + "leak</style>")},
+                 lambda c: {"css": c["css"] + "\n." + KW_PREFIX + "x{ color:red; }"}])
+def _c_hooks_attribute_only(ctx):
+    if KW_PREFIX in ctx["css"]:
+        return False        # a hook that reached the stylesheet is a style change
+    for key in _DOC_KEYS:
+        doc = ctx[key]
+        for hit in re.finditer(re.escape(KW_PREFIX), doc):
+            opened = doc.rfind("<", 0, hit.start())
+            closed = doc.rfind(">", 0, hit.start())
+            if opened < 0 or closed > opened:
+                return False    # not inside a start tag: text or a style rule
+    return True
+
+
+def _frozen_reduced_motion(css: str) -> str:
+    """A stylesheet whose reduced-motion block freezes the live status dot —
+    the mutation the reduced-motion check must catch."""
+    body = _at_rule_body(css, "prefers-reduced-motion")
+    return css.replace(body, body + "\n  .shell__feed-dot{ animation:none !important; }")
+
+
+# --- the anchor floor, the entry-shape rule, and the negative-control harness -
+
+def _anchored_behaviours(anchor: Path | None = None) -> list[str]:
+    """The committed anchor's behaviour names (blank lines and # comments skipped)."""
+    path = anchor or BEHAVIOUR_ANCHOR
+    if not path.exists():
+        return []
+    return [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _behaviour_floor(anchored, registered) -> list[str]:
+    """Anchored behaviours missing from the registry. A FLOOR: extras are fine."""
+    known = set(registered)
+    return [name for name in anchored if name not in known]
+
+
+def _registry_faults(registry: dict, ctx: dict) -> list[str]:
+    """Entries that fail the kind rule: no kind, a rendered entry whose hook is
+    absent from every rendered document, a behaviour entry naming no check, or
+    an entry with no callable at all."""
+    faults = []
+    for name, entry in registry.items():
+        kind, hook, check = entry.get("kind"), entry.get("hook"), entry.get("check")
+        if not callable(entry.get("fn")):
+            faults.append(name)
+        elif kind == "rendered":
+            if not hook or not hook.startswith(KW_PREFIX):
+                faults.append(name)
+            elif not any(_tags_with(ctx[k], hook) for k in _DOC_KEYS):
+                faults.append(name)
+        elif kind == "behaviour":
+            if not check or not callable(globals().get(check)):
+                faults.append(name)
+        else:
+            faults.append(name)
+    return faults
+
+
+def _markup_literals(fn) -> list[str]:
+    """String literals in `fn`'s own body carrying markup or CSS-declaration
+    syntax. Decorators and the docstring are excluded — only the assertions."""
+    try:
+        src = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return []
+    tree = ast.parse(src)
+    body = tree.body[0].body if tree.body else []
+    docstrings = {id(n.value) for n in body
+                  if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
+    out = []
+    for node in body:
+        for sub in ast.walk(node):
+            if (isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+                    and id(sub) not in docstrings
+                    and any(t in sub.value for t in ("<", ">", "{", "}", ";", '="'))):
+                out.append(sub.value)
+    return out
+
+
+def _coverage_context() -> dict:
+    """Every artifact the registered checks read. A negative control swaps one
+    of these for a deliberately broken version — so a check that reads a module
+    global instead of the context cannot be proven to fail, and is caught."""
+    key_token = "T"
+    key_qs = "?key=" + key_token
+    current_slug = "gringotts-aaaaaaaa"
+    repo_name = "gringotts"
+    state = {
+        "repo": {"default_branch": "main"}, "order": None,
+        "binders": [{"slug": "s-live", "title": "A live binder", "after": [],
+                     "status": "in_flight", "is_next": True,
+                     "items": {"total": 2, "done": 1, "built": 0, "failed": 0,
+                               "building": 1, "ready": 0, "blocked": 0,
+                               "detail": [{"id": "one", "status": "done"},
+                                          {"id": "two", "status": "building"}]}}],
+        "next_action": {"level": "item", "command": "karta-deliver s-live",
+                        "human": "two is building"},
+        "warnings": [], "errors": [],
+    }
+    empty_state = {"repo": {"default_branch": "main"}, "order": None,
+                   "binders": [], "next_action": {"level": "binder",
+                                                  "command": "karta-plan",
+                                                  "human": "plan a binder"},
+                   "warnings": [], "errors": []}
+    roster = [{"slug": "alpha-bbbbbbbb", "name": "alpha"},
+              {"slug": "beta-cccccccc", "name": "beta"}]
+    page = render_app_html(state, "dark", key_qs=key_qs, repo_name=repo_name,
+                           roster=roster)
+    eph = render_app_html(state, "dark", repo_name="karta")
+    empty_page = render_app_html(empty_state, "dark", repo_name=repo_name)
+    degraded_page = render_app_html(_degraded_state("git exploded"), "dark",
+                                    repo_name=repo_name)
+    cards = [{"slug": "alpha-bbbbbbbb", "name": "alpha", "word": "NEXT",
+              "counts": "2 binders · 1 delivered", "activity": "2h ago",
+              "next": "run karta-deliver", "note": "", "root": "/x/alpha"},
+             {"slug": "beta-cccccccc", "name": "beta", "word": "CLEAR",
+              "counts": "1 binder · 1 delivered", "activity": None,
+              "next": "", "note": "", "root": "/x/beta"}]
+    hub = render_hub_html(cards, key_qs)
+
+    def key_ok(supplied, required):
+        return _Handler._key_ok(_Ns(required_key=required),
+                                {"key": [supplied]})
+
+    def hub_key_ok(supplied, token):
+        return _HubHandler._hub_key_ok(_Ns(server=_Ns(hub_token=token)),
+                                       {"key": [supplied]})
+
+    def host_ok(host, port):
+        return _HubHandler._host_ok(_Ns(headers={"Host": host},
+                                        server=_Ns(server_port=port)))
+
+    def asset_probe(path):
+        seen = []
+        handler = _Handler.__new__(_Handler)
+        handler._text = lambda code, text, ctype, etag=None: seen.append(code)
+        handler._send = lambda code, body, ctype, cache=False, etag=None: seen.append(code)
+        _Handler._serve_asset(handler, path)
+        return seen[0] if seen else 0
+
+    poll_ms = int(re.search(r"const POLL_MS = (\d+);", _APP_JS).group(1))
+    return {
+        "page": page, "eph": eph, "empty_page": empty_page,
+        "degraded_page": degraded_page, "hub": hub,
+        "hub_empty": render_hub_html([], key_qs),
+        "hub_card_count": len(cards),
+        "css": _strip_css_comments(_CSS),
+        "app_src": _APP_JS,
+        "repo_dispatch": inspect.getsource(_Handler.do_GET),
+        "hub_dispatch": inspect.getsource(_HubHandler.do_GET),
+        "key_src": inspect.getsource(_Handler._key_ok),
+        "hub_key_src": inspect.getsource(_HubHandler._hub_key_ok),
+        "shell_hub": _inlined_const(page, "SHELL"),
+        "shell_eph": _inlined_const(eph, "SHELL"),
+        "feed_labels": {"live": FEED_LIVE_LABEL, "paused": FEED_PAUSED_LABEL},
+        "feed_inlined": _inlined_const(page, "FEED"),
+        "pause_after": FEED_PAUSE_AFTER,
+        "state_meta": _STATE_META, "phase_meta": _PHASE_META,
+        "phase_defs": _PHASE_DEFS, "icons": _ICONS,
+        "breathe_keyframe": BREATHE_KEYFRAME,
+        "repo_name": repo_name, "title_suffix": _TITLE_SUFFIX,
+        "key_token": key_token, "current_slug": current_slug,
+        "poll_ms": poll_ms,
+        "theme_attr": _theme_attr, "inert": _inert_json,
+        "feed_step": _feed_transition, "poll_decide": poll_decision,
+        "repo_route": _REPO_ROUTE.fullmatch,
+        "key_ok": key_ok, "hub_key_ok": hub_key_ok, "host_ok": host_ok,
+        "asset_probe": asset_probe,
+    }
+
+
+def _coverage_self_test_checks() -> list[tuple[str, bool]]:
+    """The migrated suite: the registry's own integrity, the anchor floor, and
+    the negative control proving every registered check can actually fail."""
+    ctx = _coverage_context()
+    registry = _COVERAGE_REGISTRY
+    anchored = _anchored_behaviours()
+    checks: list[tuple[str, bool]] = []
+
+    # --- entry shape: a kind, plus a real hook or a real check ---------------
+    def _fake(kind, hook=None, check=None):
+        return {"kind": kind, "hook": hook, "check": check,
+                "fn": lambda c: True, "breaks": []}
+
+    malformed = {
+        "no-kind": _fake(""),
+        "rendered-without-hook": _fake("rendered"),
+        "rendered-with-absent-hook": _fake("rendered", hook=KW_PREFIX + "ghost"),
+        "behaviour-without-check": _fake("behaviour"),
+        "behaviour-naming-nothing": _fake("behaviour", check="_no_such_check"),
+    }
+    checks += [
+        ("coverage: every registry entry declares its kind — a rendered entry "
+         "names an existing data-kw hook, a behaviour entry names the check "
+         "that exercises it",
+         not _registry_faults(registry, ctx)),
+        ("coverage: an entry with neither an existing hook nor a named check "
+         "fails, so the kind rule is enforced rather than described",
+         len(_registry_faults(malformed, ctx)) == len(malformed)),
+        ("coverage: every registered behaviour maps to a callable",
+         bool(registry) and all(callable(e["fn"]) for e in registry.values())),
+    ]
+
+    # --- the anchor floor: outside this file, compared as a floor ------------
+    padded = [n for n in registry if n != (anchored[0] if anchored else "")]
+    padded.append("a-trivial-extra-check")
+    checks += [
+        ("coverage: the committed anchor outside this file is non-empty and "
+         "every behaviour it names is registered",
+         bool(anchored) and not _behaviour_floor(anchored, registry)),
+        ("coverage: the floor counts behaviours, not checks — dropping one "
+         "registration and padding with an unrelated trivial check still fails",
+         bool(anchored) and _behaviour_floor(anchored, padded) == [anchored[0]]),
+        ("coverage: an extra registered behaviour the anchor does not name "
+         "passes the floor, so a later item can add its own",
+         not _behaviour_floor(anchored, list(registry) + ["a-later-behaviour"])),
+    ]
+
+    # --- negative controls: every check must FAIL on a broken artifact -------
+    never_passed, never_failed, vacuous = [], [], []
+    for name, entry in registry.items():
+        try:
+            truthy = bool(entry["fn"](ctx))
+        except Exception:
+            truthy = False
+        if not truthy:
+            never_passed.append(name)
+        if not entry["breaks"]:
+            never_failed.append(name)
+        for i, mutate in enumerate(entry["breaks"]):
+            overrides = mutate(ctx)
+            # the harness proves the mutation actually changed the artifact
+            # BEFORE running the check — a control that silently stopped
+            # mutating would otherwise let every check pass vacuously.
+            if not overrides or any(k not in ctx or ctx[k] == v
+                                    for k, v in overrides.items()):
+                vacuous.append(name + "#" + str(i))
+                continue
+            broken = dict(ctx)
+            broken.update(overrides)
+            try:
+                survived = bool(entry["fn"](broken))
+            except Exception:
+                survived = False
+            if survived:
+                never_failed.append(name + "#" + str(i))
+    checks += [
+        ("coverage: every registered check passes against the true render",
+         not never_passed),
+        ("coverage: every registered check FAILS against a deliberately broken "
+         "render of the behaviour it guards", not never_failed),
+        ("coverage: each negative control proves its mutation changed the "
+         "rendered bytes before the check runs, so a control that stopped "
+         "mutating cannot pass vacuously", not vacuous),
+    ]
+
+    # --- renaming a hook must break its check, never silently match ----------
+    rendered = [n for n, e in registry.items() if e["kind"] == "rendered"]
+    renamed_fails = []
+    for name in rendered:
+        hook = registry[name]["hook"]
+        broken = {k: (v.replace(hook, hook + "renamed") if isinstance(v, str) else v)
+                  for k, v in ctx.items()}
+        if broken == ctx:
+            continue
+        try:
+            survived = bool(registry[name]["fn"](broken))
+        except Exception:
+            survived = False
+        if not survived:
+            renamed_fails.append(name)
+    checks.append(
+        ("coverage: renaming a hook a registered check depends on makes that "
+         "check fail rather than silently matching a stale name",
+         renamed_fails == rendered))
+
+    # --- no rendered check asserts against markup or a CSS declaration -------
+    def _a_check_written_against_markup(ctx):
+        return '<div class="binder">' in ctx["page"]
+
+    offenders = {n: _markup_literals(registry[n]["fn"]) for n in rendered}
+    checks += [
+        ("coverage: no rendered-output check compares against a literal markup "
+         "fragment or an exact CSS declaration — each asserts an attribute, an "
+         "element relationship, or a resolved token name",
+         not any(offenders.values())),
+        ("coverage: the literal-markup ban can actually fail (a check written "
+         "against a markup fragment is flagged)",
+         bool(_markup_literals(_a_check_written_against_markup))),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -5228,9 +6284,6 @@ def _run_self_test() -> int:
             (f"{theme}: persists the toggle keys", "karta-show-delivered" in h and "karta-theme" in h),
             (f"{theme}: new-design timeline markers", "showDelivered" in h and "Delivered" in h
                 and "Now" in h and "RUNNING" in h),
-            (f"{theme}: reduced-motion keeps the status line live (breathes, not frozen)",
-                "prefers-reduced-motion" in h
-                and "animation:karta-breathe 2s ease-in-out infinite !important" in h),
             (f"{theme}: leads with the human binder title", "Edit the thing" in h and "binder__title" in h),
             (f"{theme}: keeps the slug as a chip, not the headline", "binder__slug" in h and "s-edit" in h),
             (f"{theme}: renders the plain-language binder summary", "Rewire callers onto the new thing." in h),
@@ -5242,111 +6295,14 @@ def _run_self_test() -> int:
                 "titleCase(b.slug)" in h),
         ]
 
-    # --- the repo-page header shell, feed indicator, and chip vocabulary ----
-    others = switcher_entries({
-        "/x/gringotts": {"slug": "gringotts-aaaaaaaa", "opted_in": True},
-        "/x/alpha": {"slug": "alpha-bbbbbbbb", "opted_in": True},
-        "/x/beta": {"slug": "beta-cccccccc", "opted_in": True},
-        "/x/plain": {"slug": "plain-dddddddd", "opted_in": False},
-    }, "gringotts-aaaaaaaa")
-    hub_page = render_app_html(state, "dark", key_qs="?key=T",
-                               repo_name="gringotts", roster=others)
-    eph_page = render_app_html(state, "dark", repo_name="karta")
-    live0 = {"failures": 0, "paused": False}
-    fail1 = _feed_transition(live0, 500)
-    fail2 = _feed_transition(fail1, 500)
-    checks += [
-        ("shell: the page <title> is '<repo> — Karta Watch' with the actual repo name",
-         "<title>gringotts — Karta Watch</title>" in hub_page
-         and "<title>karta — Karta Watch</title>" in eph_page),
-        ("shell: the k-mark square and the bordered '← home' button are both"
-         " anchors to the hub landing carrying the key",
-         '<a v-if="shell.home" class="shell__kmark" :href="shell.home"' in hub_page
-         and '<a v-if="shell.home" class="shell__home" :href="shell.home">← home</a>' in hub_page
-         and '"home":"\\/?key=T"' in hub_page),
-        ("shell: the repo name renders inside the shell repo-name class — no"
-         " breadcrumb path text",
-         'class="shell__repo-name">{{ shell.name }}</span>' in hub_page
-         and '"name":"gringotts"' in hub_page
-         and "crumb" not in hub_page and "gringotts\\/" not in hub_page),
-        ("shell: ephemeral mode has no hub, so no hub links and no switcher render",
-         '"home":null' in eph_page and '"others":[]' in eph_page),
-        ("switcher: a three-repo roster links exactly the other two — keys"
-         " carried, never self, non-opted hidden",
-         others == [{"slug": "alpha-bbbbbbbb", "name": "alpha"},
-                    {"slug": "beta-cccccccc", "name": "beta"}]
-         and '"href":"\\/r\\/alpha-bbbbbbbb\\/?key=T"' in hub_page
-         and '"href":"\\/r\\/beta-cccccccc\\/?key=T"' in hub_page
-         and "gringotts-aaaaaaaa" not in hub_page
-         and "plain-dddddddd" not in hub_page
-         and 'class="also"' in hub_page and "also watching:" in hub_page),
-        ("feed: the transition is pure — success live; one failure stays live;"
-         " two consecutive failures pause; the first success recovers",
-         _feed_transition(live0, 200) == live0
-         and fail1 == {"failures": 1, "paused": False}
-         and fail2 == {"failures": 2, "paused": True}
-         and _feed_transition(fail2, 500)["paused"] is True
-         and _feed_transition(fail2, 200) == live0),
-        ("feed: the paused label constant is present and wired to the"
-         " poll-failure path",
-         FEED_PAUSED_LABEL == "snapshot — feed paused"
-         and _inert_json({"live": FEED_LIVE_LABEL,
-                          "paused": FEED_PAUSED_LABEL}) in hub_page
-         and "function feedTransition" in hub_page
-         and "feedTransition(this.feed, null)" in hub_page
-         and "feedTransition(this.feed, 200)" in hub_page
-         and "{{ feedLabel }}" in hub_page
-         and "FEED.paused : FEED.live" in hub_page),
-    ]
-
-    wait_state = {
-        "repo": {"default_branch": "main"}, "order": None,
-        "binders": [{"slug": "w-binder", "after": [], "status": "in_flight",
-                     "is_next": True,
-                     "items": {"total": 2, "done": 0, "built": 0, "failed": 0,
-                               "building": 1, "ready": 0, "blocked": 1,
-                               "detail": [{"id": "w1", "status": "building"},
-                                          {"id": "w2", "status": "blocked",
-                                           "deps": ["w1"]}]}}],
-        "next_action": {"level": "item", "command": "karta-deliver w-binder",
-                        "human": "w1 is building"},
-        "warnings": [], "errors": [],
-    }
-    wait_page = render_app_html(wait_state, "dark", repo_name="karta")
-    checks += [
-        ("chips: a dependency-waiting item renders the soft steel WAITING chip",
-         _STATE_META["blocked"]["word"] == "WAITING"
-         and _STATE_META["blocked"]["color"] == "var(--steel)"
-         and _STATE_META["blocked"]["soft"] == "var(--steel-soft)"
-         and '"status":"blocked"' in wait_page
-         and '"word":"WAITING"' in wait_page),
-        ("chips: the word BLOCKED appears nowhere in the rendered repo page"
-         " (delivered history included, chip vocabulary scoped)",
-         "BLOCKED" not in wait_page and '"word":"BLOCKED"' not in hub_page),
-        ("chips: every badge in _STATE_META and every mark in _PHASE_META"
-         " resolves to an _ICONS entry (a WAITING chip never renders blank)",
-         all(m["badge"] in _ICONS for m in _STATE_META.values())
-         and all(m["mark"] in _ICONS for m in _PHASE_META.values())),
-        ("delivered: the green check treatment — gutter mark, green binder"
-         " border and header",
-         _PHASE_META["past"]["color"] == "var(--green)"
-         and _PHASE_META["past"]["mark"] == "check"
-         and ".binder--done{ border-color:var(--green); }" in hub_page
-         and ".binder__header--done{ background:var(--green-soft); }" in hub_page
-         and "'binder--done': b.done" in hub_page
-         and "'binder__header--done': b.done" in hub_page
-         and "done: key === 'past'" in hub_page),
-        ("expanders: binder + work-item toggles are real <button>s carrying"
-         " aria-expanded disclosure semantics; the show-delivered toggle (a"
-         " genuine toggle, not a disclosure) keeps aria-pressed",
-         '<button type="button" class="binder__header"' in hub_page
-         and ':aria-expanded="b.open ? \'true\' : \'false\'"' in hub_page
-         and '<button type="button" class="item__row"' in hub_page
-         and ':aria-expanded="isExpanded(b.slug, it.id) ? \'true\' : \'false\'"' in hub_page
-         and ':aria-pressed="showDelivered ? \'true\' : \'false\'"' in hub_page
-         and ':aria-pressed="b.open' not in hub_page
-         and ':aria-pressed="isExpanded' not in hub_page),
-    ]
+    # --- the migrated suite: rendered-output checks keyed by BEHAVIOUR ------
+    # The shell, switcher, feed indicator, chip vocabulary, delivered-binder
+    # treatment, reduced-motion rule and disclosure semantics that used to be
+    # asserted here as exact CSS text and literal markup now live in the
+    # coverage registry: each behaviour bound to a callable, every one proven
+    # to fail against a broken render, floored against an anchor outside this
+    # file so a restyle can never delete coverage by deleting an assertion.
+    checks += _coverage_self_test_checks()
 
     # Untrusted-text neutralization (see _inert_json): hostile binder-derived
     # strings must never reach a response as raw bytes, on either path.
@@ -5602,8 +6558,17 @@ def main() -> int:
                     help="opt a repo out; accepts a path or slug so a moved or "
                          "deleted repo's entry can be cleared from anywhere")
     ap.add_argument("--self-test", action="store_true", help="render fixtures, check invariants, exit 0/1")
+    ap.add_argument("--list-behaviours", action="store_true",
+                    help="print the coverage registry as JSON (the anchor floor reads this)")
     args = ap.parse_args()
 
+    if args.list_behaviours:
+        # The floor in validate_plugin.py compares the committed anchor against
+        # this, from outside the file every binder item edits.
+        print(json.dumps({name: {"kind": e["kind"], "hook": e["hook"],
+                                 "check": e["check"]}
+                          for name, e in _COVERAGE_REGISTRY.items()}, indent=1))
+        return 0
     if args.self_test:
         return _run_self_test()
 

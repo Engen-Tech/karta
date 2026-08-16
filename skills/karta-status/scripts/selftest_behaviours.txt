@@ -1,0 +1,61 @@
+# Karta Watch — the behaviours the page's self-test must never stop checking.
+#
+# This file is the ANCHOR, and it lives OUTSIDE serve_status.py deliberately:
+# every item in a watch binder edits serve_status.py, so a registry entry and
+# its expectation can be deleted together in one edit and nothing would notice.
+# The anchor is not in that file, so the deletion still fails.
+#
+# validate_plugin.py compares it against the live coverage registry
+# (`serve_status.py --list-behaviours`) as a FLOOR, never as equality:
+#   - every name here MUST be present in the registry, or the validator fails;
+#   - extra registered behaviours are fine, so a later item can add its own.
+# Equality would be self-defeating — each restyle item introduces new
+# behaviours, and a frozen anchor compared by equality would fail all of them.
+#
+# One behaviour per line. Blank lines and # comments are ignored. Adding a line
+# tightens the floor; removing one is a deliberate, reviewable decision to stop
+# guarding that behaviour — not something a refactor should ever do quietly.
+
+page-title-repo-name
+shell-region
+shell-kmark-home-anchor
+shell-home-link
+shell-repo-name
+shell-ephemeral-no-hub
+shell-feed-indicator
+reduced-motion-breathes
+show-delivered-aria-pressed
+show-delivered-persistence-key
+theme-toggle-control
+theme-persistence-key
+theme-query-override
+switcher-also-watching
+phase-timeline-groups
+delivered-binder-treatment
+binder-disclosure-aria-expanded
+item-disclosure-aria-expanded
+expand-collapse-state
+item-detail-disclosure
+chip-vocabulary
+chip-icons-resolve
+empty-state-mascot
+degraded-state
+hub-landing-cards
+hub-landing-empty
+route-repo-page
+route-state-json
+route-assets
+hub-route-landing
+hub-route-repo-page
+hub-route-repo-state-json
+hub-route-identity
+hub-token-constant-time
+ephemeral-key-gate-constant-time
+hub-host-pinning
+asset-directory-confinement
+inert-json-escaping
+poll-loop-interval
+feed-live-paused-debounce
+file-snapshot-no-polling
+poll-decision-hidden-tab
+no-visual-change-hooks-are-attribute-only

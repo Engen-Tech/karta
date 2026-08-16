@@ -92,6 +92,7 @@ def check() -> list[str]:
     _check_codex(errors, present)
     _check_hooks(errors)
     _check_skill_scripts(errors)
+    _check_behaviour_anchor(errors)
     return errors
 
 
@@ -289,6 +290,92 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                         "(allowed: enabled, tool, providers, min_providers, focus, points)")
 
 
+# --- the Karta Watch coverage floor ----------------------------------------
+# serve_status.py is the file every item of a watch binder edits, so a check and
+# the expectation it guards can be deleted together in one edit with nothing to
+# notice. The anchor below lives beside it but is NOT it, and no restyle item
+# touches the anchor — so the deletion still fails here.
+
+WATCH_SCRIPT = SKILLS / "karta-status" / "scripts" / "serve_status.py"
+BEHAVIOUR_ANCHOR = SKILLS / "karta-status" / "scripts" / "selftest_behaviours.txt"
+KW_PREFIX = "data-kw-"
+
+
+def _anchored_behaviours(anchor: Path) -> list[str]:
+    """One behaviour name per line; blank lines and # comments ignored."""
+    return [ln.strip() for ln in anchor.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _registered_behaviours(script: Path) -> tuple[dict, str | None]:
+    """The live coverage registry, read from the page's own script. (registry, error)."""
+    try:
+        proc = subprocess.run([sys.executable, str(script), "--list-behaviours"],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {}, f"could not read the coverage registry ({e})"
+    if proc.returncode != 0:
+        tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-2:])
+        return {}, f"--list-behaviours failed ({tail})"
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        return {}, f"--list-behaviours emitted invalid JSON ({e})"
+    if not isinstance(data, dict):
+        return {}, "--list-behaviours must emit a JSON object of behaviour -> entry"
+    return data, None
+
+
+def _check_behaviour_anchor(errors: list[str], anchor: Path | None = None,
+                            registry: dict | None = None,
+                            script: Path | None = None) -> None:
+    """Compare the committed anchor against the live coverage registry as a FLOOR:
+    every anchored behaviour must still be registered; extra registrations pass, so
+    a later item can add its own. Equality would be self-defeating — each restyle
+    item introduces new behaviours and would fail against a frozen anchor.
+
+    An absent or empty anchor is itself a failure: a floor compared against nothing
+    passes vacuously, which is the exact hole the anchor exists to close."""
+    anchor = anchor or BEHAVIOUR_ANCHOR
+    try:
+        label = str(anchor.relative_to(ROOT))
+    except ValueError:
+        label = anchor.name
+    if not anchor.is_file():
+        errors.append(f"{label}: missing — the Karta Watch coverage floor would "
+                      "have nothing to compare against and would pass vacuously")
+        return
+    anchored = _anchored_behaviours(anchor)
+    if not anchored:
+        errors.append(f"{label}: empty — the coverage floor would pass vacuously; "
+                      "it must name every behaviour the page's self-test must keep")
+        return
+    if registry is None:
+        registry, failure = _registered_behaviours(script or WATCH_SCRIPT)
+        if failure:
+            errors.append(f"{label}: {failure}")
+            return
+    for name in anchored:
+        if name not in registry:
+            errors.append(f"{label}: anchors '{name}', which serve_status.py's "
+                          "coverage registry no longer has — a behaviour lost its "
+                          "check (add it back, or drop the anchor line deliberately)")
+    # Entry shape: the kind rule, enforced from outside the file that declares it.
+    for name, entry in sorted(registry.items()):
+        entry = entry if isinstance(entry, dict) else {}
+        kind = entry.get("kind")
+        if kind == "rendered":
+            if not str(entry.get("hook") or "").startswith(KW_PREFIX):
+                errors.append(f"{label}: registry entry '{name}' is rendered but "
+                              f"names no {KW_PREFIX}* hook")
+        elif kind == "behaviour":
+            if not entry.get("check"):
+                errors.append(f"{label}: registry entry '{name}' is a behaviour but "
+                              "names no check that exercises it")
+        else:
+            errors.append(f"{label}: registry entry '{name}' declares no kind "
+                          "(expected rendered or behaviour)")
+
 DG_SCHEMA = ROOT / "skills" / "karta-doc-gardner" / "references" / "doc-gardner-schema.json"
 _TYPE_BY_NAME = {"boolean": bool, "string": str}
 
@@ -373,6 +460,44 @@ def _self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
         failures += 0 if ok else 1
 
+        # The Karta Watch coverage floor: the anchor is compared as a floor, and an
+        # absent/empty anchor or a malformed registry entry is itself a failure.
+        live = {"a-behaviour": {"kind": "rendered", "hook": "data-kw-a", "check": "_c_a"},
+                "another": {"kind": "behaviour", "hook": None, "check": "_c_b"}}
+        anc = Path(td) / "anchor.txt"
+        anchor_cases = [
+            ("anchor floor: every anchored behaviour registered -> no error",
+             "# a comment\n\na-behaviour\nanother\n", live, []),
+            ("anchor floor: an extra registration the anchor omits still passes",
+             "a-behaviour\n", live, []),
+            ("anchor floor: an anchored behaviour missing from the registry fails",
+             "a-behaviour\ngone-behaviour\n", live, ["anchors 'gone-behaviour'"]),
+            ("anchor floor: an emptied anchor fails (a floor over nothing is vacuous)",
+             "# only comments left\n\n", live, ["empty"]),
+            ("anchor floor: a rendered entry naming no data-kw hook fails",
+             "a-behaviour\n", {"a-behaviour": {"kind": "rendered", "hook": "", "check": "_c_a"}},
+             ["names no data-kw-* hook"]),
+            ("anchor floor: a behaviour entry naming no check fails",
+             "a-behaviour\n", {"a-behaviour": {"kind": "behaviour", "hook": None, "check": ""}},
+             ["names no check"]),
+            ("anchor floor: an entry with neither kind fails",
+             "a-behaviour\n", {"a-behaviour": {"kind": None, "hook": None, "check": None}},
+             ["declares no kind"]),
+        ]
+        for name, anchor_text, reg, want in anchor_cases:
+            anc.write_text(anchor_text)
+            errs: list[str] = []
+            _check_behaviour_anchor(errs, anchor=anc, registry=reg)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
+        errs = []
+        _check_behaviour_anchor(errs, anchor=Path(td) / "absent-anchor.txt", registry=live)
+        ok = bool(errs) and any("missing" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] anchor floor: a missing anchor fails"
+              + ("" if ok else f" — got {errs!r}"))
+        failures += 0 if ok else 1
+
         # _run_self_test enforces "every gated script exposes --self-test": check all three
         # dispositions on fabricated scripts. Their paths are outside ROOT, exercising rel().
         rst = Path(td) / "rst"
@@ -400,7 +525,7 @@ def _self_test() -> int:
             ok = (bool(errs) == want_err) and (want_sub is None or any(want_sub in e for e in errs))
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
             failures += 0 if ok else 1
-    total = len(cases) + 1 + len(rst_cases)
+    total = len(cases) + 1 + len(rst_cases) + len(anchor_cases) + 1
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
