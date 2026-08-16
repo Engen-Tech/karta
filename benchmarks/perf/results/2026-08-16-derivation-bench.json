@@ -1,0 +1,168 @@
+{
+  "schema": "karta/derivation-bench/1",
+  "repo": "/root/karta-rw",
+  "commits": 400,
+  "items_per_binder": 10,
+  "runs": 5,
+  "batched_source": "shipped (/root/karta-bench/skills/karta-status/scripts/karta_next.py)",
+  "records": [
+    {
+      "binders": 1,
+      "items": 10,
+      "reference": {
+        "ms_best": 38.82,
+        "ms_worst": 42.525,
+        "ms_spread": 3.705,
+        "ms_samples": [
+          42.525,
+          40.734,
+          39.668,
+          39.893,
+          38.82
+        ],
+        "git_calls": 20
+      },
+      "batched": {
+        "ms_best": 10.21,
+        "ms_worst": 11.122,
+        "ms_spread": 0.912,
+        "ms_samples": [
+          11.122,
+          10.834,
+          10.457,
+          10.652,
+          10.21
+        ],
+        "git_calls": 5
+      },
+      "speedup": 3.8
+    },
+    {
+      "binders": 5,
+      "items": 50,
+      "reference": {
+        "ms_best": 190.161,
+        "ms_worst": 201.983,
+        "ms_spread": 11.822,
+        "ms_samples": [
+          195.17,
+          190.161,
+          199.928,
+          201.983,
+          194.968
+        ],
+        "git_calls": 88
+      },
+      "batched": {
+        "ms_best": 12.207,
+        "ms_worst": 13.644,
+        "ms_spread": 1.437,
+        "ms_samples": [
+          13.249,
+          12.207,
+          13.644,
+          13.02,
+          12.587
+        ],
+        "git_calls": 5
+      },
+      "speedup": 15.6
+    },
+    {
+      "binders": 10,
+      "items": 100,
+      "reference": {
+        "ms_best": 372.343,
+        "ms_worst": 387.029,
+        "ms_spread": 14.686,
+        "ms_samples": [
+          380.144,
+          372.343,
+          376.924,
+          387.029,
+          383.793
+        ],
+        "git_calls": 173
+      },
+      "batched": {
+        "ms_best": 13.847,
+        "ms_worst": 16.472,
+        "ms_spread": 2.625,
+        "ms_samples": [
+          13.847,
+          15.765,
+          16.472,
+          15.331,
+          16.325
+        ],
+        "git_calls": 5
+      },
+      "speedup": 26.9
+    },
+    {
+      "binders": 20,
+      "items": 200,
+      "reference": {
+        "ms_best": 729.733,
+        "ms_worst": 748.959,
+        "ms_spread": 19.226,
+        "ms_samples": [
+          748.959,
+          744.905,
+          729.733,
+          748.478,
+          740.117
+        ],
+        "git_calls": 342
+      },
+      "batched": {
+        "ms_best": 15.518,
+        "ms_worst": 16.769,
+        "ms_spread": 1.251,
+        "ms_samples": [
+          15.659,
+          15.518,
+          16.071,
+          15.673,
+          16.769
+        ],
+        "git_calls": 5
+      },
+      "speedup": 47.0
+    },
+    {
+      "binders": 40,
+      "items": 400,
+      "reference": {
+        "ms_best": 1522.119,
+        "ms_worst": 2749.749,
+        "ms_spread": 1227.63,
+        "ms_samples": [
+          1522.119,
+          1592.048,
+          1569.954,
+          1552.164,
+          2749.749
+        ],
+        "git_calls": 682
+      },
+      "batched": {
+        "ms_best": 42.06,
+        "ms_worst": 46.112,
+        "ms_spread": 4.052,
+        "ms_samples": [
+          43.477,
+          46.112,
+          44.105,
+          44.353,
+          42.06
+        ],
+        "git_calls": 5
+      },
+      "speedup": 36.2
+    }
+  ],
+  "reference_git_calls_grow": true,
+  "batched_git_calls_stay_constant": true,
+  "batched_git_calls_per_request": 5
+}

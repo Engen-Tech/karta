@@ -190,3 +190,147 @@ formatting over it. The redesign's unmet needs are binder fields that `_enrich()
 currently drops — `contract`, `touches`, `estimate`, `serialize`/`shared_resources`, the
 full `oracle.assertions` array, the opt-out `reason`, and the binder-level `sme` — all
 pass-through additions that cost no git calls.
+
+---
+
+# After the work
+
+Measured 2026-08-16, after the `watch-derivation-cost` binder landed. Same reference
+environment as everything above — the `karta-lean` container, 1 vCPU / 512 MiB, Debian 13,
+Python 3.13.5, git 2.47.3, best of five — against a real karta checkout at `/root/karta-rw`
+(385 commits, 17 archived binders) with live binders layered on real commits. None of the
+before figures above were touched; everything below is new.
+
+## Derivation, batched, cache out of the picture
+
+`gather_git_facts()` now answers every binder and every item with three whole-namespace ref
+queries instead of a loop. These figures are the shipped `current_state()` with the state
+cache not yet in play, so they compare like for like against "The shipped code path, on a
+real checkout" above.
+
+| live binders | items | before | batched, no cache | speedup |
+|-|-|-|-|-|
+| 0 | 0 | 3.4 ms | 6.4 ms | 0.5x |
+| 1 | 10 | 24.2 ms | 12.4 ms | 2.0x |
+| 5 | 50 | 116.4 ms | 14.5 ms | 8.0x |
+| 10 | 100 | 248.9 ms | 17.6 ms | 14.1x |
+| 20 | 200 | 613.5 ms | 21.7 ms | 28.3x |
+
+**The empty case got slower, deliberately.** 3.4 ms to 6.4 ms with zero live binders: the
+batched form always issues its three ref queries, where the old per-item loop issued none
+when there was nothing to loop over. Short-circuiting to win those 3 ms would break the one
+property worth enforcing — that git calls stay constant as binder count grows — so it was
+not done.
+
+## The cache has a cold path and a warm path, and they are not the same number
+
+`current_state()` is cached now, keyed on a cheap fingerprint of the refs and binder files.
+A timing loop that calls it five times in a row primes the cache on the first call and then
+measures four cache hits, which reports only the warm path and overstates the win. So the
+two paths are measured and reported separately:
+
+| live binders | items | cold — a change detected | warm — nothing changed | key computation alone |
+|-|-|-|-|-|
+| 0 | 0 | 14.1 ms | 2.89 ms | 2.81 ms |
+| 1 | 10 | 23.3 ms | 3.48 ms | 3.37 ms |
+| 5 | 50 | 31.5 ms | 6.58 ms | 6.43 ms |
+| 10 | 100 | 38.6 ms | 8.83 ms | 8.56 ms |
+| 20 | 200 | 52.5 ms | 14.45 ms | 14.63 ms |
+
+Two findings that belong here rather than being left out:
+
+- **The warm hit is 97 to 101% key computation.** The cache lookup itself is free; computing
+  the fingerprint is the whole remaining cost. Any further work on the steady-state poll has
+  to attack the key, not the lookup.
+- **A request that does find a change costs about 2.4x the uncached batched form** at 20
+  binders — 52.5 ms against 21.7 ms — because the cold path pays the key twice, sampling it
+  before and after the derivation, plus the derivation itself. Steady state is the common
+  case, so the trade is the right one, but the cache is not free and this spec does not
+  claim it is.
+
+## The committed benchmark
+
+`benchmarks/perf/derivation_bench.py` re-proves the win on any machine. It times the shipped
+batched derivation against its own duplicate of the pre-batch per-item walker, at 1 / 5 / 10
+/ 20 / 40 binders x 10 work items, best of five, and prints a table plus a machine-readable
+JSON block.
+
+The run recorded in `benchmarks/perf/results/2026-08-16-derivation-bench.json`:
+
+| binders | items | reference ms | reference git calls | batched ms | batched git calls | speedup |
+|-|-|-|-|-|-|-|
+| 1 | 10 | 38.8 | 20 | 10.2 | 5 | 3.8x |
+| 5 | 50 | 190.2 | 88 | 12.2 | 5 | 15.6x |
+| 10 | 100 | 372.3 | 173 | 13.8 | 5 | 26.9x |
+| 20 | 200 | 729.7 | 342 | 15.5 | 5 | 47.0x |
+| 40 | 400 | 1522.1 | 682 | 42.1 | 5 | 36.2x |
+
+The harness builds its own synthetic binder topology, so neither its milliseconds nor its
+reference call counts are the same measurement as the hand-run before-table further up. The
+mix of merged and unmerged done refs differs, and the per-item walker spends one
+`merge-base` per done ref, so a different mix means a different call count — 20 / 88 / 173 /
+342 / 682 here against 19 / 95 / 190 / 380 / 760 there. The commit count differs for a
+duller reason: the harness reports `rev-list --count --all`, which is 400 across every ref
+in that checkout, where the 385 quoted above counts the default branch. The shape is what
+reproduces: linear growth on the left, near flat on the right.
+
+**Five git calls per request, not three.** Three are the ref queries; the other two are
+default-branch resolution, which the harness counts because it counts at the whole-request
+boundary rather than inside one helper. The number itself is not the invariant and is not
+asserted anywhere — what is enforced, by `karta_next.py --self-test`, is that git calls stay
+constant as binder count grows, meaning identical at every binder count whatever that
+identical figure turns out to be.
+
+The JSON block carries the spread across runs as well as the best time, because best-of-five
+alone lets a noisy machine look clean. This run makes the point: the reference walker at 40
+binders spread 1228 ms across its five samples on a contended single core, while every
+batched sample at that scale landed within 4 ms of the others.
+
+### Running it
+
+On a normal machine, against the current checkout:
+
+```
+uv run --script benchmarks/perf/derivation_bench.py
+```
+
+On the reference container, which is how the table above was produced — the harness and the
+shipped `karta_next.py` staged into `/root/karta-bench`, measuring the real checkout at
+`/root/karta-rw`:
+
+```
+incus exec karta-lean -- python3 /root/karta-bench/benchmarks/perf/derivation_bench.py \
+  --repo /root/karta-rw --out /root/derivation-bench.json
+```
+
+This container invocation is documented, not gated. A consumer machine has no Incus, and
+wall-clock depends on the machine and on history depth, so the enforced check stays the
+call-count one.
+
+### It never writes to the repository it measures
+
+The harness creates git refs, so it creates them somewhere else. It resolves the real git
+directory with `git rev-parse --git-common-dir` — a linked worktree's `.git` is a file
+pointing elsewhere, and copying that file would yield no refs and no objects — copies that
+directory to a temporary location, and builds every synthetic ref in the copy. Every git
+invocation against the copy points `core.hooksPath` at an empty directory, because
+`.git/hooks/` is copied along with everything else and a `reference-transaction` hook fires
+on ref creation, so an un-neutralised hook could write straight back into the source. Every
+invocation also runs with `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_COMMON_DIR`
+cleared out of the inherited environment, since any of them would redirect resolution at a
+directory the harness never intended to copy. The temporary copy is removed on exit,
+including after a failure. And every function that creates or deletes a ref refuses to run
+unless `GIT_DIR` points inside a copy the harness made, so the confinement holds even if a
+later caller forgets where it is standing.
+
+Two refusals rather than a wrong number:
+
+- **A repository with one commit.** With one commit there is no graph to walk, so
+  `for-each-ref --merged` is free and the measurement understates the true cost by roughly
+  half — the fixture trap documented above. The harness names the reason and stops.
+- **A repository with a non-empty `objects/info/alternates`.** A copy leaves the alternate
+  object store behind, so it walks a partial object graph and reports numbers lower than the
+  truth. Same treatment: name it, stop.
+
+`--self-test` covers all of this, including that a source repository's full ref listing is
+byte-identical after a run and after a run interrupted partway through.
