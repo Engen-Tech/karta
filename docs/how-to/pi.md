@@ -12,8 +12,9 @@ You need:
 - Node.js 22.19 or newer;
 - Git with worktree and `merge-tree --write-tree` support;
 - `uv` for Karta's bundled Python scripts;
-- on Windows, a Bash installation Pi can use—Git for Windows is sufficient;
 - the package manager and toolchain used by the project you are delivering.
+
+Karta 2.30.0 supports native macOS and Linux. Native Windows support is deferred to a later release.
 
 A build worker can run Bash. Its worktree separates concurrent changes, but it is not a sandbox for hostile code. Run Karta only in projects and with models you trust to execute the project's build commands.
 
@@ -21,7 +22,7 @@ A build worker can run Bash. Its worktree separates concurrent changes, but it i
 
 Install a reviewed tag rather than a moving branch.
 
-Mac, Linux, or Windows, local terminal:
+Mac or Linux, local terminal:
 
 ```sh
 pi install https://github.com/Engen-Tech/karta.git@<approved-tag>
@@ -30,7 +31,7 @@ pi list
 
 For package development, install the checkout directly.
 
-Mac, Linux, or Windows, local terminal from outside the Karta checkout:
+Mac or Linux, local terminal from outside the Karta checkout:
 
 ```sh
 pi install /absolute/path/to/karta
@@ -39,7 +40,7 @@ pi list
 
 Use `-l` to record the package in the current project's `.pi/settings.json` instead of your user settings.
 
-Mac, Linux, or Windows, local terminal in the consumer repository:
+Mac or Linux, local terminal in the consumer repository:
 
 ```sh
 pi install -l https://github.com/Engen-Tech/karta.git@<approved-tag> --approve
@@ -57,7 +58,7 @@ Karta does nothing authoritative in an untrusted project:
 
 Start Pi in the repository and approve it when Pi asks. For one explicitly approved invocation, use `--approve`.
 
-Mac, Linux, or Windows, local terminal in the consumer repository:
+Mac or Linux, local terminal in the consumer repository:
 
 ```sh
 pi --approve
@@ -161,7 +162,7 @@ Do not remove a readable live lock to "unstick" a run. Two writers on one integr
 
 For an unpinned Git source, update that source directly.
 
-Mac, Linux, or Windows, local terminal:
+Mac or Linux, local terminal:
 
 ```sh
 pi update https://github.com/Engen-Tech/karta.git
@@ -169,7 +170,7 @@ pi update https://github.com/Engen-Tech/karta.git
 
 For a pinned release, install the new tag, verify it, then remove the old source. Roll back by installing the previous reviewed tag again. Pi keys removal by the original source string, so use the same string shown by `pi list`.
 
-Mac, Linux, or Windows, local terminal:
+Mac or Linux, local terminal:
 
 ```sh
 pi remove https://github.com/Engen-Tech/karta.git@<approved-tag>
@@ -186,12 +187,12 @@ This matrix records native runs, not architectural guesses. A container result m
 |-|-|-|
 |macOS 26.5.2 arm64|Pass|Pi 0.84.2, Node 25.2.1, Apple Git 2.50.1; full suite and validators|
 |Linux x86_64|Pass|Debian 13, Pi 0.84.2, Node 25.2.1, Git 2.47.3, uv 0.11.25; full suite, validators, package lifecycle, and production audit|
-|Windows x86_64|Blocked|No authenticated native Windows runner is currently available|
+|Windows x86_64|Not supported in 2.30.0|Native Windows support is deferred to a later release|
 |SHA-1 repositories|Pass on macOS and Linux|Native Git fixture suite|
 |SHA-256 repositories|Pass on macOS and Linux|Native Git fixture suite|
 |Spaces, Unicode, symlinked local install, linked worktrees|Pass on macOS and Linux|Package lifecycle and lock fixtures|
 |Stored, environment, runtime-key, and declarative provider roundtrips|Pass|Controlled provider performs preflight, role tool calls, and strict verdicts|
 |Stored OAuth roundtrip|Pass on macOS|Live `openai-codex/gpt-5.6-sol` preflight, tool call, and verdict|
-|TUI, print, JSON, and RPC fixed-action smoke|Pass on macOS and Linux; Windows pending|A controlled provider makes Pi call `karta_dispatch`, consume its result, and finish in each mode|
+|TUI, print, JSON, and RPC fixed-action smoke|Pass on supported platforms|A controlled provider makes Pi call `karta_dispatch`, consume its result, and finish in each mode on macOS and Linux|
 
-Publication remains blocked until the Windows row passes, licensing and ownership approval are explicit, and `private: true` is deliberately removed. Today, none of those things has happened.
+The supported-platform release matrix passes. Publication remains blocked until licensing and ownership approval are explicit and `private: true` is deliberately removed.

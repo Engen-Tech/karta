@@ -13,11 +13,11 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A–3E, 4A–4F, and 5|
-|In progress|Phase 6 — native Windows compatibility and final owner-approved release checks|
-|First next action|Obtain an authenticated native Windows x86_64 runner, run the final matrix there, then request the explicit release approvals|
+|Completed|Phase 0 feasibility closure and Phases 1–6 for the 2.30.0 macOS/Linux support scope|
+|In progress|Release approval only; native Windows support is deferred beyond 2.30.0|
+|First next action|Request explicit approval for licensing, package ownership, publication, and the signed release tag|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|The Phase 6 candidate adds Pi 0.84.2 compatibility, native macOS/Linux coverage, provider roundtrips, package lifecycle coverage, and operator documentation on `feat/pi-package`|
+|Commit state|Phase 6 is committed at `4e5144b`; this checkpoint records the narrowed 2.30.0 support scope on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 170 tests: 169 pass in the ordinary run and the opt-in live OAuth test is skipped; that test also passes separately with stored `openai-codex` OAuth. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows remains blocked because no authenticated runner is available.
+The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 170 tests: 169 pass in the ordinary run and the opt-in live OAuth test is skipped; that test also passes separately with stored `openai-codex` OAuth. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows is not part of the 2.30.0 support scope.
 
 ## Non-negotiable invariants
 
@@ -63,7 +63,7 @@ The Phase 6 candidate passes the full floor on macOS and native Debian Linux. Th
 |3E — Transaction closure|Complete|Full-floor receipts, stable-tree convergence, complete citations, dependency-correct rules, and exact hook-validated commits pass|
 |4 — Build and delivery|Complete|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
 |5 — Narrow writers|Complete|Doc-gardner and kaizen run with confined capabilities and labeled commits|
-|6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
+|6 — Release|Complete|Supported native OS matrix, upgrades, rollback, documentation, and release checks pass|
 
 ## Decisions carried from Phase 0
 
@@ -466,7 +466,7 @@ Run native tests on:
 
 - current macOS;
 - Linux;
-- Windows, including directory-symlink privilege handling;
+- native Windows is deferred beyond 2.30.0 and is not a release gate for this version;
 - paths with spaces, Unicode, symlinks, and linked worktrees;
 - stored, environment, runtime-key, declarative custom, and OAuth provider classes, each through a complete gate tool-call and verdict roundtrip rather than an auth-only probe;
 - staged-tree and merge-tree plumbing under each native Git implementation, including SHA-1 and SHA-256 repositories;
@@ -493,7 +493,7 @@ Container or compatibility-layer results may supplement native runs but do not r
 
 ### Phase 6 gate
 
-- Native OS and package lifecycle tests pass.
+- Supported native OS and package lifecycle tests pass.
 - All repository validators and Pi tests pass.
 - Production audit reports zero vulnerabilities.
 - Documentation matches the shipped commands and limitations.
@@ -511,4 +511,4 @@ Karta's Pi package is complete only when:
 - a fresh process resumes entirely from Git;
 - no active child survives shutdown;
 - Claude Code and Codex projections and validators remain clean; and
-- the native release matrix passes.
+- the supported native release matrix passes.
