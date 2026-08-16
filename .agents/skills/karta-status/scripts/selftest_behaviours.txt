@@ -53,6 +53,14 @@ hub-token-constant-time
 ephemeral-key-gate-constant-time
 hub-host-pinning
 asset-directory-confinement
+vendored-font-faces
+font-manifest-agreement
+font-payload-budget
+font-licences-shipped
+font-src-same-origin
+font-stack-system-fallback
+page-fetches-nothing-remote
+single-front-end-runtime
 inert-json-escaping
 poll-loop-interval
 feed-live-paused-debounce

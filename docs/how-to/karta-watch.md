@@ -158,7 +158,8 @@ Karta Watch: hub not running (spawn denied by sandbox) — revive it: uv run --s
 - **Host-header allowlist.** Only `127.0.0.1:<port>` and `localhost:<port>` are accepted, which
   defeats DNS-rebinding tricks.
 - **Fully self-contained page.** No CDN, no remote fonts, no off-site loads of any kind — so no
-  outbound request exists whose Referer could carry your token.
+  outbound request exists whose Referer could carry your token. The typefaces are vendored (see
+  below), not fetched from a font service.
 - **The token rides the URL.** That means it lands in your browser history. On a shared machine,
   open the hub in a private window.
 - **IPv4 only.** The bind is `127.0.0.1`, not `::1`. If your browser resolves `localhost` to
@@ -166,3 +167,31 @@ Karta Watch: hub not running (spawn denied by sandbox) — revive it: uv run --s
 
 The hub is read-only end to end: every card derives fresh from git on each poll, and no web route
 can change anything — opt-in and opt-out exist only as the script flags above.
+
+## The typefaces ship with the plugin
+
+The page sets its text in three families — Newsreader, IBM Plex Sans and IBM Plex Mono. All three
+are vendored: eight subset `.woff2` files under `skills/karta-status/assets/fonts/`, served off the
+same `/assets/` route as the mascot and the Vue runtime. Nothing is fetched from a font service, so
+the page works with no network at all and leaks no request to anyone. Together the eight files are
+about 108 KB, and a check refuses to let them past 400 KB.
+
+Two consequences worth knowing:
+
+- **Coverage stops at one writing system.** Each face is cut to Basic Latin, Latin-1 Supplement and
+  General Punctuation — a fixed range, not "the characters the page happens to show today", because
+  the page renders your binder titles, summaries and file paths, which nobody can enumerate in
+  advance. Anything outside that range — an arrow, a box-drawing character, CJK, an emoji — is drawn
+  by your system font instead. That is by design, not a defect: every font stack keeps a system
+  family after the vendored one, so text always renders.
+- **A file:// snapshot falls back entirely.** Saved to disk and opened without the server, the font
+  URLs resolve to nothing and the whole page renders in system fonts. It stays readable; it just
+  does not look like the served page.
+
+`skills/karta-status/assets/fonts/manifest.json` records what was shipped and where it came from:
+per face the family, weight, file, size, sha256 and unicode range, and per family the upstream
+version, the exact `google/fonts` commit it was taken from, and the subsetting flags. Each family
+also ships its SIL Open Font Licence file beside the fonts. The subsetting tool (fonttools) runs at
+build time only — the page itself is stdlib Python with no dependencies, so the checks compare the
+manifest, the files on disk and the page's `@font-face` rules against each other rather than
+claiming to read glyphs back out of the binaries.

@@ -22,8 +22,9 @@ Routes:
   GET /state.json  the enriched engine state as JSON, derived fresh per request.
                    Carries an ETag over the exact bytes served; a request whose
                    If-None-Match matches it gets 304 with no body
-  GET /assets/<f>  the brand bytes + the vendored Vue (mascot.png, icon.png,
-                   vendor/vue.global.prod.js) — same-origin only
+  GET /assets/<f>  the brand bytes, the vendored Vue and the vendored typefaces
+                   (mascot.png, icon.png, vendor/vue.global.prod.js,
+                   fonts/*.woff2) — same-origin only
 
 Hub mode (--hub) serves every opted-in repo from the per-user store instead of
 the CWD. `--ensure` revives it as a detached daemon when needed (the daemon
@@ -50,7 +51,7 @@ dependency depth (parallel within a wave, serial between), each item click-to-ex
 its oracle assertion, command, and dependency. Light + dark ship in one stylesheet via
 prefers-color-scheme; `?theme=light|dark` forces one (screenshots). Self-contained: no
 CDN, no remote images, no remote fonts, no external JS — Vue is the one vendored
-same-origin file.
+runtime, and the three typefaces are subset woff2 files served off the same route.
 """
 from __future__ import annotations
 
@@ -101,6 +102,32 @@ import karta_next  # noqa: E402
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 _SCRIPT_PATH = Path(__file__).resolve()
+
+# --- the vendored typefaces -------------------------------------------------
+# The design asks for three families; karta forbids a CDN reference, so they are
+# subset and served same-origin from /assets/fonts/ like every other asset.
+#
+# VENDORED_FACES is the ENUMERATION — the eight (family, weight) pairs this page
+# ships. Nothing counts faces by hand: the manifest beside the fonts, the files
+# on disk and the page's @font-face rules are each checked against this tuple, so
+# "eight" is a length, never a number typed twice.
+#
+# Glyph coverage is NOT read back out of the woff2 files. Parsing a cmap needs a
+# font library, and this script is stdlib-only with zero dependencies — an
+# assertion that a face "covers Basic Latin" would be either faked or silently
+# skipped. Coverage is a guarantee of the (build-time) subsetting step, recorded
+# in the manifest; what the gate checks is that the manifest, the bytes on disk
+# and the declarations agree with each other, which is the honest part.
+FONTS_DIR = ASSETS_DIR / "fonts"
+FONT_MANIFEST = FONTS_DIR / "manifest.json"
+FONT_ROUTE = "/assets/fonts/"
+VENDORED_FACES: tuple[tuple[str, int], ...] = (
+    ("Newsreader", 400), ("Newsreader", 500),
+    ("IBM Plex Sans", 400), ("IBM Plex Sans", 500), ("IBM Plex Sans", 600),
+    ("IBM Plex Mono", 400), ("IBM Plex Mono", 500), ("IBM Plex Mono", 600),
+)
+# A subset with no stated bound is how a plugin quietly gains megabytes.
+FONT_BUDGET_BYTES = 400 * 1024
 
 # The hub's version label, served by /identity next to a sha256 digest of this
 # script's bytes. The DIGEST is what skew comparison uses; the constant is the
@@ -715,7 +742,8 @@ _LIGHT_VARS = (
 # CSS — "Karta Watch". The two design themes as custom properties; dark default,
 # light via ?theme=light. Both via data-theme AND prefers-color-scheme. The
 # design's inline styles are ported here as real classes (the same values), with
-# the five design keyframes. System font stack — NO remote fonts.
+# the five design keyframes. The three typefaces are vendored and served
+# same-origin — NO remote fonts, no CDN, and every stack keeps a system fallback.
 # ---------------------------------------------------------------------------
 
 _CSS = ("""
@@ -724,11 +752,43 @@ _CSS = ("""
 :root[data-theme="dark"]{__DARK__}
 :root[data-theme="light"]{__LIGHT__}
 
+/* The vendored faces. Same-origin only: __ASSET_QS__ carries the hub's key,
+   because hub assets are token-gated; ephemeral mode substitutes "". Each face
+   swaps rather than blocking paint, and each declares the writing-system range
+   it was cut to — anything outside it falls through to the system fallback. */
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("/assets/fonts/newsreader-400.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("/assets/fonts/newsreader-500.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-sans-400.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-sans-500.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:600; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-sans-600.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-mono-400.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-mono-500.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:600; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-mono-600.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+
 *{box-sizing:border-box}
 html,body{margin:0}
 :root{
-  --mono:ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Three roles, three vendored families — each followed by a system fallback,
+     so a blocked, 404ing or file:// -unreachable font still reads as text. */
+  --mono:"IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif:"Newsreader", Iowan Old Style, Georgia, "Times New Roman", serif;
 }
 body{
   background:var(--bg); color:var(--ink);
@@ -753,7 +813,10 @@ body{
 .brand{ display:flex; align-items:center; gap:13px; min-width:0; }
 .brand__mascot{ width:40px; height:40px; flex:none; display:block; }
 .brand__txt{ min-width:0; }
-.brand__word{ font-family:var(--mono); font-weight:700; font-size:22px; letter-spacing:-0.5px; }
+/* The wordmark is the design's one Newsreader element that already exists here,
+   so --serif is wired to it now; the rest of the serif scale (headlines, item
+   titles, wave numerals) arrives with the typography item. */
+.brand__word{ font-family:var(--serif); font-weight:700; font-size:22px; letter-spacing:-0.5px; }
 .brand__live{
   font-size:12px; color:var(--mut); margin-top:1px;
   display:flex; align-items:center; gap:6px;
@@ -970,6 +1033,15 @@ body{
         .replace("__DARK__", _DARK_VARS)
         .replace("__LIGHT__", _LIGHT_VARS)
         .strip())
+
+
+def _page_css(asset_qs: str = "") -> str:
+    """The stylesheet with its font URLs pointed at this mode's asset route.
+
+    Hub mode gates /assets/ behind the token, so a font URL that skipped the key
+    would 403 and the page would silently fall back to system fonts; ephemeral
+    mode passes "" and the bytes are unchanged."""
+    return _CSS.replace("__ASSET_QS__", asset_qs)
 
 
 # ---------------------------------------------------------------------------
@@ -1689,7 +1761,7 @@ def render_app_html(state: dict, theme: str | None = None, key_qs: str = "",
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f'<title data-kw-title data-kw-repo-name="{html.escape(repo_name, quote=True)}">{title}</title>'
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{key_qs}">'
-        f"<style>{_CSS}</style>"
+        f"<style>{_page_css(key_qs)}</style>"
         "</head>"
         "<body>"
         '<div id="app"></div>'
@@ -1714,6 +1786,8 @@ def _content_type(path: Path) -> str:
         return "image/png"
     if suffix == ".js":
         return "text/javascript"
+    if suffix == ".woff2":
+        return "font/woff2"
     return "application/octet-stream"
 
 
@@ -2034,7 +2108,7 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         'if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}'
         "catch(e){}</script>"
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{esc(key_qs, quote=True)}">'
-        f"<style>{_CSS}\n{_HUB_CSS}</style>"
+        f"<style>{_page_css(key_qs)}\n{_HUB_CSS}</style>"
         "</head>"
         "<body>"
         '<div class="wrap">'
@@ -5147,7 +5221,7 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          "URL — the vendored Vue is still the only script the page loads",
          page.count("<script src=") == 1
          and "/assets/vendor/vue.global.prod.js" in page
-         and "http://" not in page and "https://" not in page),
+         and not _remote_urls(page)),
     ]
     return checks
 
@@ -5833,11 +5907,237 @@ def _c_hub_host_pinning(ctx):
          breaks=[lambda c: {"asset_probe": lambda rel: 200}])
 def _c_asset_confinement(ctx):
     probe = ctx["asset_probe"]
+    face = ctx["font_manifest"]["faces"][0]["file"]
     return (probe("/assets/mascot.png") == 200
             and probe("/assets/vendor/vue.global.prod.js") == 200
+            and probe(FONT_ROUTE + face) == 200
             and probe("/assets/../../../etc/passwd") == 404
             and probe("/assets/../serve_status.py") == 404
-            and probe("/assets/nope.png") == 404)
+            and probe("/assets/nope.png") == 404
+            # the fonts subdirectory is a second nesting level, and depth is not
+            # what bounds the route — the resolve-and-confine is. Climbing out
+            # THROUGH it must land in the same 404 as climbing out of /assets/.
+            and probe(FONT_ROUTE + "../../serve_status.py") == 404
+            and probe(FONT_ROUTE + "../../../../../etc/passwd") == 404
+            and probe(FONT_ROUTE + "nope.woff2") == 404)
+
+
+# --- the vendored typefaces: manifest, declarations and bytes must agree -----
+# Everything below reads the DECLARED record (the manifest), the bytes on disk
+# and the stylesheet, and checks the three against each other and against
+# VENDORED_FACES. None of it opens a woff2 — see the note at VENDORED_FACES.
+
+_FONT_FACE_RE = re.compile(r"@font-face\s*\{([^}]*)\}")
+_CSS_DECL_RE = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;]+)")
+_FONT_ROLE_RE = re.compile(r"--(mono|sans|serif)\s*:\s*([^;}]+)")
+_GENERIC_FAMILIES = {"serif", "sans-serif", "monospace", "system-ui",
+                     "ui-monospace", "ui-sans-serif", "ui-serif", "cursive"}
+
+
+def _declared_faces(doc: str) -> list[dict]:
+    """Every @font-face rule in `doc` as {family, weight, src, display, range}."""
+    faces = []
+    for block in _FONT_FACE_RE.finditer(doc):
+        decl = {k.strip().lower(): v.strip()
+                for k, v in _CSS_DECL_RE.findall(block.group(1))}
+        url = re.search(r"url\(\s*[\"']?([^\"')]+)", decl.get("src", ""))
+        weight = decl.get("font-weight", "")
+        faces.append({
+            "family": decl.get("font-family", "").strip("\"'"),
+            "weight": int(weight) if weight.isdigit() else -1,
+            "src": url.group(1) if url else "",
+            "display": decl.get("font-display", ""),
+            "range": re.sub(r"\s+", "", decl.get("unicode-range", "")).upper(),
+        })
+    return faces
+
+
+def _font_role_stacks(css: str) -> dict[str, list[str]]:
+    """The --mono/--sans/--serif roles as ordered family lists."""
+    return {m.group(1): [p.strip().strip("\"'") for p in m.group(2).split(",")]
+            for m in _FONT_ROLE_RE.finditer(css)}
+
+
+def _fetchable_urls(doc: str) -> list[str]:
+    """Every URL the browser would actually FETCH: src=/href= attributes, CSS
+    url() references and @import targets. Deliberately NOT every http-looking
+    string — an inline SVG's xmlns is a namespace name, never a request, and a
+    blanket substring scan would fail the page for declaring one."""
+    out = []
+    for m in re.finditer(r"""(?:\b(?:src|href)\s*=\s*["']([^"']*)["'])"""
+                         r"""|(?:url\(\s*["']?([^"')]*))"""
+                         r"""|(?:@import\s+["']([^"']*))""", doc, re.I):
+        out.extend(g.strip() for g in m.groups() if g)
+    return out
+
+
+def _remote_urls(doc: str) -> list[str]:
+    """The fetchable URLs that leave this origin — the CDN leak this page forbids."""
+    return [u for u in _fetchable_urls(doc)
+            if u.lower().startswith(("http://", "https://", "//"))]
+
+
+def _without_a_font_face(css: str) -> str:
+    """A stylesheet one @font-face short — the mutation a face-count check must catch."""
+    blocks = list(_FONT_FACE_RE.finditer(css))
+    return css.replace(blocks[-1].group(0), "") if blocks else css
+
+
+def _stack_without_fallback(css: str) -> str:
+    """A stylesheet whose --sans role names the vendored family and nothing else."""
+    m = re.search(r"--sans\s*:\s*([^;}]+)", css)
+    return css.replace(m.group(0), '--sans:"IBM Plex Sans"') if m else css
+
+
+@_covers("vendored-font-faces", kind="behaviour",
+         breaks=[lambda c: {"css": _without_a_font_face(c["css"])},
+                 lambda c: {"font_manifest": {**c["font_manifest"],
+                                              "faces": c["font_manifest"]["faces"][:-1]}},
+                 lambda c: {"asset_serve": lambda path: (404, "text/plain")},
+                 lambda c: {"css": c["css"].replace("font-display:swap",
+                                                    "font-display:block")}])
+def _c_vendored_font_faces(ctx):
+    """The eight faces are declared, listed and actually served — as woff2."""
+    declared = [(f["family"], f["weight"]) for f in _declared_faces(ctx["css"])]
+    listed = [(e["family"], e["weight"]) for e in ctx["font_manifest"]["faces"]]
+    enumerated = list(VENDORED_FACES)
+    served = all(ctx["asset_serve"](FONT_ROUTE + e["file"]) == (200, "font/woff2")
+                 for e in ctx["font_manifest"]["faces"])
+    return (len(enumerated) == 8 and len(set(enumerated)) == 8
+            and sorted(declared) == sorted(listed) == sorted(enumerated)
+            and served
+            and all(f["display"] == "swap" for f in _declared_faces(ctx["css"])))
+
+
+@_covers("font-manifest-agreement", kind="behaviour",
+         breaks=[lambda c: {"font_files": {**c["font_files"],
+                                           c["font_manifest"]["faces"][0]["file"]:
+                                           {"bytes": 1, "sha256": "0" * 64, "head": ""}}},
+                 lambda c: {"font_manifest": {
+                     **c["font_manifest"],
+                     "faces": [{**f, "unicode_range": "U+0000-007F"}
+                               for f in c["font_manifest"]["faces"]]}},
+                 lambda c: {"css": c["css"].replace("U+2000-206F", "U+2000-20FF")}])
+def _c_font_manifest_agreement(ctx):
+    """Manifest, bytes on disk and @font-face rules describe the same eight files."""
+    entries = ctx["font_manifest"]["faces"]
+    disk = ctx["font_files"]
+    faces = {(f["family"], f["weight"]): f for f in _declared_faces(ctx["css"])}
+    if len(entries) != len(faces):
+        return False
+    for e in entries:
+        on_disk = disk.get(e["file"])
+        declared = faces.get((e["family"], e["weight"]))
+        if on_disk is None or declared is None:
+            return False
+        if on_disk["bytes"] != e["bytes"] or on_disk["sha256"] != e["sha256"]:
+            return False
+        if declared["range"] != re.sub(r"\s+", "", e["unicode_range"]).upper():
+            return False
+        if declared["src"] != FONT_ROUTE + e["file"]:
+            return False
+    return ({e["file"] for e in entries}
+            == {n for n in disk if n.endswith(".woff2")})
+
+
+@_covers("font-payload-budget", kind="behaviour",
+         breaks=[lambda c: {"font_files": {**c["font_files"], "bloat.woff2":
+                                           {"bytes": 400 * 1024, "sha256": "", "head": ""}}},
+                 lambda c: {"font_budget": 1024}])
+def _c_font_payload_budget(ctx):
+    """All the woff2 bytes this plugin ships, together, under the stated bound."""
+    total = sum(f["bytes"] for name, f in ctx["font_files"].items()
+                if name.endswith(".woff2"))
+    return 0 < total < ctx["font_budget"]
+
+
+@_covers("font-licences-shipped", kind="behaviour",
+         breaks=[lambda c: {"font_files": {n: f for n, f in c["font_files"].items()
+                                           if not n.endswith("-OFL.txt")}},
+                 lambda c: {"font_manifest": {
+                     **c["font_manifest"],
+                     "families": {f: {**e, "licence": "absent.txt"}
+                                  for f, e in c["font_manifest"]["families"].items()}}}])
+def _c_font_licences_shipped(ctx):
+    """Every vendored family ships its licence beside the fonts. Redistributing an
+    OFL face without its licence is a licensing defect, not an untidiness."""
+    families = ctx["font_manifest"]["families"]
+    disk = ctx["font_files"]
+    if set(families) != {family for family, _ in VENDORED_FACES}:
+        return False
+    for entry in families.values():
+        licence = disk.get(entry.get("licence", ""))
+        if licence is None or "OPEN FONT LICENSE" not in licence["head"].upper():
+            return False
+    return True
+
+
+@_covers("page-fetches-nothing-remote", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "</head>", '<link rel="stylesheet" '
+             'href="https://fonts.googleapis.com/css2?family=Newsreader"></head>')},
+                 lambda c: {"hub": c["hub"].replace(
+                     "@font-face", "@import 'https://fonts.gstatic.com/x.css';@font-face", 1)}])
+def _c_no_remote_fetch(ctx):
+    """No rendered document fetches anything off this origin — checked against
+    fetchable contexts, so declaring an SVG namespace never false-fails."""
+    namespaced = ('<svg xmlns="http://www.w3.org/2000/svg" '
+                  'xmlns:xlink="http://www.w3.org/1999/xlink"><use href="#i"/></svg>')
+    return (not [u for key in _DOC_KEYS for u in _remote_urls(ctx[key])]
+            and not _remote_urls(ctx["page"] + namespaced))
+
+
+@_covers("font-src-same-origin", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             'url("/assets/fonts/', 'url("https://fonts.gstatic.com/s/')},
+                 lambda c: {"page": c["page"].replace(
+                     ".woff2?key=" + c["key_token"], ".woff2")}])
+def _c_font_src_same_origin(ctx):
+    """Every face loads from the same-origin asset route — and carries the hub's
+    key when there is one, or the token gate would 403 every font."""
+    raw = _declared_faces(ctx["css"])
+    keyed = _declared_faces(ctx["page"])
+    plain = _declared_faces(ctx["eph"])
+    if not raw or not (len(raw) == len(keyed) == len(plain)):
+        return False
+    same_origin = all(f["src"].startswith(FONT_ROUTE)
+                      for f in raw + keyed + plain)
+    return (same_origin
+            and all(f["src"].endswith(".woff2") for f in raw + plain)
+            and all(f["src"].endswith(".woff2?key=" + ctx["key_token"])
+                    for f in keyed))
+
+
+@_covers("font-stack-system-fallback", kind="behaviour",
+         breaks=[lambda c: {"css": _stack_without_fallback(c["css"])},
+                 lambda c: {"css": c["css"].replace("--serif:", "--display:")}])
+def _c_font_stack_fallback(ctx):
+    """Each role leads with its vendored family and ends in a system one, so a
+    blocked, 404ing or file://-unreachable font still reads as text."""
+    stacks = _font_role_stacks(ctx["css"])
+    vendored = {family for family, _ in VENDORED_FACES}
+    if len(stacks) != len(vendored):
+        return False
+    led = set()
+    for families in stacks.values():
+        if len(families) < 2 or families[0] not in vendored:
+            return False
+        if families[-1] not in _GENERIC_FAMILIES:
+            return False
+        led.add(families[0])
+    return led == vendored
+
+
+@_covers("single-front-end-runtime", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "</body>", '<script src="/assets/vendor/htmx.min.js"></script></body>')},
+                 lambda c: {"asset_scripts": c["asset_scripts"] + ["vendor/htmx.min.js"]}])
+def _c_single_front_end_runtime(ctx):
+    """Fonts are files, not a framework: Vue stays the only vendored runtime."""
+    fetched = [u.split("?")[0] for u in _fetchable_urls(ctx["page"])
+               if u.split("?")[0].endswith(".js")]
+    return (fetched == ["/assets/vendor/vue.global.prod.js"]
+            and ctx["asset_scripts"] == ["vendor/vue.global.prod.js"])
 
 
 @_covers("inert-json-escaping", kind="behaviour",
@@ -6039,13 +6339,33 @@ def _coverage_context() -> dict:
         return _HubHandler._host_ok(_Ns(headers={"Host": host},
                                         server=_Ns(server_port=port)))
 
-    def asset_probe(path):
+    def asset_serve(path):
+        """(status, content type) the real asset route answers `path` with."""
         seen = []
         handler = _Handler.__new__(_Handler)
-        handler._text = lambda code, text, ctype, etag=None: seen.append(code)
-        handler._send = lambda code, body, ctype, cache=False, etag=None: seen.append(code)
+        handler._text = lambda code, text, ctype, etag=None: seen.append((code, ctype))
+        handler._send = lambda code, body, ctype, cache=False, etag=None: seen.append((code, ctype))
         _Handler._serve_asset(handler, path)
-        return seen[0] if seen else 0
+        return seen[0] if seen else (0, "")
+
+    def asset_probe(path):
+        return asset_serve(path)[0]
+
+    # The vendored typefaces as three independent readings: the bytes on disk,
+    # the declared manifest, and the stylesheet (already in "css" below).
+    font_files = {}
+    for f in sorted(FONTS_DIR.iterdir()) if FONTS_DIR.is_dir() else []:
+        if f.is_file():
+            data = f.read_bytes()
+            font_files[f.name] = {
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "head": data[:400].decode("utf-8", "replace") if f.suffix == ".txt" else "",
+            }
+    font_manifest = (json.loads(FONT_MANIFEST.read_text(encoding="utf-8"))
+                     if FONT_MANIFEST.is_file() else {"faces": [], "families": {}})
+    asset_scripts = sorted(str(p.relative_to(ASSETS_DIR))
+                           for p in ASSETS_DIR.rglob("*.js"))
 
     poll_ms = int(re.search(r"const POLL_MS = (\d+);", _APP_JS).group(1))
     return {
@@ -6053,7 +6373,7 @@ def _coverage_context() -> dict:
         "degraded_page": degraded_page, "hub": hub,
         "hub_empty": render_hub_html([], key_qs),
         "hub_card_count": len(cards),
-        "css": _strip_css_comments(_CSS),
+        "css": _strip_css_comments(_page_css()),
         "app_src": _APP_JS,
         "repo_dispatch": inspect.getsource(_Handler.do_GET),
         "hub_dispatch": inspect.getsource(_HubHandler.do_GET),
@@ -6074,7 +6394,9 @@ def _coverage_context() -> dict:
         "feed_step": _feed_transition, "poll_decide": poll_decision,
         "repo_route": _REPO_ROUTE.fullmatch,
         "key_ok": key_ok, "hub_key_ok": hub_key_ok, "host_ok": host_ok,
-        "asset_probe": asset_probe,
+        "asset_probe": asset_probe, "asset_serve": asset_serve,
+        "font_files": font_files, "font_manifest": font_manifest,
+        "font_budget": FONT_BUDGET_BYTES, "asset_scripts": asset_scripts,
     }
 
 
@@ -6276,7 +6598,9 @@ def _run_self_test() -> int:
         h = render_app_html(state, theme)
         checks += [
             (f"{theme}: renders a real document", len(h) > 8000),
-            (f"{theme}: NO external URLs (self-contained)", "http://" not in h and "https://" not in h),
+            (f"{theme}: NO external URLs (self-contained) — checked against the "
+             "contexts a browser actually fetches, not every http-looking string",
+             not _remote_urls(h)),
             (f"{theme}: inlines first-paint state", "window.__KARTA_STATE__" in h),
             (f"{theme}: vendors Vue same-origin", "/assets/vendor/vue.global.prod.js" in h),
             (f"{theme}: carries the binder + next action", "s-edit" in h and "karta-deliver" in h),
