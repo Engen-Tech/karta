@@ -111,3 +111,19 @@ hub-landing-token-parity
 hub-refresh-shared-decision
 hub-refresh-off-means-off
 hub-no-meta-refresh
+
+# The map rail down the left-hand side: the two-column shell, the four groups
+# every binder is placed into exactly once, the delivered group's toggle moved
+# into the group it reveals, the one dot that moves, and the legend that says
+# what the movement means. The narrow breakpoint is CSS alone — no scroll or
+# resize listener was added, and rail-unsticks-at-narrow-breakpoint asserts it.
+rail-two-column-shell
+rail-region
+rail-group-order
+rail-binder-cards
+rail-in-flight-dot-breathes
+rail-motion-legend
+rail-holds-the-delivered-toggle
+rail-delivered-group-hides-its-cards
+rail-title-falls-back-to-title-case
+rail-unsticks-at-narrow-breakpoint

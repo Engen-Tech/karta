@@ -826,6 +826,46 @@ _KEYFRAMES: dict[str, str] = {
                      "item still reads urgent through colour and icon",
 }
 
+# ---------------------------------------------------------------------------
+# The rail's "Motion = state" legend. The page encodes state in movement and in
+# shape, and a reader who has not been told that reads a pulsing dot as
+# decoration. So the vocabulary is written down beside the map that uses it.
+#
+# `motion` binds an entry to the keyframe it explains, and the self-test asserts
+# the animated entries cover _KEYFRAMES EXACTLY: ship a sixth motion and the
+# legend goes stale silently otherwise. `motion: None` marks the four entries
+# that explain a static shape rather than a movement — hatched, still, and the
+# two lane figures — which have no keyframe to bind to and never will.
+# `swatch` is the modifier class the little sample in front of the text wears.
+# ---------------------------------------------------------------------------
+
+# The width below which the rail stops being a column and becomes a list. ONE
+# definition: the stylesheet interpolates it, and the self-test reads the same
+# constant to find the media query, so the breakpoint cannot drift out of the
+# check that guards it.
+RAIL_NARROW_PX = 880
+
+_RAIL_LEGEND: list[dict] = [
+    {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
+     "text": "pulsing — in flight"},
+    {"key": "breathing", "motion": "karta-breathe", "swatch": "rail__mot--breathe",
+     "text": "breathing — the feed is live"},
+    {"key": "spinning", "motion": "karta-spin",    "swatch": "rail__mot--spin",
+     "text": "spinning — running right now"},
+    {"key": "drawn",    "motion": "karta-draw",    "swatch": "rail__mot--draw",
+     "text": "drawn once — the repo you are watching"},
+    {"key": "blinking", "motion": "karta-alarm",   "swatch": "rail__mot--alarm",
+     "text": "blinking — halted"},
+    {"key": "hatched",  "motion": None,            "swatch": "rail__mot--hatch",
+     "text": "hatched — not run yet"},
+    {"key": "still",    "motion": None,            "swatch": "rail__mot--still",
+     "text": "still — settled"},
+    {"key": "flush",    "motion": None,            "swatch": "rail__mot--flush",
+     "text": "flush lanes — at once"},
+    {"key": "stepped",  "motion": None,            "swatch": "rail__mot--stepped",
+     "text": "stepped lanes — in turn"},
+]
+
 
 # ---------------------------------------------------------------------------
 # CSS — "Karta Watch". The two design themes as custom properties; dark default,
@@ -911,6 +951,10 @@ body{
 @keyframes karta-shimmer{ 0%{ background-position:-140px 0; } 100%{ background-position:240px 0; } }
 
 .wrap{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:20px; }
+/* The repo page carries a rail beside its main column, so it — and ONLY it —
+   opens out to the design's maximum width. The hub landing shares .wrap and
+   stays at its own measure. */
+.wrap--repo{ max-width:1440px; }
 
 /* header */
 .top{ display:flex; justify-content:space-between; align-items:center; gap:16px; }
@@ -1030,6 +1074,122 @@ body{
 .also__link{ color:var(--mut); text-decoration:none; border-bottom:1px solid var(--line); }
 .also__link:hover{ color:var(--accent); border-color:var(--accent); }
 
+/* ── the map rail and the column beside it ─────────────────────────────────
+   The shell is a two-column grid: the rail, then main. The rail is sticky under
+   the sticky header, so the map stays on screen while the delivery scrolls past
+   it. Below the narrow breakpoint the grid collapses to ONE column and the rail
+   unsticks — the media query and `position:sticky` are the whole mechanism, so
+   the page still registers no scroll or resize listener of any kind. */
+.split{
+  display:grid; grid-template-columns:minmax(248px,296px) 1fr;
+  gap:24px; align-items:start;
+}
+/* nothing to map yet: no rail, so the grid drops its first column rather than
+   leaving the empty state stranded in the rail's narrow measure. */
+.split--solo{ grid-template-columns:1fr; }
+.main{ min-width:0; display:flex; flex-direction:column; gap:20px; }
+
+.rail{
+  position:sticky; top:78px; max-height:calc(100vh - 104px); overflow-y:auto;
+  display:flex; flex-direction:column; gap:14px; padding:4px 6px 14px; min-width:0;
+}
+.rail__head{ display:flex; align-items:baseline; gap:9px; }
+.rail__title{
+  font-family:var(--mono); font-size:11px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--now-deep);
+}
+.rail__hint{ font-family:var(--mono); font-size:11px; color:var(--mut-2); margin-left:auto; }
+.rail__groups{ display:flex; flex-direction:column; }
+
+/* a group header: label, rule, and either the count or — for Delivered — the
+   toggle that reveals the group, which carries the count as its own reading. */
+.rail__ghead{ display:flex; align-items:center; gap:8px; padding:0 0 8px; }
+.rail__glabel{
+  font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:1.8px;
+  text-transform:uppercase;
+}
+.rail__grule{ flex:1; height:1px; background:var(--line); }
+.rail__gcount{ font-family:var(--mono); font-size:10px; color:var(--mut-2); flex:none; }
+.rail__gtoggle{
+  display:inline-flex; align-items:center; gap:6px; cursor:pointer; flex:none;
+  font-family:var(--mono); font-size:10px; color:var(--mut);
+  background:transparent; border:1px solid var(--line-2); border-radius:99px;
+  padding:3px 9px;
+}
+.rail__gtoggle:hover{ border-color:var(--now); color:var(--now-deep); }
+.rail__gtoggle--on{ color:var(--ink); }
+
+/* a rail row: the phase dot in its gutter, then the card. */
+.rail__row{ display:flex; gap:12px; }
+.rail__gutter{
+  flex:none; width:11px; display:flex; flex-direction:column;
+  align-items:center; padding-top:16px;
+}
+.rail__dot{ width:11px; height:11px; border-radius:50%; background:var(--bg); flex:none; }
+.rail__dot--past{ background:var(--green); }
+/* the in-flight dot is the rail's one moving part, and it breathes. */
+.rail__dot--now{ background:var(--now); animation:karta-breathe 2s ease-in-out infinite; }
+.rail__dot--next{ border:2px solid var(--steel); }
+.rail__dot--later{ border:2px dashed var(--wait); }
+.rail__stem{ flex:1; width:2px; background:var(--line-2); margin-top:4px; }
+.rail__body{ flex:1; min-width:0; padding-bottom:14px; }
+/* The card is an ANCHOR to the binder's own card in the main column, not a
+   scripted jump: no listener, no handler, and it still works in a saved copy. */
+.rail__pick{
+  display:flex; flex-direction:column; gap:5px; width:100%; min-width:0;
+  text-align:left; text-decoration:none; color:inherit;
+  border:1px solid var(--line); background:var(--surface); padding:11px 13px;
+}
+.rail__pick:hover{ background:var(--surface-2); border-color:var(--accent-line); }
+.rail__pick--now{ border-color:var(--now); background:var(--now-soft); }
+.rail__line{ display:flex; align-items:center; gap:8px; min-width:0; }
+.rail__name{
+  font-family:var(--serif); font-size:17px; line-height:1.15;
+  color:var(--ink); flex:1; min-width:0;
+}
+.rail__pct{
+  font-family:var(--mono); font-size:11px; color:var(--mut-2); flex:none;
+  font-variant-numeric:tabular-nums;
+}
+.rail__pct--now{ color:var(--now-deep); }
+.rail__slug{
+  font-family:var(--mono); font-size:10px; color:var(--mut-2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.rail__bar{ height:4px; background:var(--line); overflow:hidden; }
+.rail__fill{ height:100%; background:var(--now); }
+
+/* "Motion = state" — the page encodes status in movement and in shape, and a
+   reader who has not been told that reads a pulsing dot as decoration. */
+.rail__legend{
+  border-top:1px solid var(--line); padding-top:12px;
+  display:flex; flex-direction:column; gap:7px;
+}
+.rail__legend-title{
+  font-family:var(--mono); font-size:10px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--mut-2);
+}
+.rail__mot{
+  display:flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:10px; color:var(--mut);
+}
+.rail__swatch{ width:9px; height:9px; flex:none; }
+.rail__mot--pulse{ border-radius:50%; background:var(--now); box-shadow:0 0 0 2px var(--now-soft); }
+.rail__mot--breathe{ border-radius:50%; background:var(--green); animation:karta-breathe 2s ease-in-out infinite; }
+.rail__mot--spin{ border-radius:50%; border:2px solid var(--now); border-top-color:transparent; }
+.rail__mot--draw{ width:14px; height:3px; background:var(--accent); }
+.rail__mot--alarm{ background:var(--halt); }
+.rail__mot--hatch{ background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px); opacity:.55; }
+.rail__mot--still{ border-radius:50%; background:var(--green); }
+.rail__mot--flush{ width:16px; background:repeating-linear-gradient(to bottom,var(--now) 0 2px,transparent 2px 4px); }
+.rail__mot--stepped{
+  width:16px;
+  background-image:linear-gradient(var(--now),var(--now)),linear-gradient(var(--now),var(--now)),linear-gradient(var(--now),var(--now));
+  background-size:33% 2px,33% 2px,33% 2px;
+  background-position:0 0,33% 4px,66% 8px;
+  background-repeat:no-repeat;
+}
+
 /* delivery panel */
 .panel{ background:var(--surface); border:1px solid var(--line); padding:24px 30px 16px; }
 .panel__head{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
@@ -1059,8 +1219,9 @@ body{
 .phase__empty{ font-size:12px; color:var(--mut); opacity:.5; }
 .phase__binders{ display:flex; flex-direction:column; gap:14px; }
 
-/* a binder card */
-.binder{ border:1px solid var(--line); background:var(--bg); }
+/* a binder card. `scroll-margin-top` is what makes a rail card's anchor jump
+   land BELOW the sticky header instead of under it — CSS, not a scroll handler. */
+.binder{ border:1px solid var(--line); background:var(--bg); scroll-margin-top:88px; }
 .binder--now{ border-color:var(--now); }
 .binder--done{ border-color:var(--green); }
 /* a real <button> (keyboard-operable expander) styled to the existing look */
@@ -1197,7 +1358,14 @@ body{
     background:var(--now) !important; background-size:auto !important;
     animation:karta-breathe 2s ease-in-out infinite !important;
   }
-  .brand__dot, .shell__feed-dot{ animation:karta-breathe 2s ease-in-out infinite; }
+  .brand__dot, .shell__feed-dot, .rail__dot--now, .rail__mot--breathe{ animation:karta-breathe 2s ease-in-out infinite; }
+}
+/* The narrow breakpoint: the two columns become one and the rail stops sticking,
+   so on a phone the map reads as a list above the delivery rather than as a
+   pinned column stealing half the screen. */
+@media (max-width:__NARROW__px){
+  .split{ grid-template-columns:1fr !important; }
+  .rail{ position:static !important; max-height:none !important; overflow-y:visible; }
 }
 @media (max-width:560px){
   .wave{ grid-template-columns:1fr !important; }
@@ -1205,6 +1373,7 @@ body{
 """
         .replace("__DARK__", _DARK_VARS)
         .replace("__LIGHT__", _LIGHT_VARS)
+        .replace("__NARROW__", str(RAIL_NARROW_PX))
         .strip())
 
 
@@ -1438,6 +1607,90 @@ def branch_chips(state: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# The map rail. One card per binder, grouped Delivered / Now / Next / Later —
+# the SAME four phases the timeline uses, off the same _PHASE_DEFS, so the rail
+# and the panel can never disagree about where a binder stands.
+#
+# Kept out of the template as a pure function for the same reason branch_chips
+# and join_archived are: the gate has no browser, so the grouping rule is driven
+# here by direct call and the page's railGroups() is held to the same shape.
+# ---------------------------------------------------------------------------
+
+RAIL_TITLE = "Karta's Map"
+RAIL_DELIVERED_KEY = "past"      # the one collapsible group (the show-delivered toggle)
+
+
+def _title_case(slug: str) -> str:
+    """A kebab slug as a headline: "note-tags-edit" -> "Note Tags Edit".
+
+    The fallback for a binder authored before binders carried a human `title`;
+    the rail never shows a nameless card."""
+    # MIRROR: change together with titleCase() in _APP_JS and the rail self-test.
+    return " ".join(w[:1].upper() + w[1:]
+                    for w in str(slug or "").split("-") if w)
+
+
+def _rail_done(binder: dict) -> int:
+    """How many of a binder's runs are through — counted off the per-item detail
+    when it is there, and off the carried count when it is not (a thin archived
+    row has counts but no detail, and reporting 0/N for it would be a lie)."""
+    # MIRROR: change together with doneCountOf() in _APP_JS.
+    items = binder.get("items") or {}
+    detail = items.get("detail") or []
+    if not detail:
+        return items.get("done") or 0
+    return sum(1 for it in detail if it.get("status") in ("done", "built"))
+
+
+def _rail_card(binder: dict, key: str) -> dict:
+    """One rail card: the dot's phase, the headline, the slug, the progress."""
+    total = (binder.get("items") or {}).get("total") or 0
+    done = _rail_done(binder)
+    return {
+        "slug": binder.get("slug") or "",
+        "title": binder.get("title") or _title_case(binder.get("slug")),
+        "progress": "%d/%d" % (done, total),
+        "pctW": "%d%%" % (round(done / total * 100) if total else 0),
+        "now": key == "now",
+    }
+
+
+def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
+    """Python mirror of the page's railGroups(): binders in, rail groups out.
+
+    Every binder lands in exactly one group, and the groups come back in
+    _PHASE_DEFS order — delivered, now, next, later. The Delivered group keeps
+    its header and its count whatever the reader has chosen, so the toggle that
+    reveals it is never itself hidden; only its CARDS are withheld."""
+    # MIRROR: change together with railGroups() in _APP_JS and the rail self-test.
+    tagged, next_seen = [], False
+    for binder in binders or []:
+        status = binder.get("status")
+        if status == "merged":
+            key = "past"
+        elif status == "in_flight":
+            key = "now"
+        elif not next_seen:
+            next_seen, key = True, "next"
+        else:
+            key = "later"
+        tagged.append((key, binder))
+    groups = []
+    for defn in _PHASE_DEFS:
+        key = defn["key"]
+        rows = [b for k, b in tagged if k == key]
+        collapsible = key == RAIL_DELIVERED_KEY
+        hidden = collapsible and not show_delivered
+        groups.append({
+            "key": key, "label": defn["label"],
+            "color": _PHASE_META[key]["color"],
+            "count": len(rows), "collapsible": collapsible,
+            "cards": [] if hidden else [_rail_card(b, key) for b in rows],
+        })
+    return groups
+
+
+# ---------------------------------------------------------------------------
 # The Vue 3 app. Uses the vendored global build (Vue.createApp), an in-document
 # template (no build step). Mounts from the inlined initial state for a correct
 # first paint, then — only off file://, and only while the tab is visible —
@@ -1469,6 +1722,12 @@ const TICK_MS = __TICK_MS__;
 const REFRESH_KEY = __REFRESH_KEY__;
 const REFRESH = __REFRESH_LABELS__;
 const REFRESH_VECTORS = __REFRESH_VECTORS__;
+
+// The map rail's own constants, handed over from the server: its title, which
+// group is the collapsible one, and the "Motion = state" legend table. The
+// legend is Python-owned so the entry set can be asserted against the page's
+// keyframes rather than kept in step by hand.
+const RAIL = __RAIL__;
 
 // The header shell, handed over from the server: the repo display name, the
 // hub-landing href (null in ephemeral mode — no hub to go home to), and the
@@ -1597,6 +1856,50 @@ function titleCase(slug) {
     .map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
+// One rail card: the headline (slug-derived when the binder carries no title),
+// the slug, and how far its runs have got.
+function railCard(b, key) {
+  const total = (b.items && b.items.total) || 0;
+  const done = doneCountOf(b);
+  return {
+    slug: b.slug || '',
+    title: b.title || titleCase(b.slug),
+    progress: done + '/' + total,
+    pctW: (total ? Math.round(done / total * 100) : 0) + '%',
+    now: key === 'now',
+  };
+}
+
+// The rail's four groups, in PHASE_DEFS order, every binder in exactly one of
+// them — the SAME classification the timeline uses, so the map and the panel can
+// never disagree. The Delivered group keeps its header and its count whatever
+// the reader has chosen (the toggle that reveals it must not hide itself); only
+// its CARDS are withheld. Mirrored by rail_groups() in serve_status.py, which
+// the self-test drives — keep the two in lockstep.
+// MIRROR: change together with rail_groups() in serve_status.py and the rail self-test.
+function railGroupsOf(binders, showDelivered) {
+  const tagged = []; let nextSeen = false;
+  (binders || []).forEach(b => {
+    let key;
+    if (b.status === 'merged') key = 'past';
+    else if (b.status === 'in_flight') key = 'now';
+    else if (!nextSeen) { nextSeen = true; key = 'next'; }
+    else key = 'later';
+    tagged.push({ key: key, b: b });
+  });
+  return PHASE_DEFS.map(d => {
+    const rows = tagged.filter(t => t.key === d.key);
+    const collapsible = (d.key === RAIL.delivered_key);
+    const hidden = collapsible && !showDelivered;
+    return {
+      key: d.key, label: d.label, color: PHASE_META[d.key].color,
+      count: rows.length, collapsible: collapsible,
+      dotClass: 'rail__dot--' + d.key,
+      cards: hidden ? [] : rows.map(t => railCard(t.b, d.key)),
+    };
+  });
+}
+
 // Group a binder's items into dependency-depth waves — ported verbatim from the
 // design's wavesOf(). depth = longest dep chain; items at one depth = one wave;
 // waves serial between, parallel within. Each item's `deps` is _enrich's depends_on.
@@ -1689,6 +1992,17 @@ const app = createApp({
       const shipped = seq.filter(b => b.status === 'merged').length;
       return seq.length + (seq.length === 1 ? ' binder · ' : ' binders · ') + shipped + ' delivered';
     },
+
+    // The map rail: its title, its one-line reading, its groups and its legend.
+    // All four are derived from state already on the page — the rail adds no
+    // request, no timer and no listener of its own.
+    railTitle() { return RAIL.title; },
+    railHint() {
+      const n = this.binders.length;
+      return n + (n === 1 ? ' binder' : ' binders') + ' · jump to one';
+    },
+    railGroups() { return railGroupsOf(this.binders, this.showDelivered); },
+    legend() { return RAIL.legend; },
 
     // classify each binder into a phase over the engine's derived order:
     //   merged -> past, in_flight -> now, first not_started -> next, rest -> later.
@@ -1902,7 +2216,7 @@ const app = createApp({
     }
   },
   template: `
-<div class="wrap">
+<div class="wrap wrap--repo">
   <header class="top top--shell" data-kw-top>
     <div class="shell" data-kw-shell>
       <a v-if="shell.home" class="shell__brand" data-kw-shell-kmark :href="shell.home" aria-label="karta watch hub">
@@ -1943,12 +2257,6 @@ const app = createApp({
           <span class="hctl__icon"><icon :name="autoRefresh ? 'checksquare' : 'square'" :size="15" :color="autoRefresh ? 'var(--ink)' : 'var(--mut)'" /></span>auto refresh
         </button>
       </div>
-      <button type="button" class="hctl" data-kw-show-delivered :class="{ 'hctl--on': showDelivered }"
-        @click="toggleShowDelivered"
-        title="show delivered binders"
-        :aria-pressed="showDelivered ? 'true' : 'false'">
-        <span class="hctl__icon"><icon :name="showDelivered ? 'checksquare' : 'square'" :size="15" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" /></span>show delivered
-      </button>
       <button type="button" class="hctl hctl--icon" data-kw-theme-toggle
         @click="toggleTheme"
         title="toggle light / dark"
@@ -1963,6 +2271,57 @@ const app = createApp({
     <a class="also__link" data-kw-switcher-link v-for="o in shell.others" :key="o.slug" :href="o.href">{{ o.name }}</a>
   </nav>
 
+  <div class="split" data-kw-split :class="{ 'split--solo': !hasBinders }">
+
+    <aside class="rail" data-kw-rail v-if="hasBinders" aria-label="karta's map">
+      <div class="rail__head">
+        <span class="rail__title" data-kw-rail-title>{{ railTitle }}</span>
+        <span class="rail__hint">{{ railHint }}</span>
+      </div>
+
+      <div class="rail__groups">
+        <div class="rail__group" data-kw-rail-group :data-kw-rail-group-key="g.key" v-for="g in railGroups" :key="g.key">
+          <div class="rail__ghead">
+            <span class="rail__glabel" :style="{ color: g.color }">{{ g.label }}</span>
+            <span class="rail__grule"></span>
+            <button v-if="g.collapsible" type="button" class="rail__gtoggle" data-kw-show-delivered
+              :class="{ 'rail__gtoggle--on': showDelivered }"
+              @click="toggleShowDelivered"
+              title="show delivered binders"
+              :aria-pressed="showDelivered ? 'true' : 'false'">
+              <icon :name="showDelivered ? 'checksquare' : 'square'" :size="11" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" />{{ g.count }}
+            </button>
+            <span v-else class="rail__gcount">{{ g.count }}</span>
+          </div>
+
+          <div class="rail__row" data-kw-rail-card :data-kw-rail-card-slug="c.slug" v-for="c in g.cards" :key="c.slug">
+            <span class="rail__gutter">
+              <span class="rail__dot" data-kw-rail-dot :data-kw-rail-dot-key="g.key" :class="g.dotClass"></span>
+              <span class="rail__stem"></span>
+            </span>
+            <div class="rail__body">
+              <a class="rail__pick" :class="{ 'rail__pick--now': c.now }" :href="'#binder-' + c.slug">
+                <span class="rail__line">
+                  <span class="rail__name">{{ c.title }}</span>
+                  <span class="rail__pct" data-kw-rail-progress :class="{ 'rail__pct--now': c.now }">{{ c.progress }}</span>
+                </span>
+                <span class="rail__slug">{{ c.slug }}</span>
+                <span class="rail__bar"><span class="rail__fill" :style="{ width: c.pctW, background: g.color }"></span></span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail__legend" data-kw-rail-legend>
+        <span class="rail__legend-title">Motion = state</span>
+        <span class="rail__mot" data-kw-rail-legend-entry :data-kw-rail-legend-key="l.key" v-for="l in legend" :key="l.key">
+          <span class="rail__swatch" :class="l.swatch"></span>{{ l.text }}
+        </span>
+      </div>
+    </aside>
+
+    <main class="main" data-kw-main>
   <template v-if="hasBinders">
     <section class="panel" aria-label="delivery">
       <div class="panel__head">
@@ -1991,7 +2350,7 @@ const app = createApp({
           <div class="phase__empty" v-if="p.empty">— no binders</div>
 
           <div class="phase__binders">
-            <div class="binder" data-kw-binder :data-kw-delivered="b.done ? 'true' : 'false'" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
+            <div class="binder" data-kw-binder :id="'binder-' + b.slug" :data-kw-delivered="b.done ? 'true' : 'false'" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
               <button type="button" class="binder__header" data-kw-binder-header :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
                 @click="toggleBinder(b.slug, b.key)"
                 :aria-expanded="b.open ? 'true' : 'false'">
@@ -2061,6 +2420,8 @@ const app = createApp({
     <p class="empty__hint">add a binder under <span class="mono">.karta/binders/</span>
       (try <span class="mono">karta-plan</span>) and the delivery will chart itself here.</p>
   </section>
+    </main>
+  </div>
 
   <footer class="foot">karta · mirrors git · read-only</footer>
 </div>
@@ -2096,6 +2457,9 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__PHASE_DEFS__", json.dumps(_PHASE_DEFS, separators=(",", ":")))
         .replace("__ORACLE_ICON__", json.dumps(_ORACLE_ICON, separators=(",", ":")))
         .replace("__SHELL__", _inert_json(shell))
+        .replace("__RAIL__", _inert_json({"title": RAIL_TITLE,
+                                          "delivered_key": RAIL_DELIVERED_KEY,
+                                          "legend": _RAIL_LEGEND}))
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
         .replace("__BRANCH_FMT__", _inert_json(INTEGRATION_BRANCH_FMT))
@@ -6598,6 +6962,264 @@ def _c_show_delivered_key(ctx):
             and "localStorage.setItem('karta-show-delivered'" in app)
 
 
+# --- the map rail ------------------------------------------------------------
+
+@_covers("rail-two-column-shell", kind="rendered", hook="data-kw-split",
+         breaks=[lambda c: _renamed(c, "data-kw-split", "page"),
+                 lambda c: _renamed(c, "data-kw-main", "page"),
+                 lambda c: {"css": c["css"].replace(
+                     ".wrap--repo{ max-width:1440px; }", "")}])
+def _c_rail_two_column_shell(ctx):
+    """The shell is a grid of two columns — the rail first, then the main
+    column — capped at the design's maximum width. The cap is a MODIFIER: the
+    hub landing shares the wrapper class and keeps its own narrower measure."""
+    page, css = ctx["page"], ctx["css"]
+    if len(_tags_with(page, "data-kw-split")) != 1:
+        return False
+    grid = _decls_for(css, ".split")
+    if not grid or _norm(grid[0].get("display", "")) != "grid":
+        return False
+    if len(_norm(grid[0].get("grid-template-columns", "")).split()) != 2:
+        return False
+    caps = [_norm(d.get("max-width", "")) for d in _decls_for(css, ".wrap--repo")]
+    return (_first_index(page, "data-kw-split")
+            < _first_index(page, "data-kw-rail")
+            < _first_index(page, "data-kw-main")
+            and len(caps) == 1 and caps[0].endswith("px")
+            and not _decls_for(ctx["hub_css"], ".wrap--repo"))
+
+
+@_covers("rail-region", kind="rendered", hook="data-kw-rail",
+         breaks=[lambda c: _renamed(c, "data-kw-rail", "page"),
+                 lambda c: _renamed(c, "data-kw-rail-legend", "page")])
+def _c_rail_region(ctx):
+    """The map is ONE region, in reading order: its title, then the groups, then
+    the legend that says what the movement in it means. It is a landmark element
+    with a name, so a screen reader can jump to the map and skip it again."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-rail")
+    if len(tags) != 1 or _tag_name(tags[0]) != "aside":
+        return False
+    attrs = _attrs(tags[0])
+    at = _first_index(page, "data-kw-rail")
+    order = [_first_index(page, h) for h in ("data-kw-rail-title",
+                                             "data-kw-rail-group",
+                                             "data-kw-rail-legend")]
+    return (all(i > at for i in order) and order == sorted(order)
+            and attrs.get("v-if") == "hasBinders"
+            and bool(attrs.get("aria-label", "").strip()))
+
+
+@_covers("rail-group-order", kind="rendered", hook="data-kw-rail-group",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-group", "page"),
+                 lambda c: {"phase_defs": list(reversed(c["phase_defs"]))},
+                 lambda c: {"page": c["page"].replace('v-for="g in railGroups"',
+                                                      'v-for="g in phases"')}])
+def _c_rail_group_order(ctx):
+    """Four groups, one order — delivered, now, next, later — driven off the SAME
+    phase definitions the timeline below uses, so the map and the panel can never
+    disagree about where a binder stands."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-rail-group")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    defs = ctx["phase_defs"]
+    grouped = ctx["rail_groups"](ctx["state"]["binders"], True)
+    return (attrs.get("v-for") == "g in railGroups"
+            and attrs.get(":data-kw-rail-group-key") == "g.key"
+            and [d["key"] for d in defs] == ["past", "now", "next", "later"]
+            and [d["label"] for d in defs] == ["Delivered", "Now", "Next", "Later"]
+            and [g["key"] for g in grouped] == [d["key"] for d in defs]
+            and [g["label"] for g in grouped] == [d["label"] for d in defs])
+
+
+@_covers("rail-binder-cards", kind="rendered", hook="data-kw-rail-card",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-card", "page"),
+                 lambda c: _renamed(c, "data-kw-rail-progress", "page"),
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, cards=list(g["cards"]) * 2) for g in rail_groups(b, s)]}])
+def _c_rail_binder_cards(ctx):
+    """Every binder in the feed gets ONE card, under the group its phase maps to
+    and never under two. Each card carries its progress, and each is a plain
+    anchor into that binder's own card below — no click handler, so the map
+    still navigates in a saved file:// copy."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-rail-card")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    if (attrs.get("v-for") != "c in g.cards"
+            or attrs.get(":data-kw-rail-card-slug") != "c.slug"
+            or _first_index(page, "data-kw-rail-progress")
+            < _first_index(page, "data-kw-rail-card")):
+        return False
+    live = ctx["state"]["binders"]
+    binders = live + [dict(live[0], slug="s-old", status="merged", title=None)]
+    placed = [(g["key"], c["slug"])
+              for g in ctx["rail_groups"](binders, True) for c in g["cards"]]
+    by_slug = {slug: key for key, slug in placed}
+    return (len(placed) == len(binders)
+            and sorted(by_slug) == sorted(b["slug"] for b in binders)
+            and by_slug["s-old"] == "past")
+
+
+@_covers("rail-in-flight-dot-breathes", kind="rendered", hook="data-kw-rail-dot",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-dot", "page"),
+                 lambda c: {"css": c["css"].replace(BREATHE_KEYFRAME, "karta-frozen")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "'rail__dot--' + d.key", "''")}])
+def _c_rail_dot_breathes(ctx):
+    """The rail's one moving part is the dot beside the binder in flight, and it
+    breathes on the same keyframe the rest of the page signals life with — one
+    motion for "this is alive", not a second dialect in the margin. Which group
+    that is comes from the phase metadata, not from a name typed here twice."""
+    page, css = ctx["page"], ctx["css"]
+    tags = _tags_with(page, "data-kw-rail-dot")
+    if len(tags) != 1:
+        return False
+    if _attrs(tags[0]).get(":data-kw-rail-dot-key") != "g.key":
+        return False
+    if "rail__dot--" not in ctx["app_src"]:
+        return False
+    pulsing = [d["key"] for d in ctx["phase_defs"]
+               if ctx["phase_meta"][d["key"]]["pulse"]]
+    if len(pulsing) != 1:
+        return False
+    decls = _decls_for(css, ".rail__dot--" + pulsing[0])
+    return bool(decls) and any(_animates_with(d, ctx["breathe_keyframe"])
+                               for d in decls)
+
+
+@_covers("rail-motion-legend", kind="rendered", hook="data-kw-rail-legend",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-legend", "page"),
+                 lambda c: _renamed(c, "data-kw-rail-legend-entry", "page"),
+                 lambda c: {"rail_legend": [e for e in c["rail_legend"]
+                                            if e["motion"] != "karta-spin"]},
+                 lambda c: {"keyframes": dict(c["keyframes"],
+                                              **{"karta-nothing": "unstated"})}])
+def _c_rail_motion_legend(ctx):
+    """The page says things with movement, so it writes down what the movement
+    means — and the legend is held to the keyframes: every motion the page ships
+    has an entry, and no entry claims a motion the page does not ship. The
+    entries explaining a static SHAPE carry no keyframe and are exempt."""
+    page = ctx["page"]
+    if len(_tags_with(page, "data-kw-rail-legend")) != 1:
+        return False
+    entry = _tags_with(page, "data-kw-rail-legend-entry")
+    if len(entry) != 1:
+        return False
+    attrs = _attrs(entry[0])
+    if (attrs.get("v-for") != "l in legend"
+            or attrs.get(":data-kw-rail-legend-key") != "l.key"):
+        return False
+    legend = ctx["rail_legend"]
+    motions = [e["motion"] for e in legend if e["motion"]]
+    keys = [e["key"] for e in legend]
+    return (bool(legend) and set(motions) == set(ctx["keyframes"])
+            and len(motions) == len(set(motions))
+            and len(keys) == len(set(keys))
+            and all(e["text"].strip() and e["swatch"].strip() for e in legend))
+
+
+@_covers("rail-holds-the-delivered-toggle", kind="rendered",
+         hook="data-kw-show-delivered",
+         breaks=[lambda c: _renamed(c, "data-kw-show-delivered", "page"),
+                 lambda c: {"page": c["page"].replace('v-if="g.collapsible"',
+                                                      'v-if="true"')}])
+def _c_rail_delivered_toggle(ctx):
+    """The show-delivered toggle lives in the rail, inside the very group it
+    reveals, and is gated on that group being the collapsible one — so it can
+    never be rendered against a group it does not control. It keeps its pressed
+    state and its handler, and it sits between the map and the legend."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-show-delivered")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    at = _first_index(page, "data-kw-show-delivered")
+    return (attrs.get("v-if") == "g.collapsible"
+            and "showDelivered" in attrs.get(":aria-pressed", "")
+            and attrs.get("@click") == "toggleShowDelivered"
+            and _first_index(page, "data-kw-rail") < at
+            < _first_index(page, "data-kw-rail-legend"))
+
+
+@_covers("rail-delivered-group-hides-its-cards", kind="behaviour",
+         breaks=[lambda c: {"rail_groups": lambda b, s: rail_groups(b, True)},
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, count=0) if g["collapsible"] else g
+                     for g in rail_groups(b, s)]}])
+def _c_rail_delivered_hidden(ctx):
+    """Hidden means no delivered CARD in the rail — but the group header and its
+    count stay, or the toggle that reveals them would be hiding itself. Shown
+    means every archived binder is back, whatever route its bytes took to the
+    page: the rail reads the joined rows, never the payload they arrived in."""
+    live = list(ctx["state"]["binders"])
+    archived = [dict(live[0], slug="s-arch-%d" % i, status="merged",
+                     title=None, archived=True) for i in range(3)]
+    both = live + archived
+    hidden = ctx["rail_groups"](both, False)
+    shown = ctx["rail_groups"](both, True)
+    folded = [g for g in hidden if g["collapsible"]]
+    opened = [g for g in shown if g["collapsible"]]
+    if len(folded) != 1 or len(opened) != 1:
+        return False
+    return (folded[0]["cards"] == []
+            and folded[0]["count"] == len(archived) == opened[0]["count"]
+            and sorted(c["slug"] for c in opened[0]["cards"])
+            == sorted(b["slug"] for b in archived)
+            and [c["slug"] for g in hidden for c in g["cards"]]
+            == [c["slug"] for g in shown for c in g["cards"] if not g["collapsible"]])
+
+
+@_covers("rail-title-falls-back-to-title-case", kind="behaviour",
+         breaks=[lambda c: {"title_case": lambda s: str(s or "")},
+                 lambda c: {"app_src": c["app_src"].replace("titleCase(b.slug)",
+                                                            "b.slug")}])
+def _c_rail_title_fallback(ctx):
+    """A binder with no human title is still named: its kebab slug rendered in
+    title case, by the same rule in both runtimes."""
+    title_case = ctx["title_case"]
+    if title_case("note-tags-edit") != "Note Tags Edit":
+        return False
+    if title_case("") or title_case(None) or title_case("a--b") != "A B":
+        return False
+    row = dict(ctx["state"]["binders"][0], slug="watch-map-rail", title=None)
+    named = [c["title"] for g in ctx["rail_groups"]([row], True) for c in g["cards"]]
+    return named == ["Watch Map Rail"] and "titleCase(b.slug)" in ctx["app_src"]
+
+
+@_covers("rail-unsticks-at-narrow-breakpoint", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(c["narrow_breakpoint"],
+                                                    "max-width:0px")},
+                 lambda c: {"css": c["css"].replace(
+                     ".rail{ position:static !important;",
+                     ".rail{ position:sticky !important;")},
+                 lambda c: {"app_src": c["app_src"] + "\naddEventListener('resize');"}])
+def _c_rail_narrow_breakpoint(ctx):
+    """Wide, the rail is a sticky column. Below the narrow breakpoint the grid
+    collapses to one column and the rail unsticks, so a phone reads the map as a
+    list above the delivery instead of a pinned column eating half the screen.
+    CSS does all of it — the page still registers exactly one listener, the one
+    the refresh model already owned, and the rail adds none."""
+    css = ctx["css"]
+    wide = _decls_for(css, ".split")
+    if not wide or "minmax" not in wide[0].get("grid-template-columns", ""):
+        return False
+    if not any(_norm(d.get("position", "")) == "sticky"
+               for d in _decls_for(css, ".rail")):
+        return False
+    narrow = _at_rule_body(css, ctx["narrow_breakpoint"])
+    if not narrow:
+        return False
+    split = _decls_for(narrow, ".split")
+    rail = _decls_for(narrow, ".rail")
+    return (bool(split) and _norm(split[0].get("grid-template-columns", "")) == "1fr"
+            and bool(rail) and _norm(rail[0].get("position", "")) == "static"
+            and ctx["app_src"].count("addEventListener") == 1)
+
+
 @_covers("refresh-cluster-region", kind="rendered", hook="data-kw-refresh-cluster",
          breaks=[lambda c: _renamed(c, "data-kw-refresh-cluster", "page")])
 def _c_refresh_cluster(ctx):
@@ -7912,6 +8534,9 @@ def _coverage_context() -> dict:
         "key_qs": key_qs,
         "state_meta": _STATE_META, "phase_meta": _PHASE_META,
         "phase_defs": _PHASE_DEFS, "icons": _ICONS,
+        "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
+        "title_case": _title_case, "rail_title": RAIL_TITLE,
+        "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
         "breathe_keyframe": BREATHE_KEYFRAME,
         "repo_name": repo_name, "title_suffix": _TITLE_SUFFIX,
         "key_token": key_token, "current_slug": current_slug,
