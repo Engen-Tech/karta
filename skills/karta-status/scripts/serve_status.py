@@ -4,8 +4,10 @@
 # ///
 """karta-status poll server: a live, karta-branded status page over the engine.
 
-Zero dependencies — stdlib `http.server` only. Derives state fresh on every request
-from the CWD's `.karta/binders` + git, so running it from a repo renders that repo.
+Zero dependencies — stdlib `http.server` only. Derives state from the CWD's
+`.karta/binders` + git, so running it from a repo renders that repo. The derivation
+is cached and reused until the ref files or binder files it read actually change on
+disk, or the entry ages past 60 seconds — see the derived-state cache section.
 
   uv run --script serve_status.py                 # http://127.0.0.1:8765
   uv run --script serve_status.py --port 9000     # a different port
@@ -17,7 +19,8 @@ from the CWD's `.karta/binders` + git, so running it from a repo renders that re
 
 Routes:
   GET /            the app HTML shell (a self-contained document; renders via Vue)
-  GET /state.json  the enriched engine state as JSON (recomputed each request)
+  GET /state.json  the enriched engine state as JSON (re-derived when git or a
+                   binder file changed, else served from the cached derivation)
   GET /assets/<f>  the brand bytes + the vendored Vue (mascot.png, icon.png,
                    vendor/vue.global.prod.js) — same-origin only
 
@@ -73,6 +76,7 @@ import time
 from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
 try:                        # POSIX: the store lock rides fcntl.flock
@@ -409,19 +413,278 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
     return state
 
 
-def current_state() -> dict:
-    """Recompute the engine state from the CWD's .karta + git. Never cached.
+# ---------------------------------------------------------------------------
+# Derived-state cache. Deriving state is nearly all of what a request costs, and
+# a browser tab re-asks every 2.6 s for a page that changes only when git or a
+# binder file does. So the last derivation is kept and reused until the FILES it
+# was derived from change on disk, with a hard maximum age behind that for
+# anything the filesystem cannot show us.
+#
+# What the key covers, and what it deliberately does not, is settled here rather
+# than left to a reader's guess. Any file whose change can alter a rendered fact
+# is in the key; everything else is out, with its reason:
+#
+#   in    every loose ref under refs/ recursively (refs/karta markers, the
+#         karta branches, refs/remotes/origin/HEAD which resolves the default
+#         branch, and refs/tags which `--merged` peels), packed-refs, HEAD, the
+#         file HEAD resolves to, a linked worktree's private HEAD, and every
+#         file under .karta/binders/ recursively (archive/ included).
+#   out   *.lock siblings under refs/ — git writes and removes one during an
+#         ordinary ref update, so counting them would invalidate constantly for
+#         no change of state. The same holds for the transient packed-refs.lock
+#         and packed-refs.new: only the two names packed-refs and HEAD are read
+#         at the ref store root, never a directory listing of it.
+#   out   .git/index, COMMIT_EDITMSG, MERGE_HEAD, ORIG_HEAD — the page renders
+#         no working-tree or in-progress-operation fact.
+#   out   .git/logs (reflogs) — nothing reads a reflog; a reflog entry only ever
+#         accompanies the ref write that is already keyed.
+#   out   .git/objects — object content cannot move a ref, and ref position is
+#         the only thing the page reads.
+#   out   .git/config, .git/hooks, .git/info — no rendered fact comes from them.
+#   out   .karta beyond binders/ (roundtable records, sme packs, kaizen config)
+#         — none of it reaches a rendered fact.
+#   out   directory mtimes — the sorted path list already carries every create
+#         and delete, so statting directories would cost a call per directory
+#         for no signal the key does not already have.
+#
+# Every covered file is HASHED, not merely stat-ted. Filesystem timestamps are
+# coarse — two writes inside the same clock tick carry the same mtime_ns, as
+# tmpfs and ext4 both demonstrate — so an in-place edit that keeps a file's
+# length (a ref force-updated to a different 40-character object id, a binder
+# field rewritten to a same-length value) leaves path, size and mtime all
+# unchanged. Only content sees it. The cost stays bounded: ref files are 41
+# bytes each, and the binder JSON the key reads is the same text the derivation
+# it is protecting parses anyway.
+# ---------------------------------------------------------------------------
 
-    Returns the engine state with each item enriched (title/summary/oracle/assert/cmd/deps)
-    and each binder carrying its human title/summary/motivation, by joining back to the
-    binder definitions. Archived (delivered) binders are appended as merged rows."""
+# The backstop: however the key is fooled — an attribute-caching network mount,
+# a skewed clock, a file stamped in the future — a cached entry cannot outlive
+# this. The page mirrors git, so briefly stale is fine and indefinitely stale is
+# not.
+STATE_CACHE_MAX_AGE_SECS = 60.0
+
+_REF_LOCK_SUFFIX = ".lock"
+
+# One cache per PROCESS, not per handler instance: ThreadingHTTPServer builds a
+# fresh _Handler for every request, so a cache living on the handler would never
+# hit. The guard is re-entrant so a derivation that ever calls back into
+# current_state() deadlocks nothing.
+_STATE_CACHE_LOCK = threading.RLock()
+_STATE_CACHE: dict[str, dict] = {}
+_GIT_DIRS: dict[str, tuple[Path, Path] | None] = {}
+
+
+class _CacheKey(NamedTuple):
+    """The four components of the cache key, each earning its place.
+
+    paths       the sorted path list ITSELF. Statting the files that exist can
+                only ever observe files that still exist, so a loose ref DELETED
+                by `git pack-refs --all` — which routine `git gc` performs —
+                would simply drop out and never change a stats-only key.
+    stats       (size, mtime_ns) per path, in the same order.
+    digest      sha256 over every covered file's bytes. A ref file holds a
+                40-character object id and is 41 bytes before and after a
+                force-update, so path, size and mtime can all be unchanged while
+                the ref now points somewhere else; the same is true of a binder
+                field edited to a same-length value inside one coarse
+                filesystem tick. Only content sees either.
+    head_target the ref name HEAD resolves to. HEAD is a symref holding a path,
+                not a commit: its own mtime does not move when the branch it
+                names advances, which is the single most common event this page
+                exists to show. The target's VALUE rides the refs/ sweep when it
+                is loose and the packed-refs digest when it is packed.
+    """
+    paths: tuple[str, ...]
+    stats: tuple[tuple[int, int], ...]
+    digest: str
+    head_target: str
+
+
+def _iter_files(base: Path) -> list[Path]:
+    """Every file under `base`, recursively — one os.scandir per directory, and
+    no stat per entry (readdir's own type tells files from directories). A
+    missing or unreadable directory contributes nothing rather than raising.
+    Symlinked directories are not followed: a ref store has none, and not
+    following one keeps the sweep loop-free."""
+    out: list[Path] = []
+    stack = [base]
+    while stack:
+        try:
+            with os.scandir(stack.pop()) as entries:
+                for e in entries:
+                    if e.is_dir(follow_symlinks=False):
+                        stack.append(Path(e.path))
+                    else:
+                        out.append(Path(e.path))
+        except OSError:
+            continue
+    return out
+
+
+def _git_dirs(root: str) -> tuple[Path, Path] | None:
+    """(git dir, common dir) for `root`, or None when it is not a work tree.
+
+    In a linked worktree the two differ, and every ref write lands in the COMMON
+    dir — the shared ref store — while that worktree keeps its own private HEAD
+    in its git dir. Resolved through `git rev-parse --git-dir --git-common-dir`,
+    which is the only authority on that split, and memoised per root per
+    process: a running server's root does not move under it, and memoising is
+    what keeps the per-request key free of any subprocess at all. The memo is
+    keyed by the ABSOLUTE root, so a relative "." cannot carry one repo's answer
+    into another after a chdir."""
+    memo = os.path.abspath(root)
+    with _STATE_CACHE_LOCK:
+        if memo in _GIT_DIRS:
+            return _GIT_DIRS[memo]
+    dirs: tuple[Path, Path] | None = None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", root, "rev-parse", "--git-dir", "--git-common-dir"],
+            capture_output=True, text=True)
+    except OSError:
+        proc = None
+    if proc is not None and proc.returncode == 0:
+        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        if len(lines) == 2:
+            base = Path(root)
+            dirs = ((base / lines[0]).resolve(), (base / lines[1]).resolve())
+    with _STATE_CACHE_LOCK:
+        _GIT_DIRS[memo] = dirs
+    return dirs
+
+
+def _state_cache_key(root: str = ".") -> _CacheKey:
+    """Fingerprint every file whose change can alter a rendered fact.
+
+    The covered set and the reasoning behind each inclusion and each deliberate
+    omission are written out above this section. The cost stays proportional to
+    the data it protects: one scandir per directory, one stat per file, and one
+    read per file."""
+    base = Path(root)
+    dirs = _git_dirs(root)
+    entries: list[tuple[str, Path]] = []
+    if dirs is not None:
+        gitdir, commondir = dirs
+        refs_dir = commondir / "refs"
+        for p in _iter_files(refs_dir):
+            if p.name.endswith(_REF_LOCK_SUFFIX):
+                continue
+            entries.append((f"ref:{p.relative_to(refs_dir).as_posix()}", p))
+        entries.append(("packed-refs", commondir / "packed-refs"))
+        entries.append(("HEAD", commondir / "HEAD"))
+        if gitdir != commondir:
+            entries.append(("worktree-HEAD", gitdir / "HEAD"))
+    binders_dir = base / ".karta" / "binders"
+    for p in _iter_files(binders_dir):
+        entries.append((f"binder:{p.relative_to(binders_dir).as_posix()}", p))
+
+    paths: list[str] = []
+    stats: list[tuple[int, int]] = []
+    digest = hashlib.sha256()
+    head_bytes: dict[str, bytes] = {}
+    for label, path in sorted(entries, key=lambda e: e[0]):
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue      # absent (a repo with no packed-refs yet); it is simply
+                          # not in the path list, and reappears there when created
+        paths.append(label)
+        stats.append((st.st_size, st.st_mtime_ns))
+        try:
+            data = path.read_bytes()
+        except OSError:
+            data = b"\x00unreadable"
+        digest.update(label.encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(data)
+        digest.update(b"\x00")
+        if label in ("HEAD", "worktree-HEAD"):
+            head_bytes[label] = data
+
+    # a linked worktree's own HEAD wins; a detached HEAD names no target and
+    # carries its object id in the bytes already hashed above
+    raw = head_bytes.get("worktree-HEAD") or head_bytes.get("HEAD") or b""
+    text = raw.decode("utf-8", "replace").strip()
+    head_target = text[4:].strip() if text.startswith("ref:") else ""
+    return _CacheKey(tuple(paths), tuple(stats), digest.hexdigest(), head_target)
+
+
+def _facts_are_complete(facts: dict) -> bool:
+    """False when a git query failed and left a fact unknown (None).
+
+    A degraded derivation is served but never stored. A transient failure — lock
+    contention, a killed subprocess — leaves the key unchanged, so caching the
+    degraded result would serve a wrong page for the whole maximum age, where
+    the uncached form recovered on the very next poll."""
+    for b in (facts.get("binders") or {}).values():
+        if b.get("integration_exists") is None:
+            return False
+        for item in (b.get("items") or {}).values():
+            if any(v is None for v in item.values()):
+                return False
+    return True
+
+
+def _uncached_state() -> tuple[dict, bool]:
+    """(state, healthy) — one full derivation from the CWD's .karta + git.
+
+    The state carries each item enriched (title/summary/oracle/assert/cmd/deps)
+    and each binder its human title/summary/motivation, joined back to the
+    binder definitions; archived (delivered) binders are appended as merged
+    rows. `healthy` is false when any git query failed."""
     binders = karta_next.load_binders()
     archived = karta_next.load_archived_binders()
     facts = karta_next.gather_git_facts(binders, karta_next._default_branch())
     state = karta_next.derive_state(binders, facts,
                                     frozenset(b["slug"] for b in archived))
     # archived first so a live binder wins the join over an archived namesake
-    return _enrich(_append_archived(state, archived), archived + binders)
+    return (_enrich(_append_archived(state, archived), archived + binders),
+            _facts_are_complete(facts))
+
+
+def _reset_state_cache() -> None:
+    """Drop the cached derivation and the memoised git-dir resolution. The
+    self-test's between-fixtures reset; no serving path calls it."""
+    with _STATE_CACHE_LOCK:
+        _STATE_CACHE.clear()
+        _GIT_DIRS.clear()
+
+
+def current_state(*, clock=time.monotonic,
+                  max_age: float = STATE_CACHE_MAX_AGE_SECS,
+                  key_of=None) -> dict:
+    """The engine state for the CWD's .karta + git, enriched and cached.
+
+    Cached, not recomputed per request. The stored entry is reused only while
+    `_state_cache_key()` — the fingerprint of every file the derivation reads —
+    is unchanged AND the entry is younger than `max_age` (60 seconds). So a ref
+    write, a force-update, a ref deletion, a `git pack-refs`, an in-place binder
+    edit, an archival, or the branch HEAD names advancing all invalidate it, and
+    anything an mtime cannot show expires within the minute.
+
+    The key is sampled BEFORE and AFTER the derivation: a write landing in
+    between returns the result but discards it rather than caching a state that
+    does not match its own key. A derivation that hit a git failure is likewise
+    returned and not stored. The guard is re-entrant, and the entry lives on the
+    module, so every handler instance the threading server creates shares one
+    cache.
+
+    `clock`, `max_age` and `key_of` are injection seams for the self-test — the
+    same idiom hub mode's RepoEngine uses for its own per-repo cache."""
+    sample = key_of or _state_cache_key
+    root = os.getcwd()
+    before = sample()
+    with _STATE_CACHE_LOCK:
+        slot = _STATE_CACHE.get("slot")
+        if (slot is not None and slot["root"] == root and slot["key"] == before
+                and clock() - slot["stored"] < max_age):
+            return slot["state"]
+        state, healthy = _uncached_state()
+        after = sample()
+        if healthy and after == before:
+            _STATE_CACHE["slot"] = {"root": root, "key": after, "state": state,
+                                    "stored": clock()}
+        return state
 
 
 # ---------------------------------------------------------------------------
@@ -3527,6 +3790,642 @@ def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _cache_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """cache-derived-state: current_state() reuses its last derivation until the
+    files it derived FROM change on disk. Every check drives the REAL module
+    cache the server uses — through the clock/key seams, never a stand-in — and
+    every fixture is a real git repository built with plain git, so the
+    invalidation cases are the ones git actually produces."""
+    import inspect
+
+    checks: list[tuple[str, bool]] = []
+    root = scratch / "cache"
+    root.mkdir(parents=True, exist_ok=True)
+    real_derive = _uncached_state
+
+    def git(args: list[str], cwd: Path, **kw) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                              text=True, check=True, **kw)
+
+    def commit(path: Path, text: str) -> str:
+        (path / "f").write_text(text)
+        git(["add", "f"], path)
+        git(["commit", "-q", "-m", text], path)
+        return git(["rev-parse", "HEAD"], path).stdout.strip()
+
+    def mk_repo(name: str) -> tuple[Path, str]:
+        path = root / name
+        path.mkdir(parents=True, exist_ok=True)
+        git(["init", "-q", "-b", "main", "."], path)
+        git(["config", "user.email", "t@example.com"], path)
+        git(["config", "user.name", "t"], path)
+        return path, commit(path, "c1")
+
+    @contextlib.contextmanager
+    def in_dir(path: Path):
+        old = os.getcwd()
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(old)
+
+    @contextlib.contextmanager
+    def counted(derive):
+        """Swap the module's derivation for a counting stand-in, so a check
+        reads how many derivations happened rather than inferring it."""
+        globals()["_uncached_state"] = derive
+        try:
+            yield
+        finally:
+            globals()["_uncached_state"] = real_derive
+
+    def two_reads(repo: Path, mutate=None, *, healthy: bool = True,
+                  clock=time.monotonic, max_age: float = STATE_CACHE_MAX_AGE_SECS,
+                  key_of=None) -> int:
+        """Derivations two current_state() calls perform around `mutate`: 1 when
+        the cache held, 2 when something invalidated it."""
+        seen: list[int] = []
+
+        def stub():
+            seen.append(1)
+            return {"n": len(seen)}, healthy
+
+        _reset_state_cache()
+        with in_dir(repo), counted(stub):
+            current_state(clock=clock, max_age=max_age, key_of=key_of)
+            if mutate is not None:
+                mutate()
+            current_state(clock=clock, max_age=max_age, key_of=key_of)
+        return len(seen)
+
+    def key_in(repo: Path) -> _CacheKey:
+        _reset_state_cache()
+        with in_dir(repo):
+            return _state_cache_key()
+
+    # -- the baseline: nothing touched, one derivation answers both reads ------
+    quiet, _ = mk_repo("quiet")
+    checks.append(("two consecutive derivations with nothing touched on disk "
+                   "issue git calls once, not twice", two_reads(quiet) == 1))
+
+    # -- a new ref, end to end through the REAL derivation --------------------
+    e2e, e2e_sha = mk_repo("e2e")
+    (e2e / ".karta" / "binders").mkdir(parents=True)
+    (e2e / ".karta" / "binders" / "b.json").write_text(json.dumps(
+        {"slug": "b", "motivation": "x", "scope": {"included": ["x"]},
+         "work_items": [{"id": "a", "title": "A", "summary": "s",
+                         "oracle": {"type": "unit", "assertions": ["x"]}}]}))
+    _reset_state_cache()
+    with in_dir(e2e):
+        before_state = current_state()
+        git(["update-ref", "refs/karta/b/item-a/done", e2e_sha], e2e)
+        after_state = current_state()
+    checks.append(("writing a new ref invalidates the cache and the next read "
+                   "reflects it — the real derivation, not a stand-in",
+                   before_state["binders"][0]["items"]["detail"][0]["status"] != "done"
+                   and after_state["binders"][0]["items"]["detail"][0]["status"] == "done"))
+
+    # -- packed-refs appearing ------------------------------------------------
+    pw, pw_sha = mk_repo("packedwrite")
+    git(["update-ref", "refs/karta/pw/item-a/done", pw_sha], pw)
+    checks.append(("writing packed-refs invalidates the cache",
+                   two_reads(pw, lambda: (pw / ".git" / "packed-refs").write_text(
+                       f"# pack-refs with: peeled fully-peeled sorted \n"
+                       f"{pw_sha} refs/karta/pw/item-b/done\n")) == 2))
+
+    # -- pack-refs --all: the loose files DISAPPEAR rather than change ---------
+    pk, pk_sha = mk_repo("packrefs")
+    git(["update-ref", "refs/karta/pk/item-a/done", pk_sha], pk)
+    loose_before = key_in(pk).paths
+    git(["pack-refs", "--all"], pk)
+    loose_after = key_in(pk).paths
+    checks.append(("packing loose refs with `git pack-refs --all` invalidates the "
+                   "cache — the loose files disappear rather than change, so the "
+                   "sorted PATH LIST is what carries it",
+                   "ref:karta/pk/item-a/done" in loose_before
+                   and "ref:karta/pk/item-a/done" not in loose_after))
+
+    pk2, pk2_sha = mk_repo("packrefs2")
+    git(["update-ref", "refs/karta/pk/item-a/done", pk2_sha], pk2)
+    checks.append(("`git pack-refs --all` — which routine `git gc` runs — forces "
+                   "a re-derivation",
+                   two_reads(pk2, lambda: git(["pack-refs", "--all"], pk2)) == 2))
+
+    # -- deletion, same reason ------------------------------------------------
+    dl, dl_sha = mk_repo("delete")
+    git(["update-ref", "refs/karta/dl/item-a/done", dl_sha], dl)
+    checks.append(("deleting a ref invalidates the cache, because the path list "
+                   "is a key component and not merely the stats of survivors",
+                   two_reads(dl, lambda: git(
+                       ["update-ref", "-d", "refs/karta/dl/item-a/done"], dl)) == 2))
+
+    # -- HEAD is a symref: its target advancing must be visible ----------------
+    hd, _ = mk_repo("headadvance")
+    head_path = hd / ".git" / "HEAD"
+    head_mtime_before = os.stat(head_path).st_mtime_ns
+    n_head = two_reads(hd, lambda: commit(hd, "c2"))
+    head_mtime_after = os.stat(head_path).st_mtime_ns
+    checks.append(("advancing the branch HEAD points at — without touching HEAD "
+                   "itself — invalidates the cache, proving the symref target is "
+                   "stated in the key and not merely HEAD",
+                   n_head == 2 and head_mtime_before == head_mtime_after))
+    checks.append(("the key names the ref HEAD resolves to, so a reader can see "
+                   "the symref was followed",
+                   key_in(hd).head_target == "refs/heads/main"))
+
+    # -- the same when the resolved target lives in packed-refs. The rewrite is
+    # byte-for-byte the same LENGTH (one 40-char object id swapped for another)
+    # and its mtime is forced back, so only content can carry it. --
+    hp, hp_sha1 = mk_repo("headpacked")
+    hp_sha2 = commit(hp, "c2")
+    git(["update-ref", "refs/heads/main", hp_sha1], hp)
+    git(["pack-refs", "--all"], hp)
+    packed = hp / ".git" / "packed-refs"
+    packed_st = os.stat(packed)
+
+    def repoint_packed() -> None:
+        packed.write_text(packed.read_text().replace(hp_sha1, hp_sha2))
+        os.utime(packed, ns=(packed_st.st_atime_ns, packed_st.st_mtime_ns))
+
+    n_packed = two_reads(hp, repoint_packed)
+    checks.append(("the symref target being packed rather than loose changes "
+                   "nothing: repointing it inside packed-refs — same file size, "
+                   "mtime forced back — still invalidates",
+                   n_packed == 2
+                   and os.stat(packed).st_size == packed_st.st_size
+                   and os.stat(packed).st_mtime_ns == packed_st.st_mtime_ns
+                   and "ref:heads/main" not in key_in(hp).paths))
+
+    # -- force-update: 41 bytes before, 41 bytes after, tick forced back -------
+    fu, fu_sha1 = mk_repo("forceupdate")
+    fu_sha2 = commit(fu, "c2")
+    git(["update-ref", "refs/karta/fu/item-a/done", fu_sha1], fu)
+    fu_ref = fu / ".git" / "refs" / "karta" / "fu" / "item-a" / "done"
+    fu_st = os.stat(fu_ref)
+
+    def force_update() -> None:
+        git(["update-ref", "refs/karta/fu/item-a/done", fu_sha2], fu)
+        os.utime(fu_ref, ns=(fu_st.st_atime_ns, fu_st.st_mtime_ns))
+
+    n_force = two_reads(fu, force_update)
+    checks.append(("force-updating an EXISTING ref to a different commit "
+                   "invalidates the cache — path, size and tick are all "
+                   "unchanged, so only the content hash can see it",
+                   n_force == 2
+                   and os.stat(fu_ref).st_size == fu_st.st_size
+                   and os.stat(fu_ref).st_mtime_ns == fu_st.st_mtime_ns))
+
+    # -- the same-tick hazard, stated as a fixture: shove every mtime in the ref
+    # store back to the cached read's own tick, then write a ref --
+    tk, tk_sha = mk_repo("sametick")
+    tk_refs = tk / ".git" / "refs"
+    tk_stamp = os.stat(tk / ".git" / "HEAD").st_mtime_ns
+
+    def write_ref_at_cached_tick() -> None:
+        git(["update-ref", "refs/karta/tk/item-new/done", tk_sha], tk)
+        for p in _iter_files(tk_refs) + [tk / ".git" / "HEAD"]:
+            os.utime(p, ns=(tk_stamp, tk_stamp))
+
+    checks.append(("a fixture that forces the mtime of the ref store back to the "
+                   "cached read's own tick, then writes a ref, still observes the "
+                   "new ref — the same-tick hazard is handled, not just named",
+                   two_reads(tk, write_ref_at_cached_tick) == 2))
+
+    # -- binder files: an in-place EDIT, and an archival ----------------------
+    be, _ = mk_repo("binderedit")
+    bdir = be / ".karta" / "binders"
+    bdir.mkdir(parents=True)
+    bfile = bdir / "b.json"
+    bfile.write_text('{"slug": "b", "work_items": [{"id": "aa"}]}')
+    bfile_st = os.stat(bfile)
+
+    def edit_in_place() -> None:
+        bfile.write_text('{"slug": "b", "work_items": [{"id": "bb"}]}')
+        os.utime(bfile, ns=(bfile_st.st_atime_ns, bfile_st.st_mtime_ns))
+
+    n_edit = two_reads(be, edit_in_place)
+    checks.append(("EDITING an existing binder JSON in place invalidates the "
+                   "cache, not only adding or removing one — the case a "
+                   "directory-mtime-only key would miss",
+                   n_edit == 2))
+    checks.append(("the in-place binder edit is caught by content, not by stats: "
+                   "the path, the size and the mtime are all unchanged across it "
+                   "— which coarse filesystem timestamps make the ordinary case, "
+                   "not a contrived one",
+                   os.stat(bfile).st_size == bfile_st.st_size
+                   and os.stat(bfile).st_mtime_ns == bfile_st.st_mtime_ns))
+
+    ar, _ = mk_repo("archive")
+    ardir = ar / ".karta" / "binders"
+    (ardir / "archive").mkdir(parents=True)
+    arfile = ardir / "b.json"
+    arfile.write_text('{"slug": "b", "work_items": []}')
+    checks.append(("archiving a binder invalidates the cache",
+                   two_reads(ar, lambda: arfile.replace(
+                       ardir / "archive" / "b.json")) == 2))
+
+    # -- transient *.lock siblings must NOT invalidate -------------------------
+    lk, lk_sha = mk_repo("lockfile")
+    git(["update-ref", "refs/karta/lk/item-a/done", lk_sha], lk)
+    lock = lk / ".git" / "refs" / "karta" / "lk" / "item-a" / "done.lock"
+
+    def lock_churn() -> None:
+        lock.write_text(lk_sha + "\n")
+        lock.unlink()
+
+    checks.append(("a transient .lock file appearing and disappearing under refs/ "
+                   "does not invalidate the cache",
+                   two_reads(lk, lock_churn) == 1))
+    lock.write_text(lk_sha + "\n")
+    lock_paths = key_in(lk).paths
+    lock.unlink()
+    checks.append(("a *.lock sibling is absent from the key's path list even "
+                   "while it exists on disk",
+                   "ref:karta/lk/item-a/done" in lock_paths
+                   and not any(p.endswith(".lock") for p in lock_paths)))
+
+    # -- the max-age backstop -------------------------------------------------
+    checks.append(("the maximum age is 60 seconds, a value in the contract "
+                   "rather than a number hiding in prose",
+                   STATE_CACHE_MAX_AGE_SECS == 60.0))
+    ma, _ = mk_repo("maxage")
+    ticks = [1000.0]
+
+    def fake_clock() -> float:
+        return ticks[0]
+
+    def advance(seconds: float):
+        def bump() -> None:
+            ticks[0] += seconds
+        return bump
+
+    checks.append(("a cached entry older than 60 seconds is re-derived even when "
+                   "nothing on disk changed",
+                   two_reads(ma, advance(61.0), clock=fake_clock) == 2))
+    ticks[0] = 1000.0
+    checks.append(("an entry still inside the maximum age with nothing changed "
+                   "keeps being served — the backstop is a ceiling, not a TTL "
+                   "that defeats the cache",
+                   two_reads(ma, advance(59.0), clock=fake_clock) == 1))
+
+    # -- with the key deliberately suppressed, the backstop alone must work ----
+    dead_key = _CacheKey((), (), "", "")
+    ticks[0] = 1000.0
+    suppressed_stale = two_reads(ma, advance(61.0), clock=fake_clock,
+                                 key_of=lambda: dead_key)
+    ticks[0] = 1000.0
+    suppressed_fresh = two_reads(ma, advance(1.0), clock=fake_clock,
+                                 key_of=lambda: dead_key)
+    checks.append(("with the key deliberately suppressed, the max-age backstop "
+                   "alone still forces a re-derivation — the backstop is known "
+                   "to work rather than assumed",
+                   suppressed_stale == 2 and suppressed_fresh == 1))
+
+    # -- a write landing between the two key samples ---------------------------
+    md, md_sha = mk_repo("middrv")
+    raced: list[int] = []
+
+    def racing():
+        raced.append(1)
+        git(["update-ref", f"refs/karta/md/item-{len(raced)}/done", md_sha], md)
+        return {"n": len(raced)}, True
+
+    _reset_state_cache()
+    with in_dir(md), counted(racing):
+        current_state()
+        current_state()
+        slot_after_race = _STATE_CACHE.get("slot")
+    checks.append(("a write that lands between the pre-derivation and "
+                   "post-derivation key samples causes the result to be "
+                   "discarded rather than cached",
+                   len(raced) == 2 and slot_after_race is None))
+
+    # -- a degraded derivation is returned but never stored --------------------
+    fl, _ = mk_repo("failcache")
+    attempts: list[int] = []
+
+    def flaky():
+        attempts.append(1)
+        if len(attempts) == 1:
+            return {"facts": "unknown"}, False
+        return {"facts": "healthy"}, True
+
+    _reset_state_cache()
+    with in_dir(fl), counted(flaky):
+        degraded = current_state()
+        recovered = current_state()
+        served_again = current_state()
+    checks.append(("a derivation that hit a git failure is returned but not "
+                   "stored: with a failure injected once and nothing on disk "
+                   "changed, the NEXT request re-derives and returns healthy "
+                   "facts rather than serving the cached degraded state",
+                   degraded["facts"] == "unknown"
+                   and recovered["facts"] == "healthy"
+                   and len(attempts) == 2 and served_again is recovered))
+    checks.append(("the health signal reads the facts themselves: any unknown "
+                   "(None) fact marks the derivation unstorable",
+                   _facts_are_complete({"binders": {"b": {
+                       "integration_exists": True,
+                       "items": {"a": {"done": True, "built": False}}}}})
+                   and not _facts_are_complete({"binders": {"b": {
+                       "integration_exists": True,
+                       "items": {"a": {"done": True, "done_in_default": None}}}}})
+                   and not _facts_are_complete({"binders": {"b": {
+                       "integration_exists": None, "items": {}}}})))
+
+    # -- a linked worktree shares the main checkout's ref store ----------------
+    lwmain, lw_sha = mk_repo("linkedmain")
+    lwtree = root / "linkedtree"
+    git(["worktree", "add", "-q", str(lwtree), "-b", "wt", "HEAD"], lwmain)
+    lw_dirs = _git_dirs(str(lwtree))
+    lw_key = key_in(lwtree)
+    checks.append(("running from a linked worktree resolves the shared ref store "
+                   "through commondir, so a ref written in the main checkout "
+                   "still invalidates",
+                   two_reads(lwtree, lambda: git(
+                       ["update-ref", "refs/karta/lw/item-a/done", lw_sha],
+                       lwmain)) == 2))
+    checks.append(("a linked worktree's own private HEAD is in the key alongside "
+                   "the shared store's HEAD",
+                   lw_dirs is not None and lw_dirs[0] != lw_dirs[1]
+                   and "worktree-HEAD" in lw_key.paths and "HEAD" in lw_key.paths))
+
+    # -- the commondir memo is per root, so a relative "." cannot carry one
+    # repo's ref store into another after a chdir --
+    ma, ma_sha = mk_repo("memoa")
+    mb, _ = mk_repo("memob")
+    git(["update-ref", "refs/karta/ma/item-a/done", ma_sha], ma)
+    _reset_state_cache()
+    with in_dir(ma):
+        key_a = _state_cache_key()
+    with in_dir(mb):                 # deliberately no reset in between
+        key_b = _state_cache_key()
+    checks.append(("the memoised commondir is keyed by the absolute root, so a "
+                   "chdir between two repos never serves one repo's ref store "
+                   "for the other",
+                   "ref:karta/ma/item-a/done" in key_a.paths
+                   and "ref:karta/ma/item-a/done" not in key_b.paths))
+
+    # -- concurrency: one derivation, and never a half-built state -------------
+    cc, _ = mk_repo("concurrent")
+    entered: list[int] = []
+    produced: list[dict] = []
+
+    def slow():
+        entered.append(1)
+        time.sleep(0.05)
+        return {"n": len(entered), "complete": True}, True
+
+    _reset_state_cache()
+    with in_dir(cc), counted(slow):
+        threads = [threading.Thread(target=lambda: produced.append(current_state()))
+                   for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=20)
+    checks.append(("concurrent derivations from several threads produce one "
+                   "derivation, not several, and never a partially built state "
+                   "object",
+                   len(entered) == 1 and len(produced) == 8
+                   and all(p is produced[0] for p in produced)
+                   and all(p.get("complete") for p in produced)))
+
+    # -- the guard is re-entrant: a derivation may call back in ----------------
+    re_repo, _ = mk_repo("reentrant")
+    depth: list[int] = []
+    inner: list[dict] = []
+
+    def reenters():
+        depth.append(1)
+        if len(depth) == 1:
+            inner.append(current_state())     # deadlocks on a plain Lock
+        return {"d": len(depth)}, True
+
+    _reset_state_cache()
+    outer: list[dict] = []
+    with in_dir(re_repo), counted(reenters):
+        nested = threading.Thread(target=lambda: outer.append(current_state()))
+        nested.start()
+        nested.join(timeout=20)
+        stuck = nested.is_alive()
+    checks.append(("the guard is re-entrant, so a derivation that calls back into "
+                   "the cached entry point deadlocks nothing",
+                   not stuck and len(outer) == 1 and len(inner) == 1
+                   and isinstance(_STATE_CACHE_LOCK, type(threading.RLock()))))
+
+    # -- the cache lives on the process, not on the handler --------------------
+    pp, _ = mk_repo("perprocess")
+    served: list[int] = []
+
+    def once():
+        served.append(1)
+        return {"n": len(served), "binders": [], "order": None, "warnings": [],
+                "errors": [], "next_action": {"level": "ready", "command": None,
+                                              "human": "x"}}, True
+
+    _reset_state_cache()
+    old_cwd = os.getcwd()
+    os.chdir(pp)
+    globals()["_uncached_state"] = once
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    marks: list[int] = []
+    try:
+        for _ in range(2):
+            conn = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=20)
+            try:
+                conn.request("GET", "/state.json")
+                marks.append(json.loads(conn.getresponse().read().decode())["n"])
+            finally:
+                conn.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        globals()["_uncached_state"] = real_derive
+        os.chdir(old_cwd)
+    checks.append(("the cache is initialised once per process: two /state.json "
+                   "requests served by different handler instances share it, so "
+                   "a per-handler cache that never hits would fail this check",
+                   len(served) == 1 and marks == [1, 1]))
+
+    # -- every consumer now shares ONE state object, where each used to get its
+    # own. A renderer that mutated it would poison every later request served
+    # from the same entry, so the read-only treatment is pinned here. --
+    sh, _ = mk_repo("shared")
+    (sh / ".karta" / "binders").mkdir(parents=True)
+    (sh / ".karta" / "binders" / "b.json").write_text(json.dumps(
+        {"slug": "b", "title": "T", "summary": "s", "motivation": "x",
+         "scope": {"included": ["x"]},
+         "work_items": [{"id": "a", "title": "A", "summary": "s",
+                         "oracle": {"type": "unit", "assertions": ["x"],
+                                    "command": "c"}}]}))
+    _reset_state_cache()
+    with in_dir(sh):
+        shared_state = current_state()
+        snapshot = json.loads(json.dumps(shared_state))
+        render_app_html(shared_state, "dark", repo_name="r")
+        _inert_json(current_state())
+        untouched = shared_state == snapshot and current_state() is shared_state
+    checks.append(("the renderers treat the cached state as read-only: serving "
+                   "the page and the JSON feed leaves the one shared object "
+                   "unchanged, so a single cache entry cannot be poisoned",
+                   untouched))
+
+    # -- hub mode's own per-repo cache is untouched ----------------------------
+    hub_calls = [0]
+    hub_now = [100.0]
+
+    def hub_runner() -> dict:
+        hub_calls[0] += 1
+        return {"binders": []}
+
+    heng = RepoEngine("/nowhere", runner=hub_runner, clock=lambda: hub_now[0],
+                      activity=lambda: None)
+    heng.state()
+    heng.state()
+    within = hub_calls[0]
+    hub_now[0] += 6.0
+    heng.state()
+    checks.append(("hub mode's RepoEngine still caches on its own 5 second "
+                   "interval, untouched by the request cache",
+                   ENGINE_CACHE_SECS == 5.0 and within == 1 and hub_calls[0] == 2))
+
+    # -- key cost. The key runs on EVERY request, so its filesystem cost must not
+    # grow faster than the data it protects. Fixture sizes are EQUALLY SPACED, so
+    # the successive differences of the call counts are the marginal cost per
+    # step: constant for a key that is linear in its data, growing for anything
+    # worse. karta_next._calls_stay_constant — the same predicate the git-call
+    # invariant uses — is applied to that marginal series. --
+    def count_fs(fn) -> tuple[int, int]:
+        """(filesystem calls, bytes read) `fn` makes, counted at every entry
+        point the key uses: os.scandir, os.stat, and Path.read_bytes."""
+        calls, read = [0], [0]
+        real_scandir, real_stat, real_read = os.scandir, os.stat, Path.read_bytes
+
+        def c_scandir(*a, **kw):
+            calls[0] += 1
+            return real_scandir(*a, **kw)
+
+        def c_stat(*a, **kw):
+            calls[0] += 1
+            return real_stat(*a, **kw)
+
+        def c_read(self, *a, **kw):
+            calls[0] += 1
+            data = real_read(self, *a, **kw)
+            read[0] += len(data)
+            return data
+
+        os.scandir, os.stat, Path.read_bytes = c_scandir, c_stat, c_read
+        try:
+            fn()
+        finally:
+            os.scandir, os.stat, Path.read_bytes = real_scandir, real_stat, real_read
+        return calls[0], read[0]
+
+    def quadratic_key(where: str = ".") -> int:
+        """A deliberately superlinear key: it re-stats the whole covered set once
+        per covered file. The negative control only — it exists so the marginal
+        cost check above is known to detect the regression it guards."""
+        files = _iter_files(Path(where) / ".karta" / "binders")
+        for _ in files:
+            for p in files:
+                os.stat(p)
+        return len(files)
+
+    kc, kc_sha = mk_repo("keycost")
+    kc_binders = kc / ".karta" / "binders"
+    kc_binders.mkdir(parents=True)
+    steps = (10, 20, 30, 40)
+    fs_calls: list[int] = []
+    fs_bytes: list[int] = []
+    quad_calls: list[int] = []
+    made = 0
+    _reset_state_cache()
+    with in_dir(kc):
+        _state_cache_key()      # warm the memoised commondir out of the counts
+        for target in steps:
+            updates = []
+            while made < target:
+                # flat on both sides, so the DIRECTORY count is constant across
+                # steps and the difference is purely the per-file marginal cost
+                updates.append(f"update refs/heads/fill{made} {kc_sha}")
+                (kc_binders / f"b{made}.json").write_text('{"slug": "x"}')
+                made += 1
+            git(["update-ref", "--stdin"], kc, input="\n".join(updates) + "\n")
+            calls, byts = count_fs(_state_cache_key)
+            fs_calls.append(calls)
+            fs_bytes.append(byts)
+            quad_calls.append(count_fs(quadratic_key)[0])
+
+    def marginal(series: list[int]) -> list[int]:
+        return [series[i + 1] - series[i] for i in range(len(series) - 1)]
+
+    checks.append(("the number of filesystem calls made computing the key does "
+                   "not grow faster than the refs and binder files it protects, "
+                   "measured across growing fixtures",
+                   karta_next._calls_stay_constant(marginal(fs_calls))
+                   and fs_calls[0] < fs_calls[-1]))
+    checks.append(("the bytes read hashing content grow no faster than the files "
+                   "they protect either — a ref file is 41 bytes, so the hash is "
+                   "bounded by the covered set and not by repository size",
+                   karta_next._calls_stay_constant(marginal(fs_bytes))
+                   and fs_bytes[0] < fs_bytes[-1]))
+    checks.append(("negative control: the same marginal-cost check FAILS on a "
+                   "deliberately quadratic key, so it is known to detect the "
+                   "regression it guards",
+                   not karta_next._calls_stay_constant(marginal(quad_calls))
+                   and marginal(quad_calls) == sorted(marginal(quad_calls))
+                   and marginal(quad_calls)[0] < marginal(quad_calls)[-1]))
+
+    spawned = [0]
+    orig_run = subprocess.run
+    with in_dir(kc):
+        _state_cache_key()      # memo already warm; prove the next one forks nothing
+
+        def counting_run(*a, **kw):
+            spawned[0] += 1
+            return orig_run(*a, **kw)
+
+        subprocess.run = counting_run
+        try:
+            _state_cache_key()
+        finally:
+            subprocess.run = orig_run
+    checks.append(("the key spawns no git subprocess once the commondir "
+                   "resolution is memoised — a cache hit forks nothing, so a "
+                   "syscall storm does not replace the git-process storm",
+                   spawned[0] == 0))
+
+    key_src = inspect.getsource(_state_cache_key) + inspect.getsource(_iter_files)
+    checks.append(("the key reaches the filesystem only through the three entry "
+                   "points the cost check counts, so the count cannot be an "
+                   "undercount",
+                   not any(tok in key_src for tok in
+                           ("os.walk", "os.listdir", ".glob(", ".rglob(",
+                            "os.path.get", "open(", "iterdir("))))
+
+    # -- the doctrine pointer the change falsified ----------------------------
+    doc = (current_state.__doc__ or "").lower()
+    checks.append(("current_state()'s docstring no longer claims the result is "
+                   "never cached, and states the invalidation rule instead",
+                   "never cached" not in doc and "cached" in doc
+                   and "invalidate" in doc and "60 second" in doc))
+    # the literals are split so this check's own source lines never self-match
+    stale_doc = "fresh on every" + " request"
+    stale_banner = "derives from git every" + " request"
+    checks.append(("the module docstring and the serving banner no longer promise "
+                   "a fresh derivation on every request",
+                   stale_doc not in (__doc__ or "")
+                   and stale_banner not in _SCRIPT_PATH.read_text()))
+
+    _reset_state_cache()
+    globals()["_uncached_state"] = real_derive
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -3810,6 +4709,7 @@ def _run_self_test() -> int:
     checks += _store_self_test_checks(scratch)
     checks += _hub_self_test_checks(scratch)
     checks += _lifecycle_self_test_checks(scratch)
+    checks += _cache_self_test_checks(scratch)
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
@@ -3884,7 +4784,8 @@ def main() -> int:
     print(f"  state:    {url}state.json")
     if args.key:
         print(f"  guarded:  append ?key={args.key}")
-    print("  (Ctrl-C to stop; this is read-only and derives from git every request)")
+    print("  (Ctrl-C to stop; this is read-only and re-derives from git whenever "
+          "a ref or binder file changes)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
