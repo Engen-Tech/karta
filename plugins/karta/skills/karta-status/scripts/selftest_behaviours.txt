@@ -139,3 +139,23 @@ next-action-command-copies-what-it-shows
 next-action-end-state-offers-no-command
 next-action-copy-handler
 next-action-command-is-inert
+
+# One card treatment per engine state — including the sixth the design forgot.
+# An item committed on its branch but not yet merged used to render nothing at
+# all: the metadata had no distinct treatment for it, so it read as passed. It
+# now takes the same --green at inverted weight (border, no fill), a merge glyph
+# and its own word, and no seventh colour was added to the palette to say it.
+# The border weight is a named role — calm or urgent — so the assertion has a
+# structural source instead of matching a CSS declaration.
+every-engine-state-has-a-card
+built-is-outlined-green-passed-is-filled
+built-card-carries-no-green-fill
+no-token-invented-for-the-built-state
+built-and-passed-separate-on-three-cues
+card-border-weight-is-a-named-role
+halted-card-opens-with-a-solid-bar
+running-card-breathes-and-keeps-breathing
+item-cards-key-on-the-work-item-id
+waiting-wording-never-says-blocked
+item-title-and-summary-are-inert
+copy-confirmation-is-per-affordance

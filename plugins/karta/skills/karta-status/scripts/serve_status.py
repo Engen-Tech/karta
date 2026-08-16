@@ -673,6 +673,15 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
                 ("path", {"d": "M8 16H3v5"})],
     "copy": [("rect", {"x": 8, "y": 8, "width": 14, "height": 14, "rx": 2}),
              ("path", {"d": "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"})],
+    # NOT ported — the design has no icon for the built state because it has no
+    # card for it. Two strands joining: a trunk, a side strand curving into it,
+    # and a node at the join. It has to read as "ready to land" at a glance and
+    # as NEITHER the passed check nor the running spinner, so it is drawn as a
+    # merge rather than borrowed from either.
+    "built": [("path", {"d": "M12 3v18"}),
+              ("circle", {"cx": 19, "cy": 5, "r": 2}),
+              ("path", {"d": "M19 7v2a6 6 0 0 1-6 6"}),
+              ("circle", {"cx": 12, "cy": 15, "r": 2})],
 }
 
 
@@ -680,27 +689,66 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
 # Item-state metadata — color + soft + badge icon + state word per engine state.
 # Ported from the design's `sm` (done/building/ready/blocked) and EXTENDED to cover
 # the engine's full set (built/failed) so every state surfaces instead of breaking
-# the page. `building` carries the spin/shimmer. Shipped to JS verbatim.
+# the page. `building` carries the spinner and the breathing footer strip.
+# Shipped to JS verbatim.
 # ---------------------------------------------------------------------------
 
 # `fill` splits the two green treatments: a MERGED item is filled, an item that
 # is built and awaiting merge is outlined. That is the sixth state, and it costs
 # no new colour — the same --green at a different weight.
+#
+# The CARD treatment is three further named fields, and they are named rather
+# than written into the stylesheet as six selectors so the self-test can read a
+# ROLE instead of matching a CSS declaration:
+#
+#   border  — the token the card's edge takes.
+#   tint    — the token that fills the card, or the literal "none" for a card
+#             that keeps the plain surface. BUILT is "none" on purpose: green
+#             border with no green tint is what keeps it from reading as PASSED.
+#   weight  — how much attention the card asks for, as a word: `calm` (passed,
+#             built, ready, waiting) or `urgent` (running, halted). A pixel
+#             value here would put the assertion back on a CSS string.
+#
+# `edge` carries the one shape the three roles cannot: waiting is calm, but its
+# edge is dashed — an item queued behind another is drawn as not-yet-solid.
+#
+# `color`/`soft` are the CHIP's colours and stay exactly as they were; the card
+# fields are additive, so no state loses the treatment it already had.
 _STATE_META = {
-    "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED", "fill": "solid"},
-    "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "BUILT",  "fill": "outline"},
-    "building": {"color": "var(--now)",   "soft": "var(--now-soft)",   "badge": "building", "word": "RUNNING", "fill": "solid"},
+    "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED", "fill": "solid",
+                 "border": "var(--line)",  "tint": "var(--green-soft)", "weight": "calm",   "edge": "solid"},
+    # the state the design forgot. Same hue as passed, inverted weight: the green
+    # moves from the fill to the border, and the badge becomes a merge glyph.
+    "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "built",    "word": "BUILT",  "fill": "outline",
+                 "border": "var(--green)", "tint": "none",             "weight": "calm",   "edge": "solid"},
+    "building": {"color": "var(--now)",   "soft": "var(--now-soft)",   "badge": "building", "word": "RUNNING", "fill": "solid",
+                 "border": "var(--now)",   "tint": "none",             "weight": "urgent", "edge": "solid"},
     # ready renders NEXT — the same word the phase rail and the hub landing use.
-    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT",   "fill": "solid"},
+    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT",   "fill": "solid",
+                 "border": "var(--steel)", "tint": "var(--steel-soft)", "weight": "calm",   "edge": "solid"},
     # dep-waiting is calm, not alarming, and it is no longer steel: steel means
     # READY now, and an item waiting its turn gets its own --wait so the two
     # states are told apart by colour rather than by badge alone.
-    "blocked":  {"color": "var(--wait)",  "soft": "var(--wait-soft)",  "badge": "hourglass", "word": "WAITING", "fill": "outline"},
+    "blocked":  {"color": "var(--wait)",  "soft": "var(--wait-soft)",  "badge": "hourglass", "word": "WAITING", "fill": "outline",
+                 "border": "var(--wait)",  "tint": "var(--wait-soft)",  "weight": "calm",   "edge": "dashed"},
     # the only state with a solid header bar, so the only one carrying a
     # foreground token to sit on top of that fill.
     "failed":   {"color": "var(--halt)",  "soft": "var(--halt-soft)",  "badge": "blocked",  "word": "FAILED", "fill": "solid",
-                 "on": "var(--on-halt)"},
+                 "on": "var(--on-halt)",
+                 "border": "var(--halt)",  "tint": "none",             "weight": "urgent", "edge": "solid"},
 }
+
+# The engine's item states, written down once. The metadata table must carry an
+# entry for EVERY one: a state with no entry falls through to the ready fallback
+# and renders as a lie, which is exactly what happened to `built` while the
+# design had no card for it. The self-test compares the two sets, so adding a
+# state to the engine and forgetting its treatment fails here.
+_ENGINE_ITEM_STATES = ("done", "built", "building", "ready", "blocked", "failed")
+
+# The two token names the built state is NOT allowed to invent. It is expressed
+# with the palette the design already defines — a seventh hue beside six related
+# warm tones plus one steel would read as foreign.
+_BUILT_FORBIDDEN_TOKENS = ("--built", "--built-soft")
 
 # ---------------------------------------------------------------------------
 # Phase metadata — one per timeline phase. Ported from the design's `bm`. `now`
@@ -947,10 +995,11 @@ body{
 .karta-ring{ box-shadow:0 0 0 0 var(--now-soft); animation:karta-ring 1.8s ease-out infinite; }
 .karta-alarm{ color:var(--halt); animation:karta-alarm 1.1s steps(1,end) infinite; }
 
-/* Two motions that are not part of the design's five: a disclosure fade and the
-   indeterminate progress sweep. Both settle under reduced motion too. */
+/* One motion that is not part of the design's five: the disclosure fade. It
+   settles under reduced motion too. (The running card's footer strip used to be
+   a sixth — an indeterminate sweep — and is now the breathe above, so the sweep
+   keyframe is gone rather than left defined and applied by nothing.) */
 @keyframes karta-fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
-@keyframes karta-shimmer{ 0%{ background-position:-140px 0; } 100%{ background-position:240px 0; } }
 
 .wrap{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:20px; }
 /* The repo page carries a rail beside its main column, so it — and ONLY it —
@@ -1309,9 +1358,24 @@ body{
 .parallel__icon{ display:flex; }
 .wave{ display:grid; gap:11px; margin-bottom:2px; }
 
-/* a work item */
+/* A work item. Six engine states, six treatments, and the colours come off the
+   state metadata as inline custom values rather than living here as six more
+   selectors — so a state can never be added to the engine and render untreated.
+   What DOES live here is the part that is a shape and not a colour: the border
+   weight the metadata names as a role, and the dashed edge waiting wears. */
 .item{ border:1px solid var(--line); background:var(--surface); }
+/* calm is the 1px default above; urgent is the card that wants to be looked at
+   now — running and halted, and nothing else. */
+.item--urgent{ border-width:2px; }
+/* waiting: calm weight, unsettled edge. */
+.item--dashed{ border-style:dashed; }
 .item--building{ border-color:var(--now); }
+/* the halted card's solid header bar — the one state the design fills solid,
+   which is why it is the one state carrying a foreground token to sit on it. */
+.item__bar{
+  display:flex; align-items:center; gap:6px; padding:4px 11px;
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+}
 /* the row is a real <button> (keyboard-operable expander), existing look kept */
 .item__row{
   display:flex; align-items:flex-start; gap:10px; padding:12px 14px; min-width:0;
@@ -1342,13 +1406,12 @@ body{
 .item__chip{ display:flex; align-items:center; gap:4px; flex:none; margin-left:auto; padding:2px 7px; }
 .item__word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; white-space:nowrap; }
 
-/* the indeterminate shimmer for a RUNNING item */
+/* The RUNNING card's breathing footer strip. It breathes rather than sweeps:
+   breathe is the page's one motion that means "alive", it is the one motion
+   that keeps running when the reader asks for reduced motion, and a card that
+   is mid-build has to keep saying so under that preference too. */
 .item__shim{ height:3px; background:var(--line); margin:0 11px 8px 42px; overflow:hidden; }
-.item__shim-fill{
-  height:100%;
-  background:linear-gradient(90deg,var(--now) 0 60%,rgba(255,255,255,.45) 80%,var(--now));
-  background-size:160px 100%; animation:karta-shimmer 1.1s linear infinite;
-}
+.item__shim-fill{ height:100%; background:var(--now); animation:karta-breathe 2s ease-in-out infinite; }
 
 /* the expanded oracle detail */
 .item__detail{
@@ -1387,15 +1450,14 @@ body{
      reading as urgent through colour and icon rather than through blinking. */
   .karta-alarm{ animation:none !important; opacity:1 !important; color:var(--halt) !important; }
 
-  /* The two motions outside the design's five settle as well: the disclosure
-     fade drops, and the indeterminate sweep degrades to the same opacity
-     breathe so "this item is running" survives without movement. */
+  /* The one motion outside the design's five settles as well: the disclosure
+     fade drops. */
   .item__detail{ animation:none !important; }
   .phase__mark--pulse{ animation:none !important; }
-  .item__shim-fill{
-    background:var(--now) !important; background-size:auto !important;
-    animation:karta-breathe 2s ease-in-out infinite !important;
-  }
+  /* The RUNNING card's footer strip is breathe, and breathe keeps going: with
+     motion off, "this item is building right now" still has to be visible on
+     the card itself, not only in the chip word. */
+  .item__shim-fill{ animation:karta-breathe 2s ease-in-out infinite !important; }
   .brand__dot, .shell__feed-dot, .rail__dot--now, .rail__mot--breathe{ animation:karta-breathe 2s ease-in-out infinite; }
 }
 /* The narrow breakpoint: the two columns become one and the rail stops sticking,
@@ -1748,6 +1810,11 @@ BAND_EYEBROW = "The next action"
 COPY_LABEL = "Copy"
 COPIED_LABEL = "Copied"
 COPIED_HOLD_MS = 1400   # how long the button reads "Copied" before it resets
+# The band's copy control identifies itself by this key. The confirmation is
+# held per control, not per page, so every copy affordance needs a name of its
+# own; defining the band's here means the template and the self-test read ONE
+# string rather than two copies of the same literal.
+COPY_KEY_BAND = "band"
 
 
 # ---------------------------------------------------------------------------
@@ -2015,9 +2082,12 @@ const app = createApp({
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
-      // The copy button's confirmation: true only between a clipboard write
-      // that actually resolved and the hold expiring.
-      copied: false,
+      // WHICH copy control is currently confirming, not WHETHER one is. A
+      // single page-level boolean was a defect in waiting: the moment a second
+      // copy affordance exists, both labels read "Copied" together because both
+      // read the same flag. Holding the key of the control that fired means one
+      // control confirms and every other stays put. Null between copies.
+      copiedKey: null,
       _pollTimer: null,
       _tickTimer: null,
       _copyTimer: null,
@@ -2036,7 +2106,9 @@ const app = createApp({
     // carried none renders an empty band rather than a second opinion.
     nextAction() { return this.state.next_action || {}; },
     bandEyebrow() { return BAND.eyebrow; },
-    copyLabel() { return this.copied ? BAND.copied : BAND.copy; },
+    // the band's copy control names itself with the server's key, so template
+    // and handler agree on the affordance without a literal typed twice.
+    bandCopyKey() { return BAND.key; },
 
     // The refresh cluster's three readings, all computed from local state:
     // whether automatic refresh is on, the seconds left until the next one, and
@@ -2153,6 +2225,15 @@ const app = createApp({
             summary: it.summary || it.title || '',
             color: im.color, soft: im.soft,
             badge: im.badge, word: im.word, building: it.status === 'building',
+            // The card's own treatment, straight off the state metadata. `tint`
+            // of 'none' becomes an empty style so the card keeps the plain
+            // surface — that is what makes BUILT an outline and not a fill.
+            border: im.border, tint: im.tint === 'none' ? '' : im.tint,
+            weight: im.weight, urgent: im.weight === 'urgent',
+            dashed: im.edge === 'dashed',
+            // only the state carrying a foreground token gets the solid bar,
+            // because that token is exactly what sits on top of the fill.
+            bar: !!im.on, on: im.on || '',
             oracle: it.oracle || 'unit', oracleIcon: this.oracleIconName(it),
             assert: it.assert, cmd: it.cmd, hasDep: !!dep, depName: dep,
           };
@@ -2194,20 +2275,26 @@ const app = createApp({
     // write can be refused. Both cases return quietly — nothing throws, and the
     // label never claims a copy that did not happen.
     //
-    // `copied` is ONE flag for the page, not one per button. A second caller
-    // therefore shares this confirmation: whichever control was pressed, every
-    // label bound to copyLabel reads "Copied" for the hold. Fine while the band
-    // is the only caller; the item that adds the second one owns that choice.
-    copyCommand(cmd) {
+    // The confirmation is keyed BY CONTROL. `key` names the affordance that
+    // fired, and copyLabelFor answers "Copied" for that one only — so a second
+    // copy control on a card cannot light up the band's label alongside its
+    // own. The hold is still ONE timer: a fresh copy re-arms it, which cancels
+    // the previous control's confirmation rather than running two of them.
+    copyCommand(key, cmd) {
       const clip = navigator.clipboard;
       if (!cmd || !clip || !clip.writeText) return;
       clip.writeText(cmd).then(() => {
-        this.copied = true;
+        this.copiedKey = key;
         if (this._copyTimer !== null) clearTimeout(this._copyTimer);
         this._copyTimer = setTimeout(() => {
-          this.copied = false; this._copyTimer = null;
+          this.copiedKey = null; this._copyTimer = null;
         }, BAND.hold_ms);
       }).catch(() => {});
+    },
+    // Asked FOR a control, never read as a page-wide flag: only the control
+    // whose key is held reads back as confirmed.
+    copyLabelFor(key) {
+      return this.copiedKey === key ? BAND.copied : BAND.copy;
     },
     // A poll carries archived binders as compact entries, not as rows. Rejoin
     // them with the detail held since page load, into a NEW object — Vue
@@ -2430,8 +2517,8 @@ const app = createApp({
     <div class="band__run" data-kw-band-run v-if="nextAction.command">
       <code class="band__cmd" data-kw-band-cmd>{{ nextAction.command }}</code>
       <button type="button" class="band__copy" data-kw-band-copy :data-kw-band-copy-cmd="nextAction.command"
-        @click="copyCommand(nextAction.command)">
-        <icon name="copy" :size="14" color="currentColor" /><span data-kw-band-copy-label aria-live="polite">{{ copyLabel }}</span>
+        @click="copyCommand(bandCopyKey, nextAction.command)">
+        <icon name="copy" :size="14" color="currentColor" /><span data-kw-band-copy-label aria-live="polite">{{ copyLabelFor(bandCopyKey) }}</span>
       </button>
     </div>
   </section>
@@ -2493,7 +2580,12 @@ const app = createApp({
                     <span class="parallel__icon"><icon name="fork" :size="11" color="var(--mut)" /></span>{{ w.parallelLabel }}
                   </div>
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
-                    <div class="item" data-kw-item :data-kw-item-status="it.word" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
+                    <div class="item" data-kw-item :data-kw-item-status="it.word" :data-kw-item-weight="it.weight"
+                      :class="{ 'item--building': it.building, 'item--urgent': it.urgent, 'item--dashed': it.dashed }"
+                      :style="{ borderColor: it.border, background: it.tint }" v-for="it in w.items" :key="it.id">
+                      <div class="item__bar" data-kw-item-bar v-if="it.bar" :style="{ background: it.color, color: it.on }">
+                        <icon :name="it.badge" :size="11" :color="it.on" /><span>{{ it.word }}</span>
+                      </div>
                       <button type="button" class="item__row" data-kw-item-row @click="toggleItem(b.slug, it.id)"
                         :aria-expanded="isExpanded(b.slug, it.id) ? 'true' : 'false'">
                         <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-halt)" :spin="it.building" /></span>
@@ -2509,7 +2601,7 @@ const app = createApp({
                           <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
                         </div>
                       </button>
-                      <div class="item__shim" v-if="it.building"><div class="item__shim-fill"></div></div>
+                      <div class="item__shim" data-kw-item-strip v-if="it.building"><div class="item__shim-fill"></div></div>
                       <div class="item__detail" data-kw-item-detail v-if="isExpanded(b.slug, it.id)">
                         <div class="item__detail-head"><icon :name="it.oracleIcon" :size="12" color="var(--mut)" /><span>passes its {{ it.oracle }} check when:</span></div>
                         <div class="item__assert" v-if="it.assert">{{ it.assert }}</div>
@@ -2577,7 +2669,8 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__BAND__", _inert_json({"eyebrow": BAND_EYEBROW,
                                           "copy": COPY_LABEL,
                                           "copied": COPIED_LABEL,
-                                          "hold_ms": COPIED_HOLD_MS}))
+                                          "hold_ms": COPIED_HOLD_MS,
+                                          "key": COPY_KEY_BAND}))
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
         .replace("__BRANCH_FMT__", _inert_json(INTEGRATION_BRANCH_FMT))
@@ -6939,6 +7032,134 @@ def _c_delivered_and_built_share_green(ctx):
             and all("fill" in m for m in sm.values()))
 
 
+# --- one card treatment per engine state, including the forgotten one --------
+
+@_covers("every-engine-state-has-a-card", kind="behaviour",
+         breaks=[lambda c: {"state_meta": {k: v for k, v in c["state_meta"].items()
+                                           if k != "built"}},
+                 lambda c: {"engine_states": c["engine_states"] + ("skipped",)},
+                 lambda c: {"render": lambda s: c["render"](s).replace(
+                     ':key="it.id"', ':key="wi"')}])
+def _c_every_engine_state_has_a_card(ctx):
+    """Six states in, six cards out. A binder carrying one item in each engine
+    state puts six rows on the page, every one of them resolving its own
+    metadata entry rather than falling through to the ready fallback — which is
+    how `built` used to vanish. The loop that draws them filters nothing.
+
+    Source-level for the drawing: this reads the six rows off the state the page
+    inlines and reads the loop off the template. Nothing here runs Vue, so "six
+    cards are painted" is argued from the row count and an unfiltered keyed loop,
+    not observed."""
+    meta, states = ctx["state_meta"], ctx["engine_states"]
+    if set(meta) != set(states) or len(states) != 6:
+        return False
+    detail = [{"id": "i-" + s, "status": s, "title": "Item " + s,
+               "summary": "what " + s + " means"} for s in states]
+    seed = ctx["state"]["binders"][0]
+    binder = dict(seed, slug="s-every-state",
+                  items=dict(seed["items"], total=len(states), detail=detail))
+    page = ctx["render"](dict(ctx["state"], binders=[binder]))
+    rows = ((_inlined_state(page).get("binders") or [{}])[0]
+            .get("items", {}).get("detail", []))
+    if len(rows) != len(states) or {r.get("status") for r in rows} != set(states):
+        return False
+    cards = _tags_with(page, "data-kw-item")
+    if len(cards) != 1:
+        return False
+    attrs = _attrs(cards[0])
+    return ("w.items" in attrs.get("v-for", "") and attrs.get(":key") == "it.id"
+            and "v-if" not in attrs
+            and all(m.get("badge") in ctx["icons"] for m in meta.values()))
+
+
+@_covers("built-is-outlined-green-passed-is-filled", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], tint="var(--green-soft)"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     done=dict(c["state_meta"]["done"], border="var(--green)"))}])
+def _c_built_outlined_passed_filled(ctx):
+    """The two green treatments, read as ROLES off the metadata rather than off
+    a stylesheet: built takes the green on its BORDER and takes no fill; passed
+    takes the green as its FILL and leaves its border neutral. Same hue, weight
+    inverted — which is why the sixth state needed no sixth colour."""
+    sm = ctx["state_meta"]
+    done, built = sm["done"], sm["built"]
+    return (built["border"] == "var(--green)" and built["tint"] == "none"
+            and done["border"] == "var(--line)"
+            and done["tint"].startswith("var(--green")
+            and done["color"] == built["color"])
+
+
+@_covers("built-card-carries-no-green-fill", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], tint="var(--green-soft)"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], tint="var(--surface-2)"))}])
+def _c_built_card_no_green_fill(ctx):
+    """The single slip that would undo the whole distinction: give built BOTH a
+    green border and a green tint and it becomes passed with a heavier edge. So
+    green may appear in the built entry as the chip colour, the chip's soft
+    background and the card border — and nowhere as the card's fill, which
+    carries the literal no-fill value instead of a token."""
+    built = ctx["state_meta"]["built"]
+    green = {k for k, v in built.items()
+             if isinstance(v, str) and v.startswith("var(--green")}
+    return (built["tint"] == "none" and green == {"color", "soft", "border"}
+            and not _VAR_REF_RE.search(built["tint"]))
+
+
+@_covers("no-token-invented-for-the-built-state", kind="behaviour",
+         breaks=[lambda c: {"palette": dict(
+             c["palette"], **{"--built": {"light": "#000", "dark": "#fff"}})},
+                 lambda c: {"css": c["css"].replace("--green-soft:",
+                                                    "--built-soft:")}])
+def _c_no_token_for_built(ctx):
+    """The state the design forgot got a treatment, not a colour. Neither name
+    the palette would have had to grow exists anywhere — not in the token table,
+    not in either stylesheet — and every token the built card names is one the
+    palette already defined."""
+    palette, sheets = ctx["palette"], ctx["css"] + ctx["hub_css"]
+    for banned in ctx["built_forbidden"]:
+        if banned in palette or banned in sheets:
+            return False
+    built = ctx["state_meta"]["built"]
+    named = {m.group(1) for f in ("color", "soft", "border")
+             for m in _VAR_REF_RE.finditer(built[f])}
+    return bool(named) and named <= set(palette)
+
+
+@_covers("built-and-passed-separate-on-three-cues", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], badge="check"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], word="PASSED"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"],
+                                border="var(--line)", tint="var(--green-soft)"))}])
+def _c_built_and_passed_three_cues(ctx):
+    """Fill-versus-outline is a weight difference, so it survives greyscale —
+    but it is deliberately not the only cue. The glyph and the state word each
+    tell built from passed on their own, so losing any one of the three still
+    leaves the pair readable.
+
+    Whether the two actually separate at a glance is perceptual and no gate can
+    answer it; this asserts the three cues EXIST and differ."""
+    sm, icons = ctx["state_meta"], ctx["icons"]
+    done, built = sm["done"], sm["built"]
+    roles = (done["border"], done["tint"]) != (built["border"], built["tint"])
+    glyphs = (done["badge"] != built["badge"]
+              and built["badge"] in icons
+              and icons[built["badge"]] != icons[done["badge"]])
+    return roles and glyphs and done["word"] != built["word"]
+
+
 # --- the five motions and how each one settles -------------------------------
 
 @_covers("five-keyframes-each-settle-under-reduced-motion", kind="behaviour",
@@ -7418,8 +7639,8 @@ def _c_next_action_from_engine(ctx):
                      ':data-kw-band-copy-cmd="nextAction.command"',
                      ':data-kw-band-copy-cmd="nextAction.level"')},
                  lambda c: {"page": c["page"].replace(
-                     '@click="copyCommand(nextAction.command)"',
-                     '@click="copyCommand(bandEyebrow)"')}])
+                     '@click="copyCommand(bandCopyKey, nextAction.command)"',
+                     '@click="copyCommand(bandCopyKey, bandEyebrow)"')}])
 def _c_next_action_copy_button(ctx):
     """The button copies exactly what the band shows: the displayed command, the
     string the button carries, and the argument the handler is handed are ONE
@@ -7493,7 +7714,7 @@ def _c_next_action_copy_handler(ctx):
     and the timer's death are therefore ARGUED from that shape, not observed —
     a rewrite keeping the shape and changing the behaviour would survive this."""
     app = ctx["app_src"]
-    copy = _js_block(app, "    copyCommand(cmd) {")
+    copy = _js_block(app, "    copyCommand(key, cmd) {")
     unmount = _js_block(app, "  beforeUnmount() {")
     if not copy or not unmount:
         return False
@@ -7528,6 +7749,88 @@ def _c_next_action_command_inert(ctx):
             and inlined.get("command", "").endswith(hostile)
             and inlined.get("human", "").endswith(hostile)
             and "v-html" not in ctx["app_src"])
+
+
+# the vectors the card-text inertness check fires. FOUR shapes, not one: an
+# escaping fix that stops a script tag can leave an event handler, an svg
+# handler, a mixed-case tag or a javascript: URL entirely untouched.
+_INERT_VECTORS = ('</script><img src=x onerror=alert(1)>',
+                  '<svg onload=alert(2)></svg>',
+                  '<ScRiPt>alert(3)</ScRiPt>',
+                  '<a href="javascript:alert(4)">go</a>')
+
+
+@_covers("item-title-and-summary-are-inert", kind="behaviour",
+         breaks=[lambda c: {"render": lambda s: json.dumps(s)},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "{{ it.title }}", '<b v-html="it.title"></b>')},
+                 lambda c: {"inert_vectors": ()}])
+def _c_item_text_inert(ctx):
+    """An item's title and summary are binder-authored text, so they are
+    untrusted, and they reach the card the same way every other engine value
+    does: inside the inlined state JSON through _inert_json, interpolated as a
+    text node. Four different hostile shapes are fired at once — a script
+    break-out, an image error handler, an svg load handler, a mixed-case tag and
+    a javascript: URL — because an escape that stops one of them can miss the
+    others. Nothing on this path is bound with v-html."""
+    vectors = ctx["inert_vectors"]
+    if not vectors:
+        return False
+    seed = ctx["state"]["binders"][0]
+    detail = [{"id": "i-%d" % i, "status": "ready",
+               "title": "title " + v, "summary": "summary " + v}
+              for i, v in enumerate(vectors)]
+    binder = dict(seed, slug="s-hostile",
+                  items=dict(seed["items"], total=len(detail), detail=detail))
+    page = ctx["render"](dict(ctx["state"], binders=[binder]))
+    rows = ((_inlined_state(page).get("binders") or [{}])[0]
+            .get("items", {}).get("detail", []))
+    if len(rows) != len(vectors):
+        return False
+    for i, vector in enumerate(vectors):
+        if vector in page:
+            return False
+        if not rows[i]["title"].endswith(vector):
+            return False
+        if not rows[i]["summary"].endswith(vector):
+            return False
+    clean = ctx["render"](ctx["state"])
+    return (page.count("</script>") == clean.count("</script>")
+            and "v-html" not in ctx["app_src"])
+
+
+@_covers("copy-confirmation-is-per-affordance", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "this.copiedKey === key", "this.copiedKey !== null")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this.copiedKey = key;", "this.copiedKey = true;")},
+                 lambda c: {"band": dict(c["band"], key="")}])
+def _c_copy_confirmation_per_affordance(ctx):
+    """The confirmation is held per CONTROL, not per page. A single shared
+    boolean meant that the moment a second copy affordance existed, pressing
+    either one would light up both labels — the band's and the card's — because
+    both read the same flag. So copyCommand records WHICH control fired and the
+    label is asked for a named control, which is what makes "copying here does
+    not confirm over there" true by construction rather than by luck.
+
+    Source-level, like the handler check beside it: nothing runs Vue or a
+    clipboard here. It reads the keying off the handler, the label accessor and
+    the data block, and off the one key the server names for the band."""
+    app, page = ctx["app_src"], ctx["page"]
+    handler = _js_block(app, "    copyCommand(key, cmd) {")
+    label = _js_block(app, "    copyLabelFor(key) {")
+    data = _js_block(app, "  data() {")
+    buttons = _tags_with(page, "data-kw-band-copy")
+    if not handler or not label or not data or len(buttons) != 1:
+        return False
+    key = ctx["band"]["key"]
+    clicked = _attrs(buttons[0]).get("@click", "")
+    return (bool(key) and ctx["band_inlined"].get("key") == key
+            and "this.copiedKey = key;" in handler
+            and "this.copiedKey === key" in label
+            and "copiedKey: null" in data and "copied: false" not in data
+            and "bandCopyKey" in clicked
+            and "copyLabelFor" in _text_in(page, "data-kw-band-copy-label"))
 
 
 @_covers("refresh-cluster-region", kind="rendered", hook="data-kw-refresh-cluster",
@@ -7797,6 +8100,136 @@ def _c_chip_icons_resolve(ctx):
     icons = ctx["icons"]
     return (all(m["badge"] in icons for m in ctx["state_meta"].values())
             and all(m["mark"] in icons for m in ctx["phase_meta"].values()))
+
+
+@_covers("item-cards-key-on-the-work-item-id", kind="rendered", hook="data-kw-item",
+         breaks=[lambda c: _renamed(c, "data-kw-item", "page"),
+                 lambda c: {"page": c["page"].replace(':key="it.id"',
+                                                      ':key="wi"')}])
+def _c_item_cards_key_on_id(ctx):
+    """One card per item, keyed on the work-item id — the one field that is
+    stable across polls. Keyed on the loop index instead, a poll that reorders a
+    wave would re-use the wrong card's expanded state."""
+    page = ctx["page"]
+    cards = _tags_with(page, "data-kw-item")
+    rows = _tags_with(page, "data-kw-item-row")
+    if len(cards) != 1 or len(rows) != 1:
+        return False
+    attrs = _attrs(cards[0])
+    return ("w.items" in attrs.get("v-for", "") and attrs.get(":key") == "it.id"
+            and "v-if" not in attrs
+            and "it.id" in _attrs(rows[0]).get("@click", ""))
+
+
+@_covers("card-border-weight-is-a-named-role", kind="rendered",
+         hook="data-kw-item-weight",
+         breaks=[lambda c: _renamed(c, "data-kw-item-weight", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], weight="urgent"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     blocked=dict(c["state_meta"]["blocked"], edge="solid"))}])
+def _c_card_border_weight_role(ctx):
+    """How loud a card is, as a WORD the metadata carries, not a pixel value in
+    a stylesheet: calm for passed, built, ready and waiting; urgent for the two
+    that want looking at now. Built resolves calm — an item awaiting merge is
+    not an emergency. Waiting is calm with a dashed edge, which is a shape and
+    so lives in the sheet, bound through the same metadata."""
+    page, sm = ctx["page"], ctx["state_meta"]
+    cards = _tags_with(page, "data-kw-item")
+    if len(cards) != 1:
+        return False
+    attrs = _attrs(cards[0])
+    classes = _class_binding(attrs)
+    calm = {k for k, m in sm.items() if m["weight"] == "calm"}
+    urgent = {k for k, m in sm.items() if m["weight"] == "urgent"}
+    dashed = {k for k, m in sm.items() if m["edge"] == "dashed"}
+    return (attrs.get(":data-kw-item-weight") == "it.weight"
+            and calm == {"done", "built", "ready", "blocked"}
+            and urgent == {"building", "failed"}
+            and dashed == {"blocked"}
+            and classes.get("item--urgent") == "it.urgent"
+            and classes.get("item--dashed") == "it.dashed"
+            and "it.border" in attrs.get(":style", ""))
+
+
+@_covers("halted-card-opens-with-a-solid-bar", kind="rendered",
+         hook="data-kw-item-bar",
+         breaks=[lambda c: _renamed(c, "data-kw-item-bar", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     ready=dict(c["state_meta"]["ready"], on="var(--on-halt)"))}])
+def _c_halted_card_solid_bar(ctx):
+    """The halted card is the one card that opens with a solid bar, and that is
+    exactly the one state carrying a foreground token — so the bar is gated on
+    the token being there rather than on the state name being spelled out in the
+    template. It sits above the row, so a halt is read before the title is."""
+    page, sm = ctx["page"], ctx["state_meta"]
+    bar = _tags_with(page, "data-kw-item-bar")
+    card = _tags_with(page, "data-kw-item")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(bar) != 1 or len(card) != 1 or len(row) != 1:
+        return False
+    attrs = _attrs(bar[0])
+    styled = attrs.get(":style", "")
+    return ({k for k, m in sm.items() if m.get("on")} == {"failed"}
+            and attrs.get("v-if") == "it.bar"
+            and "it.color" in styled and "it.on" in styled
+            and page.index(card[0]) < page.index(bar[0]) < page.index(row[0]))
+
+
+@_covers("running-card-breathes-and-keeps-breathing", kind="rendered",
+         hook="data-kw-item-strip",
+         breaks=[lambda c: _renamed(c, "data-kw-item-strip", "page"),
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".item__shim-fill")},
+                 lambda c: {"css": c["css"].replace(
+                     "background:var(--now); animation:karta-breathe",
+                     "background:var(--now); animation:karta-spin")}])
+def _c_running_card_breathes(ctx):
+    """The running card's footer strip breathes, and breathe is the page's one
+    motion that keeps going under reduced motion — so a card that is mid-build
+    still says so with movement off. The strip is drawn only for the running
+    state, read off the same flag the metadata drives."""
+    page, css, keyframe = ctx["page"], ctx["css"], ctx["breathe_keyframe"]
+    strip = _tags_with(page, "data-kw-item-strip")
+    if len(strip) != 1 or _attrs(strip[0]).get("v-if") != "it.building":
+        return False
+    base = _decls_for(css, ".item__shim-fill")
+    settled = _decls_for(_reduced_block(css), ".item__shim-fill")
+    if not base or not settled:
+        return False
+    return (_animates_with(base[0], keyframe)
+            and _animates_with(settled[0], keyframe)
+            and ctx["state_meta"]["building"]["weight"] == "urgent")
+
+
+@_covers("waiting-wording-never-says-blocked", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             blocked=dict(c["state_meta"]["blocked"], word="BLOCKED"))},
+                 lambda c: {"phase_defs": [dict(d, meaning="blocked on the one before")
+                                           for d in c["phase_defs"]]},
+                 lambda c: {"rail_legend": [dict(l, text="blocked — not run yet")
+                                            for l in c["rail_legend"]]}])
+def _c_waiting_never_says_blocked(ctx):
+    """An item waiting its turn is normal flow, not an alarm. So the page's own
+    chrome — every state word, phase label and meaning, rail legend line, band
+    and refresh and feed string, and hub verdict — never uses the word, in any
+    casing. Binder-authored prose is not chrome and is deliberately outside
+    this: a summary may legitimately say an item is blocked on something."""
+    sm = ctx["state_meta"]
+    chrome = [m["word"] for m in sm.values()]
+    chrome += [m["phrase"] for m in ctx["phase_meta"].values()]
+    chrome += [d["label"] for d in ctx["phase_defs"]]
+    chrome += [d["meaning"] for d in ctx["phase_defs"]]
+    chrome += [entry["text"] for entry in ctx["rail_legend"]]
+    chrome += [ctx["rail_title"], ctx["title_suffix"]]
+    chrome += list(ctx["band"].values()) + list(ctx["refresh_labels"].values())
+    chrome += list(ctx["feed_labels"].values()) + list(ctx["hub_chip"])
+    return (sm["blocked"]["word"] == "WAITING"
+            and not [s for s in chrome
+                     if isinstance(s, str) and "blocked" in s.lower()])
 
 
 @_covers("empty-state-mascot", kind="rendered", hook="data-kw-empty",
@@ -8854,12 +9287,16 @@ def _coverage_context() -> dict:
         "asset_files": sorted(p.name for p in ASSETS_DIR.iterdir() if p.is_file()),
         "key_qs": key_qs,
         "state_meta": _STATE_META, "phase_meta": _PHASE_META,
+        "engine_states": _ENGINE_ITEM_STATES,
+        "built_forbidden": _BUILT_FORBIDDEN_TOKENS,
+        "inert_vectors": _INERT_VECTORS,
         "phase_defs": _PHASE_DEFS, "icons": _ICONS,
         "next_action_of": next_action_of,
         "next_action_accessor": _js_block(_APP_JS, "    nextAction() {"),
         "render": lambda s: render_app_html(s, "dark", repo_name=repo_name),
         "band": {"eyebrow": BAND_EYEBROW, "copy": COPY_LABEL,
-                 "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS},
+                 "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS,
+                 "key": COPY_KEY_BAND},
         "band_inlined": _inlined_const(page, "BAND"),
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
