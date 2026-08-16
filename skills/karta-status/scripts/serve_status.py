@@ -396,7 +396,12 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
     """Delivered binders (`.karta/binders/archive/`) join the state as merged rows so
     the Delivered timeline phase keeps its history after karta-deliver archives a
     binder. Archival happens only on a complete run, so every item reads done. A live
-    binder always wins over an archived namesake."""
+    binder always wins over an archived namesake.
+
+    Each appended row is stamped `archived: true`. That flag is the only thing
+    telling an archived row from a live one downstream, and both sides of the
+    payload split read it: split_archived() picks the rows to compact, and the
+    page keeps the detail of exactly these rows as the client's retention map."""
     live = {ob["slug"] for ob in state["binders"]}
     for b in archived:
         if b["slug"] in live:
@@ -406,11 +411,129 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
                  if isinstance(it, dict) and isinstance(it.get("id"), str)]
         state["binders"].append({
             "slug": b["slug"], "after": [], "status": "merged", "is_next": False,
+            "archived": True,
             "items": {"total": len(items), "done": len(items), "built": 0, "failed": 0,
                       "building": 0, "ready": 0, "blocked": 0,
                       "detail": [{"id": it["id"], "status": "done"} for it in items]},
         })
     return state
+
+
+# ---------------------------------------------------------------------------
+# The archived payload. A delivered binder is immutable — once karta-deliver
+# archives it, nothing about it changes again. But its row is nearly all prose:
+# a title, a summary, a motivation, and a titled, summarised, oracle-bearing
+# line per work item. On a real checkout that finished history dwarfs the live
+# work — 17 archived binders serialize to 98.5 KB of a /state.json carrying
+# ZERO live binders — and a browser tab re-downloads all of it every 2.6 s,
+# forever, growing with every delivery.
+#
+# So the detail travels ONCE, with the initial page, where it already rides as
+# the inlined first-paint state. The repeated poll carries only a compact entry
+# per archived binder: its slug and the counts the rail card renders, no prose.
+# The client keeps the detail it received at load and joins the two by slug —
+# join_archived() below, mirrored into the page's joinArchived(). Opening the
+# Delivered group stays instant, because nothing has to be fetched to render it.
+#
+# What this deliberately does NOT do, and why:
+#
+#   - it does not shrink the initial page, and no such claim is made. The detail
+#     still rides it. That IS the point: a saved file:// copy cannot fetch
+#     anything, so everything the Delivered group needs must already be in the
+#     document. The win is the REPEATED poll — about 98.5 KB down to about 2 KB.
+#   - it adds no route. Fetching detail on demand was considered and rejected:
+#     the route would take a slug (a path-traversal surface that would have to
+#     resolve against the known archived set), inherit the token check, the Host
+#     pin, asset confinement and _inert_json escaping — and still break the
+#     saved copy, which has no server to ask.
+#   - it does not repair the one degraded case. A binder archived WHILE a page
+#     is open arrives as a compact entry the client holds no detail for, because
+#     detail arrived at load and this binder was not archived then. It renders
+#     from the entry alone — its slug as the label, with its counts — visibly
+#     thinner than its neighbours until the next page load. That is accepted: it
+#     happens once, when a delivery finishes, and the repair would be exactly
+#     the fetch this mechanism exists to avoid.
+# ---------------------------------------------------------------------------
+
+# The wire ceiling for ONE compact entry, in the bytes _inert_json actually
+# emits. Derived from the entry's shape rather than guessed: the framing
+# ({"slug":"","total":N,"done":N} plus its separating comma) is fixed, the
+# counts are small integers, and karta's slugs are kebab-case ASCII running well
+# under 48 characters — so 96 bytes holds a 48-byte slug with headroom. A LONGER
+# slug widens the entry byte for byte, and archived_entry_bound() widens the
+# ceiling with it, so a long slug reports a wider bound instead of failing
+# without explanation. A RICHER entry shape gets no such allowance: it breaches
+# the ceiling at the stated slug length and must fail rather than quietly widen.
+ARCHIVED_ENTRY_BOUND_BYTES = 96
+ARCHIVED_ENTRY_BOUND_SLUG_BYTES = 48
+
+
+def archived_entry_bound(slug_bytes: int = ARCHIVED_ENTRY_BOUND_SLUG_BYTES) -> int:
+    """Wire bytes one compact archived entry may add to a poll, for a slug of
+    `slug_bytes`: 96 up to a 48-byte slug, widening byte for byte beyond it."""
+    return (ARCHIVED_ENTRY_BOUND_BYTES
+            + max(0, slug_bytes - ARCHIVED_ENTRY_BOUND_SLUG_BYTES))
+
+
+def _archived_entry(row: dict) -> dict:
+    """The compact per-poll form of one archived binder row: its slug and the
+    item counts the rail card renders. No prose, no item ids, no per-item
+    detail — every one of those is immutable and already at the client."""
+    items = row.get("items") or {}
+    total = int(items.get("total") or 0)
+    done = items.get("done")
+    return {"slug": row["slug"], "total": total,
+            "done": total if done is None else int(done)}
+
+
+def split_archived(state: dict) -> dict:
+    """The POLLED form of `state`: archived binder rows replaced by compact
+    entries under "archived". The page keeps the full form (render_app_html
+    inlines it) — only the repeated poll sheds the prose.
+
+    Read-only in both directions: one cached state object is shared by every
+    consumer, so this builds a new dict and a new binder list, and hands the
+    live rows through by reference rather than copying or editing them."""
+    live, archived = [], []
+    for row in state.get("binders") or []:
+        (archived if row.get("archived") else live).append(row)
+    polled = dict(state)
+    polled["binders"] = live
+    polled["archived"] = [_archived_entry(r) for r in archived]
+    return polled
+
+
+def join_archived(detail_by_slug: dict, compact_entries: list) -> list[dict]:
+    """Merge the archived detail held since page load with the compact entries a
+    poll carried, keyed by slug. This is the whole mechanism, as one pure
+    function, so the self-test drives it by direct call instead of through a
+    template it cannot reach. Mirrored by joinArchived() in _APP_JS.
+
+    A slug in both yields the full row it arrived with. A slug with only a
+    compact entry — archived while this page was open — yields a thin row: its
+    slug as the label (title null, so the page's titleCase(slug) fallback names
+    it), its counts, and no items. A slug with only stale detail and no compact
+    entry is no longer archived, so it disappears."""
+    # MIRROR: change together with joinArchived() in _APP_JS and the archived self-test.
+    rows: list[dict] = []
+    for e in compact_entries or []:
+        slug = e.get("slug") if isinstance(e, dict) else None
+        if not isinstance(slug, str) or not slug:
+            continue
+        held = detail_by_slug.get(slug)
+        if held is not None:
+            rows.append(held)
+            continue
+        total = int(e.get("total") or 0)
+        done = e.get("done")
+        rows.append({
+            "slug": slug, "after": [], "status": "merged", "is_next": False,
+            "archived": True, "title": None, "summary": None,
+            "items": {"total": total, "done": total if done is None else int(done),
+                      "built": 0, "failed": 0, "building": 0, "ready": 0,
+                      "blocked": 0, "detail": []},
+        })
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -1139,6 +1262,38 @@ function feedTransition(state, ok) {
   return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
 }
 
+// The archived join — the whole shed-archived-payload mechanism, kept out of
+// the template so the self-test can drive it. Delivered binders are immutable,
+// so their detail rides the initial page ONCE (already inlined, which is what
+// makes a saved file:// copy render the Delivered group with no server) and
+// every poll carries only a compact {slug,total,done} entry each. This merges
+// the two by slug: a slug in both keeps the full row it arrived with; a slug
+// with only a compact entry — a binder archived while this page was open —
+// renders thin, from the entry alone (title null, so titleCase(slug) names it),
+// which is accepted and deliberately NOT repaired by fetching; a slug with only
+// stale detail and no compact entry is no longer archived and disappears.
+// Mirrored by join_archived() in serve_status.py, which the self-test drives —
+// keep the two in lockstep.
+// MIRROR: change together with join_archived() in serve_status.py and the archived self-test.
+function joinArchived(detailBySlug, entries) {
+  const rows = [];
+  (entries || []).forEach(e => {
+    const slug = (e && e.slug);
+    if (typeof slug !== 'string' || !slug) return;
+    const held = detailBySlug[slug];
+    if (held !== undefined && held !== null) { rows.push(held); return; }
+    const total = Number(e.total) || 0;
+    const done = (e.done === undefined || e.done === null) ? total : Number(e.done);
+    rows.push({
+      slug: slug, after: [], status: 'merged', is_next: false,
+      archived: true, title: null, summary: null,
+      items: { total: total, done: done, built: 0, failed: 0, building: 0,
+               ready: 0, blocked: 0, detail: [] },
+    });
+  });
+  return rows;
+}
+
 // A render helper for inline <svg> icons, matching the design's icon() factory.
 const Icon = {
   name: 'KartaIcon',
@@ -1166,7 +1321,14 @@ const Icon = {
 };
 
 function metaFor(status) { return STATE_META[status] || STATE_META.ready; }
-function doneCountOf(b) { return b.items.detail.filter(d => d.status === 'done' || d.status === 'built').length; }
+// A thin archived row (joinArchived, for a binder archived mid-session) carries
+// its counts but no per-item detail, so fall back to the count it was handed
+// rather than reporting 0 done against a real total.
+function doneCountOf(b) {
+  const d = (b.items && b.items.detail) || [];
+  if (!d.length) return (b.items && b.items.done) || 0;
+  return d.filter(x => x.status === 'done' || x.status === 'built').length;
+}
 // fallback headline for a binder authored before it carried a human `title`:
 // turn its kebab slug into Title Case ("note-tags-edit" -> "Note Tags Edit").
 function titleCase(slug) {
@@ -1196,8 +1358,15 @@ function wavesOf(items) {
 const app = createApp({
   components: { Icon },
   data() {
+    const initial = window.__KARTA_STATE__ || { binders: [], repo: { default_branch: 'main' }, next_action: {} };
+    // The retention map: archived detail arrives ONCE, inlined with this page,
+    // and every later poll carries only compact entries to join against it.
+    // Built here, at load, and never refreshed — a poll has no prose to give.
+    const archivedDetail = {};
+    (initial.binders || []).forEach(b => { if (b && b.archived) archivedDetail[b.slug] = b; });
     return {
-      state: window.__KARTA_STATE__ || { binders: [], repo: { default_branch: 'main' }, next_action: {} },
+      state: initial,
+      archivedDetail: archivedDetail,
       expanded: {},      // 'slug/itemId' -> bool
       open: {},          // slug -> bool (binder open/collapse; default-open for `now`)
       shell: SHELL,
@@ -1286,7 +1455,7 @@ const app = createApp({
     // design's mkBinder(). Items come from the enriched engine detail.
     mkBinder(b, key) {
       const meta = PHASE_META[key];
-      const items = b.items.detail;
+      const items = b.items.detail || [];   // a thin archived row has none
       const waveArr = wavesOf(items);
       const dc = doneCountOf(b), tot = b.items.total;
       const waves = waveArr.map((w, wi) => ({
@@ -1335,12 +1504,21 @@ const app = createApp({
       document.documentElement.dataset.theme = this.theme;
       try { localStorage.setItem('karta-theme', this.theme); } catch (e) {}
     },
+    // A poll carries archived binders as compact entries, not as rows. Rejoin
+    // them with the detail held since page load, into a NEW object — Vue
+    // re-renders off the assignment, and the cached rows stay untouched.
+    withArchived(s) {
+      if (!s || !s.archived) return s;
+      const merged = Object.assign({}, s);
+      merged.binders = (s.binders || []).concat(joinArchived(this.archivedDetail, s.archived));
+      return merged;
+    },
     poll() {
       // Relative + query-preserving: at / this resolves to /state.json; under
       // the hub's /r/<slug>/ it is that repo's own feed — and ?key= rides along.
       fetch('state.json' + location.search, { cache: 'no-store' })
         .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(s => { this.state = s; this.feed = feedTransition(this.feed, true); this.polls += 1; })
+        .then(s => { this.state = this.withArchived(s); this.feed = feedTransition(this.feed, true); this.polls += 1; })
         .catch(() => { this.feed = feedTransition(this.feed, false); });
     },
   },
@@ -2031,7 +2209,10 @@ class _Handler(BaseHTTPRequestHandler):
         theme = theme if theme in ("light", "dark") else None
 
         if path == "/state.json":
-            return self._text(200, _inert_json(current_state()), "application/json")
+            # split_archived: the poll carries compact archived entries, not the
+            # immutable prose the initial page already delivered once.
+            return self._text(200, _inert_json(split_archived(current_state())),
+                              "application/json")
 
         if path in ("/", "/index.html"):
             return self._text(200, render_app_html(
@@ -2130,7 +2311,10 @@ class _HubHandler(_Handler):
             res = self.server.engine_for(root).state()
             state = res["state"] if res["ok"] else _degraded_state(res["error"])
             if m.group(2):
-                return self._text(200, _inert_json(state), "application/json")
+                # the hub's per-repo feed sheds archived prose exactly as the
+                # repo-mode feed does — same poll, same split.
+                return self._text(200, _inert_json(split_archived(state)),
+                                  "application/json")
             repos = load_state(self.server.hub_state_dir)["repos"]
             return self._text(200, render_app_html(
                 state, theme, key_qs=key_qs,
@@ -4426,6 +4610,331 @@ def _cache_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """shed-archived-payload: delivered history travels ONCE with the initial
+    page, the repeated poll carries a compact entry per archived binder, and the
+    client joins the two by slug. Every check drives the real seams the server
+    and the page use — split_archived() as the handlers serve it, join_archived()
+    as _APP_JS mirrors it — against a real git repository holding real archive
+    files, so the payload numbers are measured rather than asserted."""
+    import inspect
+
+    checks: list[tuple[str, bool]] = []
+    root = scratch / "archived"
+    root.mkdir(parents=True, exist_ok=True)
+
+    def git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                              text=True, check=True)
+
+    @contextlib.contextmanager
+    def in_dir(path: Path):
+        old = os.getcwd()
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(old)
+
+    def mk_repo(name: str) -> Path:
+        path = root / name
+        path.mkdir(parents=True, exist_ok=True)
+        git(["init", "-q", "-b", "main", "."], path)
+        git(["config", "user.email", "t@example.com"], path)
+        git(["config", "user.name", "t"], path)
+        (path / "f").write_text("c1")
+        git(["add", "f"], path)
+        git(["commit", "-q", "-m", "c1"], path)
+        return path
+
+    # A delivered binder is almost entirely prose — that prose is the payload
+    # this item stops re-sending, so the fixture carries it at the length real
+    # binders carry it rather than at fixture-stub length.
+    def archive_binder(slug: str, n_items: int = 12) -> dict:
+        return {
+            "slug": slug,
+            "title": f"Deliver the {slug} surface end to end",
+            "summary": ("Everything this binder shipped, described the way a "
+                        "reader who was not here needs it described, at the "
+                        "length a real binder summary actually runs to."),
+            "motivation": ("Why the work was worth doing, in the sentence or two "
+                           "of prose every binder carries with it."),
+            "scope": {"included": ["the surface"], "excluded": ["the redesign"]},
+            "work_items": [
+                {"id": f"{slug}-item-{i:02d}",
+                 "title": f"Work item {i} of the {slug} delivery",
+                 "summary": ("What this item changed, and why it was separable "
+                             "from the rest of the delivery, at the length an "
+                             "item summary actually runs to."),
+                 "depends_on": [f"{slug}-item-{i - 1:02d}"] if i else [],
+                 "oracle": {"type": "unit", "command": "uv run pytest -q",
+                            "assertions": ["the behaviour this item promised is "
+                                           "observable from outside the module"]}}
+                for i in range(n_items)],
+        }
+
+    # -- the budget: twenty archived binders, zero live -----------------------
+    twenty = mk_repo("twenty-archived")
+    arc = twenty / ".karta" / "binders" / "archive"
+    arc.mkdir(parents=True)
+    at_load = [f"delivered-binder-{i:02d}" for i in range(20)]
+    for slug in at_load:
+        (arc / f"{slug}.json").write_text(json.dumps(archive_binder(slug)))
+
+    _reset_state_cache()
+    with in_dir(twenty):
+        full_state = current_state()
+        polled = split_archived(full_state)
+        page = render_app_html(full_state, "dark", repo_name="karta")
+    _reset_state_cache()
+    polled_wire = _inert_json(polled)
+    full_wire = _inert_json(full_state)
+    rows = {b["slug"]: b for b in full_state["binders"] if b.get("archived")}
+    live_rows = [b for b in full_state["binders"] if not b.get("archived")]
+
+    checks += [
+        (f"with zero live binders and twenty archived binders the polled payload "
+         f"is {len(polled_wire)} bytes — under the fixed 8192-byte budget, "
+         f"against the {len(full_wire)} bytes the same state serializes in full",
+         not live_rows and len(rows) == 20
+         and len(polled_wire) < 8192 and len(full_wire) > 50000),
+        ("the poll carries no archived prose at all: no binder title, no binder "
+         "summary, no item title, no item summary, no oracle command",
+         "Deliver the" not in polled_wire
+         and "Everything this binder shipped" not in polled_wire
+         and "Work item" not in polled_wire
+         and "uv run pytest" not in polled_wire
+         and "observable from outside" not in polled_wire),
+        ("every archived binder that existed at page load keeps its title, its "
+         "summary and its item counts in the state the page is rendered from",
+         all(rows[s].get("title") and rows[s].get("summary")
+             and rows[s]["items"]["total"] == 12
+             and rows[s]["items"]["done"] == 12 for s in at_load)),
+        ("the initial page still inlines that archived detail and is NOT "
+         "expected to shrink — every at-load slug, its title and its summary "
+         "ride the document, which is what lets a saved file:// copy render the "
+         "Delivered group with no server to fetch from",
+         all(s in page for s in at_load)
+         and "Deliver the delivered-binder-00 surface end to end" in page
+         and "Everything this binder shipped" in page
+         and len(page) > len(full_wire)
+         and "location.protocol !== 'file:'" in page),
+    ]
+
+    # -- what /state.json actually puts on the wire ----------------------------
+    # /state.json is a published surface, so the shed is proved at the socket
+    # and not only at the helper the handler happens to call.
+    _reset_state_cache()
+    old_cwd = os.getcwd()
+    os.chdir(twenty)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=20)
+        try:
+            conn.request("GET", "/state.json")
+            served = conn.getresponse().read().decode()
+        finally:
+            conn.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        os.chdir(old_cwd)
+        _reset_state_cache()
+    served_doc = json.loads(served)
+    checks.append((
+        f"the served /state.json is the shed form: {len(served)} wire bytes "
+        f"carrying {len(served_doc.get('archived') or [])} compact entries, no "
+        f"archived row among its binders and no archived prose anywhere in it",
+        len(served) < 8192 and not served_doc["binders"]
+        and {e["slug"] for e in served_doc["archived"]} == set(at_load)
+        and "Deliver the" not in served and "Work item" not in served))
+
+    # -- the compact entry's shape --------------------------------------------
+    entries = polled["archived"]
+    one = entries[0]
+    prose_entry = dict(one, title=rows[one["slug"]]["title"])
+    checks += [
+        ("the compact entry is exactly a slug and its counts — no prose, no item "
+         "ids, no per-item detail — for every archived binder",
+         len(entries) == 20
+         and all(set(e) == {"slug", "total", "done"} for e in entries)
+         and all(isinstance(e["total"], int) and isinstance(e["done"], int)
+                 for e in entries)
+         and {e["slug"] for e in entries} == set(at_load)),
+        (f"an entry that carried prose FAILS the ceiling rather than quietly "
+         f"widening it: the same entry with a title added serializes to "
+         f"{len(_inert_json(prose_entry))} bytes against the "
+         f"{archived_entry_bound(len(one['slug']))}-byte bound for its slug",
+         len(_inert_json(prose_entry)) > archived_entry_bound(len(one["slug"]))),
+    ]
+
+    # -- the per-entry ceiling, measured at a stated slug length ---------------
+    def slug_of(i: int, slug_len: int) -> str:
+        stem = f"a{i:03d}-"
+        return stem + "b" * max(1, slug_len - len(stem))
+
+    def polled_bytes(n: int, slug_len: int) -> int:
+        base = {"repo": {"default_branch": "main"}, "order": None, "binders": [],
+                "next_action": {"level": "ready", "command": None, "human": "x"},
+                "warnings": [], "errors": []}
+        arch = [archive_binder(slug_of(i, slug_len)) for i in range(n)]
+        st = _enrich(_append_archived(base, arch), arch)
+        return len(_inert_json(split_archived(st)))
+
+    def growth(slug_len: int, n: int = 20) -> int:
+        return polled_bytes(n + 1, slug_len) - polled_bytes(n, slug_len)
+
+    g_short, g_48, g_80 = growth(12), growth(48), growth(80)
+    checks += [
+        (f"the polled payload grows by {g_48} wire bytes per additional archived "
+         f"binder measured at a 48-byte slug, and {g_short} at a 12-byte slug — "
+         f"both within the {archived_entry_bound(48)}-byte ceiling, which is "
+         f"stated for a slug of up to "
+         f"{ARCHIVED_ENTRY_BOUND_SLUG_BYTES} bytes",
+         g_48 <= archived_entry_bound(48) and g_short <= archived_entry_bound(12)),
+        (f"a slug beyond 48 bytes widens the entry proportionally rather than "
+         f"failing without explanation: at an 80-byte slug the entry costs "
+         f"{g_80} bytes, over the 48-byte ceiling of {archived_entry_bound(48)} "
+         f"and inside the widened {archived_entry_bound(80)}",
+         g_80 > archived_entry_bound(48) and g_80 <= archived_entry_bound(80)
+         and archived_entry_bound(80) - archived_entry_bound(48) == 32),
+    ]
+
+    # -- join_archived, called directly ---------------------------------------
+    held = rows[at_load[0]]
+    stale = {"slug": "no-longer-archived", "after": [], "status": "merged",
+             "is_next": False, "archived": True, "title": "Stale",
+             "items": {"total": 1, "done": 1, "built": 0, "failed": 0,
+                       "building": 0, "ready": 0, "blocked": 0,
+                       "detail": [{"id": "x", "status": "done"}]}}
+    detail_by_slug = {held["slug"]: held, stale["slug"]: stale}
+    mid_entry = {"slug": "archived-mid-session", "total": 7, "done": 7}
+    joined = join_archived(detail_by_slug,
+                           [_archived_entry(held), mid_entry, {"slug": ""}, None])
+    thin = joined[1] if len(joined) > 1 else {}
+    checks += [
+        ("join_archived merges by slug: a slug in both yields the full row it "
+         "arrived with, a slug with only a compact entry yields the thin row, "
+         "and a slug with only stale detail and no compact entry disappears",
+         len(joined) == 2 and joined[0] is held
+         and thin["slug"] == "archived-mid-session"
+         and "no-longer-archived" not in [r["slug"] for r in joined]),
+        ("a binder archived mid-session renders from its compact entry alone: "
+         "the slug names it (title null, so the page's titleCase(slug) fallback "
+         "labels it), the counts are its own, and the row is thin rather than "
+         "blank — no item detail and nothing fetched to fill it",
+         thin.get("title") is None and thin.get("summary") is None
+         and thin["items"]["total"] == 7 and thin["items"]["done"] == 7
+         and thin["items"]["detail"] == [] and thin["status"] == "merged"
+         and thin.get("archived") is True
+         and page.count("fetch(") == 1 and "fetch('state.json'" in page),
+        ("a thin archived row still reports its own counts on the page: "
+         "doneCountOf falls back to items.done when a row carries no per-item "
+         "detail, so a mid-session archival reads N/N and not 0/N",
+         "if (!d.length) return (b.items && b.items.done) || 0;" in page),
+    ]
+
+    # -- a live namesake still wins the join ----------------------------------
+    live_defs = [{"slug": "shared-slug", "title": "The live binder", "summary": "s",
+                  "motivation": "m", "scope": {"included": ["x"]},
+                  "work_items": [{"id": "a", "title": "A", "summary": "s",
+                                  "oracle": {"type": "unit", "assertions": ["x"],
+                                             "command": "c"}}]}]
+    arch2 = [archive_binder("shared-slug", 3), archive_binder("only-archived", 2)]
+    facts2 = {"default_branch": "main",
+              "binders": {"shared-slug": {"items": {"a": {}}}}}
+    st2 = karta_next.derive_state(live_defs, facts2,
+                                  frozenset(b["slug"] for b in arch2))
+    st2 = _enrich(_append_archived(st2, arch2), arch2 + live_defs)
+    p2 = split_archived(st2)
+    checks.append((
+        "an archived binder whose live namesake exists is still won by the live "
+        "binder: the live row stays a full row and no compact entry is emitted "
+        "for that slug, so the client can never join the archived one back in",
+        [b["slug"] for b in p2["binders"]] == ["shared-slug"]
+        and p2["binders"][0].get("title") == "The live binder"
+        and [e["slug"] for e in p2["archived"]] == ["only-archived"]))
+
+    # -- no additional git call for archived binders ---------------------------
+    def git_calls_in(repo: Path) -> int:
+        seen: list[list[str]] = []
+
+        def runner(cmd, **kw):
+            seen.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with in_dir(repo):
+            karta_next.gather_git_facts(karta_next.load_binders(), "main",
+                                        runner=runner)
+        return len(seen)
+
+    bare = mk_repo("no-archive")
+    with in_dir(twenty):
+        n_archived_files = len(karta_next.load_archived_binders())
+    empty_git_calls = git_calls_in(bare)
+    checks.append((
+        f"the derivation issues no additional git call for archived binders: "
+        f"{n_archived_files} archived binders on disk cost the same "
+        f"{git_calls_in(twenty)} git calls as none at all",
+        n_archived_files == 20 and git_calls_in(twenty) == empty_git_calls))
+
+    # -- archived values still reach the page through the inert-JSON path ------
+    hostile = archive_binder("x", 1)
+    hostile["slug"] = "</script><img src=x>& /etc"
+    hostile["title"] = "</script><b>pwn</b>&"
+    base_h = {"repo": {"default_branch": "main"}, "order": None, "binders": [],
+              "next_action": {"level": "ready", "command": None, "human": "x"},
+              "warnings": [], "errors": []}
+    st_h = _enrich(_append_archived(base_h, [hostile]), [hostile])
+    inlined_h = _inert_json(st_h)
+    wire_h = _inert_json(split_archived(st_h))
+    checks.append((
+        "archived binder values still reach the page and the poll through the "
+        "inert-JSON path: a hostile archived slug and title carry no raw markup "
+        "byte into either the inlined state or the compact entry, and both "
+        "decode back to the identical value",
+        "<" not in inlined_h and ">" not in inlined_h and "&" not in inlined_h
+        and "<" not in wire_h and ">" not in wire_h and "&" not in wire_h
+        and json.loads(inlined_h) == st_h
+        and json.loads(wire_h)["archived"][0]["slug"] == hostile["slug"]))
+
+    # -- the JS mirror of join_archived ---------------------------------------
+    # from the mirror marker through the function's closing brace — the same
+    # span the Python twin's own source covers, so the two are compared like
+    # for like rather than one of them silently missing its marker
+    start = _APP_JS.index("// MIRROR: change together with join_archived()")
+    js_body = _APP_JS[start:_APP_JS.index("\n}\n", start)]
+    py_body = inspect.getsource(join_archived)
+    thin_keys = list(thin) + list(thin["items"])
+    checks += [
+        ("the page ships joinArchived and calls it on every poll against the "
+         "retention map built once from the inlined at-load detail",
+         "function joinArchived(detailBySlug, entries)" in page
+         and "if (b && b.archived) archivedDetail[b.slug] = b;" in page
+         and "joinArchived(this.archivedDetail, s.archived)" in page
+         and "this.state = this.withArchived(s)" in page),
+        ("the mirrored JavaScript joinArchived matches its Python twin branch "
+         "for branch — the malformed-entry guard, the held-detail hit, the thin "
+         "row built from the entry alone, and the drop of detail no entry names",
+         "typeof slug !== 'string' || !slug" in js_body
+         and "isinstance(slug, str)" in py_body
+         and "rows.push(held)" in js_body and "rows.append(held)" in py_body
+         and "(entries || []).forEach" in js_body
+         and "for e in compact_entries" in py_body
+         and "detailBySlug[slug]" in js_body
+         and "detail_by_slug.get(slug)" in py_body
+         and "MIRROR: change together with join_archived()" in js_body
+         and "MIRROR: change together with joinArchived()" in py_body),
+        ("the thin row the JavaScript builds carries the same field set the "
+         "Python twin builds — a key added on one side alone fails here rather "
+         "than blanking the Delivered group in a browser nobody is testing",
+         all(f"{k}:" in js_body for k in thin_keys)
+         and len(thin_keys) == len(set(thin_keys))),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -4710,6 +5219,7 @@ def _run_self_test() -> int:
     checks += _hub_self_test_checks(scratch)
     checks += _lifecycle_self_test_checks(scratch)
     checks += _cache_self_test_checks(scratch)
+    checks += _archived_self_test_checks(scratch)
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
