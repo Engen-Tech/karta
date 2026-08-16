@@ -75,6 +75,23 @@ but it is no longer updating. One missed poll never flips the label, and the fir
 poll flips it back to live. To revive a dead hub, run the ensure one-liner in "After a reboot"
 below.
 
+## The state feed's fingerprint
+
+Both state feeds — `/state.json` in a single repo, and `/r/<slug>/state.json` on the hub — answer
+with an **ETag** response header: a short fingerprint of exactly the state that reply carried.
+Send that value back on the next request as `If-None-Match`, and if nothing has changed the server
+answers **304 Not Modified** with no body instead of re-sending the whole document. A tag stops
+matching the moment that repo's state changes, so a 304 never hides new work from you, and each
+repo has its own tag — two repos never share one.
+
+If you poll a feed with a script of your own, two things follow:
+
+- **A 304 carries no body.** Keep the state you already hold — a client that expects JSON on every
+  reply will find an empty response instead.
+- **The token is still checked first.** On the hub a missing or wrong `?key=`, or a Host header
+  outside the allowlist, is rejected before the fingerprint is considered at all: 403, and no ETag
+  on the reply. A conditional request is never a way around the token.
+
 ## Turn it off
 
 Say **"turn off karta watch"** — the agent runs `--opt-out` for the current repo. Or run it
