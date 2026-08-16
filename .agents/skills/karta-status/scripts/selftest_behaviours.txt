@@ -103,3 +103,11 @@ refresh-timers-torn-down
 manual-refresh-not-reentrant
 auto-refresh-persistence-key
 refresh-off-wording-is-not-feed-paused
+
+# The hub landing, brought onto the same tokens, type and motion as the pages it
+# links to — and off its own ten-second meta refresh onto the shared decision.
+hub-card-verdict-vocabulary
+hub-landing-token-parity
+hub-refresh-shared-decision
+hub-refresh-off-means-off
+hub-no-meta-refresh

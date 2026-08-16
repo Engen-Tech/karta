@@ -1338,7 +1338,8 @@ def refresh_decision(mode: str, visible: bool, elapsed_ms: int,
     'skip'      — make no request: automatic refresh is off, the document is
                   hidden, or the interval has not elapsed yet.
     'poll'      — the ordinary scheduled refresh."""
-    # MIRROR: change together with refreshDecision() in _APP_JS and the refresh self-test.
+    # MIRROR: change together with refreshDecision() in _REFRESH_SHARED_JS — the one
+    # JS source spliced into BOTH render paths — and the refresh self-test.
     if manual:
         return "poll-now"
     if mode != "auto":
@@ -1348,6 +1349,54 @@ def refresh_decision(mode: str, visible: bool, elapsed_ms: int,
     if elapsed_ms < interval_ms:
         return "skip"
     return "poll"
+
+
+# ---------------------------------------------------------------------------
+# The refresh model as JavaScript — ONE source, spliced into BOTH render paths.
+#
+# The repo page and the hub landing are separate documents built by separate
+# functions, and both have to answer the same question before asking git for
+# anything. Carrying the answer twice is how the expensive page ends up still
+# refreshing after the reader switched refreshing off: someone fixes the copy
+# they happen to be looking at. So the decision and the preference reader live
+# here, once, and each render path embeds these exact bytes.
+#
+# REFRESH_KEY is left free: whichever path embeds this declares it, from the
+# same Python constant (_build_app_js for the repo page, _HUB_JS for the
+# landing), so the two cannot drift into two spellings of the reader's choice.
+# ---------------------------------------------------------------------------
+
+_REFRESH_SHARED_JS = """
+// The refresh decision — should this moment ask the server anything at all?
+// Every poll is real git work, so automatic refresh runs on a slow schedule the
+// reader can switch off entirely. Kept out of the lifecycle hooks as a pure
+// function so the Python self-test can call it directly (it can never fire a
+// Vue hook), and routed through by EVERY request initiator on EITHER page — the
+// repo page's poll timer, visibilitychange listener and manual button, and the
+// landing's one reload timer — so "off means off" and "hidden means no request"
+// are decided in exactly one place. A manual click wins over both: a deliberate
+// action is not background polling. The function returns a word and so resets
+// nothing; the elapsed baseline is caller state, restarted by the caller.
+// Mirrored by refresh_decision() in serve_status.py, which the self-test drives —
+// keep the two in lockstep.
+// MIRROR: change together with refresh_decision() in serve_status.py and the refresh self-test.
+function refreshDecision(mode, visible, elapsedMs, intervalMs, manual) {
+  if (manual) return 'poll-now';
+  if (mode !== 'auto') return 'skip';
+  if (!visible) return 'skip';
+  if (elapsedMs < intervalMs) return 'skip';
+  return 'poll';
+}
+
+// The reader's automatic-refresh choice. A browser with storage unavailable
+// (private mode, a blocked origin) falls back to the default — automatic
+// refresh ON — rather than throwing on the way up.
+function storedRefreshMode() {
+  try {
+    return localStorage.getItem(REFRESH_KEY) === '0' ? 'manual-only' : 'auto';
+  } catch (e) { return 'auto'; }
+}
+""".strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1450,34 +1499,7 @@ function feedTransition(state, status) {
   return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
 }
 
-// The refresh decision — should this moment ask the server anything at all?
-// Every poll is real git work, so automatic refresh runs on a slow schedule the
-// reader can switch off entirely. Kept out of the lifecycle hooks as a pure
-// function so the Python self-test can call it directly (it can never fire a
-// Vue hook), and routed through by EVERY request initiator — the poll timer,
-// the visibilitychange listener, and the manual button — so "off means off" and
-// "hidden means no request" are decided in exactly one place. A manual click
-// wins over both: a deliberate action is not background polling. The function
-// returns a word and so resets nothing; the elapsed baseline is caller state,
-// restarted in step(). Mirrored by refresh_decision() in serve_status.py, which
-// the self-test drives — keep the two in lockstep.
-// MIRROR: change together with refresh_decision() in serve_status.py and the refresh self-test.
-function refreshDecision(mode, visible, elapsedMs, intervalMs, manual) {
-  if (manual) return 'poll-now';
-  if (mode !== 'auto') return 'skip';
-  if (!visible) return 'skip';
-  if (elapsedMs < intervalMs) return 'skip';
-  return 'poll';
-}
-
-// The reader's automatic-refresh choice, read once at load. A browser with
-// storage unavailable (private mode, a blocked origin) falls back to the
-// default — automatic refresh ON — rather than throwing on the way up.
-function storedRefreshMode() {
-  try {
-    return localStorage.getItem(REFRESH_KEY) === '0' ? 'manual-only' : 'auto';
-  } catch (e) { return 'auto'; }
-}
+__REFRESH_SHARED__
 
 // The header's branch chips: the repository's default branch, then the real
 // integration branch of the binder in flight (at most one). Recomputed from the
@@ -2046,7 +2068,7 @@ const app = createApp({
 });
 
 app.mount('#app');
-""".strip()
+""".strip().replace("__REFRESH_SHARED__", _REFRESH_SHARED_JS)
 
 
 def _theme_attr(theme: str | None) -> str:
@@ -2434,22 +2456,46 @@ _HUB_CHIP = {
     "UNAVAILABLE": ("var(--halt)", "var(--halt-soft)"),
 }
 
+# The rest of each word's treatment, declared beside its colours rather than
+# decided inline while rendering: which of the page's five motions the chip
+# opts into, and whether the card greys. The motions are the SAME classes the
+# repo page wears — a running repo breathes its ring the way a running item
+# does, a broken one alarms — so both pages settle the same way under a
+# reduced-motion preference, from one stylesheet block.
+_HUB_TREATMENT = {
+    "NOW":         {"motion": "karta-ring", "dim": False},
+    "NEXT":        {"motion": "", "dim": False},
+    "CLEAR":       {"motion": "", "dim": False},
+    "WEDGED":      {"motion": "karta-alarm", "dim": True},
+    "UNAVAILABLE": {"motion": "karta-alarm", "dim": True},
+}
+
+# The landing's own rules. Everything else — the palette cascade, the three
+# vendored families, the five keyframes, the header brand, the empty state and
+# the footer — comes from _page_css(), which is why the two pages agree on
+# colour and type by construction rather than by copying values across.
+# What is left here is the card, and it follows the repo page's own treatments:
+# a repository name is set the way the repo page sets the repo it is showing
+# (mono 600, --accent-deep), the meta line reads like the page's other mono
+# meters, the next-action line reads like a binder blurb, and hover picks up
+# the accent outline every other control on the page uses.
 _HUB_CSS = """
 .hub{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:14px; }
 a.repo{ border:1px solid var(--line); background:var(--surface); padding:16px 20px;
   display:flex; flex-direction:column; gap:7px; color:inherit;
   text-decoration:none; }
-a.repo:hover{ border-color:var(--steel); }
+a.repo:hover{ border-color:var(--accent-line); }
 .repo--dim{ opacity:.55; }
 .repo__head{ display:flex; align-items:center; gap:10px; }
-.repo__name{ font-family:var(--mono); font-weight:600; font-size:16px;
-  color:var(--ink); }
+.repo__name{ font-family:var(--mono); font-weight:600; font-size:15px;
+  color:var(--accent-deep); line-height:1.15; }
 .repo__chip{ font-family:var(--mono); font-size:9px; font-weight:600;
   letter-spacing:.5px; padding:2px 7px; margin-left:auto; flex:none; }
-.repo__counts{ font-size:12px; color:var(--mut); font-family:var(--mono); }
-.repo__next{ font-size:12.5px; color:var(--ink); opacity:.8; }
+.repo__counts{ font-family:var(--mono); font-size:11px; color:var(--mut-2);
+  font-variant-numeric:tabular-nums; }
+.repo__next{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; }
 .repo__arrow{ color:var(--accent); }
-.repo__note{ font-size:12px; color:var(--halt); }
+.repo__note{ font-family:var(--mono); font-size:11px; color:var(--halt); }
 .repo__root{ font-size:11px; color:var(--mut); font-family:var(--mono);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .top__theme{ appearance:none; -webkit-appearance:none; background:transparent;
@@ -2458,22 +2504,74 @@ a.repo:hover{ border-color:var(--steel); }
 :root[data-theme="light"] .top__sun{ display:none; }
 """.strip()
 
+# ---------------------------------------------------------------------------
+# The landing's refresh. It used to be `<meta http-equiv="refresh" content=10>`:
+# every ten seconds the browser navigated the page again, and the server
+# re-derived EVERY watched repository from git to answer. That is the most
+# expensive page in the system on the shortest interval — and a meta refresh
+# cannot read the reader's stored choice, so switching automatic refresh off on
+# a repo page left the landing hammering git anyway.
+#
+# It is REPLACED here, not supplemented: the meta tag is gone, and the landing
+# runs the same model the repo page runs — one timer, and every tick asks the
+# SHARED refreshDecision above (the identical source, spliced into both
+# documents) whether this moment may ask for anything at all.
+#
+# The landing holds no client state worth patching in place — it is server
+# rendered, with no feed to fetch — so the action a 'poll' authorises is a full
+# reload. It is reached only through the decision, never unconditionally, and
+# nothing else on the page starts a request. The stored preference is read on
+# every tick rather than once at load, so turning automatic refresh off in a
+# repo tab stops the landing within one interval instead of at its next reload.
+# ---------------------------------------------------------------------------
+
+_HUB_JS = ("""
+const REFRESH_KEY = __REFRESH_KEY__;
+const REFRESH_MS = __REFRESH_MS__;
+
+__REFRESH_SHARED__
+
+// KARTA-SME-OVERRIDE(vue.6): this timer gets no teardown. It is not inside a Vue
+// component — the landing runs no Vue at all — so there is no unmount to hang one
+// on, and the only thing the timer ever does is replace the document, which ends
+// it. The repo page's Vue timers keep their beforeUnmount pairing untouched.
+(function () {
+  let lastAt = Date.now();
+  function step() {
+    const visible = (document.visibilityState !== 'hidden');
+    const decision = refreshDecision(storedRefreshMode(), visible,
+                                     Date.now() - lastAt, REFRESH_MS, false);
+    if (decision === 'skip') return;
+    lastAt = Date.now();
+    location.reload();
+  }
+  setInterval(step, REFRESH_MS);
+})();
+"""
+           .replace("__REFRESH_SHARED__", _REFRESH_SHARED_JS)
+           .replace("__REFRESH_KEY__", _inert_json(REFRESH_MODE_KEY))
+           .replace("__REFRESH_MS__", str(REFRESH_INTERVAL_MS))
+           .strip())
+
 
 def render_hub_html(cards: list[dict], key_qs: str = "",
                     theme: str | None = None) -> str:
-    """The hub landing page: server-rendered, no JS beyond a periodic refresh.
-    Each card is exactly one <a> wrapping the head row, the next-action line
-    (the engine's human copy verbatim behind an amber arrow), and the foot.
-    Every dynamic string is html-escaped — repo names, paths, and engine errors
-    are untrusted bytes. Styling reuses the Karta Watch CSS; links carry the
-    key so drill-down just works."""
+    """The hub landing page: server-rendered, with one script — the shared
+    refresh decision and the single timer that acts on it. Each card is exactly
+    one <a> wrapping the head row, the next-action line (the engine's human copy
+    verbatim behind an amber arrow), and the foot. Every dynamic string is
+    html-escaped — repo names, paths, and engine errors are untrusted bytes.
+    Styling reuses the Karta Watch CSS; links carry the key so drill-down just
+    works."""
     theme_attr = _theme_attr(theme)
     esc = html.escape
     if cards:
         rows = []
         for c in cards:
             color, soft = _HUB_CHIP.get(c["word"], _HUB_CHIP["NEXT"])
-            dim = " repo--dim" if c["word"] in ("WEDGED", "UNAVAILABLE") else ""
+            treat = _HUB_TREATMENT.get(c["word"], _HUB_TREATMENT["NEXT"])
+            dim = " repo--dim" if treat["dim"] else ""
+            motion = (" " + treat["motion"]) if treat["motion"] else ""
             meta = " · ".join(x for x in (c["counts"], c["activity"]) if x)
             bits = [
                 f'<a class="repo{dim}" data-kw-hub-card '
@@ -2482,7 +2580,9 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
                 f'{esc(key_qs, quote=True)}">',
                 '<div class="repo__head">',
                 f'<span class="repo__name">{esc(c["name"])}</span>',
-                f'<span class="repo__chip" style="color:{color};background:{soft}">'
+                f'<span class="repo__chip{motion}" '
+                f'data-kw-hub-verdict="{esc(c["word"], quote=True)}" '
+                f'style="color:{color};background:{soft}">'
                 f'{esc(c["word"])}</span>',
                 "</div>",
             ]
@@ -2510,7 +2610,6 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         "<head>"
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<meta http-equiv="refresh" content="10">'
         "<title>Karta Watch</title>"
         # Apply the stored preference before first paint — same key, same
         # precedence as the repo page: localStorage overrides the baked default.
@@ -2540,6 +2639,7 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         '<footer class="foot">karta · every card derives fresh from its '
         "repo&#39;s git · read-only</footer>"
         "</div>"
+        f"<script>{_HUB_JS}</script>"
         "</body></html>"
     )
 
@@ -5718,7 +5818,8 @@ BEHAVIOUR_ANCHOR = _SCRIPT_PATH.parent / "selftest_behaviours.txt"
 
 _COVERAGE_REGISTRY: dict[str, dict] = {}
 # The rendered documents a hook may legitimately live in.
-_DOC_KEYS = ("page", "eph", "empty_page", "degraded_page", "hub", "hub_empty")
+_DOC_KEYS = ("page", "eph", "empty_page", "degraded_page", "hub", "hub_empty",
+             "hub_all")
 
 
 def _covers(name: str, *, kind: str, hook: str | None = None,
@@ -5759,6 +5860,22 @@ def _tag_after(doc: str, tag: str) -> str:
     i = doc.index(tag) + len(tag)
     m = re.search(r"<[a-zA-Z][^<>]*>", doc[i:])
     return m.group(0) if m else ""
+
+
+def _tags_named(doc: str, name: str) -> list[str]:
+    """Every start tag in `doc` whose element name is `name`. Same reason as
+    _tag_after: the checks navigate structure, they do not match markup."""
+    return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
+            if _tag_name(m.group(0)) == name]
+
+
+def _style_text(doc: str) -> str:
+    """The stylesheet a rendered document actually carries: every <style> body,
+    concatenated and comment-stripped. Read off the document rather than off the
+    constant it was built from, so "this page ships these rules" is checked and
+    not assumed."""
+    return _strip_css_comments("\n".join(
+        re.findall(r"<style[^>]*>(.*?)</style>", doc, flags=re.S)))
 
 
 def _rendered_hooks(ctx: dict) -> set[str]:
@@ -6803,6 +6920,147 @@ def _c_hub_landing_empty(ctx):
             and not _tags_with(ctx["hub"], "data-kw-hub-empty"))
 
 
+@_covers("hub-card-verdict-vocabulary", kind="rendered",
+         hook="data-kw-hub-verdict",
+         breaks=[lambda c: _renamed(c, "data-kw-hub-verdict", "hub_all"),
+                 lambda c: {"hub_all": c["hub_all"].replace("repo--dim", "repo--x")},
+                 lambda c: {"hub_all": c["hub_all"].replace("karta-alarm",
+                                                            "karta-still")},
+                 lambda c: {"hub_treatment": dict(
+                     c["hub_treatment"],
+                     CLEAR={"motion": "karta-alarm", "dim": True})}])
+def _c_hub_verdict_vocabulary(ctx):
+    """Every verdict a repository can report renders its own card. Each chip
+    carries its word, the colour pair declared for that word, and the motion and
+    dimming its treatment declares — so the rendered vocabulary is compared
+    against the table, not against a fixture someone can quietly narrow. WEDGED
+    and UNAVAILABLE deliberately share one colour: they are told apart by the
+    word and by the note under it, and that is why this compares the set of
+    rendered (word, colour, motion, dimmed) tuples against the declared set
+    rather than counting distinct colours."""
+    doc, chip, treat = ctx["hub_all"], ctx["hub_chip"], ctx["hub_treatment"]
+    cards = _tags_with(doc, "data-kw-hub-card")
+    chips = _tags_with(doc, "data-kw-hub-verdict")
+    motions = set(ctx["keyframes"])
+    if set(chip) != set(treat) or len(cards) != len(chips) != len(chip):
+        return False
+    rendered = set()
+    for card_tag, chip_tag in zip(cards, chips):
+        cattrs, chattrs = _attrs(card_tag), _attrs(chip_tag)
+        word = chattrs.get("data-kw-hub-verdict", "")
+        classes = set(cattrs.get("class", "").split())
+        classes |= set(chattrs.get("class", "").split())
+        rendered.add((word,
+                      tuple(_VAR_REF_RE.findall(chattrs.get("style", ""))),
+                      tuple(sorted(classes & motions)),
+                      "repo--dim" in classes))
+    declared = {(word,
+                 tuple(_VAR_REF_RE.findall("".join(chip[word]))),
+                 tuple(m for m in (treat[word]["motion"],) if m),
+                 treat[word]["dim"]) for word in chip}
+    return rendered == declared
+
+
+@_covers("hub-landing-token-parity", kind="behaviour",
+         breaks=[lambda c: {"hub": c["hub"].replace("--wait-soft:",
+                                                    "--wait-gone:")},
+                 lambda c: {"hub": c["hub"].replace(
+                     "@media (prefers-color-scheme: light)",
+                     "@media (min-width: 1px)")},
+                 lambda c: {"hub_chip": dict(c["hub_chip"],
+                                             NOW=("var(--nope)",
+                                                  "var(--nope-soft)"))}])
+def _c_hub_token_parity(ctx):
+    """The landing resolves the same tokens as the page it links to. Read off
+    the two rendered documents: they define the same variable names, the landing
+    ships the same four-selector cascade with the full palette in each arm, and
+    every variable the landing's own rules and chips name is defined there. A
+    token that exists for one page and not the other is precisely how the two
+    drift into looking like different products."""
+    hub_sheet, page_sheet = _style_text(ctx["hub"]), _style_text(ctx["page"])
+    palette = set(ctx["palette"])
+    arms = [_palette_decls(hub_sheet, ":root"),
+            _palette_decls(_at_rule_body(hub_sheet, "prefers-color-scheme"),
+                           ":root"),
+            _palette_decls(hub_sheet, ':root[data-theme="dark"]'),
+            _palette_decls(hub_sheet, ':root[data-theme="light"]')]
+    if any(set(arm) != palette for arm in arms):
+        return False
+    defined = set(_VAR_DEF_RE.findall(hub_sheet))
+    if defined != set(_VAR_DEF_RE.findall(page_sheet)):
+        return False
+    refs = set(_VAR_REF_RE.findall(hub_sheet + json.dumps(ctx["hub_chip"])))
+    return bool(refs) and not (refs - defined)
+
+
+@_covers("hub-refresh-shared-decision", kind="behaviour",
+         breaks=[lambda c: {"hub": c["hub"].replace(
+             "if (!visible) return 'skip';", "")},
+                 lambda c: {"hub_refresh_ms": 10000},
+                 lambda c: {"hub_refresh_key": "karta-theme"}])
+def _c_hub_refresh_shared_decision(ctx):
+    """The landing runs the SAME decision the repo page runs — one source,
+    spliced verbatim into both documents, rather than a second copy that can be
+    fixed on the page someone happened to open and left wrong on the most
+    expensive page in the system. It reads the reader's choice under the same
+    key and measures it against the same interval."""
+    shared = ctx["refresh_shared"]
+    return (bool(shared)
+            and shared in ctx["app_src"] and shared in ctx["hub"]
+            and ctx["hub_refresh_ms"] == ctx["refresh_interval"]
+            and ctx["hub_refresh_key"] == ctx["refresh_key"])
+
+
+@_covers("hub-refresh-off-means-off", kind="behaviour",
+         breaks=[lambda c: {"refresh_decide": lambda *a, **k: "poll"},
+                 lambda c: {"hub": c["hub"].replace(
+                     "refreshDecision(storedRefreshMode()", "always(")},
+                 lambda c: {"hub": c["hub"].replace(
+                     "  setInterval(step, REFRESH_MS);",
+                     "  setInterval(step, REFRESH_MS);\n"
+                     "  setInterval(function () { location.reload(); }, 1000);")}])
+def _c_hub_refresh_off_means_off(ctx):
+    """Off stops the landing too. Two readings, because neither alone is honest:
+    the decision itself, called directly with the landing's own interval, answers
+    'skip' in manual-only mode however long it has been; and the landing's
+    rendered source has exactly one timer, one action, and no other initiator —
+    the action sits after the decision inside the same step, so there is no path
+    to a request that skipped it. What a browser does with that source is not
+    machine-checked here."""
+    decide, ms = ctx["refresh_decide"], ctx["hub_refresh_ms"]
+    off = {decide("manual-only", True, e, ms, False)
+           for e in (0, ms, ms * 2880)}
+    hidden = decide("auto", False, ms * 2880, ms, False)
+    due = decide("auto", True, ms, ms, False)
+    step = _js_block(ctx["hub"], "  function step() {")
+    if not step or "refreshDecision(" not in step:
+        return False
+    return (off == {"skip"} and hidden == "skip" and due == "poll"
+            and step.index("refreshDecision(") < step.index("location.reload(")
+            and step.count("location.reload(") == 1
+            and ctx["hub"].count("location.reload(") == 1
+            and ctx["hub"].count("setInterval(") == 1
+            and ctx["hub"].count("fetch(") == 0
+            and ctx["hub"].count("addEventListener(") == 0)
+
+
+@_covers("hub-no-meta-refresh", kind="behaviour",
+         breaks=[lambda c: {"hub": c["hub"].replace(
+             "<head>", '<head><meta http-equiv="refresh" content="10">')},
+                 lambda c: {"hub_empty": c["hub_empty"].replace(
+                     "<head>", '<head><meta http-equiv="refresh" content="30">')}])
+def _c_hub_no_meta_refresh(ctx):
+    """The ten-second meta refresh is replaced, not supplemented. No rendered
+    document declares a refresh through http-equiv — a mechanism that cannot
+    read the reader's choice and cannot be stopped by it has no second life
+    beside the one that can."""
+    for key in _DOC_KEYS:
+        for tag in _tags_named(ctx[key], "meta"):
+            if "refresh" in _attrs(tag).get("http-equiv", "").lower():
+                return False
+    return True
+
+
 @_covers("route-repo-page", kind="behaviour",
          breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
              'path in ("/", "/index.html")', "False")}])
@@ -7571,6 +7829,14 @@ def _coverage_context() -> dict:
               "counts": "1 binder · 1 delivered", "activity": None,
               "next": "", "note": "", "root": "/x/beta"}]
     hub = render_hub_html(cards, key_qs)
+    # One landing carrying EVERY verdict at once, so "each word gets its own
+    # treatment" is read off a render that actually contains all five rather
+    # than off the table that produced them.
+    all_cards = [{"slug": "w%d-dddddddd" % i, "name": "repo-%d" % i, "word": word,
+                  "counts": "1 binder · 0 delivered", "activity": "active today",
+                  "next": "run karta-deliver", "note": "", "root": "/x/w%d" % i}
+                 for i, word in enumerate(_HUB_CHIP)]
+    hub_all = render_hub_html(all_cards, key_qs)
 
     def key_ok(supplied, required):
         return _Handler._key_ok(_Ns(required_key=required),
@@ -7618,7 +7884,12 @@ def _coverage_context() -> dict:
         "page": page, "eph": eph, "empty_page": empty_page,
         "degraded_page": degraded_page, "hub": hub,
         "hub_empty": render_hub_html([], key_qs),
+        "hub_all": hub_all,
         "hub_card_count": len(cards),
+        "hub_treatment": _HUB_TREATMENT,
+        "hub_refresh_key": _inlined_const(hub, "REFRESH_KEY"),
+        "hub_refresh_ms": _inlined_const(hub, "REFRESH_MS"),
+        "refresh_shared": _REFRESH_SHARED_JS,
         "css": _strip_css_comments(_page_css()),
         "hub_css": _strip_css_comments(_HUB_CSS),
         "palette": _PALETTE, "retired": _RETIRED_TOKENS,

@@ -55,6 +55,11 @@ repo page's phase rail uses.)
 Each card also shows when the repo last saw activity — **active today**, or **active N days
 ago** — read from its newest commit. The stamp is simply absent if git can't answer in time.
 
+The landing is set in the same colours, type and motion as the repo pages it links to, so moving
+between them doesn't feel like changing product. A repo with work in flight pulses; a broken one
+flashes its alarm colour; and if you have asked your system for reduced motion, both settle to a
+still state that still reads. It refreshes the same way too — see below.
+
 ## Getting around
 
 From a repo page, two controls return you to the hub landing: the small **k** mark in the
@@ -91,6 +96,17 @@ shown as the other.
 
 A hidden tab makes no automatic requests either, whatever the mode — the page picks the schedule
 back up when you return to it.
+
+**The landing follows the same choice.** It used to reload itself every ten seconds no matter
+what — six times a minute of re-deriving *every* watched repo, and no way for your choice to
+stop it. Now it runs on the same 30-second schedule, reads the same setting, and stops asking
+when you turn automatic refresh off. It re-reads the setting every time it comes due, so
+switching refresh off in a repo tab quiets the landing within half a minute. There are no
+controls on the landing itself: set it once on a repo page and both follow.
+
+One difference is worth knowing. The repo page fetches new state and redraws in place; the
+landing is built by the server, so its refresh is a full page load. Expect it to behave like
+one — the scroll position returns to the top.
 
 ## When the feed pauses
 
