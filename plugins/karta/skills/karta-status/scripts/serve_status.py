@@ -925,7 +925,7 @@ body{
   width:6px; height:6px; border-radius:50%; background:var(--green);
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
-.hdr-right{ display:flex; align-items:center; gap:2px; flex:none; }
+.hdr-right{ display:flex; align-items:center; gap:8px; flex:none; }
 .hctl{
   display:flex; align-items:center; gap:6px; border:none; cursor:pointer;
   background:transparent; font-family:var(--sans); font-size:12px;
@@ -933,31 +933,72 @@ body{
 }
 .hctl--on{ color:var(--ink); }
 .hctl__icon{ display:flex; }
-
-/* repo-page header shell: k-mark home anchor, home button, loud repo name */
-.shell{ display:flex; align-items:center; gap:12px; min-width:0; }
-.shell__kmark{
-  width:40px; height:40px; flex:none;
-  display:flex; align-items:center; justify-content:center;
-  background:var(--accent); color:var(--on-halt);
-  font-family:var(--mono); font-weight:600; font-size:20px;
-  text-decoration:none;
+.hctl--icon{
+  justify-content:center; width:32px; height:32px; padding:0;
+  border:1px solid var(--line); border-radius:99px; background:var(--surface);
 }
+.hctl--icon:hover{ border-color:var(--accent-line); }
+
+/* branch chips — the default branch, and the in-flight binder's integration
+   branch. Quiet mono pills: they say where you are, they are not controls. */
+.branch-chip{
+  display:inline-flex; align-items:center; gap:6px; flex:none;
+  font-family:var(--mono); font-size:11px; color:var(--mut);
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:99px; padding:5px 11px;
+}
+.branch-chip__name{ white-space:nowrap; }
+
+/* The repo page's header stays put while the timeline scrolls under it, so the
+   repo you are looking at and its branches never leave the screen. Scoped to a
+   modifier rather than to `.top`, which the hub landing shares. It bleeds out
+   over the body's own padding so nothing scrolls past it down the sides. */
+.top--shell{
+  position:sticky; top:0; z-index:40; gap:14px;
+  background:var(--bg); border-bottom:1px solid var(--line);
+  margin:0 -34px; padding:12px 34px;
+}
+
+/* repo-page header shell: the mascot + wordmark brand (the hub anchor), the
+   home button, the repo name under its hand-drawn underline, the feed light */
+.shell{ display:flex; align-items:center; gap:12px; min-width:0; }
+.shell__brand{
+  flex:none; display:flex; align-items:center; gap:11px; text-decoration:none;
+}
+.shell__mascot{ width:34px; height:34px; flex:none; display:block; }
+.shell__word{
+  font-family:var(--serif); font-weight:500; font-size:21px;
+  letter-spacing:-0.2px; color:var(--ink);
+}
+.shell__rule{ width:1px; height:26px; background:var(--line-2); flex:none; }
 .shell__home{
-  flex:none; font-family:var(--mono); font-size:12px; color:var(--mut);
-  background:var(--surface); border:1px solid var(--line); padding:6px 10px;
+  flex:none; font-family:var(--mono); font-size:11px; color:var(--mut);
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:99px; padding:5px 11px;
   text-decoration:none; white-space:nowrap;
 }
-.shell__home:hover{ color:var(--accent); border-color:var(--accent); }
-.shell__txt{ min-width:0; }
-.shell__repo-name{
-  display:block; font-family:var(--mono); font-weight:600; font-size:26px;
-  letter-spacing:-0.5px; color:var(--accent);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+.shell__home:hover{ color:var(--accent); border-color:var(--accent-line); }
+.shell__txt{ min-width:0; display:flex; flex-direction:column; gap:2px; }
+.shell__eyebrow{
+  font-family:var(--mono); font-size:10px; font-weight:500;
+  letter-spacing:1.8px; text-transform:uppercase; color:var(--mut);
+  line-height:1;
 }
+.shell__repo-name{
+  position:relative; display:inline-block; max-width:100%;
+  font-family:var(--mono); font-weight:600; font-size:15px;
+  color:var(--accent-deep); line-height:1.15; white-space:nowrap;
+}
+/* The hand-drawn underline. The stroke length is this path's own, so it
+   overrides the shared .karta-draw dash length rather than editing it. */
+.shell__underline{
+  position:absolute; left:0; bottom:-4px; width:100%; height:7px;
+  overflow:visible; pointer-events:none;
+}
+.shell__underline path{ stroke-dasharray:240; stroke-dashoffset:240; }
 .shell__feed{
-  font-size:12px; color:var(--mut); margin-top:1px;
-  display:flex; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:11px; color:var(--mut); flex:none;
+  display:flex; align-items:center; gap:7px;
 }
 .shell__feed-dot{
   width:6px; height:6px; border-radius:50%; background:var(--green);
@@ -1237,6 +1278,44 @@ def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The header's branch chips. The design mocks two pills — "main" and an
+# invented "integration/<something>" — and the second one is a mock: karta's
+# real integration branch is `karta/<slug>/integration`, so the shipped chip has
+# to name the branch a reader could actually check out. One format string, here,
+# handed to the page verbatim, so the Python mirror and the JS the browser runs
+# can never drift into two spellings of the same branch.
+#
+# Both chips are pure functions of state already on the page: the default branch
+# the engine derived, and the slug of the binder that is in flight. No git call
+# is added — this is string formatting over facts the feed already carries.
+# ---------------------------------------------------------------------------
+
+INTEGRATION_BRANCH_FMT = "karta/{slug}/integration"
+
+
+def branch_chips(state: dict) -> list[dict]:
+    """Python mirror of the page's branchChips(): state in, chips out.
+
+    The first chip is the repository's default branch. The second names the real
+    integration branch of the binder that is in flight — there is at most one, so
+    the first `in_flight` binder in the engine's derived order wins, and a repo
+    with nothing in flight shows the default branch alone rather than a chip
+    pointing at a branch that does not exist."""
+    # MIRROR: change together with branchChips() in _APP_JS and the chip self-test.
+    chips = []
+    default = (state.get("repo") or {}).get("default_branch") or ""
+    if default:
+        chips.append({"key": "default", "name": default, "icon": "branch"})
+    for binder in state.get("binders") or []:
+        if binder.get("status") == "in_flight" and binder.get("slug"):
+            chips.append({"key": "integration",
+                          "name": INTEGRATION_BRANCH_FMT.format(slug=binder["slug"]),
+                          "icon": ""})
+            break
+    return chips
+
+
+# ---------------------------------------------------------------------------
 # The Vue 3 app. Uses the vendored global build (Vue.createApp), an in-document
 # template (no build step). Mounts from the inlined initial state for a correct
 # first paint, then — only off file://, and only while the tab is visible —
@@ -1269,6 +1348,10 @@ const FEED = __FEED_LABELS__;
 const FEED_PAUSE_AFTER = __FEED_PAUSE_AFTER__;
 const FEED_OK_STATUSES = __FEED_OK_STATUSES__;
 
+// The integration-branch spelling, from the same Python constant the self-test
+// asserts against — the header chip must name a branch you could check out.
+const BRANCH_FMT = __BRANCH_FMT__;
+
 // Pure feed transition — state in, state out, no I/O. `status` is the HTTP
 // status the poll answered with, or null when the request never completed.
 // 200 and 304 are both healthy (a 304 is the conditional poll working, not a
@@ -1297,6 +1380,28 @@ function pollDecision(visible, wasVisible, hasEtag) {
   if (!visible) return 'skip';
   if (!wasVisible) return 'poll-now';
   return 'poll';
+}
+
+// The header's branch chips: the repository's default branch, then the real
+// integration branch of the binder in flight (at most one). Recomputed from the
+// polled state rather than baked in at first paint, so the chip follows the
+// delivery as it moves. The branch spelling comes from Python as BRANCH_FMT —
+// one definition, two runtimes. Mirrored by branch_chips() in serve_status.py,
+// which the self-test drives — keep the two in lockstep.
+// MIRROR: change together with branch_chips() in serve_status.py and the chip self-test.
+function branchChips(state) {
+  const chips = [];
+  const def = ((state && state.repo) || {}).default_branch || '';
+  if (def) chips.push({ key: 'default', name: def, icon: 'branch' });
+  const binders = (state && state.binders) || [];
+  for (let i = 0; i < binders.length; i++) {
+    const b = binders[i];
+    if (b && b.status === 'in_flight' && b.slug) {
+      chips.push({ key: 'integration', name: BRANCH_FMT.replace('{slug}', b.slug), icon: '' });
+      break;
+    }
+  }
+  return chips;
 }
 
 // The archived join — the whole shed-archived-payload mechanism, kept out of
@@ -1425,6 +1530,7 @@ const app = createApp({
     binders() { return this.state.binders || []; },
     hasBinders() { return this.binders.length > 0; },
     feedLabel() { return this.feed.paused ? FEED.paused : FEED.live; },
+    branches() { return branchChips(this.state); },
 
     // common `-`-split slug prefix across binders (fallback to the first slug).
     deliveryName() {
@@ -1622,19 +1728,30 @@ const app = createApp({
   },
   template: `
 <div class="wrap">
-  <header class="top">
+  <header class="top top--shell" data-kw-top>
     <div class="shell" data-kw-shell>
-      <a v-if="shell.home" class="shell__kmark" data-kw-shell-kmark :href="shell.home" aria-label="karta watch hub">k</a>
-      <span v-else class="shell__kmark" data-kw-shell-kmark aria-hidden="true">k</span>
+      <a v-if="shell.home" class="shell__brand" data-kw-shell-kmark :href="shell.home" aria-label="karta watch hub">
+        <img class="shell__mascot" data-kw-shell-mascot src="/assets/mascot.png__ASSET_QS__" alt="" width="34" height="34">
+        <span class="shell__word">karta</span>
+      </a>
+      <span v-else class="shell__brand" data-kw-shell-kmark>
+        <img class="shell__mascot" data-kw-shell-mascot src="/assets/mascot.png__ASSET_QS__" alt="" width="34" height="34">
+        <span class="shell__word">karta</span>
+      </span>
+      <span class="shell__rule" aria-hidden="true"></span>
       <a v-if="shell.home" class="shell__home" data-kw-shell-home :href="shell.home">← home</a>
       <div class="shell__txt">
-        <span class="shell__repo-name" data-kw-shell-repo>{{ shell.name }}</span>
-        <div class="shell__feed" data-kw-feed :class="{ 'shell__feed--paused': feed.paused }" :data-kw-feed-paused="feed.paused ? 'true' : 'false'">
-          <span class="shell__feed-dot" data-kw-feed-dot aria-hidden="true"></span>{{ feedLabel }}
-        </div>
+        <span class="shell__eyebrow">Repo</span>
+        <span class="shell__repo-name" data-kw-shell-repo>{{ shell.name }}<svg class="shell__underline" data-kw-shell-underline viewBox="0 0 220 14" preserveAspectRatio="none" aria-hidden="true"><path class="karta-draw" d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"></path></svg></span>
+      </div>
+      <div class="shell__feed" data-kw-feed :class="{ 'shell__feed--paused': feed.paused }" :data-kw-feed-paused="feed.paused ? 'true' : 'false'">
+        <span class="shell__feed-dot" data-kw-feed-dot aria-hidden="true"></span>{{ feedLabel }}
       </div>
     </div>
     <div class="hdr-right">
+      <span class="branch-chip" data-kw-branch-chip :data-kw-branch-chip-key="b.key" v-for="b in branches" :key="b.key">
+        <icon v-if="b.icon" :name="b.icon" :size="11" color="var(--mut-2)" /><span class="branch-chip__name">{{ b.name }}</span>
+      </span>
       <button type="button" class="hctl" data-kw-show-delivered :class="{ 'hctl--on': showDelivered }"
         @click="toggleShowDelivered"
         title="show delivered binders"
@@ -1790,6 +1907,7 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__SHELL__", _inert_json(shell))
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
+        .replace("__BRANCH_FMT__", _inert_json(INTEGRATION_BRANCH_FMT))
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
         .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
                                                     separators=(",", ":")))
@@ -5423,6 +5541,45 @@ def _tag_name(tag: str) -> str:
     return m.group(1) if m else ""
 
 
+def _tag_after(doc: str, tag: str) -> str:
+    """The next start tag following `tag` — the child a wrapper element opens
+    with. Kept here rather than inline in a check so the checks stay free of
+    markup-shaped string literals."""
+    i = doc.index(tag) + len(tag)
+    m = re.search(r"<[a-zA-Z][^<>]*>", doc[i:])
+    return m.group(0) if m else ""
+
+
+def _rendered_hooks(ctx: dict) -> set[str]:
+    """Every data-kw hook that actually reaches a rendered document, static or
+    bound. The population the coverage rule is measured against."""
+    out: set[str] = set()
+    pat = re.compile(r"[:@]?(" + re.escape(KW_PREFIX) + r"[\w-]+)")
+    for key in _DOC_KEYS:
+        for tag in re.finditer(r"<[a-zA-Z][^<>]*>", ctx[key]):
+            out.update(pat.findall(tag.group(0)))
+    return out
+
+
+def _check_body(fn) -> str:
+    """`fn`'s own body source, decorators excluded. Naming a hook in a
+    registration is not reading it — only the code inside the check is."""
+    try:
+        src = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return ""
+    tree = ast.parse(src)
+    return "\n".join(ast.unparse(s) for s in tree.body[0].body) if tree.body else ""
+
+
+def _hook_is_read(hook: str) -> bool:
+    """Whether some registered check actually reads `hook` — as the element it
+    binds to, or as an attribute it takes off that element."""
+    word = re.compile(r"(?<![\w-])" + re.escape(hook) + r"(?![\w-])")
+    return any(word.search(_check_body(e["fn"]))
+               for e in _COVERAGE_REGISTRY.values())
+
+
 _ATTR_RE = re.compile(r'([@:]?[A-Za-z_][\w:.\-]*)(?:\s*=\s*"([^"]*)")?')
 
 
@@ -5679,6 +5836,140 @@ def _c_shell_feed_indicator(ctx):
     gated = _class_binding(attrs)
     return (bool(gated) and any(expr and expr in paused for expr in gated.values())
             and ctx["feed_inlined"] == ctx["feed_labels"])
+
+
+@_covers("header-sticky-bar", kind="rendered", hook="data-kw-top",
+         breaks=[lambda c: _renamed(c, "data-kw-top", "page"),
+                 lambda c: {"css": c["css"].replace("position:sticky",
+                                                    "position:static")},
+                 lambda c: {"css": c["css"].replace(
+                     "background:var(--bg); border-bottom", "border-bottom")}])
+def _c_header_sticky_bar(ctx):
+    """The repo page's header holds its place while the timeline scrolls under
+    it, and paints its own ground — a sticky bar with no background is a bar the
+    page shows through."""
+    tags = _tags_with(ctx["page"], "data-kw-top")
+    if len(tags) != 1 or _tag_name(tags[0]) != "header":
+        return False
+    for cls in _attrs(tags[0]).get("class", "").split():
+        for decls in _decls_for(ctx["css"], "." + cls):
+            if (decls.get("position") == "sticky" and "top" in decls
+                    and "background" in decls):
+                return True
+    return False
+
+
+@_covers("shell-brand-mascot", kind="rendered", hook="data-kw-shell-mascot",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-mascot", "page"),
+                 lambda c: {"page": c["page"].replace("mascot.png",
+                                                      "mascot-cut.png")},
+                 lambda c: {"eph": c["eph"].replace("/assets/", "//cdn/")}])
+def _c_shell_brand_mascot(ctx):
+    """The header brand is the mascot this plugin actually ships, from its own
+    asset route — both branches of the hub/ephemeral split carry it, hub mode
+    carries the key that route demands, and ephemeral mode carries none."""
+    hub = _tags_with(ctx["page"], "data-kw-shell-mascot")
+    eph = _tags_with(ctx["eph"], "data-kw-shell-mascot")
+    if len(hub) != 2 or len(eph) != 2:
+        return False
+    keyed = {_attrs(t).get("src", "") for t in hub}
+    plain = {_attrs(t).get("src", "") for t in eph}
+    if len(keyed) != 1 or len(plain) != 1:
+        return False
+    keyed, plain = keyed.pop(), plain.pop()
+    return (plain.rsplit("/", 1)[-1] in ctx["asset_files"]
+            and plain.startswith("/assets/")
+            and keyed == plain + ctx["key_qs"]
+            and all(_attrs(t).get("alt") == "" for t in hub + eph))
+
+
+@_covers("shell-name-underline", kind="rendered", hook="data-kw-shell-underline",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-underline", "page"),
+                 lambda c: {"page": c["page"].replace("karta-draw", "karta-still")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-draw")}])
+def _c_shell_name_underline(ctx):
+    """The hand-drawn underline sits under the repo name, is drawn by the page's
+    own draw motion, and settles to its finished stroke — not to a blank line —
+    when the reader asks for reduced motion."""
+    page, css, drawn = ctx["page"], ctx["css"], "karta-draw"
+    tags = _tags_with(page, "data-kw-shell-underline")
+    if len(tags) != 1 or _tag_name(tags[0]) != "svg":
+        return False
+    if _first_index(page, "data-kw-shell-underline") < _first_index(
+            page, "data-kw-shell-repo"):
+        return False
+    if not _decls_for(css, "." + _attrs(tags[0]).get("class", "")):
+        return False
+    stroke = _tag_after(page, tags[0])
+    if _tag_name(stroke) != "path" or drawn not in _attrs(stroke).get("class", "").split():
+        return False
+    base = _decls_for(css, "." + drawn)
+    if not _at_rule_body(css, "keyframes " + drawn):
+        return False
+    if not base or not any(_animates_with(d, drawn) for d in base):
+        return False
+    for sel, decls in _css_rules(_reduced_block(css)):
+        if "." + drawn in [s.strip() for s in sel.split(",")]:
+            return (_norm(decls.get("animation", "")) == "none"
+                    and _norm(decls.get("stroke-dashoffset", "")) == "0")
+    return False
+
+
+@_covers("shell-branch-chips", kind="rendered", hook="data-kw-branch-chip",
+         breaks=[lambda c: _renamed(c, "data-kw-branch-chip", "page"),
+                 lambda c: {"state": dict(c["state"], repo={})}])
+def _c_shell_branch_chips(ctx):
+    """One chip per branch the header derives, each keyed and marked by which
+    branch it is — so the two chips are told apart by an attribute rather than
+    by their position in the bar."""
+    tags = _tags_with(ctx["page"], "data-kw-branch-chip")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    chips = ctx["branch_chips"](ctx["state"])
+    return (attrs.get("v-for", "").endswith("branches")
+            and attrs.get(":key") == "b.key"
+            and attrs.get(":data-kw-branch-chip-key") == "b.key"
+            and [c["key"] for c in chips] == ["default", "integration"])
+
+
+@_covers("shell-branch-chip-names", kind="behaviour",
+         breaks=[lambda c: {"integration_fmt": "integration/{slug}"},
+                 lambda c: {"branch_inlined": "somewhere/else"},
+                 lambda c: {"state": dict(c["state"], binders=[
+                     dict(b, status="merged") for b in c["state"]["binders"]])}])
+def _c_branch_chip_names(ctx):
+    """The chips name branches a reader could check out: the engine's own
+    default branch, and the in-flight binder's REAL integration branch — never
+    the design's mocked `integration/<something>`. With nothing in flight the
+    second chip is absent rather than pointing at a branch that does not exist.
+    The page computes the same names from the same format string, so the
+    constant the document inlines has to match the one asserted here."""
+    state, chips = ctx["state"], ctx["branch_chips"](ctx["state"])
+    live = [b for b in state["binders"] if b["status"] == "in_flight"]
+    if len(chips) != 2 or len(live) != 1:
+        return False
+    default, integration = chips
+    if default["name"] != state["repo"]["default_branch"]:
+        return False
+    if integration["name"] != ctx["integration_fmt"].format(slug=live[0]["slug"]):
+        return False
+    if ctx["branch_inlined"] != ctx["integration_fmt"]:
+        return False
+    idle = dict(state, binders=[dict(b, status="merged") for b in state["binders"]])
+    return [c["key"] for c in ctx["branch_chips"](idle)] == ["default"]
+
+
+@_covers("every-rendered-hook-is-covered", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "data-kw-shell-repo", "data-kw-shell-repo data-kw-unread-probe", 1)}])
+def _c_every_hook_covered(ctx):
+    """Every data-kw hook the page actually renders is read by some registered
+    check. A hook nobody reads is a test seam that looks like coverage and is
+    not — and this fails in the item that added it, naming the hook, instead of
+    surfacing much later as an unexplained sweep finding."""
+    hooks = _rendered_hooks(ctx)
+    return bool(hooks) and not [h for h in hooks if not _hook_is_read(h)]
 
 
 # --- the palette, the cascade, and the tokens the page may name --------------
@@ -6798,6 +7089,11 @@ def _coverage_context() -> dict:
         "feed_labels": {"live": FEED_LIVE_LABEL, "paused": FEED_PAUSED_LABEL},
         "feed_inlined": _inlined_const(page, "FEED"),
         "pause_after": FEED_PAUSE_AFTER,
+        "state": state, "branch_chips": branch_chips,
+        "integration_fmt": INTEGRATION_BRANCH_FMT,
+        "branch_inlined": _inlined_const(page, "BRANCH_FMT"),
+        "asset_files": sorted(p.name for p in ASSETS_DIR.iterdir() if p.is_file()),
+        "key_qs": key_qs,
         "state_meta": _STATE_META, "phase_meta": _PHASE_META,
         "phase_defs": _PHASE_DEFS, "icons": _ICONS,
         "breathe_keyframe": BREATHE_KEYFRAME,

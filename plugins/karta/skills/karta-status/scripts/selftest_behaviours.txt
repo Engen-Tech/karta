@@ -23,6 +23,12 @@ shell-home-link
 shell-repo-name
 shell-ephemeral-no-hub
 shell-feed-indicator
+header-sticky-bar
+shell-brand-mascot
+shell-name-underline
+shell-branch-chips
+shell-branch-chip-names
+every-rendered-hook-is-covered
 palette-light-and-dark-agree
 palette-four-selector-cascade
 no-undefined-css-variables
