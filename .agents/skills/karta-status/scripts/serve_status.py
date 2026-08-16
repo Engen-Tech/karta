@@ -366,8 +366,13 @@ def upsert_repo(repo_root: str | os.PathLike, opted_in: bool | None = None,
 
 def _enrich(state: dict, binders: list[dict]) -> dict:
     """Join each derived item (status only) back to its binder `work_item` so the
-    renderers get title/summary/oracle/assert/cmd/deps, and carry the binder's own
-    human title/summary/motivation onto each derived binder. `derive_state` stays
+    renderers get title/summary/oracle/assert/cmd/deps — plus contract, touches,
+    estimate, serialize, shared_resources, the full assertions array, and an
+    opt-out's oracle_reason — and carry the binder's own human title/summary/
+    motivation and sme list onto each derived binder. Every value here is a
+    pass-through of already-loaded binder JSON: no new git call. A field the
+    work item doesn't declare comes out as None (never "" or []), so the page
+    can tell "not declared" from "declared empty". `derive_state` stays
     untouched."""
     wi_by_slug: dict[str, dict] = {}
     for b in binders:
@@ -380,6 +385,7 @@ def _enrich(state: dict, binders: list[dict]) -> dict:
         ob["title"] = src.get("title")
         ob["summary"] = src.get("summary")
         ob["motivation"] = src.get("motivation")
+        ob["sme"] = src.get("sme")
         items = wi_by_slug.get(ob["slug"], {})
         for d in ob["items"]["detail"]:
             wi = items.get(d["id"], {})
@@ -393,6 +399,15 @@ def _enrich(state: dict, binders: list[dict]) -> dict:
             d["assert"] = assertions[0] if assertions else None
             d["cmd"] = oracle.get("command")
             d["deps"] = wi.get("depends_on", []) or []
+            # widened fields — straight .get() passthrough, no defaulting, so an
+            # undeclared field reads None rather than a coerced empty/false value
+            d["contract"] = wi.get("contract")
+            d["touches"] = wi.get("touches")
+            d["estimate"] = wi.get("estimate")
+            d["serialize"] = wi.get("serialize")
+            d["shared_resources"] = wi.get("shared_resources")
+            d["assertions"] = oracle.get("assertions")
+            d["oracle_reason"] = oracle.get("reason")
     return state
 
 
@@ -5403,6 +5418,137 @@ def _run_self_test() -> int:
          "<" not in nested_out and ">" not in nested_out
          and json.loads(nested_out) == nested),
     ]
+
+    # --- widen-state-feed: contract/touches/estimate/serialize/shared_resources,
+    # the full assertions array, an opt-out's reason, and the binder's sme list
+    # all reach /state.json — null when the binder doesn't carry them, and only
+    # ever through _inert_json (never v-html) --------------------------------
+    wide_hostile = {
+        "img-onerror": "<img src=x onerror=alert('karta-xss')>",
+        "svg-onload": "<svg onload=alert('karta-xss')>",
+        "mixed-case-script": "<ScRiPt>alert('karta-xss')</sCrIpT>",
+        "javascript-url": "javascript:alert('karta-xss')",
+    }
+    wide_binders = [
+        {"slug": "s-wide", "title": "Widen the feed", "summary": "Carry more fields through.",
+         "motivation": "x", "scope": {"included": ["x"]},
+         "sme": ["alpha-pack", "beta-pack"],
+         "work_items": [
+             {"id": "full", "title": "Full-field item", "summary": "Declares everything.",
+              "estimate": "M", "serialize": True,
+              "shared_resources": ["skills/karta-status/scripts/serve_status.py"],
+              "touches": ["skills/karta-status/scripts/serve_status.py",
+                          wide_hostile["img-onerror"]],
+              "contract": {"exposes": "the widened feed",
+                           "note": wide_hostile["svg-onload"],
+                           "script": wide_hostile["mixed-case-script"],
+                           "href": wide_hostile["javascript-url"]},
+              "oracle": {"type": "unit",
+                         "assertions": ["first assertion", "second assertion", "third assertion"],
+                         "command": "npm run lint && npm test"}},
+             {"id": "skipped", "title": "Opted out", "summary": "No behavioral check for this one.",
+              "oracle": {"opt_out": True, "reason": "covered by the full-field item's oracle"}},
+             {"id": "bare", "title": "Bare item", "summary": "Declares none of the widened fields.",
+              "oracle": {"type": "unit", "assertions": ["bare passes"], "command": "true"}},
+         ]},
+    ]
+    wide_facts = {"default_branch": "main", "binders": {
+        "s-wide": {"items": {"full": {}, "skipped": {}, "bare": {}}}}}
+
+    # count subprocess.run calls made while deriving+enriching the widened
+    # binder, to prove the widening is a pure pass-through with no new git call
+    wide_git_calls: list = []
+    _real_subprocess_run = subprocess.run
+
+    def _counting_run(*a, **kw):
+        wide_git_calls.append(a)
+        return _real_subprocess_run(*a, **kw)
+
+    subprocess.run = _counting_run
+    try:
+        wide_state = karta_next.derive_state(wide_binders, wide_facts, frozenset())
+        wide_state = _enrich(wide_state, wide_binders)
+    finally:
+        subprocess.run = _real_subprocess_run
+
+    # negative control: prove the counting wrapper actually detects a call —
+    # otherwise the zero-calls assertion below would be vacuously true
+    _counter_probe: list = []
+    subprocess.run = lambda *a, **kw: _counter_probe.append(a)
+    try:
+        subprocess.run(["true"])
+    finally:
+        subprocess.run = _real_subprocess_run
+
+    wide_row = next(ob for ob in wide_state["binders"] if ob["slug"] == "s-wide")
+    wide_by_id = {d["id"]: d for d in wide_row["items"]["detail"]}
+    full, skipped, bare = wide_by_id["full"], wide_by_id["skipped"], wide_by_id["bare"]
+    wide_html = render_app_html(wide_state, "dark")
+    wide_wire = split_archived(wide_state)
+    wide_json = _inert_json(wide_wire)
+    parsed_wide = json.loads(wide_json)
+    parsed_row = next(b for b in parsed_wide["binders"] if b["slug"] == "s-wide")
+    parsed_full = next(d for d in parsed_row["items"]["detail"] if d["id"] == "full")
+
+    checks += [
+        ("widen: the git-call counter itself can detect a call, so the "
+         "zero-calls assertion below is not vacuous (negative control)",
+         _counter_probe == [(["true"],)]),
+        ("widen: an item declaring contract, touches, estimate, serialize and "
+         "shared_resources carries all five into the feed with the binder's own values",
+         full["contract"]["exposes"] == "the widened feed"
+         and full["touches"][0] == "skills/karta-status/scripts/serve_status.py"
+         and full["estimate"] == "M" and full["serialize"] is True
+         and full["shared_resources"] == ["skills/karta-status/scripts/serve_status.py"]),
+        ("widen: an oracle with three assertions carries all three, in order, "
+         "not just the first — and the legacy single-value key still survives",
+         full["assertions"] == ["first assertion", "second assertion", "third assertion"]
+         and full["assert"] == "first assertion"),
+        ("widen: an opt-out oracle carries both its type and its recorded reason",
+         skipped["oracle"] == "opt-out"
+         and skipped["oracle_reason"] == "covered by the full-field item's oracle"),
+        ("widen: the binder row carries its sme list",
+         wide_row.get("sme") == ["alpha-pack", "beta-pack"]),
+        ("widen: an item declaring none of the widened fields renders each as "
+         "null (not '' or []), and the page still renders",
+         bare["contract"] is None and bare["touches"] is None
+         and bare["estimate"] is None and bare["serialize"] is None
+         and bare["shared_resources"] is None and bare["oracle_reason"] is None
+         and len(wide_html) > 8000),
+        ("widen: the derivation issues no additional git call over a widened "
+         "binder — pure pass-through of already-loaded JSON",
+         wide_git_calls == []),
+        ("widen: contract and touches reach both the inline page and /state.json "
+         "only through _inert_json — the three markup-bearing hostile vectors "
+         "(img onerror, svg onload, mixed-case script tag) never survive raw, "
+         "regardless of tag shape or case",
+         all(v not in wide_html for v in (wide_hostile["img-onerror"],
+                                           wide_hostile["svg-onload"],
+                                           wide_hostile["mixed-case-script"]))
+         and all(v not in wide_json for v in (wide_hostile["img-onerror"],
+                                               wide_hostile["svg-onload"],
+                                               wide_hostile["mixed-case-script"]))
+         and parsed_full["contract"]["note"] == wide_hostile["svg-onload"]),
+        ("widen: without _inert_json the same payload WOULD leak raw markup — "
+         "proving the escaping check above is not vacuous (negative control)",
+         any(v in json.dumps(full) for v in (wide_hostile["img-onerror"],
+                                              wide_hostile["svg-onload"],
+                                              wide_hostile["mixed-case-script"]))),
+        ("widen: a javascript: URL carries no markup-significant byte, so "
+         "_inert_json leaves it as inert text — the fourth vector's real "
+         "defense is that none of the widened fields (contract, touches, "
+         "estimate, serialize, shared_resources, assertions, oracle_reason, "
+         "sme) are bound into an href/src attribute or v-html anywhere: this "
+         "item is pure data plumbing (design_reference: none), so no template "
+         "expression references them at all",
+         wide_hostile["javascript-url"] in wide_html  # present as inert JSON text
+         and "v-html" not in wide_html
+         and all(("it." + f) not in wide_html for f in
+                 ("contract", "touches", "estimate", "serialize",
+                  "shared_resources", "assertions", "oracle_reason"))
+         and "b.sme" not in wide_html),
+    ]
+
     # Ephemeral mode never touches the store: everything above rendered pages
     # and serialized state without ever creating the (overridden) state dir.
     checks += [
