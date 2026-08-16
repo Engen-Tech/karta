@@ -67,6 +67,7 @@ import io
 import json
 import logging
 import logging.handlers
+import math
 import os
 import re
 import secrets
@@ -1611,8 +1612,10 @@ def _inert_json(obj, *, pinned: bool = False) -> str:
     same bytes — and therefore the same ETag — however their dicts happen to be
     ordered. NaN and Infinity are refused rather than emitted bare: they are not
     JSON, so JSON.parse rejects the reply the page fetches, and NaN would also
-    hash two payloads that are NOT equal to one identical tag. Refusing raises,
-    which the feed turns into a served body with no tag rather than an error."""
+    hash two payloads that are NOT equal to one identical tag. Refusing RAISES,
+    and state_body() answers that by sanitizing the payload and serializing
+    again — never by passing the raw value through some laxer encoder, which
+    would put back exactly what the refusal exists to keep off the wire."""
     return (json.dumps(obj, separators=(",", ":"),
                        sort_keys=pinned, allow_nan=not pinned)
             .replace("&", "\\u0026")
@@ -2074,6 +2077,31 @@ def _degraded_state(error: str) -> dict:
 # one — see _Handler._state_feed.
 
 
+def _json_safe(obj):
+    """A copy of `obj` the pinned serialisation can encode: every non-finite
+    float becomes None, and every dict key that is not already a string becomes
+    its `str()`.
+
+    Both are the JSON-compliant rendering rather than data loss. JSON has null
+    and has no NaN or Infinity, so null IS how JSON says "no number here" — and
+    json.dumps coerces keys to strings anyway, so writing that coercion out only
+    makes it happen early enough to sort. A coerced key colliding with a string
+    key already present keeps the later value; a payload holding both `1` and
+    `"1"` is ambiguous on the wire either way, since the ordinary form emits the
+    same name twice.
+
+    Total over anything json can encode, and it rewrites nothing else — a value
+    json cannot encode at all is left to raise where it would have raised."""
+    if isinstance(obj, dict):
+        return {(k if isinstance(k, str) else str(k)): _json_safe(v)
+                for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
+
+
 def state_body(payload) -> tuple[str, str | None]:
     """(body, ETag) for a state payload — the bytes to serve and the strong
     quoted tag `"sha256:<hex>"` over exactly those bytes.
@@ -2081,16 +2109,27 @@ def state_body(payload) -> tuple[str, str | None]:
     Serialized once, hashed once, so the tag can never name a representation
     this server does not send.
 
-    A payload the pinned form refuses — a non-string dict key, a float infinity —
-    still gets a body, from the ordinary serialisation, and NO tag. The
-    conditional poll is an optimisation: losing it costs a full reply, while
-    raising here would cost the page its state on every poll instead. A value
+    A payload the pinned form refuses is SANITIZED and serialized again, not
+    handed to a laxer encoder. The difference matters: the ordinary form emits a
+    non-finite float as a bare `NaN` or `Infinity`, which is not JSON, so the
+    page would take a 200 it cannot parse and quietly stop updating — a worse
+    outcome than the 500 the fallback exists to avoid. `json.loads` accepts both
+    literals, so a hand-edited binder really can put one into the state.
+
+    A sanitized payload sorts and encodes, so it is normally still taggable and
+    the poll keeps its saving. The last resort — keys that ARE strings and yet
+    refuse to be ordered — serves the sanitized bytes without a tag: whatever
+    else goes wrong, no reply carries something a browser cannot parse. A value
     json cannot encode at all still raises, because there is then nothing to
     serve."""
     try:
         body = _inert_json(payload, pinned=True)
     except (TypeError, ValueError):
-        return (_inert_json(payload), None)
+        safe = _json_safe(payload)
+        try:
+            body = _inert_json(safe, pinned=True)
+        except (TypeError, ValueError):
+            return (_inert_json(safe), None)
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
     return (body, f'"sha256:{digest}"')
 
@@ -4309,6 +4348,21 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     root = scratch / "etag"
     root.mkdir(parents=True, exist_ok=True)
 
+    def strict_json(text: str):
+        """json.loads that refuses the bare NaN / Infinity / -Infinity literals.
+        Python's default accepts all three, which is exactly what hides the bug
+        this guards: a browser's JSON.parse refuses them and the poll throws."""
+        def reject(token):
+            raise ValueError(f"not JSON: {token}")
+        return json.loads(text, parse_constant=reject)
+
+    def parses_strictly(text: str) -> bool:
+        try:
+            strict_json(text)
+        except ValueError:
+            return False
+        return True
+
     def hit(port: int, path: str, *, method: str = "GET",
             headers: dict | None = None) -> tuple:
         """(status, ETag, Content-Length, body) for one real request."""
@@ -4503,7 +4557,7 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
                                 "human": human},
                 "warnings": [], "errors": []}
 
-    def unpinnable_state() -> dict:
+    def nonfinite_state() -> dict:
         """A state the pinned serialisation must refuse. json.loads accepts the
         bare Infinity literal, so a hand-edited binder really can put one here —
         and NaN would be worse still, hashing two states that are NOT equal to
@@ -4522,7 +4576,7 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         str(b_root): RepoEngine(str(b_root), ttl=0.0, activity=lambda: None,
                                 runner=lambda: fixture_state("resume repo-b")),
         str(c_root): RepoEngine(str(c_root), ttl=0.0, activity=lambda: None,
-                                runner=unpinnable_state),
+                                runner=nonfinite_state),
     }
     hub = _HubServer(("127.0.0.1", 0), _HubHandler, token=hub_token,
                      state_dir=hub_dir, identity=_identity_snapshot(),
@@ -4549,11 +4603,11 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         bad_host = hit(hub_port, feed_a + keyed,
                        headers={"Host": f"evil.example:{hub_port}",
                                 "If-None-Match": tag_a})
-        # the repo whose state the pinned serialisation refuses: still served,
-        # and a wildcard against it must not manufacture a 304 out of nothing
-        unpinnable = hit(hub_port, feed_c + keyed, headers=ok_host)
-        unpinnable_cond = hit(hub_port, feed_c + keyed,
-                              headers=dict(ok_host, **{"If-None-Match": "*"}))
+        # the repo whose state the pinned serialisation refuses: sanitized on
+        # the way out, so it is served as parseable JSON and stays conditional
+        nonfinite = hit(hub_port, feed_c + keyed, headers=ok_host)
+        nonfinite_cond = hit(hub_port, feed_c + keyed,
+                             headers=dict(ok_host, **{"If-None-Match": "*"}))
         served_a["state"] = fixture_state("resume repo-a, one item further")
         hub_a_changed = hit(hub_port, feed_a + keyed, headers=held)
     finally:
@@ -4585,19 +4639,22 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          "a different tag, and the other repo is untouched",
          hub_a_changed[0] == 200 and hub_a_changed[1] != tag_a
          and len(hub_a_changed[3]) > 0),
-        ("a repo whose state the pinned serialisation refuses is still SERVED — "
-         "200 with the whole body — carrying no ETag at all, and a wildcard "
-         "against it answers 200 rather than a 304 promising bytes no tag "
-         "names: a payload the fingerprint cannot cover costs the saving, never "
-         "the state",
-         unpinnable[0] == 200 and unpinnable[1] is None
-         and len(unpinnable[3]) > 0
-         and unpinnable_cond[0] == 200 and unpinnable_cond[1] is None
-         and unpinnable_cond[3] == unpinnable[3]),
-        ("and the two repos whose state it accepts do get a tag on the same "
-         "route in the same server — so the no-tag answer above is the refusal "
-         "and not the handler's ordinary behaviour",
-         tag_a is not None and hub_b[1] is not None),
+        ("a repo whose state carries a non-finite number is served as JSON a "
+         "browser can actually parse — the value arrives as null under a STRICT "
+         "parse that refuses the bare literals, exactly as JSON.parse does — and "
+         "the reply still carries a tag, so the poll keeps its saving too",
+         nonfinite[0] == 200 and nonfinite[1] is not None
+         and strict_json(nonfinite[3].decode("utf-8"))["warnings"]
+         == [{"ratio": None}]
+         and nonfinite_cond[0] == 304 and nonfinite_cond[1] == nonfinite[1]),
+        ("and the companion that makes that a real assertion: the shape this "
+         "replaced — falling back to the ordinary serialisation — emits that "
+         "same state as bare Infinity and FAILS the strict parse, which is a "
+         "200 the page cannot read and therefore a page that silently stops "
+         "updating",
+         "Infinity" in _inert_json(split_archived(nonfinite_state()))
+         and not parses_strictly(
+             _inert_json(split_archived(nonfinite_state())))),
     ]
 
     # -- the fingerprint itself: pinned, order-blind, identity-blind ----------
@@ -4637,6 +4694,15 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     child_shuffled = tag_in_child(shuffled, "12345")
     int_key_body, int_key_tag = state_body({1: "a", "b": 2})
     str_key_body, str_key_tag = state_body({"1": "a", "b": 2})
+
+    # the last resort: keys that ARE strings and still refuse to be ordered, so
+    # sanitizing leaves them alone and the pinned retry fails a second time
+    class Unorderable(str):
+        def __lt__(self, other):
+            raise TypeError("these keys do not sort")
+
+    stubborn = {Unorderable("a"): float("inf"), Unorderable("b"): 1}
+    stubborn_body, stubborn_tag = state_body(stubborn)
     checks += [
         ("an equal payload rebuilt as distinct objects with every dict's keys "
          "in reverse insertion order yields the identical body and so the "
@@ -4655,14 +4721,24 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          "still holds keeps matching across a hub restart",
          bool(child_plain) and child_plain == state_body(payload)[1]
          and child_shuffled == child_plain),
-        ("a non-string dict key — which sorting refuses — degrades to a body "
-         "with no tag rather than an error, and that body is still valid JSON "
-         "the page can parse",
-         int_key_tag is None
-         and json.loads(int_key_body) == {"1": "a", "b": 2}),
-        ("the same payload with that key written as a string does get a tag, so "
-         "the degradation above is the refusal and not the default answer",
-         str_key_tag is not None and str_key_body == int_key_body),
+        ("a non-string dict key — which sorting refuses — is coerced to its "
+         "string form and the reply KEEPS its tag, coming out byte-identical to "
+         "the same payload written with the key as a string in the first place",
+         int_key_tag is not None and int_key_tag == str_key_tag
+         and int_key_body == str_key_body
+         and strict_json(int_key_body) == {"1": "a", "b": 2}),
+        ("the last resort still serves SANITIZED bytes: keys that are strings "
+         "and yet refuse to be ordered defeat the pinned retry too, so the reply "
+         "loses its tag — but the non-finite value beside them is still null and "
+         "the body still passes the strict parse",
+         stubborn_tag is None and parses_strictly(stubborn_body)
+         and strict_json(stubborn_body) == {"a": None, "b": 1}),
+        ("and the companion: the ordinary serialisation of that same payload — "
+         "what the untagged path would have returned before — emits bare "
+         "Infinity and fails the strict parse, so the check above is about the "
+         "sanitizing and not about the missing tag",
+         "Infinity" in _inert_json(stubborn)
+         and not parses_strictly(_inert_json(stubborn))),
     ]
     return checks
 
