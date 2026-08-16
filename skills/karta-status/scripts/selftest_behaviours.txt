@@ -127,3 +127,15 @@ rail-holds-the-delivered-toggle
 rail-delivered-group-hides-its-cards
 rail-title-falls-back-to-title-case
 rail-unsticks-at-narrow-breakpoint
+
+# The single next action, stated at the top of the column. One derivation feeds
+# it — karta_next's next_action, the same object the karta-status footer prints
+# — so the page and the terminal cannot disagree, and no git call was added to
+# say it. The command copies as one click; when there is no command left, the
+# sentence stands alone.
+next-action-band
+next-action-is-the-engines
+next-action-command-copies-what-it-shows
+next-action-end-state-offers-no-command
+next-action-copy-handler
+next-action-command-is-inert

@@ -671,6 +671,8 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
                 ("path", {"d": "M21 3v5h-5"}),
                 ("path", {"d": "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"}),
                 ("path", {"d": "M8 16H3v5"})],
+    "copy": [("rect", {"x": 8, "y": 8, "width": 14, "height": 14, "rx": 2}),
+             ("path", {"d": "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"})],
 }
 
 
@@ -1190,6 +1192,42 @@ body{
   background-repeat:no-repeat;
 }
 
+/* ── the next action ───────────────────────────────────────────────────────
+   One dark band at the top of the column, above the delivery panel and every
+   binder header in it, carrying the engine's single next action.
+
+   It is the ONE surface on the page that does not flip with the theme: --band
+   is dark in both, because the band's job is to be the darkest thing on screen
+   whichever way round the page is. So its foreground is a literal white rather
+   than a token — every foreground token here flips with the theme, and one that
+   flipped would put dark ink on a dark band in one of the two. --band-kick is
+   the band's own light-on-dark accent, defined for both themes, and carries the
+   eyebrow and the copy button's hover. */
+.band{ background:var(--band); padding:20px 26px 22px; }
+.band__eyebrow{
+  display:block; font-family:var(--mono); font-size:11px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--band-kick); margin-bottom:10px;
+}
+.band__sentence{
+  font-family:var(--serif); font-size:24px; line-height:1.28;
+  color:#FFFFFF; max-width:52ch; text-wrap:pretty; margin:0;
+}
+.band__run{ display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap; }
+.band__cmd{
+  font-family:var(--mono); font-size:13px; color:#FFFFFF;
+  background:rgba(255,255,255,.07); border:1px solid var(--band-kick);
+  padding:9px 13px;
+}
+/* the page's buttons are pills; the band's is one too, inverted so it reads as
+   the thing to press against the darkest surface on the page. */
+.band__copy{
+  display:inline-flex; align-items:center; gap:8px; cursor:pointer; flex:none;
+  font-family:var(--sans); font-size:13px; font-weight:500;
+  color:var(--band); background:#FFFFFF; border:0; border-radius:99px;
+  padding:9px 14px;
+}
+.band__copy:hover{ background:var(--band-kick); }
+
 /* delivery panel */
 .panel{ background:var(--surface); border:1px solid var(--line); padding:24px 30px 16px; }
 .panel__head{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
@@ -1691,6 +1729,28 @@ def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# The next action. The engine derives exactly ONE of these per repo — the
+# `next_action` karta_next.py already hands the karta-status skill, its terminal
+# map and its footer — and the band at the top of the column states it.
+#
+# The page therefore holds NO derivation of its own. It renders the sentence and
+# the command the feed already carries, verbatim, so the page and the terminal
+# can never answer "what's next" differently, and nothing here costs a git call.
+# A next action with no command (everything merged, or nothing runnable) is the
+# calm end state: the sentence stands alone and no copy button is offered.
+#
+# The three strings and the hold are Python-owned, like the rail's title and the
+# refresh labels, so the self-test asserts what the page actually ships rather
+# than a copy of it typed twice.
+# ---------------------------------------------------------------------------
+
+BAND_EYEBROW = "The next action"
+COPY_LABEL = "Copy"
+COPIED_LABEL = "Copied"
+COPIED_HOLD_MS = 1400   # how long the button reads "Copied" before it resets
+
+
+# ---------------------------------------------------------------------------
 # The Vue 3 app. Uses the vendored global build (Vue.createApp), an in-document
 # template (no build step). Mounts from the inlined initial state for a correct
 # first paint, then — only off file://, and only while the tab is visible —
@@ -1728,6 +1788,12 @@ const REFRESH_VECTORS = __REFRESH_VECTORS__;
 // legend is Python-owned so the entry set can be asserted against the page's
 // keyframes rather than kept in step by hand.
 const RAIL = __RAIL__;
+
+// The next-action band's own strings and the hold on its "Copied" label, from
+// the same Python constants the self-test asserts. The band's SENTENCE and
+// COMMAND are not here — those come from the feed's next_action, which is the
+// engine's single derivation, so the page never phrases what to do next itself.
+const BAND = __BAND__;
 
 // The header shell, handed over from the server: the repo display name, the
 // hub-landing href (null in ephemeral mode — no hub to go home to), and the
@@ -1949,8 +2015,12 @@ const app = createApp({
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
+      // The copy button's confirmation: true only between a clipboard write
+      // that actually resolved and the hold expiring.
+      copied: false,
       _pollTimer: null,
       _tickTimer: null,
+      _copyTimer: null,
       _inflight: false,
       _onVisibility: null,
     };
@@ -1960,6 +2030,13 @@ const app = createApp({
     hasBinders() { return this.binders.length > 0; },
     feedLabel() { return this.feed.paused ? FEED.paused : FEED.live; },
     branches() { return branchChips(this.state); },
+
+    // The single next action, straight off the feed. The engine derived it; the
+    // band reads it. No fallback sentence is invented here — a feed that somehow
+    // carried none renders an empty band rather than a second opinion.
+    nextAction() { return this.state.next_action || {}; },
+    bandEyebrow() { return BAND.eyebrow; },
+    copyLabel() { return this.copied ? BAND.copied : BAND.copy; },
 
     // The refresh cluster's three readings, all computed from local state:
     // whether automatic refresh is on, the seconds left until the next one, and
@@ -2108,6 +2185,30 @@ const app = createApp({
       document.documentElement.dataset.theme = this.theme;
       try { localStorage.setItem('karta-theme', this.theme); } catch (e) {}
     },
+    // Put the next action's command on the clipboard. An ordinary method on
+    // this root — no clipboard library, and the command arrives as an argument
+    // so the halted card's re-run button can call the same one later.
+    //
+    // The clipboard API is OPTIONAL: an old browser, or a page reached over
+    // plain http from another machine, exposes no navigator.clipboard, and a
+    // write can be refused. Both cases return quietly — nothing throws, and the
+    // label never claims a copy that did not happen.
+    //
+    // `copied` is ONE flag for the page, not one per button. A second caller
+    // therefore shares this confirmation: whichever control was pressed, every
+    // label bound to copyLabel reads "Copied" for the hold. Fine while the band
+    // is the only caller; the item that adds the second one owns that choice.
+    copyCommand(cmd) {
+      const clip = navigator.clipboard;
+      if (!cmd || !clip || !clip.writeText) return;
+      clip.writeText(cmd).then(() => {
+        this.copied = true;
+        if (this._copyTimer !== null) clearTimeout(this._copyTimer);
+        this._copyTimer = setTimeout(() => {
+          this.copied = false; this._copyTimer = null;
+        }, BAND.hold_ms);
+      }).catch(() => {});
+    },
     // A poll carries archived binders as compact entries, not as rows. Rejoin
     // them with the detail held since page load, into a NEW object — Vue
     // re-renders off the assignment, and the cached rows stay untouched.
@@ -2210,6 +2311,7 @@ const app = createApp({
   beforeUnmount() {
     this.stopPolling();
     if (this._tickTimer !== null) { clearInterval(this._tickTimer); this._tickTimer = null; }
+    if (this._copyTimer !== null) { clearTimeout(this._copyTimer); this._copyTimer = null; }
     if (this._onVisibility !== null) {
       document.removeEventListener('visibilitychange', this._onVisibility);
       this._onVisibility = null;
@@ -2322,6 +2424,18 @@ const app = createApp({
     </aside>
 
     <main class="main" data-kw-main>
+  <section class="band" data-kw-band aria-label="the next action">
+    <span class="band__eyebrow" data-kw-band-eyebrow>{{ bandEyebrow }}</span>
+    <p class="band__sentence" data-kw-band-sentence>{{ nextAction.human }}</p>
+    <div class="band__run" data-kw-band-run v-if="nextAction.command">
+      <code class="band__cmd" data-kw-band-cmd>{{ nextAction.command }}</code>
+      <button type="button" class="band__copy" data-kw-band-copy :data-kw-band-copy-cmd="nextAction.command"
+        @click="copyCommand(nextAction.command)">
+        <icon name="copy" :size="14" color="currentColor" /><span data-kw-band-copy-label aria-live="polite">{{ copyLabel }}</span>
+      </button>
+    </div>
+  </section>
+
   <template v-if="hasBinders">
     <section class="panel" aria-label="delivery">
       <div class="panel__head">
@@ -2460,6 +2574,10 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__RAIL__", _inert_json({"title": RAIL_TITLE,
                                           "delivered_key": RAIL_DELIVERED_KEY,
                                           "legend": _RAIL_LEGEND}))
+        .replace("__BAND__", _inert_json({"eyebrow": BAND_EYEBROW,
+                                          "copy": COPY_LABEL,
+                                          "copied": COPIED_LABEL,
+                                          "hold_ms": COPIED_HOLD_MS}))
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
         .replace("__BRANCH_FMT__", _inert_json(INTEGRATION_BRANCH_FMT))
@@ -6313,6 +6431,17 @@ def _title_text(doc: str) -> str:
     return doc[start:doc.index("<", start)]
 
 
+def _text_in(doc: str, hook: str) -> str:
+    """The text node the hook's element opens with — the interpolation, for a
+    check that has to read WHICH field an element renders without quoting the
+    surrounding markup back at itself."""
+    tags = _tags_with(doc, hook)
+    if not tags:
+        return ""
+    start = doc.index(tags[0]) + len(tags[0])
+    return doc[start:doc.index("<", start)].strip()
+
+
 def _js_block(src: str, opener: str) -> str:
     """The `opener` line plus its brace-matched body."""
     i = src.find(opener)
@@ -7218,6 +7347,187 @@ def _c_rail_narrow_breakpoint(ctx):
     return (bool(split) and _norm(split[0].get("grid-template-columns", "")) == "1fr"
             and bool(rail) and _norm(rail[0].get("position", "")) == "static"
             and ctx["app_src"].count("addEventListener") == 1)
+
+
+# --- the next action -----------------------------------------------------
+
+@_covers("next-action-band", kind="rendered", hook="data-kw-band",
+         breaks=[lambda c: _renamed(c, "data-kw-band", "page"),
+                 lambda c: _renamed(c, "data-kw-band-eyebrow", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     'aria-label="the next action"', "")},
+                 lambda c: {"css": c["css"].replace("var(--band)",
+                                                    "var(--surface)")}])
+def _c_next_action_band(ctx):
+    """The band leads the column: one named region above the delivery panel and
+    every binder header in it, reading eyebrow, then sentence, then the command
+    row. It is the page's darkest surface in BOTH themes — that is what --band
+    is for — and its eyebrow carries the band's own light-on-dark accent."""
+    page, css = ctx["page"], ctx["css"]
+    tags = _tags_with(page, "data-kw-band")
+    if len(tags) != 1 or _tag_name(tags[0]) != "section":
+        return False
+    if not _attrs(tags[0]).get("aria-label", "").strip():
+        return False
+    at = _first_index(page, "data-kw-band")
+    order = [_first_index(page, h) for h in ("data-kw-band-eyebrow",
+                                             "data-kw-band-sentence",
+                                             "data-kw-band-run")]
+    if not (all(i > at for i in order) and order == sorted(order)):
+        return False
+    if not 0 <= _first_index(page, "data-kw-main") < at < _first_index(page, "data-kw-binder"):
+        return False
+    ground = _decls_for(css, ".band")
+    kick = _decls_for(css, ".band__eyebrow")
+    return (bool(ground) and _VAR_REF_RE.findall(ground[0].get("background", "")) == ["--band"]
+            and bool(kick) and _VAR_REF_RE.findall(kick[0].get("color", "")) == ["--band-kick"])
+
+
+@_covers("next-action-is-the-engines", kind="rendered",
+         hook="data-kw-band-sentence",
+         breaks=[lambda c: _renamed(c, "data-kw-band-sentence", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     "nextAction.human", "deliverySummary")},
+                 lambda c: {"page": c["page"].replace("resume s-live",
+                                                      "do something else")},
+                 lambda c: {"next_action_accessor":
+                            "nextAction() { return { human: 'do whatever' }; }"}])
+def _c_next_action_from_engine(ctx):
+    """One derivation, two surfaces. The sentence and the command are the ones
+    karta_next derived — the same next_action the karta-status footer prints —
+    inlined verbatim and interpolated by field name. The page's own accessor
+    hands that object straight back, so the band cannot become a second, quieter
+    opinion about what to do next, and it costs no git call to say it."""
+    page = ctx["page"]
+    if len(_tags_with(page, "data-kw-band-sentence")) != 1:
+        return False
+    if "state.next_action" not in ctx["next_action_accessor"]:
+        return False
+    inlined = _inlined_state(page).get("next_action")
+    return ("nextAction.human" in _text_in(page, "data-kw-band-sentence")
+            and "nextAction.command" in _text_in(page, "data-kw-band-cmd")
+            and inlined == ctx["state"]["next_action"]
+            and inlined == ctx["next_action_of"](ctx["state"]))
+
+
+@_covers("next-action-command-copies-what-it-shows", kind="rendered",
+         hook="data-kw-band-copy",
+         breaks=[lambda c: _renamed(c, "data-kw-band-copy", "page"),
+                 lambda c: _renamed(c, "data-kw-band-copy-label", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     ':data-kw-band-copy-cmd="nextAction.command"',
+                     ':data-kw-band-copy-cmd="nextAction.level"')},
+                 lambda c: {"page": c["page"].replace(
+                     '@click="copyCommand(nextAction.command)"',
+                     '@click="copyCommand(bandEyebrow)"')}])
+def _c_next_action_copy_button(ctx):
+    """The button copies exactly what the band shows: the displayed command, the
+    string the button carries, and the argument the handler is handed are ONE
+    expression, so the clipboard can never get a different command than the eye
+    does. The label is its own element, so confirming a copy swaps a word rather
+    than rebuilding the control."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-band-copy")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    carried = attrs.get(":data-kw-band-copy-cmd", "")
+    clicked = attrs.get("@click", "")
+    return (attrs.get("type") == "button" and bool(carried)
+            and carried in _text_in(page, "data-kw-band-cmd")
+            and "copyCommand" in clicked and carried in clicked
+            and len(_tags_with(page, "data-kw-band-copy-label")) == 1
+            and "copyLabel" in _text_in(page, "data-kw-band-copy-label"))
+
+
+@_covers("next-action-end-state-offers-no-command", kind="rendered",
+         hook="data-kw-band-run",
+         breaks=[lambda c: _renamed(c, "data-kw-band-run", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="nextAction.command"', 'v-if="true"')},
+                 lambda c: {"degraded_page": c["degraded_page"].replace(
+                     '"command":null', '"command":"karta-plan"')}])
+def _c_next_action_end_state(ctx):
+    """Nothing left to run is a state, not an absence. The command row is gated
+    on the command itself, so an engine answer that carries none — everything
+    merged, or the engine unreachable — leaves the sentence standing alone with
+    no command and no copy button, and needs no second template to do it.
+
+    A source-level check, and the limit is worth stating: there is no Vue
+    runtime here, so it reads the GATE — the v-if and the field it names — and
+    the engine answer feeding it. That a browser then withholds the row follows
+    from those two; it is not observed."""
+    page, calm = ctx["page"], ctx["degraded_page"]
+    run = _tags_with(page, "data-kw-band-run")
+    if len(run) != 1 or _attrs(run[0]).get("v-if") != "nextAction.command":
+        return False
+    quiet = _inlined_state(calm).get("next_action") or {}
+    loud = _inlined_state(page).get("next_action") or {}
+    return (quiet.get("command") is None and bool(quiet.get("human"))
+            and len(_tags_with(calm, "data-kw-band")) == 1
+            and len(_tags_with(calm, "data-kw-band-sentence")) == 1
+            and bool(loud.get("command")))
+
+
+@_covers("next-action-copy-handler", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "const clip = navigator.clipboard;", "const clip = window;")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "}).catch(() => {});", "});")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (this._copyTimer !== null) { clearTimeout(this._copyTimer); "
+                     "this._copyTimer = null; }\n", "")},
+                 lambda c: {"band": dict(c["band"], hold_ms=0)}])
+def _c_next_action_copy_handler(ctx):
+    """The copy is an ordinary method on the existing app root — no clipboard
+    library, no second vendored runtime — and it degrades quietly: a browser
+    exposing no clipboard, or refusing the write, gets a silent return instead
+    of a thrown error, and the label never confirms a copy that did not happen.
+    Its "Copied" hold is a timeout, cleared before it is re-armed and cleared
+    again on teardown, so no stray timer outlives the page. The band's four
+    strings are the server's, inlined, rather than typed into the app twice.
+
+    A source-level check, like the teardown check above it: nothing here calls
+    a clipboard, fires a Vue lifecycle hook, or watches a timer expire. It reads
+    the guard, the catch and the pairing off the source. The quiet degradation
+    and the timer's death are therefore ARGUED from that shape, not observed —
+    a rewrite keeping the shape and changing the behaviour would survive this."""
+    app = ctx["app_src"]
+    copy = _js_block(app, "    copyCommand(cmd) {")
+    unmount = _js_block(app, "  beforeUnmount() {")
+    if not copy or not unmount:
+        return False
+    return (ctx["band_inlined"] == ctx["band"] and ctx["band"]["hold_ms"] > 0
+            and len(ctx["asset_scripts"]) == 1
+            and "navigator.clipboard" in copy and ".catch(" in copy
+            and copy.count("setTimeout(") == copy.count("clearTimeout(") == 1
+            and "clearTimeout(this._copyTimer)" in unmount
+            and app.count("setTimeout(") == 1 and app.count("clearTimeout(") == 2
+            and app.count("fetch(") == 1
+            and app.count("setInterval(") == app.count("clearInterval(") == 2
+            and app.count("addEventListener(") == app.count("removeEventListener(") == 1)
+
+
+@_covers("next-action-command-is-inert", kind="behaviour",
+         breaks=[lambda c: {"render": lambda s: json.dumps(s)},
+                 lambda c: {"app_src": c["app_src"] + "\nel.v-html = 1;"}])
+def _c_next_action_command_inert(ctx):
+    """A command is built from a binder slug, and a slug is untrusted text. It
+    reaches the band only inside the inlined state JSON, through _inert_json, so
+    a hostile slug arrives as escapes rather than as markup — no `</script>`
+    break-out, no live handler — and the band interpolates it as a text node.
+    Nothing on this path is bound with v-html."""
+    hostile = "s</script><img src=x onerror=alert(1)>"
+    state = dict(ctx["state"], next_action={
+        "level": "item", "command": "karta-deliver " + hostile,
+        "human": "resume " + hostile})
+    page = ctx["render"](state)
+    inlined = _inlined_state(page).get("next_action") or {}
+    return (hostile not in page and "<img src=x" not in page
+            and page.count("</script>") == ctx["render"](ctx["state"]).count("</script>")
+            and inlined.get("command", "").endswith(hostile)
+            and inlined.get("human", "").endswith(hostile)
+            and "v-html" not in ctx["app_src"])
 
 
 @_covers("refresh-cluster-region", kind="rendered", hook="data-kw-refresh-cluster",
@@ -8419,16 +8729,27 @@ def _coverage_context() -> dict:
     key_qs = "?key=" + key_token
     current_slug = "gringotts-aaaaaaaa"
     repo_name = "gringotts"
-    state = {
-        "repo": {"default_branch": "main"}, "order": None,
-        "binders": [{"slug": "s-live", "title": "A live binder", "after": [],
+
+    def next_action_of(s):
+        """The engine's own next action for a state's binders — the SAME
+        derivation karta-status and its footer read. The fixture takes its
+        next_action from here rather than from a sentence typed beside it, so
+        "the band states what the engine derived" is checkable at all."""
+        return karta_next._next_action(s["binders"],
+                                       [b["slug"] for b in s["binders"]],
+                                       s["warnings"], s["errors"])
+
+    live_binders = [{"slug": "s-live", "title": "A live binder", "after": [],
                      "status": "in_flight", "is_next": True,
                      "items": {"total": 2, "done": 1, "built": 0, "failed": 0,
                                "building": 1, "ready": 0, "blocked": 0,
                                "detail": [{"id": "one", "status": "done"},
-                                          {"id": "two", "status": "building"}]}}],
-        "next_action": {"level": "item", "command": "karta-deliver s-live",
-                        "human": "two is building"},
+                                          {"id": "two", "status": "building"}]}}]
+    state = {
+        "repo": {"default_branch": "main"}, "order": None,
+        "binders": live_binders,
+        "next_action": next_action_of({"binders": live_binders,
+                                       "warnings": [], "errors": []}),
         "warnings": [], "errors": [],
     }
     empty_state = {"repo": {"default_branch": "main"}, "order": None,
@@ -8534,6 +8855,12 @@ def _coverage_context() -> dict:
         "key_qs": key_qs,
         "state_meta": _STATE_META, "phase_meta": _PHASE_META,
         "phase_defs": _PHASE_DEFS, "icons": _ICONS,
+        "next_action_of": next_action_of,
+        "next_action_accessor": _js_block(_APP_JS, "    nextAction() {"),
+        "render": lambda s: render_app_html(s, "dark", repo_name=repo_name),
+        "band": {"eyebrow": BAND_EYEBROW, "copy": COPY_LABEL,
+                 "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS},
+        "band_inlined": _inlined_const(page, "BAND"),
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
