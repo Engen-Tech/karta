@@ -20,7 +20,9 @@ disk, or the entry ages past 60 seconds — see the derived-state cache section.
 Routes:
   GET /            the app HTML shell (a self-contained document; renders via Vue)
   GET /state.json  the enriched engine state as JSON (re-derived when git or a
-                   binder file changed, else served from the cached derivation)
+                   binder file changed, else served from the cached derivation).
+                   Carries an ETag over the served payload; a request whose
+                   If-None-Match matches it gets 304 with no body
   GET /assets/<f>  the brand bytes + the vendored Vue (mascot.png, icon.png,
                    vendor/vue.global.prod.js) — same-origin only
 
@@ -32,7 +34,8 @@ route — assets included — and the Host header must be exactly 127.0.0.1:<por
 or localhost:<port>:
   GET /                     landing page — one live card per opted-in repo
   GET /r/<slug>/            that repo's full Karta Watch page
-  GET /r/<slug>/state.json  that repo's state feed
+  GET /r/<slug>/state.json  that repo's state feed — same ETag / If-None-Match
+                            handling, per repo, and always behind the token
   GET /identity             version + script digest + pid + uptime + roster count
 
 The page is "Karta Watch": a read-only mirror of git. A thin stdlib server hands the
@@ -2159,6 +2162,47 @@ def _degraded_state(error: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# The state feed's fingerprint — conditional GET
+# ---------------------------------------------------------------------------
+#
+# A poll that changes nothing still costs the whole document. The fingerprint
+# lets that poll answer 304 instead: the payload the route actually serves is
+# hashed, the hash rides back as an ETag, and a browser replaying it in
+# If-None-Match gets the short reply with no body.
+#
+# Three properties the saving rests on, each of which fails SILENTLY when
+# broken — the feed keeps working correctly and only the saving disappears:
+#
+#   Pinned serialisation. The hash is taken over json.dumps with sorted keys
+#   and fixed separators, so two processes holding equal state emit the same
+#   tag. Unpinned, dict insertion order or float formatting would make the tag
+#   unstable across processes and every conditional poll would miss.
+#
+#   No volatile field. What gets hashed is the derived state, which carries no
+#   timestamp, counter or uptime. One such field makes every tag unique and 304
+#   never fires.
+#
+#   No fallback encoder. A value json cannot serialize must RAISE here rather
+#   than fall back to repr(), whose embedded object address differs per
+#   process — so no `default=` argument, ever.
+#
+# And one property that fails LOUDLY, which is why every call site checks it
+# first: authorisation runs before any conditional handling. A tag is an answer
+# about state, so a caller who could not have read the state must never receive
+# one — see _Handler._state_feed.
+
+
+def state_etag(payload) -> str:
+    """The strong quoted ETag for a served state payload — `"sha256:<hex>"`.
+
+    Hashed over a pinned serialisation (sorted keys, fixed separators, no
+    fallback encoder), so state that is equal always yields a tag that is
+    equal — in this process and in any other."""
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return f'"sha256:{hashlib.sha256(canonical.encode("utf-8")).hexdigest()}"'
+
+
+# ---------------------------------------------------------------------------
 # HTTP handler
 # ---------------------------------------------------------------------------
 
@@ -2170,10 +2214,13 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:  # quieter logs
         sys.stderr.write("  %s - %s\n" % (self.address_string(), fmt % args))
 
-    def _send(self, code: int, body: bytes, ctype: str, *, cache: bool = False) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, *, cache: bool = False,
+              etag: str | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        if etag:
+            self.send_header("ETag", etag)
         if cache:
             self.send_header("Cache-Control", "public, max-age=86400")
         else:
@@ -2182,8 +2229,43 @@ class _Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _text(self, code: int, text: str, ctype: str) -> None:
-        self._send(code, text.encode("utf-8"), f"{ctype}; charset=utf-8")
+    def _text(self, code: int, text: str, ctype: str,
+              *, etag: str | None = None) -> None:
+        self._send(code, text.encode("utf-8"), f"{ctype}; charset=utf-8",
+                   etag=etag)
+
+    def _state_feed(self, payload: dict) -> None:
+        """Serve a state payload as the conditional feed both modes share.
+
+        AUTHORISATION HAS ALREADY RUN at every call site — the ?key= token in
+        ephemeral mode, the Host pin AND the constant-time token comparison in
+        hub mode — so no unauthorised request ever reaches a tag. Keep that
+        order: a 304 is an answer about state, and a tag handed to a caller who
+        could not have read the state is a state oracle.
+
+        The tag covers what THIS route serves, not the unsplit state, so the
+        two feeds stay honest about their own bytes."""
+        etag = state_etag(payload)
+        # HEAD routes through do_GET on this server, so it needs the explicit
+        # exemption: HEAD answers 200 with the tag and no body, never 304.
+        # Without it a later refactor turns HEAD into a cheap state probe.
+        if self.command != "HEAD" and self._if_none_match(etag):
+            return self._not_modified(etag)
+        return self._text(200, _inert_json(payload), "application/json",
+                          etag=etag)
+
+    def _if_none_match(self, etag: str) -> bool:
+        """Does the request already hold this exact tag? The header may carry a
+        comma-separated list, so every member is compared."""
+        supplied = self.headers.get("If-None-Match", "")
+        return any(candidate.strip() == etag for candidate in supplied.split(","))
+
+    def _not_modified(self, etag: str) -> None:
+        """304: the tag, and deliberately no body and no Content-Length."""
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
 
     def _key_ok(self, qs: dict) -> bool:
         if not self.required_key:
@@ -2210,9 +2292,9 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/state.json":
             # split_archived: the poll carries compact archived entries, not the
-            # immutable prose the initial page already delivered once.
-            return self._text(200, _inert_json(split_archived(current_state())),
-                              "application/json")
+            # immutable prose the initial page already delivered once. The
+            # conditional handling sits AFTER the key check above.
+            return self._state_feed(split_archived(current_state()))
 
         if path in ("/", "/index.html"):
             return self._text(200, render_app_html(
@@ -2312,9 +2394,10 @@ class _HubHandler(_Handler):
             state = res["state"] if res["ok"] else _degraded_state(res["error"])
             if m.group(2):
                 # the hub's per-repo feed sheds archived prose exactly as the
-                # repo-mode feed does — same poll, same split.
-                return self._text(200, _inert_json(split_archived(state)),
-                                  "application/json")
+                # repo-mode feed does — same poll, same split — and carries the
+                # same fingerprint. Both the Host pin and the token comparison
+                # at the top of this method have already run and passed.
+                return self._state_feed(split_archived(state))
             repos = load_state(self.server.hub_state_dir)["repos"]
             return self._text(200, render_app_html(
                 state, theme, key_qs=key_qs,
@@ -4935,6 +5018,257 @@ def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """etag-conditional-get: the state feed carries a fingerprint, a poll that
+    already holds it gets 304 instead of the whole document, and the rules that
+    keep that honest hold — authorisation runs before any conditional handling,
+    HEAD (which this server answers through the GET handler) never 304s, and
+    the tag depends on served state alone. Driven over real loopback HTTP in
+    both modes, so the wire behaviour is measured and not asserted."""
+    checks: list[tuple[str, bool]] = []
+    root = scratch / "etag"
+    root.mkdir(parents=True, exist_ok=True)
+
+    def hit(port: int, path: str, *, method: str = "GET",
+            headers: dict | None = None) -> tuple:
+        """(status, ETag, Content-Length, body) for one real request."""
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+        try:
+            conn.request(method, path, headers=headers or {})
+            resp = conn.getresponse()
+            return (resp.status, resp.getheader("ETag"),
+                    resp.getheader("Content-Length"), resp.read())
+        finally:
+            conn.close()
+
+    # -- repo mode: /state.json over loopback ---------------------------------
+    repo = root / "repo"
+    binders_dir = repo / ".karta" / "binders"
+    binders_dir.mkdir(parents=True)
+    for args in (["init", "-q", "-b", "main", "."],
+                 ["config", "user.email", "t@example.com"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=str(repo), capture_output=True,
+                       text=True, check=True)
+
+    def binder_json(slug: str) -> str:
+        return json.dumps(
+            {"slug": slug, "title": f"Binder {slug}", "summary": "s",
+             "motivation": "m", "scope": {"included": ["x"]},
+             "work_items": [{"id": "a", "title": "A", "summary": "s",
+                             "oracle": {"type": "unit", "command": "c",
+                                        "assertions": ["a is asserted"]}}]})
+
+    (binders_dir / "first.json").write_text(binder_json("first"))
+    subprocess.run(["git", "add", "-A"], cwd=str(repo), capture_output=True,
+                   text=True, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "c1"], cwd=str(repo),
+                   capture_output=True, text=True, check=True)
+
+    prev_key = _Handler.required_key
+    old_cwd = os.getcwd()
+    _reset_state_cache()
+    os.chdir(repo)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_port
+    try:
+        first = hit(port, "/state.json")
+        tag = first[1]
+        conditional = hit(port, "/state.json", headers={"If-None-Match": tag})
+        # drop the cached derivation so the repoll re-derives from git rather
+        # than handing back the very object the first poll hashed
+        _reset_state_cache()
+        repoll = hit(port, "/state.json")
+        head = hit(port, "/state.json", method="HEAD")
+        head_conditional = hit(port, "/state.json", method="HEAD",
+                               headers={"If-None-Match": tag})
+        # a binder file lands: the held tag must stop matching
+        (binders_dir / "second.json").write_text(binder_json("second"))
+        changed = hit(port, "/state.json", headers={"If-None-Match": tag})
+        # the same route, same held tag, behind a key the caller does not have
+        _Handler.required_key = "s3cret"
+        unauthorised = hit(port, "/state.json", headers={"If-None-Match": tag})
+        authorised = hit(port, "/state.json?key=s3cret")
+    finally:
+        _Handler.required_key = prev_key
+        srv.shutdown()
+        srv.server_close()
+        os.chdir(old_cwd)
+        _reset_state_cache()
+
+    checks += [
+        ("a first poll of /state.json answers 200 with a strong quoted ETag "
+         "naming its hash",
+         first[0] == 200 and isinstance(tag, str)
+         and re.fullmatch(r'"sha256:[0-9a-f]{64}"', tag) is not None
+         and len(first[3]) > 0),
+        ("replaying that tag as If-None-Match answers 304 carrying the same "
+         "tag, and the 304 has no body and no Content-Length header",
+         conditional[0] == 304 and conditional[1] == tag
+         and conditional[3] == b"" and conditional[2] is None),
+        ("polling an unchanged repository twice — the cached derivation dropped "
+         "in between, so the second poll re-derives from git — yields the "
+         "identical tag and the identical bytes: no timestamp, counter or "
+         "uptime leaked into the fingerprint",
+         repoll[1] == tag and repoll[3] == first[3]),
+        ("HEAD on /state.json answers 200 with the tag and no body, and stays "
+         "200 when the request holds the matching tag — this server routes HEAD "
+         "through the GET handler, so without that exemption HEAD would become "
+         "a cheap state probe",
+         head[0] == 200 and head[1] == tag and head[3] == b""
+         and head[2] == str(len(first[3]))
+         and head_conditional[0] == 200 and head_conditional[1] == tag
+         and head_conditional[3] == b""),
+        ("once a binder file lands the held tag no longer matches: the poll "
+         "answers 200 with the full body and a different tag",
+         changed[0] == 200 and isinstance(changed[1], str)
+         and changed[1] != tag and len(changed[3]) > 0),
+        ("an unauthorised /state.json request receives no ETag header at all, "
+         "even holding a valid tag — the key check runs before the conditional "
+         "handling, so a 304 can never become an unauthenticated path",
+         unauthorised[0] == 403 and unauthorised[1] is None
+         and authorised[0] == 200 and authorised[1] is not None),
+    ]
+
+    # -- hub mode: /r/<slug>/state.json, two repos ----------------------------
+    hub_dir = root / "hub-store"
+    a_root, b_root = root / "repo-a", root / "repo-b"
+    a_root.mkdir()
+    b_root.mkdir()
+    rec_a = upsert_repo(a_root, opted_in=True, state_dir=hub_dir)
+    rec_b = upsert_repo(b_root, opted_in=True, state_dir=hub_dir)
+
+    def fixture_state(human: str) -> dict:
+        return {"repo": {"default_branch": "main"}, "order": None,
+                "binders": [],
+                "next_action": {"level": "ready", "command": None,
+                                "human": human},
+                "warnings": [], "errors": []}
+
+    served_a = {"state": fixture_state("resume repo-a")}
+    hub_token = get_token(hub_dir)
+    # ttl=0 so every request re-derives: the tag must come out of the state,
+    # not out of an engine handing back one memoised object
+    engines = {
+        str(a_root): RepoEngine(str(a_root), ttl=0.0, activity=lambda: None,
+                                runner=lambda: served_a["state"]),
+        str(b_root): RepoEngine(str(b_root), ttl=0.0, activity=lambda: None,
+                                runner=lambda: fixture_state("resume repo-b")),
+    }
+    hub = _HubServer(("127.0.0.1", 0), _HubHandler, token=hub_token,
+                     state_dir=hub_dir, identity=_identity_snapshot(),
+                     logger=_hub_logger(hub_dir))
+    hub.hub_engines.update(engines)
+    hub_port = hub.server_port
+    threading.Thread(target=hub.serve_forever, daemon=True).start()
+    ok_host = {"Host": f"127.0.0.1:{hub_port}"}
+    feed_a = f"/r/{rec_a['slug']}/state.json"
+    feed_b = f"/r/{rec_b['slug']}/state.json"
+    keyed = "?key=" + hub_token
+    try:
+        hub_a = hit(hub_port, feed_a + keyed, headers=ok_host)
+        tag_a = hub_a[1]
+        held = dict(ok_host, **{"If-None-Match": tag_a})
+        hub_a_cond = hit(hub_port, feed_a + keyed, headers=held)
+        hub_b = hit(hub_port, feed_b + keyed, headers=ok_host)
+        cross = hit(hub_port, feed_b + keyed, headers=held)
+        hub_head = hit(hub_port, feed_a + keyed, method="HEAD", headers=held)
+        no_token = hit(hub_port, feed_a, headers=held)
+        wrong_token = hit(hub_port, feed_a + "?key=wrong-" + hub_token,
+                          headers=held)
+        bad_host = hit(hub_port, feed_a + keyed,
+                       headers={"Host": f"evil.example:{hub_port}",
+                                "If-None-Match": tag_a})
+        served_a["state"] = fixture_state("resume repo-a, one item further")
+        hub_a_changed = hit(hub_port, feed_a + keyed, headers=held)
+    finally:
+        hub.shutdown()
+        hub.server_close()
+
+    checks += [
+        ("the hub's per-repo feed behaves identically: 200 with a strong quoted "
+         "tag, then 304 carrying the same tag with no body and no "
+         "Content-Length",
+         hub_a[0] == 200 and isinstance(tag_a, str)
+         and re.fullmatch(r'"sha256:[0-9a-f]{64}"', tag_a) is not None
+         and hub_a_cond[0] == 304 and hub_a_cond[1] == tag_a
+         and hub_a_cond[3] == b"" and hub_a_cond[2] is None),
+        ("two repos holding different state never share a tag, and one repo's "
+         "tag replayed against the other is a miss rather than a 304",
+         hub_b[0] == 200 and hub_b[1] is not None and hub_b[1] != tag_a
+         and cross[0] == 200 and cross[1] == hub_b[1] and len(cross[3]) > 0),
+        ("a hub 304 still requires the token and the Host pin: a missing token, "
+         "a wrong token and a disallowed Host are each rejected 403 with no "
+         "ETag header at all, even when the request holds the matching tag",
+         no_token[0] == 403 and no_token[1] is None
+         and wrong_token[0] == 403 and wrong_token[1] is None
+         and bad_host[0] == 403 and bad_host[1] is None),
+        ("HEAD on the hub's per-repo state route answers 200 with the tag and "
+         "no body even when it holds the matching tag, never 304",
+         hub_head[0] == 200 and hub_head[1] == tag_a and hub_head[3] == b""),
+        ("when one repo's state changes its held tag stops matching — 200 with "
+         "a different tag, and the other repo is untouched",
+         hub_a_changed[0] == 200 and hub_a_changed[1] != tag_a
+         and len(hub_a_changed[3]) > 0),
+    ]
+
+    # -- the fingerprint itself: pinned, order-blind, identity-blind ----------
+    def reordered(obj):
+        """An equal value rebuilt as fresh objects with every dict's keys in
+        reverse insertion order — same content, different ordering, different
+        identity."""
+        if isinstance(obj, dict):
+            return {k: reordered(obj[k]) for k in reversed(list(obj))}
+        if isinstance(obj, list):
+            return [reordered(v) for v in obj]
+        return obj
+
+    payload = json.loads(first[3].decode("utf-8"))   # the real served state
+    shuffled = reordered(payload)
+    try:
+        state_etag({"unserializable": object()})
+        raises_on_junk = False
+    except TypeError:
+        raises_on_junk = True
+
+    # a separate process, under a hash seed this one is not using: the tag has
+    # to survive a hub restart or the browser's held tag never matches again
+    probe = ("import importlib.util,json,sys;"
+             "spec=importlib.util.spec_from_file_location('probe',sys.argv[1]);"
+             "mod=importlib.util.module_from_spec(spec);"
+             "spec.loader.exec_module(mod);"
+             "sys.stdout.write(mod.state_etag(json.load(sys.stdin)))")
+
+    def tag_in_child(obj, seed: str) -> str:
+        return subprocess.run([sys.executable, "-c", probe, str(_SCRIPT_PATH)],
+                              input=json.dumps(obj), capture_output=True,
+                              text=True, timeout=120,
+                              env=dict(os.environ, PYTHONHASHSEED=seed)).stdout.strip()
+
+    child_plain = tag_in_child(payload, "0")
+    child_shuffled = tag_in_child(shuffled, "12345")
+    checks += [
+        ("an equal payload rebuilt as distinct objects with every dict's keys "
+         "in reverse insertion order yields the identical tag: the fingerprint "
+         "reads content, never dict ordering or object identity",
+         shuffled == payload and shuffled is not payload
+         and list(shuffled) != list(payload)
+         and state_etag(shuffled) == state_etag(payload)),
+        ("a value json cannot serialize raises instead of being repr()'d into "
+         "the hash — a repr carries an object address, which would differ per "
+         "process and quietly break every conditional poll",
+         raises_on_junk),
+        ("two separate processes, each under a different PYTHONHASHSEED and one "
+         "of them handed the reordered form, derive the identical tag from the "
+         "identical state — the serialisation is pinned, so a tag a browser "
+         "still holds keeps matching across a hub restart",
+         bool(child_plain) and child_plain == state_etag(payload)
+         and child_shuffled == child_plain),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -5220,6 +5554,7 @@ def _run_self_test() -> int:
     checks += _lifecycle_self_test_checks(scratch)
     checks += _cache_self_test_checks(scratch)
     checks += _archived_self_test_checks(scratch)
+    checks += _etag_self_test_checks(scratch)
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
