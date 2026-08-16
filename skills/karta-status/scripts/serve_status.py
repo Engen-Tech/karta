@@ -41,7 +41,9 @@ or localhost:<port>:
 The page is "Karta Watch": a read-only mirror of git. A thin stdlib server hands the
 browser the current state inline (for a correct first paint, and so a file:// snapshot
 works without a server) plus the vendored Vue app, which renders the whole design
-reactively and — when not on file:// — polls /state.json every 2.6s as a live mirror.
+reactively and — when not on file://, and only while the tab is visible — polls
+/state.json as a live mirror, replaying the last ETag so an unchanged state costs a
+304 with no body.
 The layout is a single "Delivery" panel holding a vertical timeline of phases —
 Delivered (past), Now (in flight), Next, Later — each phase listing the binders in it
 as expandable cards. A binder card expands to show its work items grouped into waves by
@@ -1205,27 +1207,73 @@ body{
 # mirror here is the deterministic seam the self-test drives. Keep in lockstep.
 # FEED_PAUSED_LABEL is a binder-declared shared term (byte-identical in the
 # watch docs) — this constant is its single definition.
+#
+# A conditional poll answers 304 far more often than 200, so which statuses
+# count as healthy is now part of this function's own domain rather than a
+# judgement the caller makes on its way in: 304 IS the saving working — the
+# feed is live, it just had nothing new to say — and reading it as a dead feed
+# would light the paused dot on a perfectly healthy page.
 # ---------------------------------------------------------------------------
 
 FEED_LIVE_LABEL = "live from git — read-only"
 FEED_PAUSED_LABEL = "snapshot — feed paused"
 FEED_PAUSE_AFTER = 2   # consecutive poll failures before the label flips
+FEED_OK_STATUSES = [200, 304]   # a poll status the feed counts as healthy
 
 
-def _feed_transition(state: dict, ok: bool) -> dict:
-    """Python mirror of the page's feedTransition(): state in, state out."""
+def _feed_transition(state: dict, status: int | None) -> dict:
+    """Python mirror of the page's feedTransition(): state in, state out.
+
+    `status` is the HTTP status the poll answered with, or None when the
+    request never completed. 200 and 304 are both healthy; anything else is a
+    failure, and only FEED_PAUSE_AFTER consecutive failures pause the feed."""
     # MIRROR: change together with feedTransition() in _APP_JS and the feed self-test.
-    if ok:
+    if status in FEED_OK_STATUSES:
         return {"failures": 0, "paused": False}
     failures = state["failures"] + 1
     return {"failures": failures, "paused": failures >= FEED_PAUSE_AFTER}
 
 
 # ---------------------------------------------------------------------------
+# The poll decision — should this moment ask the server anything at all?
+#
+# A hidden tab is the cheapest poll to skip: nobody is reading it, and the
+# answer it would download is thrown away. So the page stops polling while the
+# document is hidden and catches up the moment it comes back. The branching is
+# THIS pure function, not an `if` buried in a Vue lifecycle hook, because a
+# Python self-test can call a function directly and can never fire a lifecycle
+# hook — the page's pollDecision() below is the same function in JS, and both
+# the interval tick and the visibilitychange listener route through it, so
+# "hidden means no request" is decided in exactly one place.
+#
+# `has_etag` — whether a fingerprint from an earlier poll is held — is an input
+# on purpose and never changes the answer. A held tag makes a poll CHEAPER (a
+# 304 with no body), never unnecessary, and the self-test pins that
+# independence so a later edit cannot quietly turn "I already have a tag" into
+# "I need not ask", which would freeze the page on stale state.
+# ---------------------------------------------------------------------------
+
+
+def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:
+    """What this moment should do: 'skip', 'poll', or 'poll-now'.
+
+    'skip'      — the document is hidden: make no request, run no timer.
+    'poll-now'  — it just became visible: catch up at once, then resume the
+                  normal schedule.
+    'poll'      — it was visible and still is: the ordinary scheduled poll."""
+    # MIRROR: change together with pollDecision() in _APP_JS and the poll self-test.
+    if not visible:
+        return "skip"
+    if not was_visible:
+        return "poll-now"
+    return "poll"
+
+
+# ---------------------------------------------------------------------------
 # The Vue 3 app. Uses the vendored global build (Vue.createApp), an in-document
 # template (no build step). Mounts from the inlined initial state for a correct
-# first paint, then — only off file:// — polls /state.json every 2.6s as the live
-# mirror. The layout is the design's vertical phase timeline: a Delivery panel of
+# first paint, then — only off file://, and only while the tab is visible —
+# polls /state.json as the live mirror. The layout is the design's vertical phase timeline: a Delivery panel of
 # phases (Delivered/Now/Next/Later), each listing its binders as expandable cards,
 # each binder expanding to its waves (parallel-within, serial-between). All
 # interaction (open/expand, show-delivered, theme) is client state — no round-trip.
@@ -1252,17 +1300,36 @@ const SHELL = __SHELL__;
 // constants the self-test asserts (FEED.paused is the shared feed-paused term).
 const FEED = __FEED_LABELS__;
 const FEED_PAUSE_AFTER = __FEED_PAUSE_AFTER__;
+const FEED_OK_STATUSES = __FEED_OK_STATUSES__;
 
-// Pure feed transition — state in, state out, no I/O. A success is always
-// live; only FEED_PAUSE_AFTER consecutive failures pause (a single transient
-// failure never flickers); the first success after a pause recovers. Mirrored
-// by _feed_transition() in serve_status.py, which the self-test drives —
+// Pure feed transition — state in, state out, no I/O. `status` is the HTTP
+// status the poll answered with, or null when the request never completed.
+// 200 and 304 are both healthy (a 304 is the conditional poll working, not a
+// dead feed); only FEED_PAUSE_AFTER consecutive failures pause (a single
+// transient failure never flickers); the first success after a pause recovers.
+// Mirrored by _feed_transition() in serve_status.py, which the self-test drives —
 // keep the two in lockstep.
 // MIRROR: change together with _feed_transition() in serve_status.py and the feed self-test.
-function feedTransition(state, ok) {
-  if (ok) return { failures: 0, paused: false };
+function feedTransition(state, status) {
+  if (FEED_OK_STATUSES.indexOf(status) !== -1) return { failures: 0, paused: false };
   const failures = state.failures + 1;
   return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
+}
+
+// The poll decision — should this moment ask the server anything at all? A
+// hidden tab downloads an answer nobody reads, so it polls not at all and
+// catches up the moment it comes back. Kept out of the lifecycle hooks as a
+// pure function so the Python self-test can call it directly (it can never
+// fire a Vue hook), and routed through by BOTH the interval tick and the
+// visibilitychange listener, so "hidden means no request" lives in one place.
+// `hasEtag` never changes the answer: a held tag makes a poll cheaper, never
+// unnecessary. Mirrored by poll_decision() in serve_status.py, which the
+// self-test drives — keep the two in lockstep.
+// MIRROR: change together with poll_decision() in serve_status.py and the poll self-test.
+function pollDecision(visible, wasVisible, hasEtag) {
+  if (!visible) return 'skip';
+  if (!wasVisible) return 'poll-now';
+  return 'poll';
 }
 
 // The archived join — the whole shed-archived-payload mechanism, kept out of
@@ -1375,10 +1442,16 @@ const app = createApp({
       shell: SHELL,
       feed: { failures: 0, paused: false },
       polls: 0,
+      // The fingerprint the last poll answered with, replayed on the next one
+      // so an unchanged state comes back as a 304 with no body. Null until the
+      // first poll has been answered — the first request has nothing to hold.
+      etag: null,
+      wasVisible: document.visibilityState !== 'hidden',
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
       _pollTimer: null,
+      _onVisibility: null,
     };
   },
   computed: {
@@ -1516,13 +1589,48 @@ const app = createApp({
       merged.binders = (s.binders || []).concat(joinArchived(this.archivedDetail, s.archived));
       return merged;
     },
+    // One moment of the loop: ask the pure decision what to do, then do it.
+    // The interval tick and the visibilitychange listener both land here, so a
+    // hidden tab stops the timer instead of ticking into a no-op, and coming
+    // back polls once immediately before the schedule resumes.
+    step() {
+      const visible = (document.visibilityState !== 'hidden');
+      const decision = pollDecision(visible, this.wasVisible, this.etag !== null);
+      this.wasVisible = visible;
+      if (decision === 'skip') { this.stopPolling(); return; }
+      if (decision === 'poll-now') this.startPolling();
+      this.poll();
+    },
+    startPolling() {
+      if (this._pollTimer === null) this._pollTimer = setInterval(() => this.step(), POLL_MS);
+    },
+    stopPolling() {
+      if (this._pollTimer !== null) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    },
     poll() {
       // Relative + query-preserving: at / this resolves to /state.json; under
       // the hub's /r/<slug>/ it is that repo's own feed — and ?key= rides along.
-      fetch('state.json' + location.search, { cache: 'no-store' })
-        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(s => { this.state = this.withArchived(s); this.feed = feedTransition(this.feed, true); this.polls += 1; })
-        .catch(() => { this.feed = feedTransition(this.feed, false); });
+      // The held fingerprint rides along too, so an unchanged state answers 304
+      // with no body; the first poll holds none and asks unconditionally. The
+      // server sends Cache-Control: no-store, so nothing revalidates on its own
+      // — this header is the whole saving.
+      const headers = {};
+      if (this.etag !== null) headers['If-None-Match'] = this.etag;
+      fetch('state.json' + location.search, { cache: 'no-store', headers: headers })
+        .then(r => {
+          const tag = r.headers.get('ETag');
+          if (tag) this.etag = tag;
+          // 304: unchanged. Neither reassign state nor re-render — and count it
+          // as the healthy poll it is.
+          if (r.status === 304) { this.feed = feedTransition(this.feed, 304); this.polls += 1; return; }
+          if (!r.ok) throw new Error(r.status);
+          return r.json().then(s => {
+            this.state = this.withArchived(s);
+            this.feed = feedTransition(this.feed, 200);
+            this.polls += 1;
+          });
+        })
+        .catch(() => { this.feed = feedTransition(this.feed, null); });
     },
   },
   mounted() {
@@ -1530,13 +1638,20 @@ const app = createApp({
     // baked into data-theme on reload). CSS keys off :root[data-theme=...].
     document.documentElement.dataset.theme = this.theme;
     // The live mirror: only poll when actually served over http(s). A file://
-    // snapshot keeps the inlined first-paint state and never tries to fetch.
+    // snapshot keeps the inlined first-paint state and registers neither a
+    // timer nor a listener — it never tries to fetch.
     if (location.protocol !== 'file:') {
-      this._pollTimer = setInterval(() => this.poll(), POLL_MS);
+      this._onVisibility = () => this.step();
+      document.addEventListener('visibilitychange', this._onVisibility);
+      if (this.wasVisible) this.startPolling();
     }
   },
   beforeUnmount() {
-    clearInterval(this._pollTimer);
+    this.stopPolling();
+    if (this._onVisibility !== null) {
+      document.removeEventListener('visibilitychange', this._onVisibility);
+      this._onVisibility = null;
+    }
   },
   template: `
 <div class="wrap">
@@ -1709,6 +1824,8 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
+        .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
+                                                    separators=(",", ":")))
         .replace("__ASSET_QS__", asset_qs)
     )
 
@@ -5269,6 +5386,170 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _poll_self_test_checks() -> list[tuple[str, bool]]:
+    """client-conditional-poll: the browser replays the fingerprint, does
+    nothing at all when the answer is "unchanged", and stops polling entirely
+    while the tab is hidden.
+
+    What this suite can and cannot see, stated once here so no reader mistakes
+    one for the other. It runs in Python: no browser, no Vue runtime, no
+    network. So it verifies exactly TWO things.
+
+      (1) The pure decision functions, CALLED DIRECTLY with arguments —
+          poll_decision() and _feed_transition(). That is where the real logic
+          lives, which is why the logic is factored out of the template rather
+          than left inline in a lifecycle hook this suite could never fire.
+      (2) STATIC properties of the rendered JS source — that a visibilitychange
+          listener is registered and a matching removal appears in
+          beforeUnmount, that the If-None-Match header is set, that the
+          registrations sit inside the file:// guard, and that each mirrored
+          function body still matches its Python twin branch for branch.
+
+    What it does NOT verify, and no check below is phrased as though it did:
+    the end-to-end browser behaviour. That a real browser issues no request
+    while the tab is hidden, sends the header it was told to send, and skips
+    the re-render on a 304 is asserted at the source level only — running it
+    would take a browser this suite deliberately does not have."""
+    import inspect
+
+    checks: list[tuple[str, bool]] = []
+
+    # -- poll_decision, called directly ---------------------------------------
+    both = (True, False)
+    decisions = {(v, w, e): poll_decision(v, w, e)
+                 for v in both for w in both for e in both}
+    checks += [
+        ("poll: a hidden document skips — poll_decision(visible=False, "
+         "was_visible=True, has_etag=True) is 'skip', and so is every other "
+         "hidden case",
+         poll_decision(False, True, True) == "skip"
+         and all(d == "skip" for (v, _w, _e), d in decisions.items() if not v)),
+        ("poll: a document that was visible and still is polls on schedule — "
+         "poll_decision(visible=True, was_visible=True, ...) is 'poll'",
+         all(decisions[(True, True, e)] == "poll" for e in both)),
+        ("poll: a document that just became visible catches up at once — "
+         "poll_decision(visible=True, was_visible=False, ...) is 'poll-now'",
+         all(decisions[(True, False, e)] == "poll-now" for e in both)),
+        ("poll: the held fingerprint never changes the decision — for every "
+         "visibility pair both has_etag values agree, so a held tag can never "
+         "become a reason to stop asking",
+         all(decisions[(v, w, True)] == decisions[(v, w, False)]
+             for v in both for w in both)),
+        ("poll: the decision is one of exactly three words, so the page's "
+         "branch on it can never fall through",
+         set(decisions.values()) == {"skip", "poll", "poll-now"}),
+    ]
+
+    # -- _feed_transition with a 304, called directly --------------------------
+    live0 = {"failures": 0, "paused": False}
+    one_fail = _feed_transition(live0, 500)
+    two_fail = _feed_transition(one_fail, 500)
+    checks += [
+        ("feed: a 304 counts exactly as a 200 does — the failure count resets "
+         "and the feed does not enter its paused state, from a healthy feed "
+         "and from a paused one alike",
+         _feed_transition(live0, 304) == _feed_transition(live0, 200) == live0
+         and _feed_transition(one_fail, 304) == live0
+         and _feed_transition(two_fail, 304) == live0
+         and _feed_transition(two_fail, 304)["paused"] is False),
+        ("feed: the two-consecutive-failure debounce is unchanged — one "
+         "failure stays live, two pause, and a request that never completed "
+         "(no status at all) is a failure",
+         one_fail == {"failures": 1, "paused": False}
+         and two_fail == {"failures": 2, "paused": True}
+         and _feed_transition(live0, None) == {"failures": 1, "paused": False}
+         and FEED_OK_STATUSES == [200, 304]),
+    ]
+
+    # -- the JS mirror of poll_decision ---------------------------------------
+    # from the mirror marker through the function's closing brace — the same
+    # span the Python twin's own source covers, so the two are compared like
+    # for like rather than one of them silently missing its marker
+    start = _APP_JS.index("// MIRROR: change together with poll_decision()")
+    js_body = _APP_JS[start:_APP_JS.index("\n}\n", start)]
+    py_body = inspect.getsource(poll_decision)
+    checks.append((
+        "poll: the mirrored JavaScript pollDecision matches its Python twin "
+        "branch for branch — the same two guards, in the same order, returning "
+        "the same three words, and each body carries the marker naming the other",
+        "function pollDecision(visible, wasVisible, hasEtag)" in js_body
+        and "if (!visible) return 'skip';" in js_body
+        and "if (!wasVisible) return 'poll-now';" in js_body
+        and "return 'poll';" in js_body
+        and "def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:" in py_body
+        and 'if not visible:' in py_body and 'return "skip"' in py_body
+        and 'if not was_visible:' in py_body and 'return "poll-now"' in py_body
+        and 'return "poll"' in py_body
+        and "MIRROR: change together with poll_decision()" in js_body
+        and "MIRROR: change together with pollDecision()" in py_body))
+
+    # -- static properties of the rendered JS source --------------------------
+    state = {
+        "repo": {"default_branch": "main"}, "order": None, "binders": [],
+        "next_action": {"level": "ready", "command": None, "human": "ready"},
+        "warnings": [], "errors": [],
+    }
+    page = render_app_html(state, "dark", repo_name="karta")
+
+    def _block(source: str, opener: str, closer: str) -> str:
+        at = source.index(opener)
+        return source[at:source.index(closer, at)]
+
+    mounted = _block(_APP_JS, "  mounted() {", "\n  },")
+    guarded = _block(mounted, "if (location.protocol !== 'file:') {", "\n    }")
+    unmount = _block(_APP_JS, "  beforeUnmount() {", "\n  },")
+    checks += [
+        ("poll (source-level): the page registers exactly one visibilitychange "
+         "listener and removes exactly that one in beforeUnmount, alongside the "
+         "poll timer — a lifecycle hook this suite cannot fire, so the pairing "
+         "is checked in the source",
+         page.count("addEventListener('visibilitychange'") == 1
+         and page.count("removeEventListener('visibilitychange'") == 1
+         and page.count("addEventListener(") == 1
+         and page.count("removeEventListener(") == 1
+         and page.count("setInterval(") == page.count("clearInterval(") == 1
+         and "document.addEventListener('visibilitychange', this._onVisibility)" in guarded
+         and "document.removeEventListener('visibilitychange', this._onVisibility)" in unmount
+         and "this.stopPolling()" in unmount
+         and "clearInterval(this._pollTimer)" in page),
+        ("poll (source-level): the poll sends If-None-Match with the held tag, "
+         "and the path that omits the header when no tag is held is present",
+         "headers['If-None-Match'] = this.etag;" in page
+         and "if (this.etag !== null) headers['If-None-Match'] = this.etag;" in page
+         and "const headers = {};" in page
+         and "{ cache: 'no-store', headers: headers }" in page),
+        ("poll (source-level): a 304 returns before the body is read, so the "
+         "page neither reassigns state nor re-renders — and still counts as a "
+         "healthy poll",
+         "if (r.status === 304) { this.feed = feedTransition(this.feed, 304); "
+         "this.polls += 1; return; }" in page
+         and page.index("if (r.status === 304)") < page.index("return r.json()")
+         and "if (tag) this.etag = tag;" in page),
+        ("poll (source-level): both the interval tick and the visibility "
+         "listener route through pollDecision, so 'hidden means no request' is "
+         "decided in one place and the timer is stopped rather than left "
+         "ticking into a no-op",
+         page.count("pollDecision(visible, this.wasVisible, this.etag !== null)") == 1
+         and "setInterval(() => this.step(), POLL_MS)" in page
+         and "this._onVisibility = () => this.step();" in guarded
+         and "if (decision === 'skip') { this.stopPolling(); return; }" in page
+         and "if (decision === 'poll-now') this.startPolling();" in page),
+        ("poll (source-level): the file:// snapshot path registers no timer and "
+         "no listener — every registration sits inside the protocol guard, and "
+         "nothing outside it starts either",
+         "this.startPolling()" in guarded
+         and "addEventListener" not in mounted.replace(guarded, "")
+         and "startPolling" not in mounted.replace(guarded, "")
+         and "setInterval" not in mounted.replace(guarded, "")),
+        ("poll: the change ships no new front-end dependency and no external "
+         "URL — the vendored Vue is still the only script the page loads",
+         page.count("<script src=") == 1
+         and "/assets/vendor/vue.global.prod.js" in page
+         and "http://" not in page and "https://" not in page),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -5378,8 +5659,8 @@ def _run_self_test() -> int:
                                repo_name="gringotts", roster=others)
     eph_page = render_app_html(state, "dark", repo_name="karta")
     live0 = {"failures": 0, "paused": False}
-    fail1 = _feed_transition(live0, False)
-    fail2 = _feed_transition(fail1, False)
+    fail1 = _feed_transition(live0, 500)
+    fail2 = _feed_transition(fail1, 500)
     checks += [
         ("shell: the page <title> is '<repo> — Karta Watch' with the actual repo name",
          "<title>gringotts — Karta Watch</title>" in hub_page
@@ -5407,19 +5688,19 @@ def _run_self_test() -> int:
          and 'class="also"' in hub_page and "also watching:" in hub_page),
         ("feed: the transition is pure — success live; one failure stays live;"
          " two consecutive failures pause; the first success recovers",
-         _feed_transition(live0, True) == live0
+         _feed_transition(live0, 200) == live0
          and fail1 == {"failures": 1, "paused": False}
          and fail2 == {"failures": 2, "paused": True}
-         and _feed_transition(fail2, False)["paused"] is True
-         and _feed_transition(fail2, True) == live0),
+         and _feed_transition(fail2, 500)["paused"] is True
+         and _feed_transition(fail2, 200) == live0),
         ("feed: the paused label constant is present and wired to the"
          " poll-failure path",
          FEED_PAUSED_LABEL == "snapshot — feed paused"
          and _inert_json({"live": FEED_LIVE_LABEL,
                           "paused": FEED_PAUSED_LABEL}) in hub_page
          and "function feedTransition" in hub_page
-         and "feedTransition(this.feed, false)" in hub_page
-         and "feedTransition(this.feed, true)" in hub_page
+         and "feedTransition(this.feed, null)" in hub_page
+         and "feedTransition(this.feed, 200)" in hub_page
          and "{{ feedLabel }}" in hub_page
          and "FEED.paused : FEED.live" in hub_page),
     ]
@@ -5555,6 +5836,7 @@ def _run_self_test() -> int:
     checks += _cache_self_test_checks(scratch)
     checks += _archived_self_test_checks(scratch)
     checks += _etag_self_test_checks(scratch)
+    checks += _poll_self_test_checks()
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
