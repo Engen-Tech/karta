@@ -65,6 +65,33 @@ line under the header — it lists every other opted-in repo, never the one you 
 On the repo page itself the vocabulary stays calm: a work item waiting on a dependency shows a
 steel **WAITING** chip — waiting its turn is normal flow, not an alarm.
 
+## Choosing when the page refreshes
+
+Every refresh derives the state fresh from git, and on a large repo that is real work — up to
+613 ms of it. So the page asks slowly, tells you when it will next ask, and lets you stop it
+asking at all. Three controls sit in the header, next to **show delivered**:
+
+- **The reading.** With automatic refresh on it counts down — `next in 27s` — to the next
+  refresh. The countdown is a local clock; watching it costs nothing.
+- **The refresh button.** One refresh, right now. It works in either mode, and on a tab you
+  have left in the background — you asked for it, so you get it. With automatic refresh on it
+  also restarts the countdown.
+- **auto refresh.** The switch itself. On by default; your choice is remembered per browser, so
+  a reload keeps it.
+
+Automatic refresh runs every **30 seconds**. Turn it off and the page stops asking: the timer is
+cleared, and nothing else in the page starts a request behind your back. The countdown is then
+replaced by how old what you are looking at is — `automatic refresh off · 4m old` — so switching
+refreshing off never hides the fact that the page has gone stale.
+
+**automatic refresh off is not the same as feed paused.** Off is your choice and the page is
+working exactly as asked. Paused (below) means the page tried to reach the hub twice in a row and
+failed. The two carry different wording and different styling on purpose, and neither is ever
+shown as the other.
+
+A hidden tab makes no automatic requests either, whatever the mode — the page picks the schedule
+back up when you return to it.
+
 ## When the feed pauses
 
 The repo page header carries a feed light. While the page can reach the hub it reads
@@ -103,11 +130,12 @@ If you poll a feed with a script of your own, four things follow:
   `archived` key; a script that wants more than counts for a binder archived after load must keep
   the detail from the first reply and join it by slug.
 
-The watch page already handles the first two for you. Each poll it makes sends back the last tag it
-received as `If-None-Match`, so an unchanged state costs a 304 with no body and the page skips the
-redraw — and a 304 counts as a healthy poll, because a feed with nothing new to say is still live.
-The page also stops polling while its tab is hidden and polls once the moment you come back to it,
-so a watch tab you left in the background costs nothing until you look at it.
+The watch page already handles the first two for you. Each refresh it makes sends back the last tag
+it received as `If-None-Match`, so an unchanged state costs a 304 with no body and the page skips
+the redraw — and a 304 counts as a healthy poll, because a feed with nothing new to say is still
+live. That conditional request is a request like any other, so it obeys the refresh controls above:
+a hidden tab and automatic-refresh-off both stop it. A watch tab you left in the background costs
+nothing until you look at it.
 
 ## Turn it off
 

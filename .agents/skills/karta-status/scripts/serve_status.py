@@ -667,6 +667,10 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
     "square": [("rect", {"x": 3, "y": 3, "width": 18, "height": 18, "rx": 2})],
     "checksquare": [("rect", {"x": 3, "y": 3, "width": 18, "height": 18, "rx": 2}),
                     ("path", {"d": "m9 12 2 2 4-4"})],
+    "refresh": [("path", {"d": "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"}),
+                ("path", {"d": "M21 3v5h-5"}),
+                ("path", {"d": "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"}),
+                ("path", {"d": "M8 16H3v5"})],
 }
 
 
@@ -938,6 +942,17 @@ body{
   border:1px solid var(--line); border-radius:99px; background:var(--surface);
 }
 .hctl--icon:hover{ border-color:var(--accent-line); }
+
+/* the refresh cluster — countdown (or, when automatic refresh is off, the age
+   of the data), refresh-now, and the automatic-refresh toggle. Same pill
+   treatment as the controls beside it; the reading is mono and tabular so the
+   number does not jitter as it counts down. */
+.hrefresh{ display:flex; align-items:center; gap:6px; flex:none; }
+.hrefresh__meter{
+  font-family:var(--mono); font-size:11px; letter-spacing:.02em;
+  color:var(--mut-2); font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.hrefresh__meter--off{ color:var(--mut); }
 
 /* branch chips — the default branch, and the in-flight binder's integration
    branch. Quiet mono pills: they say where you are, they are not controls. */
@@ -1243,37 +1258,95 @@ def _feed_transition(state: dict, status: int | None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The poll decision — should this moment ask the server anything at all?
+# The refresh decision — should this moment ask the server anything at all?
 #
-# A hidden tab is the cheapest poll to skip: nobody is reading it, and the
-# answer it would download is thrown away. So the page stops polling while the
-# document is hidden and catches up the moment it comes back. The branching is
-# THIS pure function, not an `if` buried in a Vue lifecycle hook, because a
-# Python self-test can call a function directly and can never fire a lifecycle
-# hook — the page's pollDecision() below is the same function in JS, and both
-# the interval tick and the visibilitychange listener route through it, so
-# "hidden means no request" is decided in exactly one place.
+# Every poll is real git work (up to 613 ms on a twenty-binder repo, see
+# docs/specs/2026-08-15-watch-performance-baseline.md), so the page asks far
+# less often than it used to and lets the reader stop it asking altogether:
 #
-# `has_etag` — whether a fingerprint from an earlier poll is held — is an input
-# on purpose and never changes the answer. A held tag makes a poll CHEAPER (a
-# 304 with no body), never unnecessary, and the self-test pins that
-# independence so a later edit cannot quietly turn "I already have a tag" into
-# "I need not ask", which would freeze the page on stale state.
+#   auto         — refresh on a REFRESH_INTERVAL_MS schedule, and show a
+#                  countdown to the next one.
+#   manual-only  — refresh not at all until the reader clicks. The AGE of the
+#                  data replaces the countdown, so staleness stays visible.
+#
+# This is a reader's CHOICE, and it is not the feed-paused state above, which
+# means the feed failed twice in a row. The page must never word or style one
+# as the other.
+#
+# The branching is THIS pure function, not an `if` buried in a Vue lifecycle
+# hook, because a Python self-test can call a function directly and can never
+# fire a lifecycle hook — the page's refreshDecision() below is the same
+# function in JS, and EVERY request initiator routes through it: the poll
+# timer, the visibilitychange listener, and the manual button. That is what
+# makes "off means off" enforceable rather than cosmetic — hiding the countdown
+# while continuing to poll would be a defect, not a shortcut.
+#
+# `visible` is gated INSIDE the function on purpose. Checked by the caller
+# instead, the parameter would be dead and the visibility backoff would be a
+# second, separate, untested path; inside, the same direct-call assertions
+# cover it. This subsumes the predecessor binder's poll_decision entirely — no
+# parallel visibility check survives anywhere else.
+#
+# `manual` wins over both mode and visibility: someone who clicks refresh has
+# asked for it, and honouring one deliberate action is not background polling.
+#
+# The function returns a WORD, so it cannot reset anything. The elapsed
+# baseline is caller state, and the caller restarts it when the decision says
+# to fetch — checked at the source level, since a pure function cannot.
 # ---------------------------------------------------------------------------
 
+REFRESH_INTERVAL_MS = 30000     # the automatic-refresh cadence (was 2600)
+REFRESH_TICK_MS = 1000          # the countdown ticker — local clock, no request
+REFRESH_MODE_KEY = "karta-auto-refresh"        # the reader's choice, persisted
+REFRESH_ON_LABEL = "automatic refresh on"
+REFRESH_OFF_LABEL = "automatic refresh off"    # never the feed-paused wording
 
-def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:
+# The shared decision table: input vectors and the outcome each must produce.
+# The self-test drives the Python twin against it directly, and the page is
+# handed the identical table so the two runtimes can be compared rather than
+# assumed equal. Honest limit: because Python generates the copy the page
+# carries, the table itself cannot drift — what the gate catches is the
+# FUNCTION drifting from the table (direct call) and the JS body drifting from
+# the Python body (branch-for-branch source comparison). Neither catches a
+# rewrite that keeps the shape and changes the behaviour; that residue is on
+# the human checklist.
+REFRESH_VECTORS: list[list] = [
+    # mode, visible, elapsed_ms, manual, expected
+    ["auto", True, 0, False, "skip"],
+    ["auto", True, REFRESH_INTERVAL_MS - 1, False, "skip"],
+    ["auto", True, REFRESH_INTERVAL_MS, False, "poll"],
+    ["auto", True, REFRESH_INTERVAL_MS * 20, False, "poll"],
+    ["auto", False, 0, False, "skip"],
+    ["auto", False, REFRESH_INTERVAL_MS * 20, False, "skip"],
+    ["auto", True, 0, True, "poll-now"],
+    ["auto", False, 0, True, "poll-now"],
+    ["manual-only", True, 0, False, "skip"],
+    ["manual-only", True, REFRESH_INTERVAL_MS, False, "skip"],
+    ["manual-only", True, REFRESH_INTERVAL_MS * 2880, False, "skip"],
+    ["manual-only", False, REFRESH_INTERVAL_MS * 2880, False, "skip"],
+    ["manual-only", True, 0, True, "poll-now"],
+    ["manual-only", False, 0, True, "poll-now"],
+]
+
+
+def refresh_decision(mode: str, visible: bool, elapsed_ms: int,
+                     interval_ms: int, manual: bool) -> str:
     """What this moment should do: 'skip', 'poll', or 'poll-now'.
 
-    'skip'      — the document is hidden: make no request, run no timer.
-    'poll-now'  — it just became visible: catch up at once, then resume the
-                  normal schedule.
-    'poll'      — it was visible and still is: the ordinary scheduled poll."""
-    # MIRROR: change together with pollDecision() in _APP_JS and the poll self-test.
+    'poll-now'  — the reader asked for it: fetch once, whatever the mode and
+                  whether or not the tab is showing.
+    'skip'      — make no request: automatic refresh is off, the document is
+                  hidden, or the interval has not elapsed yet.
+    'poll'      — the ordinary scheduled refresh."""
+    # MIRROR: change together with refreshDecision() in _APP_JS and the refresh self-test.
+    if manual:
+        return "poll-now"
+    if mode != "auto":
+        return "skip"
     if not visible:
         return "skip"
-    if not was_visible:
-        return "poll-now"
+    if elapsed_ms < interval_ms:
+        return "skip"
     return "poll"
 
 
@@ -1335,7 +1408,18 @@ const STATE_META = __STATE_META__;
 const PHASE_META = __PHASE_META__;
 const PHASE_DEFS = __PHASE_DEFS__;
 const ORACLE_ICON = __ORACLE_ICON__;
-const POLL_MS = 2600;
+
+// The refresh model, from the same Python constants the self-test asserts.
+// REFRESH_MS is the automatic cadence; TICK_MS drives the countdown, which is a
+// local clock and never a request. REFRESH_KEY persists the reader's choice;
+// REFRESH labels word it. REFRESH_VECTORS is the shared decision table the
+// Python twin is driven against — the page never reads it, it is carried so the
+// gate compares two runtimes instead of assuming they agree.
+const REFRESH_MS = __REFRESH_MS__;
+const TICK_MS = __TICK_MS__;
+const REFRESH_KEY = __REFRESH_KEY__;
+const REFRESH = __REFRESH_LABELS__;
+const REFRESH_VECTORS = __REFRESH_VECTORS__;
 
 // The header shell, handed over from the server: the repo display name, the
 // hub-landing href (null in ephemeral mode — no hub to go home to), and the
@@ -1366,20 +1450,33 @@ function feedTransition(state, status) {
   return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
 }
 
-// The poll decision — should this moment ask the server anything at all? A
-// hidden tab downloads an answer nobody reads, so it polls not at all and
-// catches up the moment it comes back. Kept out of the lifecycle hooks as a
-// pure function so the Python self-test can call it directly (it can never
-// fire a Vue hook), and routed through by BOTH the interval tick and the
-// visibilitychange listener, so "hidden means no request" lives in one place.
-// `hasEtag` never changes the answer: a held tag makes a poll cheaper, never
-// unnecessary. Mirrored by poll_decision() in serve_status.py, which the
-// self-test drives — keep the two in lockstep.
-// MIRROR: change together with poll_decision() in serve_status.py and the poll self-test.
-function pollDecision(visible, wasVisible, hasEtag) {
+// The refresh decision — should this moment ask the server anything at all?
+// Every poll is real git work, so automatic refresh runs on a slow schedule the
+// reader can switch off entirely. Kept out of the lifecycle hooks as a pure
+// function so the Python self-test can call it directly (it can never fire a
+// Vue hook), and routed through by EVERY request initiator — the poll timer,
+// the visibilitychange listener, and the manual button — so "off means off" and
+// "hidden means no request" are decided in exactly one place. A manual click
+// wins over both: a deliberate action is not background polling. The function
+// returns a word and so resets nothing; the elapsed baseline is caller state,
+// restarted in step(). Mirrored by refresh_decision() in serve_status.py, which
+// the self-test drives — keep the two in lockstep.
+// MIRROR: change together with refresh_decision() in serve_status.py and the refresh self-test.
+function refreshDecision(mode, visible, elapsedMs, intervalMs, manual) {
+  if (manual) return 'poll-now';
+  if (mode !== 'auto') return 'skip';
   if (!visible) return 'skip';
-  if (!wasVisible) return 'poll-now';
+  if (elapsedMs < intervalMs) return 'skip';
   return 'poll';
+}
+
+// The reader's automatic-refresh choice, read once at load. A browser with
+// storage unavailable (private mode, a blocked origin) falls back to the
+// default — automatic refresh ON — rather than throwing on the way up.
+function storedRefreshMode() {
+  try {
+    return localStorage.getItem(REFRESH_KEY) === '0' ? 'manual-only' : 'auto';
+  } catch (e) { return 'auto'; }
 }
 
 // The header's branch chips: the repository's default branch, then the real
@@ -1518,11 +1615,18 @@ const app = createApp({
       // so an unchanged state comes back as a 304 with no body. Null until the
       // first poll has been answered — the first request has nothing to hold.
       etag: null,
-      wasVisible: document.visibilityState !== 'hidden',
+      // The refresh model: the reader's choice, the baseline the countdown
+      // measures from, and the local clock that moves it. `now` is advanced by
+      // the countdown ticker alone — no request is ever made to read a clock.
+      refreshMode: storedRefreshMode(),
+      lastPollAt: Date.now(),
+      now: Date.now(),
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
       _pollTimer: null,
+      _tickTimer: null,
+      _inflight: false,
       _onVisibility: null,
     };
   },
@@ -1531,6 +1635,21 @@ const app = createApp({
     hasBinders() { return this.binders.length > 0; },
     feedLabel() { return this.feed.paused ? FEED.paused : FEED.live; },
     branches() { return branchChips(this.state); },
+
+    // The refresh cluster's three readings, all computed from local state:
+    // whether automatic refresh is on, the seconds left until the next one, and
+    // — when it is off — how old the data on screen is. Nothing here fetches.
+    autoRefresh() { return this.refreshMode === 'auto'; },
+    countdownLabel() {
+      const left = Math.max(0, REFRESH_MS - (this.now - this.lastPollAt));
+      return 'next in ' + Math.ceil(left / 1000) + 's';
+    },
+    ageLabel() {
+      const secs = Math.max(0, Math.round((this.now - this.lastPollAt) / 1000));
+      const age = secs < 60 ? secs + 's'
+        : (secs < 3600 ? Math.floor(secs / 60) + 'm' : Math.floor(secs / 3600) + 'h');
+      return REFRESH.off + ' · ' + age + ' old';
+    },
 
     // common `-`-split slug prefix across binders (fallback to the first slug).
     deliveryName() {
@@ -1662,20 +1781,44 @@ const app = createApp({
       merged.binders = (s.binders || []).concat(joinArchived(this.archivedDetail, s.archived));
       return merged;
     },
+    // The reader's choice: automatic refresh on or off. Off genuinely STOPS the
+    // requests — the timer is cleared, and refreshDecision answers 'skip' for
+    // every elapsed time — because each poll is real git work. This is a choice,
+    // never the feed-paused state, which means the feed failed twice in a row.
+    toggleAutoRefresh() {
+      this.refreshMode = this.autoRefresh ? 'manual-only' : 'auto';
+      try { localStorage.setItem(REFRESH_KEY, this.autoRefresh ? '1' : '0'); } catch (e) {}
+      if (this.autoRefresh) { this.lastPollAt = Date.now(); this.startPolling(); }
+      else this.stopPolling();
+    },
+    // The manual button: one refresh, now, in either mode — and on a hidden tab
+    // too, since someone who clicked has asked for it.
+    refreshNow() { this.step(true); },
+
     // One moment of the loop: ask the pure decision what to do, then do it.
-    // The interval tick and the visibilitychange listener both land here, so a
-    // hidden tab stops the timer instead of ticking into a no-op, and coming
-    // back polls once immediately before the schedule resumes.
-    step() {
+    // The interval tick, the visibilitychange listener and the manual button all
+    // land here, so no request is issued anywhere else and "off means off" is
+    // decided once. The visible flag is read here and PASSED IN — the gating on
+    // it lives inside refreshDecision, never as a second check out here.
+    step(manual) {
       const visible = (document.visibilityState !== 'hidden');
-      const decision = pollDecision(visible, this.wasVisible, this.etag !== null);
-      this.wasVisible = visible;
-      if (decision === 'skip') { this.stopPolling(); return; }
-      if (decision === 'poll-now') this.startPolling();
+      const decision = refreshDecision(this.refreshMode, visible,
+                                       Date.now() - this.lastPollAt, REFRESH_MS,
+                                       manual === true);
+      if (decision === 'skip') return;
+      // The elapsed baseline is CALLER state: refreshDecision returns a word and
+      // cannot reset anything. Both outcomes start a request, so both restart
+      // the countdown — 'poll-now' is the manual click resetting it early, and
+      // the running schedule resyncs to it rather than firing early and skipping.
+      if (decision === 'poll-now' || decision === 'poll') this.lastPollAt = Date.now();
+      if (decision === 'poll-now' && this._pollTimer !== null) { this.stopPolling(); this.startPolling(); }
       this.poll();
     },
     startPolling() {
-      if (this._pollTimer === null) this._pollTimer = setInterval(() => this.step(), POLL_MS);
+      // A saved file:// snapshot never polls, in either mode — the toggle can
+      // reach here after mount, so the guard belongs on the timer itself too.
+      if (location.protocol === 'file:') return;
+      if (this._pollTimer === null) this._pollTimer = setInterval(() => this.step(false), REFRESH_MS);
     },
     stopPolling() {
       if (this._pollTimer !== null) { clearInterval(this._pollTimer); this._pollTimer = null; }
@@ -1687,6 +1830,10 @@ const app = createApp({
       // with no body; the first poll holds none and asks unconditionally. The
       // server sends Cache-Control: no-store, so nothing revalidates on its own
       // — this header is the whole saving.
+      // A refresh already in flight answers the same question, so a second
+      // click rides it out rather than starting a second request.
+      if (this._inflight) return;
+      this._inflight = true;
       const headers = {};
       if (this.etag !== null) headers['If-None-Match'] = this.etag;
       fetch('state.json' + location.search, { cache: 'no-store', headers: headers })
@@ -1703,7 +1850,8 @@ const app = createApp({
             this.polls += 1;
           });
         })
-        .catch(() => { this.feed = feedTransition(this.feed, null); });
+        .catch(() => { this.feed = feedTransition(this.feed, null); })
+        .finally(() => { this._inflight = false; });
     },
   },
   mounted() {
@@ -1714,13 +1862,18 @@ const app = createApp({
     // snapshot keeps the inlined first-paint state and registers neither a
     // timer nor a listener — it never tries to fetch.
     if (location.protocol !== 'file:') {
-      this._onVisibility = () => this.step();
+      this._onVisibility = () => this.step(false);
       document.addEventListener('visibilitychange', this._onVisibility);
-      if (this.wasVisible) this.startPolling();
+      // The countdown ticker: a local clock, distinct from the one poll timer,
+      // that issues no request. It runs in both modes — off-mode needs it to
+      // keep the data's age honest on screen.
+      this._tickTimer = setInterval(() => { this.now = Date.now(); }, TICK_MS);
+      if (this.autoRefresh) this.startPolling();
     }
   },
   beforeUnmount() {
     this.stopPolling();
+    if (this._tickTimer !== null) { clearInterval(this._tickTimer); this._tickTimer = null; }
     if (this._onVisibility !== null) {
       document.removeEventListener('visibilitychange', this._onVisibility);
       this._onVisibility = null;
@@ -1752,6 +1905,22 @@ const app = createApp({
       <span class="branch-chip" data-kw-branch-chip :data-kw-branch-chip-key="b.key" v-for="b in branches" :key="b.key">
         <icon v-if="b.icon" :name="b.icon" :size="11" color="var(--mut-2)" /><span class="branch-chip__name">{{ b.name }}</span>
       </span>
+      <div class="hrefresh" data-kw-refresh-cluster>
+        <span v-if="autoRefresh" class="hrefresh__meter" data-kw-refresh-countdown>{{ countdownLabel }}</span>
+        <span v-else class="hrefresh__meter hrefresh__meter--off" data-kw-refresh-age>{{ ageLabel }}</span>
+        <button type="button" class="hctl hctl--icon" data-kw-refresh-now
+          @click="refreshNow"
+          title="refresh now"
+          aria-label="refresh now">
+          <icon name="refresh" :size="15" color="var(--mut)" />
+        </button>
+        <button type="button" class="hctl" data-kw-auto-refresh :class="{ 'hctl--on': autoRefresh }"
+          @click="toggleAutoRefresh"
+          :title="autoRefresh ? 'automatic refresh on' : 'automatic refresh off'"
+          :aria-pressed="autoRefresh ? 'true' : 'false'">
+          <span class="hctl__icon"><icon :name="autoRefresh ? 'checksquare' : 'square'" :size="15" :color="autoRefresh ? 'var(--ink)' : 'var(--mut)'" /></span>auto refresh
+        </button>
+      </div>
       <button type="button" class="hctl" data-kw-show-delivered :class="{ 'hctl--on': showDelivered }"
         @click="toggleShowDelivered"
         title="show delivered binders"
@@ -1911,6 +2080,12 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
         .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
                                                     separators=(",", ":")))
+        .replace("__REFRESH_MS__", str(REFRESH_INTERVAL_MS))
+        .replace("__TICK_MS__", str(REFRESH_TICK_MS))
+        .replace("__REFRESH_KEY__", _inert_json(REFRESH_MODE_KEY))
+        .replace("__REFRESH_LABELS__", _inert_json({"on": REFRESH_ON_LABEL,
+                                                    "off": REFRESH_OFF_LABEL}))
+        .replace("__REFRESH_VECTORS__", _inert_json(REFRESH_VECTORS))
         .replace("__ASSET_QS__", asset_qs)
     )
 
@@ -5309,9 +5484,10 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
     network. So it verifies exactly TWO things.
 
       (1) The pure decision functions, CALLED DIRECTLY with arguments —
-          poll_decision() and _feed_transition(). That is where the real logic
-          lives, which is why the logic is factored out of the template rather
-          than left inline in a lifecycle hook this suite could never fire.
+          refresh_decision() and _feed_transition(). That is where the real
+          logic lives, which is why the logic is factored out of the template
+          rather than left inline in a lifecycle hook this suite could never
+          fire.
       (2) STATIC properties of the rendered JS source — that a visibilitychange
           listener is registered and a matching removal appears in
           beforeUnmount, that the If-None-Match header is set, that the
@@ -5320,37 +5496,57 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
 
     What it does NOT verify, and no check below is phrased as though it did:
     the end-to-end browser behaviour. That a real browser issues no request
-    while the tab is hidden, sends the header it was told to send, and skips
-    the re-render on a 304 is asserted at the source level only — running it
-    would take a browser this suite deliberately does not have."""
+    while the tab is hidden or while automatic refresh is off, sends the header
+    it was told to send, and skips the re-render on a 304 is asserted at the
+    source level only — running it would take a browser this suite deliberately
+    does not have."""
     import inspect
 
     checks: list[tuple[str, bool]] = []
 
-    # -- poll_decision, called directly ---------------------------------------
-    both = (True, False)
-    decisions = {(v, w, e): poll_decision(v, w, e)
-                 for v in both for w in both for e in both}
+    # -- refresh_decision, called directly ------------------------------------
+    ms = REFRESH_INTERVAL_MS
+    elapsed = (0, 1, ms - 1, ms, ms + 1, ms * 7, ms * 100000)
     checks += [
-        ("poll: a hidden document skips — poll_decision(visible=False, "
-         "was_visible=True, has_etag=True) is 'skip', and so is every other "
-         "hidden case",
-         poll_decision(False, True, True) == "skip"
-         and all(d == "skip" for (v, _w, _e), d in decisions.items() if not v)),
-        ("poll: a document that was visible and still is polls on schedule — "
-         "poll_decision(visible=True, was_visible=True, ...) is 'poll'",
-         all(decisions[(True, True, e)] == "poll" for e in both)),
-        ("poll: a document that just became visible catches up at once — "
-         "poll_decision(visible=True, was_visible=False, ...) is 'poll-now'",
-         all(decisions[(True, False, e)] == "poll-now" for e in both)),
-        ("poll: the held fingerprint never changes the decision — for every "
-         "visibility pair both has_etag values agree, so a held tag can never "
-         "become a reason to stop asking",
-         all(decisions[(v, w, True)] == decisions[(v, w, False)]
-             for v in both for w in both)),
-        ("poll: the decision is one of exactly three words, so the page's "
+        ("refresh: automatic refresh runs on the thirty-second cadence, not the "
+         "old 2.6 seconds — refresh_decision(mode='auto') is 'skip' below the "
+         "interval and 'poll' at or beyond it",
+         ms == 30000
+         and all(refresh_decision("auto", True, e, ms, False) == "skip"
+                 for e in elapsed if e < ms)
+         and all(refresh_decision("auto", True, e, ms, False) == "poll"
+                 for e in elapsed if e >= ms)),
+        ("refresh: off means off — refresh_decision(mode='manual-only') is "
+         "'skip' for EVERY elapsed time, however large, which is the "
+         "enforceable form of the control rather than a hidden countdown",
+         all(refresh_decision("manual-only", v, e, ms, False) == "skip"
+             for e in elapsed for v in (True, False))),
+        ("refresh: a manual trigger answers 'poll-now' once in both modes, and "
+         "the next call without it does not repeat that answer",
+         all(refresh_decision(m, True, 0, ms, True) == "poll-now"
+             for m in ("auto", "manual-only"))
+         and refresh_decision("auto", True, 0, ms, False) == "skip"
+         and refresh_decision("manual-only", True, 0, ms, False) == "skip"),
+        ("refresh: the visibility backoff is gated INSIDE the decision — a "
+         "hidden tab on automatic refresh skips at every elapsed time, so a "
+         "broken check fails here rather than passing the whole suite",
+         all(refresh_decision("auto", False, e, ms, False) == "skip"
+             for e in elapsed)),
+        ("refresh: a deliberate click is honoured on a hidden tab, in either "
+         "mode — asking for a refresh is not background polling",
+         refresh_decision("auto", False, ms * 9, ms, True) == "poll-now"
+         and refresh_decision("manual-only", False, ms * 9, ms, True) == "poll-now"),
+        ("refresh: the shared vector table and the Python twin agree row for "
+         "row, and the page is handed that same table",
+         bool(REFRESH_VECTORS)
+         and all(refresh_decision(mode, vis, el, ms, man) == want
+                 for mode, vis, el, man, want in REFRESH_VECTORS)),
+        ("refresh: the decision is one of exactly three words, so the page's "
          "branch on it can never fall through",
-         set(decisions.values()) == {"skip", "poll", "poll-now"}),
+         {refresh_decision(m, v, e, ms, man)
+          for m in ("auto", "manual-only") for v in (True, False)
+          for e in elapsed for man in (True, False)}
+         == {"skip", "poll", "poll-now"}),
     ]
 
     # -- _feed_transition with a 304, called directly --------------------------
@@ -5374,27 +5570,34 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          and FEED_OK_STATUSES == [200, 304]),
     ]
 
-    # -- the JS mirror of poll_decision ---------------------------------------
+    # -- the JS mirror of refresh_decision ------------------------------------
     # from the mirror marker through the function's closing brace — the same
     # span the Python twin's own source covers, so the two are compared like
     # for like rather than one of them silently missing its marker
-    start = _APP_JS.index("// MIRROR: change together with poll_decision()")
+    start = _APP_JS.index("// MIRROR: change together with refresh_decision()")
     js_body = _APP_JS[start:_APP_JS.index("\n}\n", start)]
-    py_body = inspect.getsource(poll_decision)
+    py_body = inspect.getsource(refresh_decision)
     checks.append((
-        "poll: the mirrored JavaScript pollDecision matches its Python twin "
-        "branch for branch — the same two guards, in the same order, returning "
-        "the same three words, and each body carries the marker naming the other",
-        "function pollDecision(visible, wasVisible, hasEtag)" in js_body
+        "refresh: the mirrored JavaScript refreshDecision matches its Python "
+        "twin branch for branch — the same four guards, in the same order, "
+        "returning the same three words, and each body carries the marker "
+        "naming the other. The limit is stated rather than papered over: this "
+        "compares shape and cannot execute JavaScript, so a rewrite that keeps "
+        "the shape and changes the behaviour would survive it",
+        "function refreshDecision(mode, visible, elapsedMs, intervalMs, manual)" in js_body
+        and "if (manual) return 'poll-now';" in js_body
+        and "if (mode !== 'auto') return 'skip';" in js_body
         and "if (!visible) return 'skip';" in js_body
-        and "if (!wasVisible) return 'poll-now';" in js_body
+        and "if (elapsedMs < intervalMs) return 'skip';" in js_body
         and "return 'poll';" in js_body
-        and "def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:" in py_body
+        and "def refresh_decision(mode: str, visible: bool, elapsed_ms: int," in py_body
+        and "if manual:" in py_body and 'return "poll-now"' in py_body
+        and 'if mode != "auto":' in py_body
         and 'if not visible:' in py_body and 'return "skip"' in py_body
-        and 'if not was_visible:' in py_body and 'return "poll-now"' in py_body
+        and "if elapsed_ms < interval_ms:" in py_body
         and 'return "poll"' in py_body
-        and "MIRROR: change together with poll_decision()" in js_body
-        and "MIRROR: change together with pollDecision()" in py_body))
+        and "MIRROR: change together with refresh_decision()" in js_body
+        and "MIRROR: change together with refreshDecision()" in py_body))
 
     # -- static properties of the rendered JS source --------------------------
     state = {
@@ -5420,10 +5623,11 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          and page.count("removeEventListener('visibilitychange'") == 1
          and page.count("addEventListener(") == 1
          and page.count("removeEventListener(") == 1
-         and page.count("setInterval(") == page.count("clearInterval(") == 1
+         and page.count("setInterval(") == page.count("clearInterval(") == 2
          and "document.addEventListener('visibilitychange', this._onVisibility)" in guarded
          and "document.removeEventListener('visibilitychange', this._onVisibility)" in unmount
          and "this.stopPolling()" in unmount
+         and "clearInterval(this._tickTimer)" in unmount
          and "clearInterval(this._pollTimer)" in page),
         ("poll (source-level): the poll sends If-None-Match with the held tag, "
          "and the path that omits the header when no tag is held is present",
@@ -5438,15 +5642,22 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          "this.polls += 1; return; }" in page
          and page.index("if (r.status === 304)") < page.index("return r.json()")
          and "if (tag) this.etag = tag;" in page),
-        ("poll (source-level): both the interval tick and the visibility "
-         "listener route through pollDecision, so 'hidden means no request' is "
-         "decided in one place and the timer is stopped rather than left "
-         "ticking into a no-op",
-         page.count("pollDecision(visible, this.wasVisible, this.etag !== null)") == 1
-         and "setInterval(() => this.step(), POLL_MS)" in page
-         and "this._onVisibility = () => this.step();" in guarded
-         and "if (decision === 'skip') { this.stopPolling(); return; }" in page
-         and "if (decision === 'poll-now') this.startPolling();" in page),
+        ("poll (source-level): the poll timer, the visibility listener and the "
+         "manual button all route through refreshDecision, so 'off means off' "
+         "and 'hidden means no request' are decided in one place — and the "
+         "visible flag is read once and passed IN, never re-checked outside",
+         page.count("refreshDecision(this.refreshMode, visible,") == 1
+         and "setInterval(() => this.step(false), REFRESH_MS)" in page
+         and "this._onVisibility = () => this.step(false);" in guarded
+         and "refreshNow() { this.step(true); }" in page
+         and "if (decision === 'skip') return;" in page
+         and page.count("document.visibilityState") == 1),
+        ("poll (source-level): the predecessor's separate visibility backoff is "
+         "subsumed rather than left running in parallel — no pollDecision "
+         "survives, and no second visibility gate exists outside refreshDecision",
+         "pollDecision" not in page and "wasVisible" not in page
+         and page.count("visibilityState") == 1
+         and "if (!visible) return 'skip';" in page),
         ("poll (source-level): the file:// snapshot path registers no timer and "
          "no listener — every registration sits inside the protocol guard, and "
          "nothing outside it starts either",
@@ -6270,6 +6481,94 @@ def _c_show_delivered_key(ctx):
             and "localStorage.setItem('karta-show-delivered'" in app)
 
 
+@_covers("refresh-cluster-region", kind="rendered", hook="data-kw-refresh-cluster",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-cluster", "page")])
+def _c_refresh_cluster(ctx):
+    """One cluster in the header holds the whole refresh model — the reading,
+    the manual button and the automatic-refresh toggle — beside the controls it
+    shares its treatment with, not scattered across the bar."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-refresh-cluster")
+    if len(tags) != 1:
+        return False
+    at = _first_index(page, "data-kw-refresh-cluster")
+    inner = [h for h in ("data-kw-refresh-countdown", "data-kw-refresh-age",
+                         "data-kw-refresh-now", "data-kw-auto-refresh")
+             if _first_index(page, h) > at]
+    return (len(inner) == 4
+            and at < _first_index(page, "data-kw-theme-toggle"))
+
+
+@_covers("refresh-countdown-region", kind="rendered",
+         hook="data-kw-refresh-countdown",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-countdown", "page"),
+                 lambda c: {"page": c["page"].replace("v-if=\"autoRefresh\"",
+                                                      "v-if=\"true\"")}])
+def _c_refresh_countdown_region(ctx):
+    """With automatic refresh ON the reader sees a countdown to the next one —
+    and only then: the region is gated on the mode, so the two readings can
+    never both be on screen."""
+    tags = _tags_with(ctx["page"], "data-kw-refresh-countdown")
+    if len(tags) != 1:
+        return False
+    return _attrs(tags[0]).get("v-if") == "autoRefresh"
+
+
+@_covers("refresh-age-when-off", kind="rendered", hook="data-kw-refresh-age",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-age", "page"),
+                 lambda c: {"page": c["page"].replace("ageLabel", "countdownLabel")}])
+def _c_refresh_age_when_off(ctx):
+    """With automatic refresh OFF the countdown is replaced by the AGE of the
+    data, so switching the refresh off never hides how stale the page is. It is
+    the v-else of the countdown — a different hook, so the two states can never
+    be confused in the markup — and it words the reader's choice as a choice."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-refresh-age")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return ("v-else" in attrs
+            and _first_index(page, "data-kw-refresh-age")
+            > _first_index(page, "data-kw-refresh-countdown")
+            and "ageLabel" in _tag_after(page, tags[0]) + page[
+                page.index(tags[0]):page.index(tags[0]) + 200])
+
+
+@_covers("manual-refresh-control", kind="rendered", hook="data-kw-refresh-now",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-now", "page")])
+def _c_manual_refresh_control(ctx):
+    """A button that refreshes on demand, available in both modes — it carries
+    no mode gate at all — and reachable by name for a screen reader."""
+    tags = _tags_with(ctx["page"], "data-kw-refresh-now")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("@click") == "refreshNow"
+            and bool(attrs.get("aria-label"))
+            and "v-if" not in attrs and "v-else" not in attrs)
+
+
+@_covers("auto-refresh-toggle", kind="rendered", hook="data-kw-auto-refresh",
+         breaks=[lambda c: _renamed(c, "data-kw-auto-refresh", "page")])
+def _c_auto_refresh_toggle(ctx):
+    """The switch itself, in the show-delivered idiom: a pressed-state button
+    the reader can see the current setting on, whose two titles are the page's
+    own on/off wording rather than the feed's."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-auto-refresh")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    title = attrs.get(":title", "")
+    return ("autoRefresh" in attrs.get(":aria-pressed", "")
+            and attrs.get("@click") == "toggleAutoRefresh"
+            and ctx["refresh_labels"]["off"] in title
+            and ctx["refresh_labels"]["on"] in title
+            and ctx["feed_paused_label"] not in title
+            and _first_index(page, "data-kw-auto-refresh")
+            != _first_index(page, "data-kw-feed"))
+
+
 @_covers("theme-toggle-control", kind="rendered", hook="data-kw-theme-toggle",
          breaks=[lambda c: _renamed(c, "data-kw-theme-toggle", "page")])
 def _c_theme_toggle(ctx):
@@ -6855,13 +7154,51 @@ def _c_inert_json_escaping(ctx):
 
 @_covers("poll-loop-interval", kind="behaviour",
          breaks=[lambda c: {"poll_ms": 0},
+                 lambda c: {"refresh_interval": 2600},
                  lambda c: {"app_src": c["app_src"].replace("setInterval(", "x(")}])
 def _c_poll_loop_interval(ctx):
+    """One poll timer, on the slow automatic cadence the reader is shown — and
+    it is the ONLY thing that starts a scheduled request. The countdown ticker
+    beside it is a separate, faster timer that never fetches, so the two are
+    counted apart rather than lumped into one setInterval tally."""
     app = ctx["app_src"]
-    return (ctx["poll_ms"] > 0
-            and "setInterval(() => this.step(), POLL_MS)" in app
-            and app.count("setInterval(") == app.count("clearInterval(") == 1
+    return (ctx["poll_ms"] == ctx["refresh_interval"] == REFRESH_INTERVAL_MS
+            and ctx["poll_ms"] >= 30000
+            and "setInterval(() => this.step(false), REFRESH_MS)" in app
+            and app.count("setInterval(") == app.count("clearInterval(") == 2
+            and app.count("this._pollTimer = setInterval(") == 1
             and "visibilitychange" in app)
+
+
+@_covers("refresh-single-poll-timer", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "if (decision === 'skip') return;", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this.poll();", "this.poll(); this.poll();")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this._onVisibility = () => this.step(false);",
+                     "window.addEventListener('online', () => this.poll());")}])
+def _c_refresh_single_poll_timer(ctx):
+    """Every request initiator routes through refreshDecision. There is exactly
+    one fetch call site, it sits inside poll(), poll() is reached only from
+    step() after a non-skip decision, and step() is the only thing any timer or
+    listener calls — so a focus/online handler or a second revalidation path
+    cannot keep touching git while the page says refresh is off."""
+    app = ctx["app_src"]
+    step = _js_block(app, "    step(manual) {")
+    poll = _js_block(app, "    poll() {")
+    if not step or not poll:
+        return False
+    outside = app.replace(step, "").replace(poll, "")
+    return (app.count("fetch(") == 1 and "fetch(" in poll
+            and app.count("this.poll();") == 1 and "this.poll();" in step
+            and "refreshDecision(" in step
+            and step.index("refreshDecision(") < step.index("this.poll();")
+            and "if (decision === 'skip') return;" in step
+            and "this.poll()" not in outside
+            and "addEventListener('online'" not in app
+            and "addEventListener('focus'" not in app
+            and app.count("addEventListener(") == 1)
 
 
 @_covers("feed-live-paused-debounce", kind="behaviour",
@@ -6880,27 +7217,234 @@ def _c_feed_debounce(ctx):
 
 @_covers("file-snapshot-no-polling", kind="behaviour",
          breaks=[lambda c: {"app_src": c["app_src"].replace(
-             "location.protocol !== 'file:'", "true")}])
+             "location.protocol !== 'file:'", "true")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "      if (location.protocol === 'file:') return;\n", "")}])
 def _c_file_snapshot_no_polling(ctx):
+    """A saved copy opened from disk registers NO timer in either mode — not the
+    poll timer, not the countdown ticker, and no listener. The toggle can reach
+    startPolling long after mount, so the protocol guard sits on the timer as
+    well as on the mount block."""
     app = ctx["app_src"]
     mounted = _js_block(app, "mounted() {")
     guarded = _js_block(mounted, "if (location.protocol !== 'file:') {")
-    if not mounted or not guarded:
+    starter = _js_block(app, "    startPolling() {")
+    if not mounted or not guarded or not starter:
         return False
     outside = mounted.replace(guarded, "")
     return ("addEventListener" not in outside and "startPolling" not in outside
-            and "addEventListener" in guarded and "startPolling" in guarded)
+            and "setInterval" not in outside
+            and "addEventListener" in guarded and "startPolling" in guarded
+            and "setInterval" in guarded
+            and "if (location.protocol === 'file:') return;" in starter
+            and starter.index("file:") < starter.index("setInterval("))
 
 
 @_covers("poll-decision-hidden-tab", kind="behaviour",
-         breaks=[lambda c: {"poll_decide": lambda v, w, e: "poll"}])
+         breaks=[lambda c: {"refresh_decide":
+                            lambda m, v, e, i, man: "poll"},
+                 lambda c: {"refresh_decide":
+                            lambda m, v, e, i, man: "skip"}])
 def _c_poll_decision(ctx):
-    decide = ctx["poll_decide"]
-    return (decide(False, True, True) == "skip"
-            and decide(False, True, False) == "skip"
-            and decide(True, False, False) == "poll-now"
-            and decide(True, True, False) == "poll"
-            and decide(True, True, True) == "poll")
+    """The visibility backoff, gated INSIDE the decision function rather than by
+    its caller — so a hidden tab makes no scheduled request however far past the
+    interval it drifts, while a deliberate click is still honoured on that same
+    hidden tab. The predecessor's separate poll_decision is subsumed here."""
+    decide, ms = ctx["refresh_decide"], ctx["refresh_interval"]
+    return (decide("auto", False, 0, ms, False) == "skip"
+            and decide("auto", False, ms * 1000, ms, False) == "skip"
+            and decide("manual-only", False, ms * 1000, ms, False) == "skip"
+            and decide("auto", False, 0, ms, True) == "poll-now"
+            and decide("manual-only", False, ms * 1000, ms, True) == "poll-now"
+            and decide("auto", True, ms, ms, False) == "poll")
+
+
+@_covers("refresh-off-means-off", kind="behaviour",
+         breaks=[lambda c: {"refresh_decide":
+                            lambda m, v, e, i, man: "poll" if e >= i else "skip"},
+                 lambda c: {"refresh_vectors": [["auto", True, 0, False, "skip"]]}])
+def _c_refresh_off_means_off(ctx):
+    """Off means off, asserted on the function that decides rather than on a
+    countdown being hidden: in manual-only mode the decision is 'skip' at every
+    elapsed time, however large. In auto mode it skips below the interval and
+    polls at or beyond it, and a manual trigger answers 'poll-now' exactly once
+    — the following call without the trigger does not repeat it.
+
+    The shared vector table is driven through the Python twin here; the page is
+    handed the identical table so the two runtimes are compared rather than
+    assumed equal. What this catches is the function drifting from the table.
+    It cannot execute JavaScript, so a rewrite that keeps the shape and changes
+    the behaviour would survive — a residue named, not papered over."""
+    decide, ms = ctx["refresh_decide"], ctx["refresh_interval"]
+    vectors = ctx["refresh_vectors"]
+    if len(vectors) < 10 or ctx["refresh_vectors_inlined"] != vectors:
+        return False
+    for mode, visible, elapsed, manual, expected in vectors:
+        if decide(mode, visible, elapsed, ms, manual) != expected:
+            return False
+    off = [decide("manual-only", True, e, ms, False)
+           for e in (0, ms - 1, ms, ms * 10, ms * 100000)]
+    below = [decide("auto", True, e, ms, False) for e in (0, 1, ms - 1)]
+    at_or_past = [decide("auto", True, e, ms, False) for e in (ms, ms + 1, ms * 9)]
+    once = [decide(m, True, 0, ms, True) for m in ("auto", "manual-only")]
+    after = [decide(m, True, 0, ms, False) for m in ("auto", "manual-only")]
+    return (set(off) == {"skip"} and set(below) == {"skip"}
+            and set(at_or_past) == {"poll"} and set(once) == {"poll-now"}
+            and "poll-now" not in after)
+
+
+@_covers("refresh-decision-mirror", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "if (mode !== 'auto') return 'skip';", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "MIRROR: change together with refresh_decision()", "x")}])
+def _c_refresh_decision_mirror(ctx):
+    """The mirrored JavaScript matches its Python twin branch for branch — the
+    same four guards in the same order, returning the same three words, each
+    body carrying the marker that names the other."""
+    app = ctx["app_src"]
+    marker = "// MIRROR: change together with refresh_decision()"
+    if marker not in app:
+        return False
+    js = app[app.index(marker):]
+    js = js[:js.index("\n}\n")]
+    py = inspect.getsource(refresh_decision)
+    return ("function refreshDecision(mode, visible, elapsedMs, intervalMs, manual)" in js
+            and "if (manual) return 'poll-now';" in js
+            and "if (mode !== 'auto') return 'skip';" in js
+            and "if (!visible) return 'skip';" in js
+            and "if (elapsedMs < intervalMs) return 'skip';" in js
+            and "return 'poll';" in js
+            and "def refresh_decision(mode: str, visible: bool, elapsed_ms: int," in py
+            and "if manual:" in py and 'return "poll-now"' in py
+            and 'if mode != "auto":' in py
+            and "if not visible:" in py
+            and "if elapsed_ms < interval_ms:" in py
+            and 'return "skip"' in py and 'return "poll"' in py
+            and "MIRROR: change together with refreshDecision()" in py)
+
+
+@_covers("auto-refresh-persistence-key", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("REFRESH_KEY", "x")},
+                 lambda c: {"refresh_key_inlined": "karta-theme"},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "  } catch (e) { return 'auto'; }", "  } finally { }")}])
+def _c_auto_refresh_key(ctx):
+    """The choice persists under its OWN key — one spelling, named in Python and
+    handed to the page, so the two cannot drift into two keys and silently stop
+    persisting. A first visit with nothing stored defaults to automatic refresh
+    ON, and a browser where storage throws falls back to that same default
+    rather than failing on the way up."""
+    app, key = ctx["app_src"], ctx["refresh_key"]
+    reader = _js_block(app, "function storedRefreshMode() {")
+    if not reader or ctx["refresh_key_inlined"] != key:
+        return False
+    return (key == REFRESH_MODE_KEY
+            and key not in ("karta-theme", "karta-show-delivered")
+            and "localStorage.getItem(REFRESH_KEY)" in reader
+            and "try {" in reader and "catch (e) { return 'auto'; }" in reader
+            and reader.count("'auto'") == 2
+            and "localStorage.setItem(REFRESH_KEY," in app
+            and "refreshMode: storedRefreshMode()," in app)
+
+
+@_covers("refresh-off-wording-is-not-feed-paused", kind="behaviour",
+         breaks=[lambda c: {"refresh_labels": dict(c["refresh_labels"],
+                                                   off=c["feed_paused_label"])},
+                 lambda c: {"refresh_inlined": {"on": "x", "off": "y"}}])
+def _c_refresh_off_wording(ctx):
+    """The reader's choice is worded as a choice. 'automatic refresh off' is
+    never the feed-paused wording, which means the feed FAILED twice in a row —
+    the page must not dress a deliberate setting as a fault."""
+    labels, paused = ctx["refresh_labels"], ctx["feed_paused_label"]
+    return (labels["off"] == REFRESH_OFF_LABEL
+            and labels["on"] == REFRESH_ON_LABEL
+            and ctx["refresh_inlined"] == labels
+            and "paused" not in labels["off"] and "paused" not in labels["on"]
+            and labels["off"] != paused and labels["on"] != paused
+            and labels["off"] in ctx["page"]
+            and _first_index(ctx["page"], "data-kw-refresh-age")
+            != _first_index(ctx["page"], "data-kw-feed"))
+
+
+@_covers("refresh-timers-torn-down", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "    if (this._tickTimer !== null) { clearInterval(this._tickTimer); "
+             "this._tickTimer = null; }\n", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "    this.stopPolling();\n    if (this._tickTimer",
+                     "    if (this._tickTimer")}])
+def _c_refresh_timers_torn_down(ctx):
+    """Every timer and listener this page adds has a matching teardown inside
+    beforeUnmount. A source-level check: the gate cannot fire a Vue lifecycle
+    hook, so the pairing is read off the source rather than observed."""
+    app = ctx["app_src"]
+    unmount = _js_block(app, "  beforeUnmount() {")
+    if not unmount:
+        return False
+    return (app.count("setInterval(") == app.count("clearInterval(") == 2
+            and "this.stopPolling()" in unmount
+            and "clearInterval(this._tickTimer)" in unmount
+            and "this._tickTimer = null" in unmount
+            and "removeEventListener('visibilitychange'" in unmount
+            and app.count("addEventListener(") == app.count("removeEventListener(") == 1)
+
+
+@_covers("refresh-countdown-is-local", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "setInterval(() => { this.now = Date.now(); }, TICK_MS)",
+             "setInterval(() => { this.poll(); }, TICK_MS)")},
+                 lambda c: {"tick_ms": 0}])
+def _c_refresh_countdown_is_local(ctx):
+    """The countdown is a local timer over a known interval: it reads the
+    clock, not the network. Its ticker is distinct from the one poll timer, it
+    ticks faster than the refresh interval, and no fetch sits on its code path."""
+    app = ctx["app_src"]
+    ticker = "setInterval(() => { this.now = Date.now(); }, TICK_MS)"
+    countdown = _js_block(app, "    countdownLabel() {")
+    age = _js_block(app, "    ageLabel() {")
+    if not countdown or not age:
+        return False
+    both = countdown + age
+    return (ticker in app and 0 < ctx["tick_ms"] < ctx["refresh_interval"]
+            and "this._tickTimer = " + ticker in app
+            and "fetch" not in both and "poll" not in both
+            and "this.now" in countdown and "this.lastPollAt" in countdown)
+
+
+@_covers("refresh-baseline-reset-in-caller", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "if (decision === 'poll-now' || decision === 'poll') this.lastPollAt = Date.now();",
+             "")}])
+def _c_refresh_baseline_reset(ctx):
+    """A pure function returning a word cannot reset anything, so the elapsed
+    baseline is caller state — restarted in step() on the decisions that fetch,
+    which is the wiring a source-level check can see and the function cannot."""
+    step = _js_block(ctx["app_src"], "    step(manual) {")
+    if not step:
+        return False
+    reset = "if (decision === 'poll-now' || decision === 'poll') this.lastPollAt = Date.now();"
+    return (reset in step and "refreshDecision(" in step
+            and step.index("refreshDecision(") < step.index(reset)
+            and step.index(reset) < step.index("this.poll();"))
+
+
+@_covers("manual-refresh-not-reentrant", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "      if (this._inflight) return;\n", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     ".finally(() => { this._inflight = false; })", "")}])
+def _c_manual_refresh_not_reentrant(ctx):
+    """A second click while a refresh is already in flight rides the first out
+    instead of starting a second request — the guard is set before the fetch and
+    cleared however the request ends, success or failure."""
+    poll = _js_block(ctx["app_src"], "    poll() {")
+    if not poll:
+        return False
+    return ("if (this._inflight) return;" in poll
+            and "this._inflight = true;" in poll
+            and poll.index("this._inflight = true;") < poll.index("fetch(")
+            and ".finally(() => { this._inflight = false; })" in poll)
 
 
 @_covers("no-visual-change-hooks-are-attribute-only", kind="behaviour",
@@ -7068,7 +7612,8 @@ def _coverage_context() -> dict:
     asset_scripts = sorted(str(p.relative_to(ASSETS_DIR))
                            for p in ASSETS_DIR.rglob("*.js"))
 
-    poll_ms = int(re.search(r"const POLL_MS = (\d+);", _APP_JS).group(1))
+    poll_ms = int(re.search(r"const REFRESH_MS = (\d+);", _build_app_js(state)).group(1))
+    tick_ms = int(re.search(r"const TICK_MS = (\d+);", _build_app_js(state)).group(1))
     return {
         "page": page, "eph": eph, "empty_page": empty_page,
         "degraded_page": degraded_page, "hub": hub,
@@ -7099,9 +7644,18 @@ def _coverage_context() -> dict:
         "breathe_keyframe": BREATHE_KEYFRAME,
         "repo_name": repo_name, "title_suffix": _TITLE_SUFFIX,
         "key_token": key_token, "current_slug": current_slug,
-        "poll_ms": poll_ms,
+        "poll_ms": poll_ms, "tick_ms": tick_ms,
+        "refresh_decide": refresh_decision,
+        "refresh_interval": REFRESH_INTERVAL_MS,
+        "refresh_vectors": REFRESH_VECTORS,
+        "refresh_vectors_inlined": _inlined_const(page, "REFRESH_VECTORS"),
+        "refresh_key": REFRESH_MODE_KEY,
+        "refresh_key_inlined": _inlined_const(page, "REFRESH_KEY"),
+        "refresh_labels": {"on": REFRESH_ON_LABEL, "off": REFRESH_OFF_LABEL},
+        "refresh_inlined": _inlined_const(page, "REFRESH"),
+        "feed_paused_label": FEED_PAUSED_LABEL,
         "theme_attr": _theme_attr, "inert": _inert_json,
-        "feed_step": _feed_transition, "poll_decide": poll_decision,
+        "feed_step": _feed_transition,
         "repo_route": _REPO_ROUTE.fullmatch,
         "key_ok": key_ok, "hub_key_ok": hub_key_ok, "host_ok": host_ok,
         "asset_probe": asset_probe, "asset_serve": asset_serve,

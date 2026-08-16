@@ -83,3 +83,23 @@ feed-live-paused-debounce
 file-snapshot-no-polling
 poll-decision-hidden-tab
 no-visual-change-hooks-are-attribute-only
+
+# The refresh controls: the reader decides when the page asks git anything.
+# poll-loop-interval, poll-decision-hidden-tab and file-snapshot-no-polling
+# above are DELIBERATELY superseded, never dropped — each still names a
+# behaviour that must hold, and each now reads it off refresh_decision and the
+# two-timer model instead of the retired poll_decision.
+refresh-cluster-region
+refresh-countdown-region
+refresh-age-when-off
+manual-refresh-control
+auto-refresh-toggle
+refresh-off-means-off
+refresh-decision-mirror
+refresh-single-poll-timer
+refresh-countdown-is-local
+refresh-baseline-reset-in-caller
+refresh-timers-torn-down
+manual-refresh-not-reentrant
+auto-refresh-persistence-key
+refresh-off-wording-is-not-feed-paused
