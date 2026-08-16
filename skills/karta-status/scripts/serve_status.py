@@ -1787,7 +1787,7 @@ const app = createApp({
       (try <span class="mono">karta-plan</span>) and the delivery will chart itself here.</p>
   </section>
 
-  <footer class="foot">karta · derived fresh from git every poll · read-only</footer>
+  <footer class="foot">karta · mirrors git · read-only</footer>
 </div>
 `,
 });

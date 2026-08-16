@@ -2,7 +2,7 @@
 name: karta-status
 model: haiku
 description: >-
-  Show what's next in a karta run — where you are and the single next action, at binder and work-item level, derived fresh from git every time and never stored. Read-only. When someone wants to SEE or watch status, it opens the live Karta Watch browser page by default — ephemeral for this session unless the repo is opted into the persistent multi-repo hub; a one-shot terminal map is the headless fallback. Trigger phrases: "what's next", "karta status", "where am I in this binder", "show me the karta status", "karta watch", "turn off karta watch", "karta-status".
+  Show what's next in a karta run — where you are and the single next action, at binder and work-item level, derived from git and never stored. Read-only. When someone wants to SEE or watch status, it opens the live Karta Watch browser page by default — ephemeral for this session unless the repo is opted into the persistent multi-repo hub; a one-shot terminal map is the headless fallback. Trigger phrases: "what's next", "karta status", "where am I in this binder", "show me the karta status", "karta watch", "turn off karta watch", "karta-status".
 ---
 
 karta-status answers one question: **what do I do next?** It reads every binder in
@@ -45,7 +45,7 @@ the default — not an extra someone has to ask for:
 
   `uv run --script skills/karta-status/scripts/serve_status.py --root <repo> --port 8765`
 
-It is a **long-running** server (it re-derives state from git on every poll), so start it as a
+It is a **long-running** server (a browser polls it for as long as the page is open), so start it as a
 **persistent/managed process** — a bare `&` or `nohup` is often reaped by the agent runtime before
 it binds, so use the runtime's managed background-session mechanism — then **confirm it is serving
 and hand the user the working URL**, not just the launch command: `http://127.0.0.1:8765/` (forward
