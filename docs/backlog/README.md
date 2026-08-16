@@ -43,6 +43,18 @@ Status legend: **Ready** (scoped, unblocked) · **Blocked** (needs a prerequisit
 
 ---
 
+## 3. splitting `serve_status.py` — *Shelved* (decided 2026-08-16)
+
+**What.** Split `skills/karta-status/scripts/serve_status.py` (5,504 lines, 46% of it its own self-test suite) into flat sibling modules.
+
+**Why shelved.** Not blocked — a judgement that the plan cost more to make safe than the monolith costs to live with. Three review rounds, two independent providers each; every round found real defects, and every round found defects *introduced by the previous round's fixes*. The binder reached 77 KB and 101 oracle assertions for a refactor shipping no user-visible change. The cause is a property of the file: its self-test scans its own source, with every forbidden literal assembled at runtime so the checks cannot match themselves — so adding a check produces a second-order effect nearly every time. Two of the plan's own safety mechanisms were then disproved empirically: `git diff -M --find-copies-harder` scores a 2,522-line extraction at 8–11% similarity and detects nothing, and the check-name manifest could not be bootstrapped in the commit that creates it.
+
+**What survives.** Full investigation, the verified facts about the file, and the narrowest restart shape: [`watch-module-split/FINDINGS.md`](watch-module-split/FINDINGS.md). Several findings are worth reading even if the split never happens — the hub identity digest goes blind on any code moved to a sibling, `max(mtime)` is not a change detector, and the `globals()` patch at `:3476` passes vacuously from any other module.
+
+**Cost accepted.** `watch-redesign.json` stays valid as written; deliveries keep serializing on the one filename.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
