@@ -1,0 +1,459 @@
+{
+  "slug": "watch-derivation-cost",
+  "title": "Make the status page cheap to derive",
+  "summary": "Deriving state from git is nearly all of what a status request costs, and it grows with every binder and work item. This replaces the per-item git spawning with three batched calls, caches the result, stops re-sending delivered history that never changes, lets an unchanged page skip the transfer, and leaves a benchmark that can prove the win again on slow hardware.",
+  "motivation": "On a repo with twenty binders a single browser tab spends 613 ms of every 2.6 second poll forking 380 git processes, and hub mode multiplies that by every watched repo.",
+  "scope": {
+    "included": [
+      "skills/karta-status/scripts/karta_next.py — the git derivation",
+      "skills/karta-status/scripts/serve_status.py — state caching, conditional GET, the archived-binder payload, the client poll loop, and the self-test",
+      "the generated Codex mirrors of both scripts under .agents/skills/ and plugins/karta/",
+      "benchmarks/perf/ — a reproducible derivation benchmark that runs against real repository history",
+      "docs/specs/2026-08-15-watch-performance-baseline.md — the after-numbers"
+    ],
+    "excluded": [
+      "the renderer: a full page renders in 0.5 to 0.8 ms against a 613 ms request, so no rewrite and no compiled-language port",
+      "the rendering strategy: a JSON feed and server-rendered HTML cost the same, so that choice is not reopened here",
+      "the hub's existing 5 second RepoEngine cache — preserved, not replaced",
+      "any wall-clock threshold as a merge gate; timing is reported, never enforced",
+      "the refresh interval and the refresh controls, which are user-visible and belong to the redesign binder",
+      "any page markup, styling, or feed-field change — that is the redesign binder's work",
+      "prose docs other than the performance spec; doc-gardner corrects those after delivery"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Python stdlib http.server + vendored Vue 3 SPA, shipped as a Claude Code / Codex plugin skill"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "env_contract": {
+    "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [
+      "KARTA_WATCH_STATE_DIR"
+    ]
+  },
+  "shared_terms": [
+    {
+      "id": "git-call-invariant",
+      "canonical": "git calls stay constant as binder count grows",
+      "items": [
+        "git-call-count-invariant",
+        "lean-box-benchmark"
+      ]
+    },
+    {
+      "id": "conditional-request-header",
+      "canonical": "If-None-Match",
+      "items": [
+        "etag-conditional-get",
+        "client-conditional-poll"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "batch-git-facts",
+      "title": "Ask git three questions instead of one per work item",
+      "summary": "Replace the per-binder and per-item git calls that build the state facts with three whole-namespace ref queries that return the same answer at any scale.",
+      "estimate": "L",
+      "depends_on": [],
+      "contract": {
+        "consumes": "the same inputs as today: the loaded binder list and the resolved default branch",
+        "exposes": "gather_git_facts(binders, default_branch, runner=None) returns a byte-for-byte identical dict — {default_branch, binders{<slug>{integration_exists, items{<id>{done, done_in_default, built, failed, branch}}}}} — while issuing a CONSTANT number of git subprocesses that does not grow with binder or item count. Three inside this function; the true per-request figure includes default-branch resolution and is stated below. The optional runner parameter is the injection seam the call-count check needs — without it that check has nothing to hook.",
+        "implementation": "one `for-each-ref --format=%(refname) refs/karta/` for the done/built/failed marker set, one `for-each-ref refs/heads/karta/` for integration and per-item branches, and one `for-each-ref --merged=<default_branch> refs/karta/` whose result set replaces the per-done-item `merge-base --is-ancestor` exit-code probe",
+        "preserved": "done_in_default keeps its exact current meaning — a done ref whose commit is reachable from the default branch — including the case where a done ref points at a commit deliberately not merged, which is what --merged has to get right",
+        "default_branch_is_inside_the_budget": "resolving the default branch is part of the request and must be counted. Today _default_branch() runs a `symbolic-ref` plus up to two `rev-parse` calls OUTSIDE gather_git_facts, so a claim of three calls per request would be false. Either fold the resolution into the batched path or resolve it once and reuse it, and state the true per-request budget as a fixed number that does not grow with binder or item count. The invariant being bought is a CONSTANT number of git calls per request, not the number three",
+        "failure_modes": "the batched form must behave on repositories the current per-item form survives: an empty repository with no commits, an unborn HEAD, a detached HEAD, a missing or renamed default branch, and a refs/karta/ entry pointing at a tag or a non-commit object. `--merged` against a branch that does not exist must not take the page down",
+        "reference_implementation": "the per-item walker is not deleted, it moves into the self-test as the equivalence oracle; production carries only the batched path",
+        "prior_evidence": "equivalence has already been demonstrated twice on a constrained container — across six ref topologies on fixture repos, and again at 1, 5, 10, 20 and 40 binders on karta's own 385-commit history. The oracle here is a regression guard on a settled question, not an open investigation. See docs/specs/2026-08-15-watch-performance-baseline.md",
+        "resilience_regression": "the per-item form degrades gracefully: one failing merge-base blanks one item and the rest of the page renders. Three batched calls are all-or-nothing, so one failure — a corrupt repo, lock contention, a killed subprocess — would take the whole page down where it previously lost one row. That is a real regression the batching buys, and it must be handled rather than discovered: a failed batch call yields a renderable page with the affected facts marked unknown, never an exception reaching the handler.",
+        "annotated_tags_verified_equivalent": "a review round claimed the two forms disagree on annotated tags — that `--merged` tests the ref's tip object, which for an annotated tag is the tag object rather than a commit, while `merge-base --is-ancestor` peels to the target. This was tested directly on git 2.47.3 rather than taken on trust, with a done ref on an annotated tag whose target IS merged and another whose target is NOT: both forms agreed in both cases. `for-each-ref --merged` peels. The claim was false and no special handling is needed — but the fixture stays, because the behaviour is a git implementation detail this derivation now depends on, and a regression in it would be silent."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/karta_next.py",
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/karta_next.py",
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/karta_next.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/karta_next.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — gather_git_facts is the sole input to derive_state and to the hub's per-repo child; a wrong answer here silently mis-renders every item on every page",
+          "novelty — whole-namespace ref-set derivation replaces exit-code probing, a pattern this engine has not used before",
+          "blast-radius — the only item in this binder that edits the engine as well as the server, and serve_status.py is edited by every item here",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "on git fixture repos built by the self-test, the batched facts equal the per-item reference facts field for field, across at least six ref topologies: empty, single binder, typical (5 binders by 10 items), wide (20 by 10), no integration branch, and with an integration branch",
+          "at least one fixture carries real commit history rather than a single commit, and at least one has done refs pointing at commits NOT merged into the default branch; both forms agree on done_in_default for every one of them",
+          "a seventh equivalence fixture carries done refs on ANNOTATED TAGS — one whose target commit is merged into the default branch and one whose target is not — and both forms agree on both. This pins git's tag-peeling behaviour, which the batched form silently relies on",
+          "a whole state derivation — default-branch resolution included, counted at the subprocess boundary rather than inside one helper — issues the same fixed number of git subprocesses at 1, 5, 10 and 20 binders",
+          "the derivation survives an empty repository, an unborn HEAD, a detached HEAD, and a missing default branch, returning a renderable state rather than raising",
+          "the engine self-test and the server self-test both still pass unchanged, so derive_state's consumers see no shape change",
+          "the regenerated Codex mirrors of karta_next.py and serve_status.py are byte-identical to the canonical files",
+          "a git call failing mid-derivation yields a renderable state with the affected facts marked unknown, rather than raising — the page degrades the way it did before batching instead of going blank",
+          "a refs/karta/ entry pointing at a tag or other non-commit object does not break the derivation",
+          "a renamed default branch is handled as well as a missing one"
+        ]
+      }
+    },
+    {
+      "id": "git-call-count-invariant",
+      "title": "Lock in the flat call count so it cannot creep back",
+      "summary": "Add a check that counts the git subprocesses the derivation makes and fails if that count rises with the number of binders.",
+      "estimate": "S",
+      "depends_on": [
+        "batch-git-facts"
+      ],
+      "contract": {
+        "exposes": "a self-test check that drives the derivation through an injectable counting runner at 1, 5, 10 and 20 binders and asserts the counts are equal",
+        "consumes": "the batched gather_git_facts",
+        "explicitly_not": "no wall-clock assertion — timing depends on the machine and on history depth, and would make the gate flaky; the invariant enforced is that git calls stay constant as binder count grows",
+        "why_not_merged_into_the_previous_item": "the previous item asserts a fixed count of 3 on its own fixtures. This asserts something different and stronger — that the count does not GROW with binder count — and it carries a negative test proving the check can actually fail. A check that has never been seen to fail is not known to work. Keeping it separate also keeps the guard alive if the batched implementation is later replaced by a different one that is still call-count-flat"
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/karta_next.py",
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/karta_next.py",
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/karta_next.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/karta_next.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — edits serve_status.py, which every item in this binder edits; handled by serialization and a strict dependency chain",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the git subprocess count is identical at 1, 5, 10 and 20 binders",
+          "the check states its invariant as the phrase 'git calls stay constant as binder count grows', matching the wording in the performance spec",
+          "the check fails when handed a deliberately per-item derivation, proving it can actually detect the regression it guards",
+          "no assertion in the new check compares a duration against a threshold"
+        ]
+      }
+    },
+    {
+      "id": "cache-derived-state",
+      "title": "Stop re-deriving state that has not changed",
+      "summary": "Keep the last derived state for a single repo and reuse it until git refs or the binder files actually change on disk.",
+      "estimate": "M",
+      "depends_on": [
+        "git-call-count-invariant"
+      ],
+      "contract": {
+        "exposes": "current_state() returns a cached derivation, recomputed only when the cache key changes",
+        "cache_key": "pinned precisely, because 'newest mtime across the refs directory' is ambiguous and the ambiguity is where the bugs live. The key stats FILES recursively, not directory mtimes alone — editing an existing binder JSON updates the file, not necessarily its directory — and includes each file's size alongside its mtime. It covers: every loose ref under refs/ recursively, packed-refs, HEAD, THE FILE HEAD RESOLVES TO, the worktree-private HEAD when running from a linked worktree, the commondir-resolved ref store, and every file under .karta/binders/ and .karta/binders/archive/ recursively",
+        "head_is_a_symref": "HEAD's own mtime does NOT change when the branch it points at advances — it is a symref holding a path, not a commit. Keying on HEAD alone means an ordinary fast-forward on the default branch is invisible to the cache, which is the single most common event this page exists to show. The key must stat the resolved target, and must handle that target living in packed-refs rather than as a loose file",
+        "sampling_order": "the key is sampled BEFORE and AFTER derivation. If the two samples differ, a write landed mid-derivation and the result is discarded rather than cached, so the cache can never hold a state that does not correspond to its own key",
+        "max_age_backstop": "an mtime-only key cannot be trusted absolutely: network filesystems cache attributes, clocks skew, and a file stamped in the future would suppress later legitimate invalidation. A hard maximum age bounds how long any missed change can persist, whatever the cause. The page is a mirror of git, so being briefly stale is tolerable; being stale indefinitely is not",
+        "key_cost": "the key is computed on every request, so its cost must stay small as refs and binders grow. Whatever the implementation, the number of filesystem calls it makes must not grow faster than the data it is protecting — otherwise a syscall storm replaces the git-process storm this binder is removing This is gated, not merely noted: the check counts filesystem calls during key computation across growing fixtures the same way the git-call check counts subprocesses.",
+        "consumes": "the batched gather_git_facts",
+        "docstring_change": "current_state()'s 'Never cached.' line is now wrong and must be rewritten to state the invalidation rule; leaving it standing would be a stale doctrine pointer",
+        "preserved": "hub mode's existing per-repo RepoEngine 5 second cache is untouched and must not be regressed; the injectable clock and runner idiom RepoEngine already uses is the pattern to follow here",
+        "thread_safety": "the server is a ThreadingHTTPServer with daemon threads, so concurrent requests can enter the cache at once. The cache must be guarded by a lock, and it must be initialised once per process rather than once per handler instance — a per-handler cache would silently never hit. Both are stated here because neither is visible from the call site",
+        "same_tick_hazard": "coarse filesystem mtime granularity means a write landing in the same clock tick as the cached read is invisible to an mtime-only key. A size component does not rescue it either: a ref file holds a 40-character object id and is the same length before and after a force-update, so path, size and tick can all be unchanged while the ref now points somewhere else. The key therefore REQUIRES a content component over the ref files — a hash of their bytes — and this is a requirement, not one option among several. The 60 second max-age remains as a backstop for everything a content hash cannot see, such as an attribute-caching network filesystem, and not as a substitute for it.",
+        "path_set_not_just_stats": "the key includes the SORTED PATH LIST itself, not only the stats of files that exist. Statting files recursively can only observe files still present, so a loose ref DELETED by `git pack-refs --all` — which routine `git gc` performs — simply drops out of the list and the key never changes. The cache would then serve pre-pack state indefinitely, bounded only by the max-age backstop. Comparing the path set catches the disappearance, and the loose-to-packed transition is the commonest way it happens.",
+        "max_age_value": "the backstop is 60 seconds. A bound with no number is a parameter hiding in prose, and it decides how stale the page can get; it belongs in the contract where it can be asserted.",
+        "reentrancy": "the guard is re-entrant, so a future refactor where derivation calls back into the cached entry point deadlocks nothing.",
+        "file_set_principle": "the exact set of git internal files the key covers is settled at build time against one principle: any file whose change can alter a rendered fact must be in the key, and anything else is deliberately excluded with a one-line reason in the build report. Enumerating every git internal in a plan would be guessing at implementation; naming the principle makes the omissions reviewable.",
+        "content_hash_cost": "hashing ref bytes on every request must not become the new storm: ref files are 41 bytes each, so the cost is bounded by ref count rather than repository size, and the same growth check that counts filesystem calls covers bytes read as well.",
+        "failures_are_never_cached": "a derivation that hit a git failure and marked facts unknown is RETURNED but NOT STORED. Without this the two halves of the binder combine badly: a transient failure — lock contention, a killed subprocess — leaves the key unchanged, so the degraded state would be cached and served for up to the full max age. That turns a single bad request into a minute of a wrong page, where the per-item form recovered on the very next poll. Only a clean derivation is cached.",
+        "lock_files_excluded": "transient *.lock siblings under refs/ are excluded from the key: git writes and removes them during an ordinary ref update, and counting them would invalidate the cache constantly for no change in state."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — reverses a documented invariant: the page has promised 'derived fresh from git every request' since it shipped, and a stale read now becomes possible where it previously could not be",
+          "open-question — mtime granularity on some filesystems is coarse, so a change landing inside the same clock tick as the cached read is the failure mode a human should sign off on",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "two consecutive derivations with nothing touched on disk issue git calls once, not twice",
+          "writing a new ref invalidates the cache and the next read reflects it",
+          "writing packed-refs invalidates the cache",
+          "packing loose refs with `git pack-refs --all` invalidates the cache — the loose files disappear rather than change, so a key built only from surviving files would miss it entirely",
+          "deleting a ref invalidates the cache, for the same reason",
+          "a cached entry older than 60 seconds is re-derived even when nothing on disk changed",
+          "advancing the branch HEAD points at — without touching HEAD itself — invalidates the cache, proving the symref target is stated in the key and not merely HEAD",
+          "the same holds when the resolved target lives in packed-refs rather than as a loose ref file",
+          "EDITING an existing binder JSON in place invalidates the cache, not only adding or removing one — the case a directory-mtime-only key would miss",
+          "archiving a binder invalidates the cache",
+          "a write that lands between the pre-derivation and post-derivation key samples causes the result to be discarded rather than cached",
+          "a cached entry older than the maximum age is re-derived even when no mtime changed",
+          "running from a linked worktree resolves the shared ref store through commondir, so a ref written in the main checkout still invalidates",
+          "a fixture that forces the mtime of the ref store back to the cached read's own tick, then writes a ref, still observes the new ref — proving the same-tick hazard named in the contract is actually handled and not merely acknowledged",
+          "concurrent derivations from several threads produce one derivation, not several, and never a partially built state object",
+          "the cache is initialised once per process: two requests served by different handler instances share it, so a per-handler cache that never hits would fail this check",
+          "hub mode's RepoEngine still caches on its own 5 second interval and its existing self-test checks pass unchanged",
+          "current_state()'s docstring no longer claims the result is never cached",
+          "force-updating an EXISTING ref to a different commit invalidates the cache — the path set, the size and the tick can all be unchanged, so this is the case a path-and-stat key is most likely to miss",
+          "the number of filesystem calls made computing the key does not grow faster than the refs and binder files it protects, measured across growing fixtures",
+          "with the key deliberately suppressed, the max-age backstop alone still forces a re-derivation — so the backstop is known to work rather than assumed",
+          "a derivation that hit a git failure is returned but not stored: with a failure injected once and nothing on disk changed, the NEXT request re-derives and returns healthy facts rather than serving the cached degraded state",
+          "a transient .lock file appearing and disappearing under refs/ does not invalidate the cache"
+        ]
+      }
+    },
+    {
+      "id": "shed-archived-payload",
+      "title": "Stop re-sending delivered history on every poll",
+      "summary": "Delivered binders never change, but the feed serializes all of them in full every time it is asked; carry them differently so the payload stops growing with the pile of finished work.",
+      "estimate": "M",
+      "depends_on": [
+        "cache-derived-state"
+      ],
+      "contract": {
+        "problem": "measured on a real karta checkout in the constrained container, state.json is 98.5 KB with ZERO live binders, because the 17 archived binders are serialized in full on every request. At 20 live binders about 72% of a 136 KB payload is immutable delivered history being re-sent forever, and the same bytes are inlined into the initial page, which is why the page weighs 133 KB before any live work exists. See docs/specs/2026-08-15-watch-performance-baseline.md",
+        "exposes": "a feed whose size no longer grows with the number of archived binders",
+        "goal_not_mechanism": "the mechanism is one of exactly TWO: serve archived detail from its own route and fetch it when the Delivered group is opened, OR carry a per-archived digest in the feed with detail on demand. Deferring to the conditional-request work is NOT an option and was removed: a 304 only short-circuits a REPEAT fetch, it never shrinks the first one, so it cannot meet a payload budget. Whichever of the two is chosen, the reasoning goes in the build report and the new surface is covered by the oracle.",
+        "preserved": "the Delivered phase must keep rendering every archived binder exactly as it does today, with its title, summary and item counts intact — archived binders are appended as merged rows by _append_archived and that behaviour is not being changed, only how the bytes travel",
+        "constraint": "no additional git call; archived binder detail is read from .karta/binders/archive/ on disk, and the cache from the previous item already covers it",
+        "new_surface_is_gated": "if a detail route is introduced it is a new wire surface and inherits every rule the existing ones carry: the token check, the Host pin, asset confinement and _inert_json escaping. A route added without them would be a hole opened by a performance change. A detail route takes a slug, which makes it a path-traversal surface: it must resolve the slug against the known archived set rather than joining it onto a path, exactly as the hub resolves a repo slug through its roster instead of deriving a directory from it.",
+        "snapshot_constrains_the_mechanism": "a saved file:// snapshot cannot fetch anything — the browser blocks it. So a detail route alone would leave the Delivered group empty in a snapshot, and the payload oracle and the snapshot oracle could not both pass. Whichever mechanism is chosen, the snapshot must carry what Delivered needs inline at render time, which is a constraint on the choice and not an afterthought."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — /state.json is a published wire surface and this changes what it carries; a reader that walks archived binder detail inline would see a different shape",
+          "open-question — the mechanism is deliberately left to build time, so the choice and its reasoning want a human read",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "with zero live binders and twenty archived binders, the polled payload is under 8 KB, against the 98.5 KB the same fixture produces today — a fixed budget, not a relative one, so the check cannot be satisfied by a trivial reduction or calibrated to the author's machine",
+          "the polled payload grows by no more than 64 bytes per additional archived binder: going from 20 to 40 archived binders must not add more than 1.3 KB",
+          "every archived binder's title, summary and item counts are present in what the page receives — in the feed, in a digest, or from the detail route. This is asserted as data presence, because the gate has no browser and cannot observe Vue rendering; the rendering guarantee is stated in the build report rather than claimed here",
+          "an archived binder whose live namesake exists is still won by the live binder, exactly as the current join does",
+          "the derivation issues no additional git call for archived binders",
+          "archived binder values still reach the page through the inert-JSON path",
+          "the file:// snapshot still renders the Delivered group without a server to fetch from",
+          "if a detail route was introduced, fetching it for one archived slug returns that binder's title, summary and item counts",
+          "if a detail route was introduced, it rejects a missing or wrong token and a disallowed Host header exactly as /state.json does, and escapes through _inert_json",
+          "the initial page does not simply absorb the bytes removed from the feed — total first-load weight falls too, rather than the same content moving from one place to another",
+          "if a detail route was introduced, a slug containing traversal segments, percent-encoded traversal, an absolute path, or characters outside the slug alphabet is rejected, and no request can read a file outside the archived-binder set"
+        ]
+      }
+    },
+    {
+      "id": "etag-conditional-get",
+      "title": "Let an unchanged page skip the download",
+      "summary": "Stamp the state feed with a fingerprint so a browser asking for state it already has gets a short 'nothing changed' reply instead of the whole document.",
+      "estimate": "M",
+      "depends_on": [
+        "shed-archived-payload"
+      ],
+      "contract": {
+        "exposes": "GET /state.json and the hub's GET /r/<slug>/state.json return an ETag response header holding a hash of the derived state; a request whose If-None-Match matches gets 304 with no body and the same ETag",
+        "consumes": "the cached derived state; the fingerprint is computed from the serialized state, so identical state always yields an identical tag",
+        "preserved": "the hub token check and the Host-header pin run before any conditional handling — a 304 must never become an unauthenticated path; the 200 body bytes are unchanged and still pass through _inert_json",
+        "fingerprint_determinism": "the tag is a hash of the serialized state produced with a pinned serialisation — sorted keys and fixed separators — so two processes holding equal state always emit the same tag. Without pinning, dict ordering or float formatting would make the tag unstable across processes and every poll would miss",
+        "protocol_pins": "the tag is a strong quoted ETag over a named hash; a 304 carries no body and no Content-Length; and HEAD — which this server routes through the GET handler — answers state routes with 200 and the tag rather than 304, so a refactor cannot turn HEAD into a cheap state-probe.",
+        "volatile_fields": "the fingerprint is taken over state that excludes anything varying per request — a timestamp, a counter, an uptime. One volatile field makes every tag unique and 304 never fires, which fails silently as a pure performance loss."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "docs/how-to/karta-watch.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — a new response header and a new status code on a wire surface that already has external readers; a client reading state.json directly now has to cope with 304",
+          "sensitive — the conditional path sits next to the hub's token comparison and Host pin; the order of those checks is the thing to get right",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention beyond the reasoning above, so the automated form of that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "a first request to /state.json returns 200 with an ETag header",
+          "replaying that ETag as If-None-Match returns 304 with an empty body and the same ETag",
+          "after the state changes, the same If-None-Match returns 200 with a different ETag",
+          "the hub's /r/<slug>/state.json behaves identically per repo, and two repos with different state never share a tag",
+          "a 304 on a hub route still requires the token: a missing or wrong token is rejected before the conditional check, and a disallowed Host header is rejected too",
+          "identical derived state always produces an identical tag across processes, so the fingerprint does not depend on dict ordering or object identity",
+          "the tag is a strong quoted ETag and is stable across two derivations of identical state in separate processes",
+          "a 304 response carries no body and no Content-Length",
+          "polling an unchanged repository twice in a row yields the same tag, proving no volatile field leaked into the fingerprint",
+          "an unauthorised request receives no ETag header at all, on any route",
+          "HEAD on /state.json and on the hub's per-repo state route returns 200 with the ETag and no body, never 304 — this server routes HEAD through the GET handler, so without the check a refactor turns HEAD into a cheap state probe"
+        ]
+      }
+    },
+    {
+      "id": "client-conditional-poll",
+      "title": "Make the browser stop asking when nobody is looking",
+      "summary": "Send the fingerprint back on each poll, do nothing at all when the answer is 'unchanged', and pause polling entirely while the tab is hidden.",
+      "estimate": "S",
+      "depends_on": [
+        "etag-conditional-get"
+      ],
+      "contract": {
+        "exposes": "the poll sends If-None-Match with the last tag; on 304 it neither reassigns state nor re-renders, and still counts as a healthy poll for the feed indicator; while the document is hidden the timer does not fire, and becoming visible polls once immediately then resumes",
+        "consumes": "the ETag from the previous item",
+        "shape": "stays inside the shipped front-end shape — the existing Vue.createApp Options API root, string template, no build step, no second vendored library; the visibility listener added at mount is removed in beforeUnmount alongside the existing poll timer",
+        "decision_logic": "the branching lands as a PURE PYTHON FUNCTION with a named signature — poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str returning one of 'skip', 'poll', 'poll-now' — mirrored verbatim into the rendered client exactly the way _feed_transition and feedTransition already are, carrying the same MIRROR comment so the pair stays in lockstep. _feed_transition is extended so a 304 counts as a success",
+        "what_the_gate_can_and_cannot_see": "the acceptance check is a Python self-test: no browser, no Vue runtime, no localStorage, no network. It therefore verifies TWO things and must not pretend to verify a third. (1) The pure decision functions, called directly with arguments — this is where the real logic lives, which is why the logic is factored out rather than left inline in the template. (2) Static properties of the RENDERED JS SOURCE — that a visibilitychange listener is registered, that a matching removal appears in beforeUnmount, that the If-None-Match header is set, that the mirrored function body matches its Python twin. End-to-end browser behaviour — that the browser genuinely issues no request while hidden — is NOT gate-able by this suite and must not be written as though it were. State it plainly in the build report instead of asserting it",
+        "preserved": "the two-consecutive-failure live/paused debounce is unchanged, and a 304 counts as a success for it; file:// snapshot mode still never polls",
+        "note": "the poll interval itself is not changed here — moving it to 30 seconds and putting the user in control of it is the redesign binder's work, and this item must not hard-code an interval that would fight it"
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "poll_decision(visible=False, was_visible=True, has_etag=True) returns 'skip'; poll_decision(visible=True, was_visible=True, ...) returns 'poll'; poll_decision(visible=True, was_visible=False, ...) returns 'poll-now' — the function is called directly with these arguments, not inferred from rendered text",
+          "_feed_transition treats a 304 exactly as it treats a 200: the failure count resets and the feed does not enter its paused state",
+          "the mirrored JavaScript copy of poll_decision is byte-identical in logic to its Python twin, checked the way the existing feedTransition mirror is checked, so the two cannot drift",
+          "the rendered JS source registers exactly one visibilitychange listener and contains a matching removal inside beforeUnmount — a source-level check, since the gate cannot fire a Vue lifecycle hook",
+          "the rendered JS source sets the If-None-Match header on the poll request, and the code path that omits it when no tag is held is present",
+          "no new front-end dependency and no external URL appears in the rendered page",
+          "the file:// snapshot path registers no timer and no listener",
+          "the build report states plainly which guarantees are verified end-to-end and which are verified only at the source level, so no reader mistakes a source check for a behavioural one"
+        ]
+      }
+    },
+    {
+      "id": "lean-box-benchmark",
+      "title": "Leave a benchmark that can re-prove the win on slow hardware",
+      "summary": "Commit a small standalone script that measures both the old and new derivation against a repository with real history on a one-core machine, and record the resulting numbers in the performance spec.",
+      "estimate": "M",
+      "depends_on": [
+        "client-conditional-poll"
+      ],
+      "contract": {
+        "exposes": "benchmarks/perf/derivation_bench.py — stdlib only, PEP-723 inline metadata, argparse, and a --self-test mode emitting [PASS]/[FAIL] lines, matching the pattern of benchmarks/perf/mine_sessions.py",
+        "real_history_required": "the harness MUST measure against a repository with real commit history, not a synthesised single-commit repo. This is the defect a naive benchmark has: with one commit there is no graph to walk, so `for-each-ref --merged` is free and the measurement understates the true cost by roughly half. Measured on karta's own 385-commit history the current derivation costs 613 ms at 20 binders where a single-commit fixture reported 314 ms. The harness layers synthetic binder refs onto real commits and places unmerged item refs on genuine side branches so the revision walk is actually exercised",
+        "never_mutates_the_source_repo": "DECIDED, not left to build time. The harness resolves the real git directory with `git rev-parse --git-common-dir`, since a linked worktree's `.git` is a FILE pointing elsewhere and copying that file yields no refs and no objects. It copies that resolved directory to a temporary location and creates every synthetic ref there, never in the repository it was pointed at. Every git invocation against the copy runs with hooks disabled by pointing the hooks path at an empty directory — `.git/hooks/` is copied along with everything else, and a `reference-transaction` hook fires on ref creation, so an un-neutralised hook could write straight back into the source. It also refuses to run when `objects/info/alternates` is non-empty, because a copy that leaves the alternate object store behind walks a partial graph and reports numbers lower than the truth — the exact error this benchmark exists to prevent. The temporary copy is removed on exit including after a failure.",
+        "behaviour": "builds binder sets at 1, 5, 10, 20 and 40 binders by 10 work items with the ref shapes a real run leaves (refs/karta/<slug>/item-<id>/done|built, per-item branches, an integration branch, and a mix of merged and unmerged done refs), times best-of-5 for each, and prints a table plus a machine-readable JSON block. It restores the repository's ref namespace when it finishes",
+        "two_paths": "it times the shipped batched derivation and its own per-item reference walker, so one run reproduces both halves of the before-and-after table on any machine. The reference walker is deliberately duplicated here rather than imported, because the harness must run standalone against any checkout including one predating the batching",
+        "reporting_not_gating": "the constrained-container invocation is documented in the spec, not gated — a consumer machine has no Incus, and wall-clock depends on the machine and on history depth, so the enforced invariant remains that git calls stay constant as binder count grows",
+        "doc": "docs/specs/2026-08-15-watch-performance-baseline.md gains an after-numbers section beneath the existing before-numbers, method and equivalence proof; the existing before figures are not edited",
+        "baseline_to_reproduce": "1 vCPU / 512 MiB Debian 13, best-of-5, 10 items per binder, against karta's real 385-commit history — per-item derivation 20.9 / 114.3 / 253.8 / 613.2 / 1550.8 ms at 1 / 5 / 10 / 20 / 40 binders with 19 / 95 / 190 / 380 / 760 git calls; batched flat — the same count at every scale — and 8.9 / 10.7 / 13.3 / 21.9 / 37.2 ms",
+        "variance": "the JSON block carries the spread as well as the best time. Best-of-five alone lets a noisy machine look clean.",
+        "clean_git_environment": "every git invocation runs in a cleaned environment. GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and GIT_COMMON_DIR inherited from the calling shell would redirect the resolution step at a directory the harness never intended to copy, which is a silent write path into somewhere real.",
+        "call_count_methodology": "the harness counts git subprocesses at the SAME boundary the invariant check uses — the whole derivation, default-branch resolution included — not just the calls inside one helper. The figure three describes the ref queries alone; the per-request total is whatever the batched implementation settles on, and the harness reports that number rather than asserting three. Asserting three here while the sibling item states that three-per-request is false would make one of the two fail on any compliant implementation."
+      },
+      "serialize": false,
+      "touches": [
+        "benchmarks/perf/derivation_bench.py",
+        "benchmarks/perf/results/",
+        "docs/specs/2026-08-15-watch-performance-baseline.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "destructive — the harness creates git refs, so it is pointed at a copy of the repository rather than the repository itself; the contract fixes that as a requirement and the oracle checks it, because getting it wrong writes junk refs into a real checkout",
+          "escalation — the reported run needs a constrained container that only this host has; the committed check does not, which is why the container run is documented rather than gated",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script benchmarks/perf/derivation_bench.py --self-test",
+        "assertions": [
+          "the harness refuses to report figures for a repository with only one commit, naming the reason, so a single-commit measurement can never be mistaken for a real one",
+          "the repository it measures has more than one commit, and at least one done ref it creates is genuinely not an ancestor of the default branch",
+          "the harness resolves the git directory through --git-common-dir, so pointing it at a linked worktree whose .git is a file still measures a real repository rather than failing or copying a stub",
+          "git invocations against the copy run with an empty hooks path: a repository carrying a reference-transaction hook that would write to the source leaves the source untouched",
+          "the harness refuses to run against a repository with a non-empty objects/info/alternates, naming the reason, rather than silently reporting numbers from a partial object graph",
+          "pointing the harness at a repository leaves that repository's ref namespace byte-identical afterwards — the refs are created in a copy, and the check compares the source repository's full ref listing before and after a run",
+          "a run interrupted partway through still leaves the source repository's ref listing unchanged, and removes its temporary copy",
+          "the synthetic ref builder produces the declared shapes: done and built markers, per-item branches, an integration branch, and a mix of merged and unmerged done refs",
+          "the harness's reference walker and the shipped batched derivation return identical facts, so the two timed paths are measuring the same answer",
+          "the harness's own call counter reports a GROWING count for the reference walker and a FLAT count for the batched path — flat meaning identical at every binder count, not equal to any particular number, since the per-request total includes default-branch resolution",
+          "the timing loop reports the best of five runs, not the first or the mean",
+          "the JSON block carries one record per binder count with the binder count, item count, milliseconds and git call count for both paths",
+          "the temporary copy, with every synthetic ref in it, is removed when the run finishes, including after a failure — there is nothing to restore in the source, which was never written to",
+          "the self-test emits [PASS]/[FAIL] lines and exits non-zero on any failure",
+          "the JSON block reports the spread across runs, not only the best time"
+        ]
+      }
+    }
+  ]
+}

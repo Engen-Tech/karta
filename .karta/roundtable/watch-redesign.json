@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "164e4eb152f1afcd3af9ee86d2f0b727a8297b6e7a8e6ab4f8ee323566bea3f5",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "watch-redesign",
+  "run_at": "2026-08-16T02:02:03.265105+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "no blocking defect (confidence 85%)",
+      "summary": "No blocking defect. Confidence 85%. Medium: refresh_decision's `visible` parameter is under-specified and untested \u2014 the oracle asserts auto/manual-only over elapsed time but never the expected skip when visible=false in auto mode, nor that the predecessor's visibility backoff is preserved inside the function; the backoff could be silently lost. Low: the hub landing with auto-refresh off has no manual refresh control, so a reader can only refresh by reloading. Low: the opt-out oracle_reason is not named in the multi-vector inert-JSON assertions, though the blanket rule covers it."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": "no blocking defect (confidence ~90%)",
+      "summary": "No blocking defect. Confidence ~90%. The registry partition (RENDERED/BEHAVIOUR) resolves the previous round's finding cleanly and the hook-resolution audit is now satisfiable. Verification-honesty clauses are present on every item, the human browser checklist enumerates every unverifiable claim, the 'blocked' wording check is correctly scoped to page chrome, and the --built provisional treatment is explicitly flagged for design review. Internal cross-references \u2014 shared terms, storage keys, keyframe names, token mappings \u2014 are consistent across all 13 items. Low findings: a stale line-number reference in the migration scope that widen-state-feed will shift; the anchor oracle asserts the file 'is committed' which exceeds a pure-Python gate's reach though the functional floor check covers the substance; static fetch-call-site analysis is inherently fragile against dynamically constructed calls. Residual risk is concentrated in implementation fidelity of static JS-source checks, not in binder-level contradictions."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "no blocking defect (confidence high)",
+      "summary": "No blocking defect. The RENDERED/BEHAVIOUR partition makes the sweep's hook audit satisfiable, the anchor floor is internally consistent (additions open, deletions fail), and the verification-honesty clauses honestly bound what a browserless gate can claim. Medium: refresh_decision has no in-flight parameter yet an assertion requires that a manual refresh while one is in flight does not start a second \u2014 that is caller state, enforceable only by source inspection; add in_flight to the signature or reword. Low: 'no http:// or https:// reference' is absolute and an inline SVG xmlns or a licence comment URL would false-fail; scope it to fetchable contexts. Low: the auto-off data-age region is underspecified \u2014 does it tick locally or freeze. Low: the anchor floor permits the hub's meta-refresh removal only because the preserved inventory omits it. Confidence high on no-blocker for the spec as written."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "no blocking defect (confidence ~0.93)",
+      "summary": "No blocking defect. Confidence high (~0.93), bounded by not seeing the gate implementation itself. The registry partition closes the previously-blocking hook-audit hole; verification_honesty clauses appear on every item and the explicit human_browser_checklist enumerates guarantees the gate cannot make instead of faking them; the negative-control requirement prevents matches-anything checks passing silently and the harness verifies its mutation actually changed bytes; the external anchor closes the simultaneous-edit coverage-loss hole, and floor-not-equality keeps later items additive without making the floor self-defeating; refresh_decision as a pure Python function mirrored to JS gives off-means-off a verifiable form. Low findings: the 'exactly one poll timer' static check is best-effort against setTimeout chains; the file:// no-timer assertion should exclude Vue-internal scheduling in its wording; fixture label vocabulary should be audited for 'blocked'. No finding motivates holding the binder."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "no blocking defect \u2014 would commit (confidence ~80%)",
+      "summary": "No blocking defect. The rendered/behaviour registry split makes the hook audit satisfiable; anchor/floor, negative controls, inert-JSON rules and the human browser checklist close the prior gap. I would commit. Confidence high, ~80%. Remaining non-blocking weaknesses: later-added hooks are not externally anchored, so a later change could delete both a non-core hook and its registry entry unless cumulative checks re-assert prior items; refresh_decision includes visible but its semantics and tests are under-specified, and the manual-exactly-once property really belongs to caller reset; 'no http(s) reference' must mean no resource loads rather than a naive substring, to avoid SVG namespace or binder-prose false positives; scope should explicitly name selftest_behaviours.txt and validate_plugin.py."
+    },
+    {
+      "provider": "antigravity",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    }
+  ]
+}
