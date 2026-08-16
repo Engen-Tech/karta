@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -51,14 +51,90 @@ test("binder owner shutdown terminates and forgets its managed process tree", as
         { role: "host-check", parentId: owner.id },
       ],
     );
+    const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
     await manager.stopOwner(owner);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await closed;
     assert.equal(processExists(child.pid), false);
     assert.equal(manager.size, 0);
     assert.equal(lifecycles.size, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("one binder shutdown owns dev-server and wave-environment descendants", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX process-group assertion has a native Windows release fixture");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "karta-process-environments-"));
+  try {
+    const script = join(root, "environment.mjs");
+    await writeFile(script, [
+      'import { spawn } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" });',
+      'writeFileSync(process.argv[2], String(child.pid));',
+      'process.stdout.write("ready\\n");',
+      'setInterval(() => {}, 60000);',
+      "",
+    ].join("\n"));
+    const lifecycles = new LifecycleRegistry();
+    const manager = new KartaProcessManager(lifecycles, 25);
+    const owner = manager.createBinderOwner(root, "demo");
+    const entries = ["dev-server", "wave-environment"].map((label) => {
+      const pidFile = join(root, `${label}.pid`);
+      const child = spawn(process.execPath, [script, pidFile], {
+        cwd: root,
+        detached: true,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      assert.ok(child.pid);
+      manager.registerProcess(child.pid, { cwd: root, parentId: owner.id, label });
+      return { child, pidFile };
+    });
+    await Promise.all(entries.map(({ child }) => new Promise<void>((resolve) => {
+      child.stdout!.once("data", () => resolve());
+    })));
+    const descendants = await Promise.all(entries.map(async ({ pidFile }) =>
+      Number(await readFile(pidFile, "utf8")),
+    ));
+    const closes = entries.map(({ child }) => new Promise<void>((resolve) => child.once("close", () => resolve())));
+    await manager.stopOwner(owner);
+    await Promise.all(closes);
+    for (const descendant of descendants) assert.equal(processExists(descendant), false);
+    assert.equal(manager.size, 0);
+    assert.equal(lifecycles.size, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("process creation has a deterministic fault checkpoint and remains shutdown-owned", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX process-group assertion has a native Windows release fixture");
+    return;
+  }
+  const lifecycles = new LifecycleRegistry();
+  const manager = new KartaProcessManager(lifecycles, 10, (name) => {
+    if (name === "process-created") throw new Error("injected process creation crash");
+  });
+  const owner = manager.createBinderOwner(process.cwd(), "demo");
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  assert.ok(child.pid);
+  const pid = child.pid;
+  assert.throws(
+    () => manager.registerProcess(pid, { cwd: process.cwd(), parentId: owner.id, label: "dev-server" }),
+    /injected process creation crash/,
+  );
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  await manager.stopOwner(owner);
+  await closed;
+  assert.equal(processExists(pid), false);
+  assert.equal(manager.size, 0);
 });
 
 test("normally exited processes can be forgotten without stopping their owner", async () => {

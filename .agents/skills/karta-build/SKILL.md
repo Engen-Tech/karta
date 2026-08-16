@@ -12,6 +12,10 @@ The binder (`.karta/binders/<slug>.json`) is the cross-skill contract. Each work
 
 **Bundled scripts.** When Pi provides `karta_script`, use the named action below. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, call it once with `action: buildItem`, the binder slug, and the work item id. The package host owns the worktree, isolated worker, checks, gates, commits, refs, retries, and Git-only recovery. Use its `karta-build-item-v1` result; do not run the legacy phases below yourself or fall back after a tool error. `built` means the item is ready for the binder's serial integration queue. Use `karta_dispatch` with `action: deliverBinder` when the request is to assemble or finish the binder.
+
 ## How this skill adapts to your project
 
 karta-build is **stack-agnostic**. It does not assume a frontend framework, component library, data layer, branch convention, or repo layout. It resolves a small set of project settings up front (detect → ask), then implements the item against whatever it finds. Where this document shows a concrete tool, command, or library, treat it as an **example**, not a requirement.

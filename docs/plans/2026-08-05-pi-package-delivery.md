@@ -13,11 +13,11 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A, 3B, 3C, 3D, 3E, 4A, 4B, 4C, 4D, and 4E|
-|In progress|Phase 4F — interruption behavior|
-|First next action|Close Phase 4F with managed dev-server/wave-environment shutdown coverage and archive checkpoints after Phase 5 writers land|
+|Completed|Phase 0 feasibility closure; Phases 1, 2, 3A–3E, 4A–4F, and 5|
+|In progress|Phase 6 — native compatibility, package lifecycle, documentation, and release checks|
+|First next action|Run the Phase 6 native compatibility and provider roundtrip matrix, then write the Pi operator guide from the tested behavior|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Shutdown ordering, hook-process ownership, first-edit fault injection, fresh-process Git recovery, and competing-delivery lock tests are ready on `feat/pi-package`|
+|Commit state|Phase 4 interruption recovery and Phase 5 confined companion writers, exact commits, and final binder archival are ready on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass during Phase 4F. The Pi suite currently runs 157 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+All five checks pass after Phase 5. The Pi suite currently runs 167 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
 
 ## Non-negotiable invariants
 
@@ -61,8 +61,8 @@ All five checks pass during Phase 4F. The Pi suite currently runs 157 tests. `np
 |3C — Read-only gates|Complete|Acceptance and safety gates produce hash-bound verdicts with read-only tools|
 |3D — Contract alignment|Complete|Gates bind staged candidates, proposed merge trees, host-run checks, composed rules, and explicit lock ownership|
 |3E — Transaction closure|Complete|Full-floor receipts, stable-tree convergence, complete citations, dependency-correct rules, and exact hook-validated commits pass|
-|4 — Build and delivery|In progress|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
-|5 — Narrow writers|Not started|Doc-gardner and kaizen run with confined capabilities and labeled commits|
+|4 — Build and delivery|Complete|Parallel workers and serial moving-tip integration preserve Karta's existing protocol|
+|5 — Narrow writers|Complete|Doc-gardner and kaizen run with confined capabilities and labeled commits|
 |6 — Release|Not started|Native OS matrix, upgrades, rollback, documentation, and release checks pass|
 
 ## Decisions carried from Phase 0
@@ -416,7 +416,7 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 
 ### 4F — interruption behavior
 
-**Progress:** deterministic checkpoints now cover lock/owner creation, first file edit, worker attestation, convergence/manifest binding, gates, commit and merge creation, branch movement, accepted refs, wave tags, and atomic rollback. Fresh Node processes classify injected commit/build/merge/done states from Git alone. Shutdown is one idempotent coordinator: guards and preflight close first, children and registered process groups abort next, only owned locks release afterward, and the extension claim releases last even on abort failure. Hook-bearing Git processes run in owned detached groups; a hook-synchronized test proves binder shutdown kills the hook and its descendant. Competing delivery owners cannot enter one binder lease. Managed dev-server/wave-environment shutdown fixtures remain; archive checkpoints follow the Phase 5 writer-before-archive sequence.
+**Status: complete.** Deterministic checkpoints cover lock, owner, and process creation; first file edit; worker attestation; convergence and manifest binding; gates; commit and merge creation; branch movement; accepted refs; wave tags; atomic rollback; companion commits; and binder archival. Fresh Node processes classify injected commit, build, merge, and done states from Git alone. A fresh delivery owner repairs exact ref-first companion and archive transactions before resuming. Shutdown is one idempotent coordinator: guards and preflight close first, children and registered process groups abort next, only owned locks release afterward, and the extension claim releases last even on abort failure. Hook, dev-server, and wave-environment fixtures prove binder shutdown leaves no descendant. Competing delivery owners cannot enter one binder lease.
 
 1. Deterministic injection points cover owner/worker/process creation, first edit, attestation, every convergence pass, receipt binding, gate completion, commit creation, branch update, merge, each ref/tag update, archive move, and archive commit.
 2. Tests synchronize on hooks, never timing sleeps.
@@ -433,6 +433,8 @@ A Roundtable critique/convergence was run through the installed Pi MCP adapter. 
 - Existing Claude Code and Codex behavior remains unchanged.
 
 ## Phase 5 — narrow writers
+
+**Status: complete.** Enabled writers run in disposable worktrees with package-owned prompts and no Bash. Their file tools deny traversal, Git administration, out-of-surface paths, and both external and in-repository symlink escapes. The host compares the returned envelope with the observed diff, validates packs before and after kaizen, enforces additive rule and tombstone preservation, runs the staged secret scan and applicable checks, reproduces commit hooks, creates the exact one-parent commit, and moves integration with an expected-old update. Disabled writers create no child or writer worktree. Doc-gardner records its required `docs: gardner <slug>` commit even when no drift exists; kaizen commits only real changes under the exact `kaizen: ` prefix. After both enabled phases finish, the host archives the unchanged binder as the final integration commit. Ref-first writer and archive interruptions recover from Git.
 
 ### 5A — doc-gardner
 

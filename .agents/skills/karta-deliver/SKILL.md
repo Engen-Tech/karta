@@ -14,6 +14,10 @@ The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **i
 
 **Bundled scripts.** When Pi provides `karta_script`, use the named action below. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, call it once with `action: deliverBinder` and the binder slug. The package host owns preflight, dependency waves, workers, checks, gates, serial integration, retries, waivers, rollback, enabled companion writers, archival, and Git-only recovery. Use its `karta-delivery-v1` result; do not run the legacy phases below yourself or fall back after a tool error. A blocked result keeps its durable Git frontier for the next run.
+
 ---
 
 ## Phase 0 — Preflight  `deliver:preflight`

@@ -1,11 +1,16 @@
 import { execFile } from "node:child_process";
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KartaBuildItemResult, KartaBuildItemRunner } from "./build-runner.ts";
 import type { KartaCheckPlanEntry } from "./check-convergence.ts";
-import type { DispatchLockManager } from "./dispatch-lock.ts";
+import {
+  validateRecoveredCompanionCommit,
+  type KartaCompanionResult,
+  type ProcessContext,
+} from "./companion-runner.ts";
+import type { DispatchLockLease, DispatchLockManager } from "./dispatch-lock.ts";
 import { deriveItemGitState } from "./git-state.ts";
 import type { KartaIntegrationResult, KartaIntegrationRunner } from "./integration-runner.ts";
 import { KartaProcessManager } from "./process-manager.ts";
@@ -27,6 +32,7 @@ interface DeliveryItem extends Record<string, unknown> {
 
 interface DeliveryDocument {
   slug: string;
+  sme: string[];
   work_items: DeliveryItem[];
 }
 
@@ -45,6 +51,7 @@ export interface KartaDeliveryResult {
   integrationWorktree: string;
   waves: KartaDeliveryWave[];
   message: string;
+  companions?: KartaCompanionResult;
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -118,7 +125,19 @@ function parseBinder(raw: string, binder: string): DeliveryDocument {
       }
     }
   }
-  return { slug: binder, work_items: items };
+  const sme = (value as { sme?: unknown }).sme ?? [];
+  if (!Array.isArray(sme) || !sme.every((id) => typeof id === "string" && IDENTIFIER.test(id))) {
+    throw new Error(`Karta binder '${binder}' has invalid sme pins`);
+  }
+  return { slug: binder, sme: [...new Set(sme)] as string[], work_items: items };
+}
+
+function splitNul(output: string): string[] {
+  return output.split("\0").filter(Boolean).map((path) => path.replaceAll("\\", "/"));
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort());
 }
 
 function worktreeMap(porcelain: string): Map<string, string> {
@@ -147,6 +166,17 @@ function collisionBatch(items: DeliveryItem[]): DeliveryItem[] {
   return selected;
 }
 
+interface CompanionRunner {
+  finishDelivery(
+    ctx: ExtensionContext,
+    binder: string,
+    integrationWorktree: string,
+    lease: DispatchLockLease,
+    processContext: { manager: KartaProcessManager; owner: { id: string; binder: string; cwd: string } },
+    options: { diffBase: string; sme: string[] },
+  ): Promise<KartaCompanionResult>;
+}
+
 export class KartaDeliveryRunner {
   readonly #locks: DispatchLockManager;
   readonly #processes: KartaProcessManager;
@@ -154,6 +184,7 @@ export class KartaDeliveryRunner {
   readonly #integrations: KartaIntegrationRunner;
   readonly #workers: KartaBuildWorkerRunner;
   readonly #waves: KartaWaveRunner;
+  readonly #companions: CompanionRunner;
 
   constructor(
     locks: DispatchLockManager,
@@ -162,6 +193,7 @@ export class KartaDeliveryRunner {
     integrations: KartaIntegrationRunner,
     workers: KartaBuildWorkerRunner,
     waves: KartaWaveRunner,
+    companions: CompanionRunner,
   ) {
     this.#locks = locks;
     this.#processes = processes;
@@ -169,9 +201,62 @@ export class KartaDeliveryRunner {
     this.#integrations = integrations;
     this.#workers = workers;
     this.#waves = waves;
+    this.#companions = companions;
   }
 
-  async #ensureIntegrationWorktree(repoRoot: string, binder: string): Promise<string> {
+  async #recoverableCompanionCommit(
+    worktree: string,
+    binder: string,
+    commit: string,
+    parent: string,
+    subject: string,
+    processContext: ProcessContext,
+  ): Promise<boolean> {
+    const changed = splitNul(await git(worktree, [
+      "diff-tree",
+      "--no-commit-id",
+      "--name-only",
+      "-r",
+      "-z",
+      parent,
+      commit,
+    ]));
+    if (subject === `docs: gardner ${binder}`) {
+      return validateRecoveredCompanionCommit({
+        worktree,
+        binder,
+        writer: "doc-gardner",
+        parent,
+        commit,
+        processContext,
+      });
+    }
+    if (subject.startsWith("kaizen: ")) {
+      return validateRecoveredCompanionCommit({
+        worktree,
+        binder,
+        writer: "kaizen",
+        parent,
+        commit,
+        processContext,
+      });
+    }
+    if (subject !== `chore(karta): archive binder ${binder} — delivered`) return false;
+    const live = `.karta/binders/${binder}.json`;
+    const archived = `.karta/binders/archive/${binder}.json`;
+    if (!sameStrings(changed, [live, archived])) return false;
+    const [oldBlob, newBlob] = await Promise.all([
+      git(worktree, ["rev-parse", `${parent}:${live}`]),
+      git(worktree, ["rev-parse", `${commit}:${archived}`]),
+    ]);
+    return oldBlob === newBlob;
+  }
+
+  async #ensureIntegrationWorktree(
+    repoRoot: string,
+    binder: string,
+    processContext: ProcessContext,
+  ): Promise<string> {
     const branchRef = `refs/heads/karta/${binder}/integration`;
     const root = join(dirname(repoRoot), `${basename(repoRoot)}-worktrees`);
     const expected = resolve(root, `karta-${binder}-integration`);
@@ -210,11 +295,22 @@ export class KartaDeliveryRunner {
       for (const tag of baseTags) {
         recoverableTrees.add(await git(expected, ["rev-parse", `${tag}^{tree}`]));
       }
-      if (
-        parents.length !== 2 ||
-        !recoverableTrees.has(indexTree) ||
-        !subject.startsWith("[karta:merge-item-")
-      ) {
+      const recoverableMerge =
+        parents.length === 2 &&
+        recoverableTrees.has(indexTree) &&
+        subject.startsWith("[karta:merge-item-");
+      const recoverableCompanion =
+        parents.length === 1 &&
+        indexTree === await git(expected, ["rev-parse", `${parents[0]}^{tree}`]) &&
+        await this.#recoverableCompanionCommit(
+          expected,
+          binder,
+          "HEAD",
+          parents[0],
+          subject,
+          processContext,
+        );
+      if (!recoverableMerge && !recoverableCompanion) {
         throw new Error("Karta integration index differs from HEAD outside a recoverable ref-first transaction");
       }
       await git(expected, ["read-tree", "--reset", "-u", "HEAD"]);
@@ -232,6 +328,23 @@ export class KartaDeliveryRunner {
     if (await exists(expected)) throw new Error(`Karta refuses to clobber item path: ${expected}`);
     await git(repoRoot, ["worktree", "add", expected, `karta/${binder}/item-${item}`]);
     return expected;
+  }
+
+  async #deliveryBase(repoRoot: string, binder: string): Promise<string> {
+    const refs = (await git(repoRoot, [
+      "for-each-ref",
+      "--sort=refname",
+      "--format=%(objectname)",
+      `refs/tags/karta/${binder}/wave-*-base`,
+    ])).split("\n").filter(Boolean);
+    if (refs[0]) return refs[0];
+    const roots = (await git(repoRoot, [
+      "rev-list",
+      "--max-parents=0",
+      `refs/heads/karta/${binder}/integration`,
+    ])).split("\n").filter(Boolean);
+    if (roots.length !== 1) throw new Error("Karta cannot derive one delivery diff base");
+    return roots[0];
   }
 
   async #pendingWaveAnchor(
@@ -314,11 +427,18 @@ export class KartaDeliveryRunner {
     try {
       const repoRoot = await git(ctx.cwd, ["rev-parse", "--show-toplevel"]);
       const integrationRef = `refs/heads/karta/${binder}/integration`;
-      const document = parseBinder(
-        await git(repoRoot, ["show", `${integrationRef}:.karta/binders/${binder}.json`]),
+      const integrationWorktree = await this.#ensureIntegrationWorktree(
+        repoRoot,
         binder,
+        { manager: this.#processes, owner },
       );
-      const integrationWorktree = await this.#ensureIntegrationWorktree(repoRoot, binder);
+      const liveBinder = join(integrationWorktree, ".karta", "binders", `${binder}.json`);
+      const archivedBinder = join(integrationWorktree, ".karta", "binders", "archive", `${binder}.json`);
+      const archived = !await exists(liveBinder);
+      if (archived && !await exists(archivedBinder)) {
+        throw new Error(`Karta binder '${binder}' is missing from live and archive paths`);
+      }
+      const document = parseBinder(await readFile(archived ? archivedBinder : liveBinder, "utf8"), binder);
       const waves: KartaDeliveryWave[] = [];
       const existingTags = await git(repoRoot, [
         "for-each-ref",
@@ -417,13 +537,32 @@ export class KartaDeliveryRunner {
             }
             continue;
           }
+          if (archived) {
+            return {
+              schema: "karta-delivery-v1",
+              binder,
+              status: "complete",
+              integrationWorktree,
+              waves,
+              message: "Every binder item is durably done and the binder is archived.",
+            };
+          }
+          const companions = await this.#companions.finishDelivery(
+            ctx,
+            binder,
+            integrationWorktree,
+            lease,
+            { manager: this.#processes, owner },
+            { diffBase: await this.#deliveryBase(repoRoot, binder), sme: document.sme },
+          );
           return {
             schema: "karta-delivery-v1",
             binder,
             status: "complete",
             integrationWorktree,
             waves,
-            message: "Every binder item is durably done on the integration branch.",
+            message: "Every binder item is durably done, companion writers finished, and the binder is archived.",
+            companions,
           };
         }
         const inconsistent = document.work_items.find(

@@ -217,6 +217,7 @@ export async function validateCandidateHooks(options: {
   candidateTree: string;
   parent: string;
   message: string;
+  allowEmpty?: boolean;
   signal?: AbortSignal;
   onProcessStart?: HookProcessOptions["onProcessStart"];
   onProcessExit?: HookProcessOptions["onProcessExit"];
@@ -240,7 +241,7 @@ export async function validateCandidateHooks(options: {
     await git(disposable, ["read-tree", "--reset", "-u", options.candidateTree]);
     const committed = await git(
       disposable,
-      ["commit", "--no-gpg-sign", "-m", options.message],
+      ["commit", "--no-gpg-sign", ...(options.allowEmpty ? ["--allow-empty"] : []), "-m", options.message],
       {
         signal: options.signal,
         allowFailure: true,

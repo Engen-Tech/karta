@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { KartaBuildFinalizer } from "./build-finalizer.ts";
 import { KartaBuildItemRunner } from "./build-runner.ts";
+import { KartaCompanionRunner } from "./companion-runner.ts";
 import {
   ChildRegistry,
   GateProviderPreflight,
@@ -23,6 +24,7 @@ import { KartaShutdownCoordinator } from "./shutdown-coordinator.ts";
 import { KartaVerificationRunner } from "./verification-runner.ts";
 import { KartaWaveRunner } from "./wave-runner.ts";
 import { KartaBuildWorkerRunner } from "./worker-runner.ts";
+import { KartaWriterRunner } from "./writer-runner.ts";
 
 export default function kartaPi(extension: ExtensionAPI): void {
   const releaseInstance = claimExtensionInstance(PACKAGE_ROOT);
@@ -36,6 +38,8 @@ export default function kartaPi(extension: ExtensionAPI): void {
   const buildItems = new KartaBuildItemRunner(dispatchLocks, workers, finalizer, processes);
   const integrations = new KartaIntegrationRunner(dispatchLocks, verification);
   const waves = new KartaWaveRunner(dispatchLocks);
+  const writers = new KartaWriterRunner(children);
+  const companions = new KartaCompanionRunner(dispatchLocks, writers);
   const deliveries = new KartaDeliveryRunner(
     dispatchLocks,
     processes,
@@ -43,6 +47,7 @@ export default function kartaPi(extension: ExtensionAPI): void {
     integrations,
     workers,
     waves,
+    companions,
   );
   const guards = registerGuardAdapters(extension);
   const shutdown = new KartaShutdownCoordinator({

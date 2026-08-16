@@ -205,8 +205,19 @@ function createRunner(
       };
     },
   } as unknown as KartaWaveRunner;
+  const companions = {
+    async finishDelivery() {
+      const tip = await git(repo, ["rev-parse", "refs/heads/karta/demo/integration"]);
+      return {
+        schema: "karta-companions-v1" as const,
+        docGardner: { role: "doc-gardner" as const, status: "disabled" as const },
+        kaizen: { role: "kaizen" as const, status: "disabled" as const },
+        archive: { status: "committed" as const, commit: tip },
+      };
+    },
+  };
   return {
-    runner: new KartaDeliveryRunner(locks, processes, builds, integrations, workers, waves),
+    runner: new KartaDeliveryRunner(locks, processes, builds, integrations, workers, waves, companions),
     maxParallel: () => maximum,
   };
 }

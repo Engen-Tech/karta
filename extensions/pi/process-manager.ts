@@ -51,14 +51,25 @@ export interface BinderLifecycleOwner {
   cwd: string;
 }
 
+export type KartaProcessCheckpoint = (
+  name: "owner-created" | "process-created",
+  details: { binder?: string; pid?: number; label?: string },
+) => void;
+
 export class KartaProcessManager {
   readonly #lifecycles: LifecycleRegistry;
   readonly #processes = new Map<number, string>();
   readonly #graceMs: number;
+  readonly #checkpoint: KartaProcessCheckpoint;
 
-  constructor(lifecycles: LifecycleRegistry, graceMs = DEFAULT_GRACE_MS) {
+  constructor(
+    lifecycles: LifecycleRegistry,
+    graceMs = DEFAULT_GRACE_MS,
+    checkpoint: KartaProcessCheckpoint = () => {},
+  ) {
     this.#lifecycles = lifecycles;
     this.#graceMs = graceMs;
+    this.#checkpoint = checkpoint;
   }
 
   createBinderOwner(cwd: string, binder: string): BinderLifecycleOwner {
@@ -68,6 +79,12 @@ export class KartaProcessManager {
       label: binder,
       resource: { abort() {}, dispose() {} },
     });
+    try {
+      this.#checkpoint("owner-created", { binder });
+    } catch (error) {
+      this.#lifecycles.forget(id);
+      throw error;
+    }
     return { id, binder, cwd };
   }
 
@@ -88,6 +105,7 @@ export class KartaProcessManager {
       },
     });
     this.#processes.set(pid, id);
+    this.#checkpoint("process-created", { pid, label: options.label });
     return id;
   }
 

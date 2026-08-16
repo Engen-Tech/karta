@@ -1,0 +1,807 @@
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { access, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { DispatchLockLease, DispatchLockManager } from "./dispatch-lock.ts";
+import { validateCandidateHooks, type HookValidationResult } from "./hook-runner.ts";
+import { runManagedCommand } from "./managed-command.ts";
+import { requirePackagePath, resolvePackagePath } from "./package-paths.ts";
+import {
+  KartaProcessManager,
+  type BinderLifecycleOwner,
+} from "./process-manager.ts";
+import { isWriterWritablePath, type KartaWriterRole } from "./writer-profile.ts";
+import {
+  KartaWriterRunner,
+  type KartaDocGardnerResult,
+  type KartaKaizenResult,
+  type KartaOverrideEvidence,
+  type KartaResolvedWriterPack,
+  type KartaWriterResult,
+} from "./writer-runner.ts";
+
+const exec = promisify(execFile);
+const MAX_OUTPUT = 8 * 1024 * 1024;
+const IDENTIFIER = /^[a-z0-9][a-z0-9-]*$/;
+
+export type KartaCompanionCheckpoint = (
+  name:
+    | "writer-worktree-created"
+    | "writer-returned"
+    | "writer-surface-attested"
+    | "writer-checks-passed"
+    | "writer-tree-staged"
+    | "writer-hooks-passed"
+    | "writer-commit-created"
+    | "writer-ref-updated"
+    | "writer-worktree-synced"
+    | "archive-tree-staged"
+    | "archive-hooks-passed"
+    | "archive-commit-created"
+    | "archive-ref-updated"
+    | "archive-worktree-synced",
+  details?: { role?: KartaWriterRole; commit?: string; tree?: string },
+) => Promise<void> | void;
+
+export interface KartaWriterCommitResult {
+  role: KartaWriterRole;
+  status: "disabled" | "no-change" | "committed";
+  commit?: string;
+  tree?: string;
+  result?: KartaWriterResult;
+  hookValidation?: HookValidationResult;
+}
+
+export interface KartaCompanionResult {
+  schema: "karta-companions-v1";
+  docGardner: KartaWriterCommitResult;
+  kaizen: KartaWriterCommitResult;
+  archive: { status: "already-archived" | "committed"; commit: string };
+}
+
+interface WriterConfig {
+  enabled: boolean;
+  focus?: string;
+}
+
+export interface ProcessContext {
+  manager: KartaProcessManager;
+  owner: BinderLifecycleOwner;
+}
+
+async function git(cwd: string, args: string[], allowFailure = false): Promise<string> {
+  try {
+    const { stdout } = await exec("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      maxBuffer: MAX_OUTPUT,
+    });
+    return stdout.trim();
+  } catch (error) {
+    if (allowFailure) return "";
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    throw new Error(stderr || `git ${args[0] ?? "command"} failed during companion finalization`);
+  }
+}
+
+async function gitNoMatch(cwd: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await exec("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      maxBuffer: MAX_OUTPUT,
+    });
+    return stdout.trim();
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) return "";
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    throw new Error(stderr || `git ${args[0] ?? "command"} failed during companion evidence collection`);
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function parseConfig(raw: string, path: string): WriterConfig {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error(`Karta writer config is not valid JSON: ${path}`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Karta writer config is not an object: ${path}`);
+  }
+  const config = value as Record<string, unknown>;
+  if (
+    Object.keys(config).some((key) => !["enabled", "focus"].includes(key)) ||
+    typeof config.enabled !== "boolean" ||
+    (config.focus !== undefined && typeof config.focus !== "string")
+  ) {
+    throw new Error(`Karta writer config has an invalid shape: ${path}`);
+  }
+  return { enabled: config.enabled, ...(config.focus === undefined ? {} : { focus: config.focus }) };
+}
+
+async function readConfig(worktree: string, writer: KartaWriterRole): Promise<WriterConfig> {
+  const relative = writer === "doc-gardner" ? ".karta/doc-gardner.json" : ".karta/kaizen.json";
+  const path = join(worktree, relative);
+  if (!(await exists(path))) return { enabled: false };
+  return parseConfig(await readFile(path, "utf8"), relative);
+}
+
+function splitNul(output: string): string[] {
+  return output.split("\0").filter(Boolean).map((path) => path.replaceAll("\\", "/"));
+}
+
+async function changedPaths(worktree: string): Promise<string[]> {
+  const [tracked, untracked] = await Promise.all([
+    git(worktree, ["diff", "--name-only", "-z", "--"]),
+    git(worktree, ["ls-files", "--others", "--exclude-standard", "-z"]),
+  ]);
+  return [...new Set([...splitNul(tracked), ...splitNul(untracked)])].sort();
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return JSON.stringify(uniqueStrings(left)) === JSON.stringify(uniqueStrings(right));
+}
+
+function attestGitignore(before: string | undefined, after: string, scratchExists: boolean): void {
+  if (!scratchExists) throw new Error("Karta doc-gardner changed .gitignore without a superpowers folder to salvage");
+  const oldLines = (before ?? "").split("\n");
+  const newLines = after.split("\n");
+  let oldIndex = 0;
+  let additions = 0;
+  for (const line of newLines) {
+    if (oldIndex < oldLines.length && line === oldLines[oldIndex]) {
+      oldIndex += 1;
+    } else if (line === "superpowers/") {
+      additions += 1;
+    } else {
+      throw new Error("Karta doc-gardner may only add 'superpowers/' to .gitignore");
+    }
+  }
+  if (oldIndex !== oldLines.length || additions !== 1) {
+    throw new Error("Karta doc-gardner .gitignore change is not the single salvage exception");
+  }
+}
+
+function frontmatter(text: string): Record<string, string> {
+  const lines = text.split("\n");
+  if (lines[0] !== "---") return {};
+  const end = lines.indexOf("---", 1);
+  if (end < 0) return {};
+  const result: Record<string, string> = {};
+  for (const line of lines.slice(1, end)) {
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
+    if (match) result[match[1]] = match[2];
+  }
+  return result;
+}
+
+function checklist(text: string): { active: Map<string, string>; retired: Set<string> } {
+  const active = new Map<string, string>();
+  const retired = new Set<string>();
+  for (const line of text.split("\n")) {
+    const item = line.match(/^- \[ \] ([a-z][a-z0-9-]*\.\d+) — (\S.*)$/);
+    if (item) active.set(item[1], item[2]);
+    const tombstone = line.match(/^- ~~([a-z][a-z0-9-]*\.\d+)~~ retired: \S.*$/);
+    if (tombstone) retired.add(tombstone[1]);
+  }
+  return { active, retired };
+}
+
+function stripStamp(text: string): string {
+  return text.split("\n")
+    .filter((line) => !line.startsWith("seeded_from:") && !line.startsWith("base_sha256:"))
+    .join("\n");
+}
+
+function parseStringList(value: string | undefined): Set<string> {
+  if (value === undefined) return new Set();
+  try {
+    const parsed = JSON.parse(value);
+    return new Set(Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function assertMonotonicProjectPack(path: string, before: string, after: string): void {
+  const oldFrontmatter = frontmatter(before);
+  const newFrontmatter = frontmatter(after);
+  for (const key of ["name", "description", "match", "always", "disabled", "extends", "id_prefix", "see_also", "seeded_from", "base_sha256"]) {
+    if (oldFrontmatter[key] !== newFrontmatter[key]) {
+      throw new Error(`Karta kaizen changed protected pack frontmatter '${key}' in ${path}`);
+    }
+  }
+  const oldExcludes = parseStringList(oldFrontmatter.exclude_rules);
+  const newExcludes = parseStringList(newFrontmatter.exclude_rules);
+  for (const rule of oldExcludes) {
+    if (!newExcludes.has(rule)) throw new Error(`Karta kaizen removed exclusion '${rule}' from ${path}`);
+  }
+  const oldChecklist = checklist(before);
+  const newChecklist = checklist(after);
+  for (const [id, text] of oldChecklist.active) {
+    const replacement = newChecklist.active.get(id);
+    if (!replacement || !replacement.includes(text)) {
+      throw new Error(`Karta kaizen weakened or removed rule '${id}' in ${path}`);
+    }
+  }
+  for (const id of oldChecklist.retired) {
+    if (!newChecklist.retired.has(id)) throw new Error(`Karta kaizen removed tombstone '${id}' from ${path}`);
+  }
+  const durableBody = (text: string): string[] => {
+    const lines = text.split("\n");
+    const close = lines[0] === "---" ? lines.indexOf("---", 1) : -1;
+    return lines.slice(close + 1).filter((line) => !/^- \[ \] [a-z][a-z0-9-]*\.\d+ — /.test(line));
+  };
+  const oldBody = durableBody(before);
+  const newBody = durableBody(after);
+  let cursor = 0;
+  for (const line of oldBody) {
+    const found = newBody.indexOf(line, cursor);
+    if (found < 0) throw new Error(`Karta kaizen removed or rewrote existing pack guidance in ${path}`);
+    cursor = found + 1;
+  }
+}
+
+async function listProjectPacks(worktree: string): Promise<string[]> {
+  const root = join(worktree, ".karta", "sme");
+  if (!(await exists(root))) return [];
+  return (await readdir(root, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => join(root, entry.name))
+    .sort();
+}
+
+async function validatePacks(
+  worktree: string,
+  processContext: ProcessContext,
+  signal?: AbortSignal,
+): Promise<void> {
+  const packs = await listProjectPacks(worktree);
+  if (packs.length === 0) return;
+  const result = await runManagedCommand({
+    command: "uv",
+    args: ["run", "--script", requirePackagePath("skills/karta-kaizen/scripts/validate_packs.py"), ...packs],
+    cwd: worktree,
+    signal,
+    onProcessStart(pid) {
+      processContext.manager.registerProcess(pid, {
+        cwd: worktree,
+        parentId: processContext.owner.id,
+        label: "kaizen pack validation",
+        role: "host-check",
+      });
+    },
+    onProcessExit(pid) {
+      processContext.manager.forgetProcess(pid);
+    },
+  });
+  if (result.status !== "passed") {
+    throw new Error(`${result.stdout}${result.stderr}`.trim() || "Karta kaizen pack validation failed");
+  }
+}
+
+async function scanSecrets(
+  worktree: string,
+  processContext: ProcessContext,
+  signal?: AbortSignal,
+): Promise<void> {
+  const result = await runManagedCommand({
+    command: "uv",
+    args: ["run", "--script", requirePackagePath("skills/karta-build/scripts/scan_secrets.py")],
+    cwd: worktree,
+    signal,
+    onProcessStart(pid) {
+      processContext.manager.registerProcess(pid, {
+        cwd: worktree,
+        parentId: processContext.owner.id,
+        label: "companion secret scan",
+        role: "host-check",
+      });
+    },
+    onProcessExit(pid) {
+      processContext.manager.forgetProcess(pid);
+    },
+  });
+  if (result.status !== "passed") {
+    throw new Error(`${result.stdout}${result.stderr}`.trim() || "Karta companion secret scan failed");
+  }
+}
+
+async function commitFile(cwd: string, commit: string, path: string): Promise<string | undefined> {
+  const listed = splitNul(await git(cwd, ["ls-tree", "--name-only", "-z", commit, "--", path]));
+  if (!listed.includes(path)) return undefined;
+  const { stdout } = await exec("git", ["-C", cwd, "show", `${commit}:${path}`], {
+    encoding: "utf8",
+    maxBuffer: MAX_OUTPUT,
+  });
+  return stdout;
+}
+
+export async function validateRecoveredCompanionCommit(options: {
+  worktree: string;
+  binder: string;
+  writer: KartaWriterRole;
+  parent: string;
+  commit: string;
+  processContext: ProcessContext;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  const paths = splitNul(await git(options.worktree, [
+    "diff-tree",
+    "--no-commit-id",
+    "--name-only",
+    "-r",
+    "-z",
+    options.parent,
+    options.commit,
+  ]));
+  if (!paths.every((path) => isWriterWritablePath(options.writer, path))) return false;
+  if (options.writer === "doc-gardner") {
+    if (paths.includes(".gitignore")) {
+      const before = await commitFile(options.worktree, options.parent, ".gitignore");
+      const after = await commitFile(options.worktree, options.commit, ".gitignore");
+      if (after === undefined) return false;
+      const scratchExists =
+        (await git(options.worktree, ["ls-tree", "--name-only", options.commit, "--", "superpowers", "docs/superpowers"]))
+          .split("\n").filter(Boolean).length > 0;
+      try {
+        attestGitignore(before, after, scratchExists);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (paths.length === 0) return false;
+  for (const path of paths.filter((candidate) => candidate.startsWith(".karta/sme/"))) {
+    if (!/^\.karta\/sme\/[a-z0-9][a-z0-9-]*\.md$/.test(path)) return false;
+    const before = await commitFile(options.worktree, options.parent, path);
+    const after = await commitFile(options.worktree, options.commit, path);
+    if (after === undefined) return false;
+    const id = basename(path, ".md");
+    const builtin = resolvePackagePath(`skills/karta-plan/references/sme/${id}.md`);
+    const canonical = await exists(builtin) ? await readFile(builtin, "utf8") : undefined;
+    try {
+      if (before === undefined || frontmatter(before).seeded_from) {
+        if (canonical === undefined || stripStamp(after) !== canonical) return false;
+        const fields = frontmatter(after);
+        const canonicalHash = createHash("sha256").update(canonical).digest("hex");
+        if (fields.seeded_from !== id || fields.base_sha256 !== canonicalHash) return false;
+      } else {
+        assertMonotonicProjectPack(path, before, after);
+      }
+    } catch {
+      return false;
+    }
+  }
+  const root = await mkdtemp(join(tmpdir(), "karta-kaizen-recovery-"));
+  const disposable = join(root, "worktree");
+  let registered = false;
+  try {
+    await git(options.worktree, ["worktree", "add", "--detach", disposable, options.commit]);
+    registered = true;
+    await readConfig(disposable, "kaizen");
+    await validatePacks(disposable, options.processContext, options.signal);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (registered) await git(options.worktree, ["worktree", "remove", "--force", disposable], true);
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function formatKaizenMessage(binder: string, result: KartaKaizenResult): string {
+  const subject = result.seeded.length > 0
+    ? `kaizen: seed ${result.seeded.length} packs into .karta/sme/`
+    : `kaizen: ${result.summary.split("\n", 1)[0].slice(0, 64)}`;
+  const sections = [
+    result.summary,
+    `Binder: ${binder}`,
+    ...([
+      ["Candidates", result.candidates],
+      ["Erosion notes", result.erosionNotes],
+      ["Upstream candidates", result.upstreamCandidates],
+      ["Proposed scaffolds", result.proposedScaffolds],
+      ["Residual", result.residual],
+    ] as const).flatMap(([heading, entries]) => entries.length > 0
+      ? [`${heading}:\n${entries.map((entry) => `- ${entry}`).join("\n")}`]
+      : []),
+  ];
+  return `${subject}\n\n${sections.join("\n\n")}`;
+}
+
+function formatDocMessage(binder: string, diffRange: string, result: KartaDocGardnerResult): string {
+  const body = [result.summary, `Range: ${diffRange}`];
+  if (result.residual.length > 0) body.push(`Residual:\n${result.residual.map((entry) => `- ${entry}`).join("\n")}`);
+  else if (result.correctedCount === 0) body.push("no drift found");
+  if (result.focusStale) body.push(result.focusStale);
+  return `docs: gardner ${binder}\n\n${body.join("\n\n")}`;
+}
+
+export class KartaCompanionRunner {
+  readonly #locks: DispatchLockManager;
+  readonly #writers: KartaWriterRunner;
+  readonly #checkpoint: KartaCompanionCheckpoint;
+
+  constructor(
+    locks: DispatchLockManager,
+    writers: KartaWriterRunner,
+    checkpoint: KartaCompanionCheckpoint = () => {},
+  ) {
+    this.#locks = locks;
+    this.#writers = writers;
+    this.#checkpoint = checkpoint;
+  }
+
+  async #resolvePacks(worktree: string, ids: string[]): Promise<KartaResolvedWriterPack[]> {
+    return Promise.all(uniqueStrings(ids).map(async (id) => {
+      if (!IDENTIFIER.test(id)) throw new Error(`Karta binder contains an invalid pack id: ${id}`);
+      const local = join(worktree, ".karta", "sme", `${id}.md`);
+      const builtin = resolvePackagePath(`skills/karta-plan/references/sme/${id}.md`);
+      const hasLocal = await exists(local);
+      const hasBuiltin = await exists(builtin);
+      if (!hasLocal && !hasBuiltin) throw new Error(`Karta cannot resolve pinned pack '${id}'`);
+      const path = hasLocal ? local : builtin;
+      const content = await readFile(path, "utf8");
+      const canonicalContent = hasBuiltin ? await readFile(builtin, "utf8") : undefined;
+      return {
+        id,
+        path,
+        content,
+        sha256: createHash("sha256").update(content).digest("hex"),
+        ...(canonicalContent === undefined ? {} : {
+          canonicalContent,
+          canonicalSha256: createHash("sha256").update(canonicalContent).digest("hex"),
+        }),
+      };
+    }));
+  }
+
+  async #overrideEvidence(
+    worktree: string,
+    binder: string,
+    blastRadius: string[],
+  ): Promise<KartaOverrideEvidence[]> {
+    const output = await gitNoMatch(worktree, [
+      "grep",
+      "-n",
+      "-I",
+      "-E",
+      "KARTA-SME-OVERRIDE\\([^)]+\\):",
+      "HEAD",
+      "--",
+    ]);
+    if (!output) return [];
+    const records = output.split("\n").flatMap((entry) => {
+      const match = entry.match(/^HEAD:(.*):(\d+):(.*)$/);
+      if (!match) return [];
+      const marker = match[3].match(/KARTA-SME-OVERRIDE\(([^)]+)\):\s*(.+)$/);
+      if (!marker) return [];
+      return [{ path: match[1], line: Number(match[2]), rule: marker[1].trim(), reason: marker[2].trim() }];
+    }).slice(0, 500);
+    const branches = (await git(worktree, [
+      "for-each-ref",
+      "--format=%(refname)%09%(objectname)",
+      "refs/heads/karta",
+    ])).split("\n").filter(Boolean).flatMap((line) => {
+      const [ref, tip] = line.split("\t");
+      const match = ref.match(/^refs\/heads\/karta\/([^/]+)\/item-/);
+      return match ? [{ delivery: match[1], tip }] : [];
+    });
+    const ancestry = await Promise.all(branches.map(async (branch) => ({
+      delivery: branch.delivery,
+      commits: new Set((await git(worktree, ["rev-list", "--first-parent", branch.tip])).split("\n")),
+    })));
+    const commits = new Map<string, { date: string; delivery: string }>();
+    const evidence: KartaOverrideEvidence[] = [];
+    for (const record of records) {
+      const blame = await git(worktree, [
+        "blame",
+        "--porcelain",
+        `-L${record.line},${record.line}`,
+        "HEAD",
+        "--",
+        record.path,
+      ]);
+      const commit = blame.split(/\s+/, 1)[0];
+      let identity = commits.get(commit);
+      if (!identity) {
+        const deliveries = ancestry
+          .filter((candidate) => candidate.commits.has(commit))
+          .map((candidate) => candidate.delivery)
+          .sort();
+        identity = {
+          date: await git(worktree, ["show", "-s", "--format=%cs", commit]),
+          delivery: deliveries[0] ?? (blastRadius.includes(record.path) ? binder : "unknown"),
+        };
+        commits.set(commit, identity);
+      }
+      evidence.push({
+        ...record,
+        commit,
+        date: identity.date,
+        delivery: identity.delivery,
+        inBlastRadius: blastRadius.includes(record.path),
+      });
+    }
+    return evidence;
+  }
+
+  async #runWriter(
+    ctx: ExtensionContext,
+    writer: KartaWriterRole,
+    binder: string,
+    integrationWorktree: string,
+    lease: DispatchLockLease,
+    processContext: ProcessContext,
+    input: {
+      diffRange: string;
+      changedPaths: string[];
+      focus?: string;
+      packs?: KartaResolvedWriterPack[];
+      migrationPacks?: KartaResolvedWriterPack[];
+      overrideEvidence?: KartaOverrideEvidence[];
+    },
+  ): Promise<KartaWriterCommitResult> {
+    if (!(await this.#locks.owns(lease))) throw new Error("Karta companion writer requires the active binder lock lease");
+    const config = await readConfig(integrationWorktree, writer);
+    if (!config.enabled) return { role: writer, status: "disabled" };
+    const integrationRef = `refs/heads/karta/${binder}/integration`;
+    const base = await git(integrationWorktree, ["rev-parse", `${integrationRef}^{commit}`]);
+    const root = await mkdtemp(join(tmpdir(), `karta-${writer}-`));
+    const worktree = join(root, "worktree");
+    let registered = false;
+    try {
+      await git(integrationWorktree, ["worktree", "add", "--detach", worktree, base]);
+      registered = true;
+      await this.#checkpoint("writer-worktree-created", { role: writer });
+      if (writer === "kaizen") await validatePacks(worktree, processContext, ctx.signal);
+      const beforePacks = new Map<string, string>();
+      if (writer === "kaizen") {
+        for (const path of await listProjectPacks(worktree)) {
+          beforePacks.set(basename(path), await readFile(path, "utf8"));
+        }
+      }
+      const beforeIgnore = writer === "doc-gardner" && await exists(join(worktree, ".gitignore"))
+        ? await readFile(join(worktree, ".gitignore"), "utf8")
+        : undefined;
+      const result = await this.#writers.run(
+        ctx,
+        writer,
+        worktree,
+        binder,
+        { ...input, focus: config.focus, packs: input.packs },
+        processContext.owner.id,
+      );
+      await this.#checkpoint("writer-returned", { role: writer });
+      const paths = await changedPaths(worktree);
+      for (const path of paths) {
+        if (!isWriterWritablePath(writer, path)) {
+          throw new Error(`Karta ${writer} mutated an out-of-surface path: ${path}`);
+        }
+      }
+      if (writer === "doc-gardner") {
+        const docResult = result as KartaDocGardnerResult;
+        if (!sameStrings(docResult.filesChanged, paths)) {
+          throw new Error("Karta doc-gardner result does not match the host-observed changed paths");
+        }
+        if (docResult.correctedCount !== paths.filter((path) => path !== ".gitignore").length) {
+          throw new Error("Karta doc-gardner correctedCount does not match the host-observed doc changes");
+        }
+        if (paths.includes(".gitignore")) {
+          const scratch = await exists(join(worktree, "superpowers")) || await exists(join(worktree, "docs", "superpowers"));
+          attestGitignore(beforeIgnore, await readFile(join(worktree, ".gitignore"), "utf8"), scratch);
+        }
+      } else {
+        const kaizenResult = result as KartaKaizenResult;
+        const changedPackPaths = paths.filter((path) => path.startsWith(".karta/sme/"));
+        if (changedPackPaths.some((path) => !/^\.karta\/sme\/[a-z0-9][a-z0-9-]*\.md$/.test(path))) {
+          throw new Error("Karta kaizen pack changes must use lowercase top-level .karta/sme/<id>.md paths");
+        }
+        if (!sameStrings(kaizenResult.packsChanged, changedPackPaths)) {
+          throw new Error("Karta kaizen result does not match the host-observed pack changes");
+        }
+        const resolved = new Map(
+          [...(input.packs ?? []), ...(input.migrationPacks ?? [])]
+            .map((pack) => [`${pack.id}.md`, pack]),
+        );
+        for (const path of changedPackPaths) {
+          const name = basename(path);
+          const after = await readFile(join(worktree, path), "utf8");
+          const before = beforePacks.get(name);
+          if (before === undefined) {
+            const source = resolved.get(name);
+            if (!source?.canonicalContent || stripStamp(after) !== source.canonicalContent) {
+              throw new Error(`Karta kaizen created a pack that is not an exact pinned seed: ${path}`);
+            }
+            const fields = frontmatter(after);
+            if (fields.seeded_from !== source.id || fields.base_sha256 !== source.canonicalSha256) {
+              throw new Error(`Karta kaizen seed has invalid provenance: ${path}`);
+            }
+          } else if (frontmatter(before).seeded_from) {
+            const source = resolved.get(name);
+            if (!source?.canonicalContent || stripStamp(after) !== source.canonicalContent) {
+              throw new Error(`Karta kaizen edited a seeded cache instead of reseeding exactly: ${path}`);
+            }
+            const fields = frontmatter(after);
+            if (fields.seeded_from !== source.id || fields.base_sha256 !== source.canonicalSha256) {
+              throw new Error(`Karta kaizen reseed has invalid provenance: ${path}`);
+            }
+          } else {
+            assertMonotonicProjectPack(path, before, after);
+          }
+        }
+        await readConfig(worktree, writer);
+        await validatePacks(worktree, processContext, ctx.signal);
+      }
+      await this.#checkpoint("writer-surface-attested", { role: writer });
+      await git(worktree, ["add", "--all", "--", ...paths]);
+      const unstaged = await git(worktree, ["diff", "--name-only", "-z", "--"]);
+      const untracked = await git(worktree, ["ls-files", "--others", "--exclude-standard", "-z"]);
+      if (unstaged || untracked) throw new Error("Karta writer left unattested changes after staging");
+      const tree = await git(worktree, ["write-tree"]);
+      await this.#checkpoint("writer-tree-staged", { role: writer, tree });
+      await git(worktree, ["diff", "--cached", "--check"]);
+      await scanSecrets(worktree, processContext, ctx.signal);
+      await this.#checkpoint("writer-checks-passed", { role: writer, tree });
+      if (writer === "kaizen" && paths.length === 0) {
+        return { role: writer, status: "no-change", tree, result };
+      }
+      const message = writer === "doc-gardner"
+        ? formatDocMessage(binder, input.diffRange, result as KartaDocGardnerResult)
+        : formatKaizenMessage(binder, result as KartaKaizenResult);
+      const hookValidation = await validateCandidateHooks({
+        worktree,
+        parent: base,
+        candidateTree: tree,
+        message,
+        allowEmpty: paths.length === 0,
+        signal: ctx.signal,
+        onProcessStart: (pid) => processContext.manager.registerProcess(pid, {
+          cwd: worktree,
+          parentId: processContext.owner.id,
+          label: `${writer} commit hooks`,
+        }),
+        onProcessExit: (pid) => processContext.manager.forgetProcess(pid),
+      });
+      if (hookValidation.status !== "passed" || hookValidation.hookTree !== tree) {
+        throw new Error(`Karta ${writer} commit hooks failed or changed the attested tree`);
+      }
+      const refinedMessage = hookValidation.message ?? message;
+      const subject = refinedMessage.split("\n", 1)[0];
+      if (
+        (writer === "doc-gardner" && subject !== `docs: gardner ${binder}`) ||
+        (writer === "kaizen" && !subject.startsWith("kaizen: "))
+      ) {
+        throw new Error(`Karta ${writer} commit hook changed the required subject`);
+      }
+      await this.#checkpoint("writer-hooks-passed", { role: writer, tree });
+      const commit = await git(worktree, ["commit-tree", tree, "-p", base, "-m", refinedMessage]);
+      await this.#checkpoint("writer-commit-created", { role: writer, commit, tree });
+      await git(integrationWorktree, ["update-ref", integrationRef, commit, base]);
+      await this.#checkpoint("writer-ref-updated", { role: writer, commit, tree });
+      await git(integrationWorktree, ["read-tree", "--reset", "-u", commit]);
+      await this.#checkpoint("writer-worktree-synced", { role: writer, commit, tree });
+      return { role: writer, status: "committed", commit, tree, result, hookValidation };
+    } finally {
+      if (registered) {
+        await git(integrationWorktree, ["worktree", "remove", "--force", worktree], true);
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  async #archive(
+    ctx: ExtensionContext,
+    binder: string,
+    integrationWorktree: string,
+    lease: DispatchLockLease,
+    processContext: ProcessContext,
+  ): Promise<{ status: "already-archived" | "committed"; commit: string }> {
+    if (!(await this.#locks.owns(lease))) throw new Error("Karta archive requires the active binder lock lease");
+    const integrationRef = `refs/heads/karta/${binder}/integration`;
+    const base = await git(integrationWorktree, ["rev-parse", `${integrationRef}^{commit}`]);
+    const live = `.karta/binders/${binder}.json`;
+    const archived = `.karta/binders/archive/${binder}.json`;
+    if (!await exists(join(integrationWorktree, live))) {
+      if (!await exists(join(integrationWorktree, archived))) throw new Error("Karta binder is missing from live and archive paths");
+      return { status: "already-archived", commit: base };
+    }
+    const root = await mkdtemp(join(tmpdir(), "karta-archive-"));
+    const worktree = join(root, "worktree");
+    let registered = false;
+    try {
+      await git(integrationWorktree, ["worktree", "add", "--detach", worktree, base]);
+      registered = true;
+      await mkdir(join(worktree, ".karta", "binders", "archive"), { recursive: true });
+      await git(worktree, ["mv", live, archived]);
+      const tree = await git(worktree, ["write-tree"]);
+      await this.#checkpoint("archive-tree-staged", { tree });
+      const message = `chore(karta): archive binder ${binder} — delivered`;
+      const hookValidation = await validateCandidateHooks({
+        worktree,
+        parent: base,
+        candidateTree: tree,
+        message,
+        signal: ctx.signal,
+        onProcessStart: (pid) => processContext.manager.registerProcess(pid, {
+          cwd: worktree,
+          parentId: processContext.owner.id,
+          label: "archive commit hooks",
+        }),
+        onProcessExit: (pid) => processContext.manager.forgetProcess(pid),
+      });
+      if (hookValidation.status !== "passed" || hookValidation.hookTree !== tree) {
+        throw new Error("Karta archive hooks failed or changed the exact move tree");
+      }
+      const refined = hookValidation.message ?? message;
+      if (refined.split("\n", 1)[0] !== message) throw new Error("Karta archive hook changed the required subject");
+      await this.#checkpoint("archive-hooks-passed", { tree });
+      const commit = await git(worktree, ["commit-tree", tree, "-p", base, "-m", refined]);
+      await this.#checkpoint("archive-commit-created", { commit, tree });
+      await git(integrationWorktree, ["update-ref", integrationRef, commit, base]);
+      await this.#checkpoint("archive-ref-updated", { commit, tree });
+      await git(integrationWorktree, ["read-tree", "--reset", "-u", commit]);
+      await this.#checkpoint("archive-worktree-synced", { commit, tree });
+      return { status: "committed", commit };
+    } finally {
+      if (registered) await git(integrationWorktree, ["worktree", "remove", "--force", worktree], true);
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  async finishDelivery(
+    ctx: ExtensionContext,
+    binder: string,
+    integrationWorktree: string,
+    lease: DispatchLockLease,
+    processContext: ProcessContext,
+    options: { diffBase: string; sme: string[] },
+  ): Promise<KartaCompanionResult> {
+    const tip = await git(integrationWorktree, ["rev-parse", `refs/heads/karta/${binder}/integration`]);
+    const diffRange = `${options.diffBase}..${tip}`;
+    const blastRadius = splitNul(await git(integrationWorktree, ["diff", "--name-only", "-z", options.diffBase, tip]));
+    const docGardner = await this.#runWriter(
+      ctx,
+      "doc-gardner",
+      binder,
+      integrationWorktree,
+      lease,
+      processContext,
+      { diffRange, changedPaths: blastRadius },
+    );
+    const packs = await this.#resolvePacks(integrationWorktree, options.sme);
+    const migrationIds = (await listProjectPacks(integrationWorktree))
+      .map((path) => basename(path, ".md"));
+    const migrationPacks = await this.#resolvePacks(integrationWorktree, migrationIds);
+    const overrideEvidence = await this.#overrideEvidence(integrationWorktree, binder, blastRadius);
+    const kaizen = await this.#runWriter(
+      ctx,
+      "kaizen",
+      binder,
+      integrationWorktree,
+      lease,
+      processContext,
+      { diffRange, changedPaths: blastRadius, packs, migrationPacks, overrideEvidence },
+    );
+    const archive = await this.#archive(ctx, binder, integrationWorktree, lease, processContext);
+    return { schema: "karta-companions-v1", docGardner, kaizen, archive };
+  }
+}
