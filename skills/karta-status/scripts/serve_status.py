@@ -518,7 +518,16 @@ def join_archived(detail_by_slug: dict, compact_entries: list) -> list[dict]:
     compact entry — archived while this page was open — yields a thin row: its
     slug as the label (title null, so the page's titleCase(slug) fallback names
     it), its counts, and no items. A slug with only stale detail and no compact
-    entry is no longer archived, so it disappears."""
+    entry is no longer archived, so it disappears.
+
+    The invariant behind "the full row it arrived with", stated because it looks
+    like a bug twice a day: AN ARCHIVED ROW IS FROZEN AT PAGE LOAD, and a poll's
+    counts for a slug already held are advisory — deliberately discarded, not
+    forgotten. They cannot disagree. current_state() hands gather_git_facts()
+    the live binders only, so an archived binder's counts come from its archive
+    file, which does not change once written. A slug arriving archived mid-
+    session has no held row and so takes its counts from the entry, which is the
+    only case where they carry information."""
     # MIRROR: change together with joinArchived() in _APP_JS and the archived self-test.
     rows: list[dict] = []
     for e in compact_entries or []:
@@ -2077,26 +2086,55 @@ def _degraded_state(error: str) -> dict:
 # one — see _Handler._state_feed.
 
 
-def _json_safe(obj):
+def _json_key(k) -> str:
+    """A dict key as JSON names it — MIRRORING json.dumps, not str().
+
+    The two disagree exactly where it would be noticed: json writes a bool key
+    as "true"/"false" and a None key as "null", where str() writes "True",
+    "False" and "None". Since only the recovery path coerces keys, a divergence
+    here would render the same logical state under different key names depending
+    on whether some unrelated value sent it down that path. `bool` is checked
+    before `int` because it is a subclass of it."""
+    if isinstance(k, str):
+        return k
+    if isinstance(k, bool):
+        return "true" if k else "false"
+    if k is None:
+        return "null"
+    return str(k)
+
+
+def _json_safe(obj, _ancestors: tuple = ()):
     """A copy of `obj` the pinned serialisation can encode: every non-finite
-    float becomes None, and every dict key that is not already a string becomes
-    its `str()`.
+    float becomes None, every dict key becomes the string JSON names it by, and
+    any reference back into the value currently being walked becomes None.
 
-    Both are the JSON-compliant rendering rather than data loss. JSON has null
-    and has no NaN or Infinity, so null IS how JSON says "no number here" — and
-    json.dumps coerces keys to strings anyway, so writing that coercion out only
-    makes it happen early enough to sort. A coerced key colliding with a string
-    key already present keeps the later value; a payload holding both `1` and
-    `"1"` is ambiguous on the wire either way, since the ordinary form emits the
-    same name twice.
+    All three are the JSON-compliant rendering rather than data loss. JSON has
+    null and has no NaN, no Infinity and no way to express a cycle, so null IS
+    how JSON says "nothing representable here". A coerced key colliding with a
+    string key already present keeps the later value; a payload holding both `1`
+    and `"1"` is ambiguous on the wire either way, since the ordinary form emits
+    the same name twice.
 
-    Total over anything json can encode, and it rewrites nothing else — a value
-    json cannot encode at all is left to raise where it would have raised."""
-    if isinstance(obj, dict):
-        return {(k if isinstance(k, str) else str(k)): _json_safe(v)
-                for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_json_safe(v) for v in obj]
+    `_ancestors` holds the ids of the containers this walk is currently INSIDE,
+    which is what makes the cycle guard a cycle guard: an object reached twice
+    down two separate branches is copied twice, and only a reference back into
+    an enclosing container is cut. Without it a cyclic payload — which
+    json.dumps reports as a ValueError, so the recovery path catches it and
+    walks it — would recurse until RecursionError escaped and the request died
+    as a dropped connection instead of a reply.
+
+    Plain containers are rebuilt, so a dict or list subclass cannot carry a
+    value past the walk. Total over anything json can encode, and it rewrites
+    nothing else — a value json cannot encode at all is left to raise where it
+    would have raised anyway."""
+    if isinstance(obj, (dict, list, tuple)):
+        if id(obj) in _ancestors:
+            return None
+        inside = _ancestors + (id(obj),)
+        if isinstance(obj, dict):
+            return {_json_key(k): _json_safe(v, inside) for k, v in obj.items()}
+        return [_json_safe(v, inside) for v in obj]
     if isinstance(obj, float) and not math.isfinite(obj):
         return None
     return obj
@@ -2258,7 +2296,11 @@ class _Handler(BaseHTTPRequestHandler):
         return self._text(404, "not found", "text/plain")
 
     def _serve_asset(self, path: str) -> None:
-        # resolve relative to the assets dir; allow one nested level (vendor/<f>).
+        # resolve relative to the assets dir. Any DEPTH beneath it serves — the
+        # confinement below is what bounds this, not the nesting level — and
+        # only files that already exist there do. vendor/<f> is the one nesting
+        # shipped today; anything put deeper is reachable, so put it there
+        # deliberately.
         rel = path[len("/assets/"):]
         target = (ASSETS_DIR / rel).resolve()
         # confine to the assets dir
@@ -4703,6 +4745,28 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
 
     stubborn = {Unorderable("a"): float("inf"), Unorderable("b"): 1}
     stubborn_body, stubborn_tag = state_body(stubborn)
+
+    # keys json renders by a name str() does not agree on, on BOTH paths: the
+    # ordinary one, and the recovery one an unrelated NaN elsewhere forces
+    literal_keys = {True: 1, False: 2, None: 3}
+    plain_body, _ = state_body({"a": dict(literal_keys)})
+    forced_body, _ = state_body({"a": dict(literal_keys), "n": float("nan")})
+    naive_names = {str(k) for k in literal_keys}      # {"True","False","None"}
+
+    # a payload that refers back into itself: json.dumps calls this a
+    # ValueError, so the recovery path receives it and has to survive the walk
+    cyclic: dict = {"live": 1}
+    cyclic["self"] = cyclic
+    cyclic_body, cyclic_tag = state_body(cyclic)
+    try:
+        _inert_json(cyclic)
+        cyclic_raw_serializes = True
+    except ValueError:
+        cyclic_raw_serializes = False
+    # the same object twice down two branches is NOT a cycle and must survive
+    shared = {"x": 1}
+    shared_body, _ = state_body({"a": shared, "b": shared, "n": float("nan")})
+
     checks += [
         ("an equal payload rebuilt as distinct objects with every dict's keys "
          "in reverse insertion order yields the identical body and so the "
@@ -4739,6 +4803,37 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          "sanitizing and not about the missing tag",
          "Infinity" in _inert_json(stubborn)
          and not parses_strictly(_inert_json(stubborn))),
+
+        # -- the recovery path names keys the way the ordinary path does -------
+        ("a bool or None dict key is named the way JSON names it — true, false, "
+         "null — and IDENTICALLY on both paths: the same logical state renders "
+         "the same key bytes whether it went out directly or was forced down "
+         "the recovery path by an unrelated NaN somewhere else",
+         strict_json(plain_body)["a"] == strict_json(forced_body)["a"]
+         == {"true": 1, "false": 2, "null": 3}),
+        ("and the companion that makes that discriminating: str() names those "
+         "same three keys True/False/None, which is neither what the ordinary "
+         "path emits nor what the check above accepts — so a coercion that "
+         "diverged from json's own would fail here rather than pass quietly",
+         naive_names == {"True", "False", "None"}
+         and naive_names.isdisjoint(strict_json(plain_body)["a"])),
+
+        # -- a payload that refers back into itself ---------------------------
+        ("a payload holding a reference to itself is SERVED rather than killing "
+         "the request: the cycle renders as null, the body passes the strict "
+         "parse, and it still carries a tag — where an unguarded walk would "
+         "have recursed until RecursionError escaped state_body entirely and "
+         "the caller got a dropped connection instead of any reply",
+         cyclic_tag is not None and parses_strictly(cyclic_body)
+         and strict_json(cyclic_body) == {"live": 1, "self": None}),
+        ("and the two companions: that same payload handed straight to the "
+         "ordinary serialisation raises rather than yielding a body, so the "
+         "sanitizing is what produced one — and an object referenced TWICE "
+         "without a cycle is copied twice rather than cut, so the guard tracks "
+         "the walk's own ancestors and not everything it has ever seen",
+         not cyclic_raw_serializes
+         and strict_json(shared_body)["a"] == strict_json(shared_body)["b"]
+         == {"x": 1}),
     ]
     return checks
 

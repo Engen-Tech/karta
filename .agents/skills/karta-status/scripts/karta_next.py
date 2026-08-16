@@ -444,7 +444,17 @@ def gather_git_facts(binders: list[dict], default_branch: str, runner=None) -> d
     (the resilience check). Any one query failing degrades only the facts it
     feeds — marked None (unknown), never an exception; the rest of the state
     still renders. `default_branch` not existing (missing/renamed) fails only
-    query 3, so done/built/failed/branch stay known even then."""
+    query 3, so done/built/failed/branch stay known even then.
+
+    "Unknown, never false" is a claim about query FAILURE, and there is one
+    non-failure case it does not cover: with `--merged` in play git's ref-filter
+    silently skips a ref that does not peel to a commit. So a `.../done` marker
+    pointing at a blob or a tree appears in query 1 and is absent from query 3 —
+    done True, done_in_default False, no error anywhere. That is a false rather
+    than an unknown. It is not a regression: the per-item `merge-base
+    --is-ancestor` form this replaced returned the same false through a nonzero
+    exit. karta only ever points a marker at a commit, so no karta-written ref
+    reaches it."""
     markers, markers_ok = _for_each_ref(["--format=%(refname)", "refs/karta/"], runner)
     branches, branches_ok = _for_each_ref(["--format=%(refname)", "refs/heads/karta/"], runner)
     merged, merged_ok = _for_each_ref(
