@@ -521,6 +521,18 @@ def _reference_git_facts(binders: list[dict], default_branch: str) -> dict:
     return facts
 
 
+def _calls_stay_constant(counts: list[int]) -> bool:
+    """The derivation's cost invariant: git calls stay constant as binder count
+    grows. `counts` is the git-call count observed at each of several binder
+    counts, in increasing order; true only when every one is the same. This is
+    strictly stronger than pinning one number on one fixture — it survives the
+    batched implementation being replaced by a different call-count-flat one.
+    The self-test drives it both ways: the batched derivation must satisfy it,
+    and a deliberately per-binder derivation must fail it, which is what makes
+    the check itself known to work rather than merely never-seen-to-fail."""
+    return len(counts) > 1 and len(set(counts)) == 1
+
+
 def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
     """batch-git-facts: equivalence across ref topologies, a constant git-call
     count (default-branch resolution included), and graceful degradation on a
@@ -678,9 +690,10 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
         # fixed number of git subprocesses at 1, 5, 10 and 20 binders --
         cc = root / "callcount"; _mk_repo(cc)
         orig_run = subprocess.run
+        binder_counts = (1, 5, 10, 20)
         totals = []
         with _in_dir(cc):
-            for n in (1, 5, 10, 20):
+            for n in binder_counts:
                 b = [_binder(f"cc{i}", ["a"]) for i in range(n)]
                 seen = [0]
 
@@ -695,25 +708,53 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
                 finally:
                     subprocess.run = orig_run
                 totals.append(seen[0])
-        checks.append(("git-call count is constant across 1/5/10/20 binders "
-                       "(default-branch resolution included, subprocess boundary)",
-                       len(set(totals)) == 1))
+        checks.append(("git calls stay constant as binder count grows — whole "
+                       "derivation at 1/5/10/20 binders, default-branch "
+                       "resolution included, counted at the subprocess boundary",
+                       _calls_stay_constant(totals)))
 
-        # -- gather_git_facts alone, via its own runner seam, is exactly 3
-        # calls flat regardless of binder count --
-        gf = root / "gf3"; _mk_repo(gf)
-        gf_counts = []
-        with _in_dir(gf):
-            for n in (1, 5, 10, 20):
-                b = [_binder(f"gf{i}", ["a"]) for i in range(n)]
+        # -- the same invariant one level down, through gather_git_facts's own
+        # runner seam — plus the negative control that proves the check can
+        # actually fail. _per_binder_facts is the pre-batch shape (one
+        # for-each-ref per binder); the identical harness must report growth
+        # for it, or the invariant check above would be untested machinery. --
+        def _per_binder_facts(binders: list[dict], default_branch: str,
+                              runner=None) -> dict:
+            """Deliberately per-binder: one for-each-ref per binder, so its call
+            count grows with binder count. The negative control only."""
+            for b in binders:
+                _for_each_ref(["--format=%(refname)",
+                               f"refs/karta/{b['slug']}/"], runner)
+            return {}
+
+        def _counts_for(derivation) -> list[int]:
+            """Git calls `derivation` issues at each of binder_counts, observed
+            through the injectable counting runner both derivations accept."""
+            observed = []
+            for n in binder_counts:
+                b = [_binder(f"cc{i}", ["a"]) for i in range(n)]
                 calls = []
-                gather_git_facts(b, "main",
-                                 runner=lambda *a, __c=calls, **kw: (
-                                     __c.append(1), orig_run(*a, **kw))[1])
-                gf_counts.append(len(calls))
-        checks.append(("gather_git_facts alone issues exactly 3 git calls via its "
-                       "own runner seam, constant across binder count",
-                       gf_counts == [3, 3, 3, 3]))
+                derivation(b, "main", runner=lambda *a, __c=calls, **kw: (
+                    __c.append(1), orig_run(*a, **kw))[1])
+                observed.append(len(calls))
+            return observed
+
+        inv = root / "invariant"; _mk_repo(inv)
+        with _in_dir(inv):
+            batched_counts = _counts_for(gather_git_facts)
+            per_binder_counts = _counts_for(_per_binder_facts)
+        checks.append(("git calls stay constant as binder count grows — "
+                       "gather_git_facts at 1/5/10/20 binders through its own "
+                       "runner seam",
+                       _calls_stay_constant(batched_counts)))
+        checks.append(("gather_git_facts issues exactly 3 git calls, at every "
+                       "binder count",
+                       batched_counts == [3, 3, 3, 3]))
+        checks.append(("negative control: the same invariant check FAILS on a "
+                       "deliberately per-binder derivation, so it is known to "
+                       "detect the regression it guards",
+                       per_binder_counts == [1, 5, 10, 20]
+                       and not _calls_stay_constant(per_binder_counts)))
 
         # -- failure injection: one batched call failing degrades only the
         # facts it feeds, marked None — the rest of the page still renders --
