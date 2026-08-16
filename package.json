@@ -40,6 +40,7 @@
   },
   "scripts": {
     "check:pi": "npm run typecheck:pi && node --experimental-strip-types --test --test-concurrency=4 tests/pi/*.test.ts",
+    "smoke:pi-package": "node scripts/smoke_pi_package.mjs",
     "typecheck:pi": "tsc --project tsconfig.json --noEmit"
   }
 }

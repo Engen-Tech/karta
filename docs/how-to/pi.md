@@ -179,6 +179,18 @@ pi list
 
 `pi uninstall` is an alias for `pi remove`. Removing a managed Git package also removes its checkout and prunes empty cache directories. It does not delete your binders, branches, tags, refs, worktrees, or delivery commits.
 
+## Test the package before sharing it
+
+Every Pi package change must pass the packed-artifact smoke test before it goes to a remote.
+
+Mac or Linux, local terminal in the Karta checkout:
+
+```sh
+npm run smoke:pi-package
+```
+
+The script runs `npm pack`, extracts the resulting artifact into a disposable directory, and loads that package into the installed `pi` executable with isolated settings. It verifies all ten skills, calls the package-owned `karta_dispatch` tool through a controlled model, removes the package, and leaves the user's real Pi settings untouched. Loading the checkout directly with `-e` does not satisfy this test.
+
 ## Current support matrix
 
 This matrix records native runs, not architectural guesses. A container result may diagnose a problem but does not turn a missing native run green.

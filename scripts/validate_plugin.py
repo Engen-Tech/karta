@@ -168,8 +168,15 @@ def _check_pi(errors: list[str]) -> None:
     if not isinstance(tested_pi, str) or not re.fullmatch(r"\d+\.\d+\.\d+", tested_pi):
         errors.append(
             "package.json: devDependencies.@earendil-works/pi-coding-agent must pin one tested version")
+    scripts = package.get("scripts", {})
+    expected_smoke = "node scripts/smoke_pi_package.mjs"
+    if scripts.get("smoke:pi-package") != expected_smoke:
+        errors.append(
+            f"package.json: scripts.smoke:pi-package must be {expected_smoke!r}")
+    if not (ROOT / "scripts" / "smoke_pi_package.mjs").is_file():
+        errors.append("scripts/smoke_pi_package.mjs: packed-artifact smoke gate is missing")
     lifecycle = {"preinstall", "install", "postinstall", "prepare"}
-    present_lifecycle = sorted(lifecycle & set(package.get("scripts", {})))
+    present_lifecycle = sorted(lifecycle & set(scripts))
     if present_lifecycle:
         errors.append(
             f"package.json: install lifecycle scripts are forbidden ({', '.join(present_lifecycle)})")

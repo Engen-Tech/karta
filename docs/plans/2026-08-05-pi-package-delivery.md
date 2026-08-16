@@ -17,7 +17,7 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |In progress|Release approval only; native Windows support is deferred beyond 2.30.0|
 |First next action|Request explicit approval for licensing, package ownership, publication, and the signed release tag|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Phase 6 is committed at `4e5144b`; this checkpoint records the narrowed 2.30.0 support scope on `feat/pi-package`|
+|Commit state|The Phase 6 candidate and narrowed 2.30.0 support scope are committed; packed-artifact local acceptance is the final pre-remote gate on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 170 tests: 169 pass in the ordinary run and the opt-in live OAuth test is skipped; that test also passes separately with stored `openai-codex` OAuth. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows is not part of the 2.30.0 support scope.
+The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 170 tests: 169 pass in the ordinary run and the opt-in live OAuth test is skipped; that test also passes separately with stored `openai-codex` OAuth. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows is not part of the 2.30.0 support scope. The `npm pack` artifact also installs into this machine's Pi 0.84.2 with isolated settings, exposes all ten skills, completes a fixed `karta_dispatch` call, and removes cleanly.
 
 ## Non-negotiable invariants
 
@@ -480,8 +480,9 @@ Container or compatibility-layer results may supplement native runs but do not r
 1. Test local install and pinned Git tag/commit install outside the checkout.
 2. Test update, rollback, uninstall, duplicate local/Git sources, and cache cleanup.
 3. Verify the npm tarball inventory and production audit.
-4. Keep `private: true` and `UNLICENSED` until publication is explicitly approved.
-5. Pin the tested Pi development version while leaving Pi package peers at `*` as required by Pi packages.
+4. Before any outgoing remote operation, run `npm run smoke:pi-package` against the exact local tree and require the packed artifact to pass on the installed Pi.
+5. Keep `private: true` and `UNLICENSED` until publication is explicitly approved.
+6. Pin the tested Pi development version while leaving Pi package peers at `*` as required by Pi packages.
 
 ### 6C — documentation
 
@@ -494,6 +495,7 @@ Container or compatibility-layer results may supplement native runs but do not r
 ### Phase 6 gate
 
 - Supported native OS and package lifecycle tests pass.
+- The packed artifact passes `npm run smoke:pi-package` locally before any outgoing remote operation.
 - All repository validators and Pi tests pass.
 - Production audit reports zero vulnerabilities.
 - Documentation matches the shipped commands and limitations.

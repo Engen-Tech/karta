@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -19,6 +19,8 @@ test("npm package inventory contains runtime assets and excludes development pro
     "!**/__pycache__/",
     "!**/*.pyc",
   ]);
+  assert.equal(manifest.scripts["smoke:pi-package"], "node scripts/smoke_pi_package.mjs");
+  await access(`${ROOT}/scripts/smoke_pi_package.mjs`);
   const { stdout } = await exec("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
     cwd: ROOT,
     maxBuffer: 20 * 1024 * 1024,
@@ -42,7 +44,7 @@ test("npm package inventory contains runtime assets and excludes development pro
   ]) {
     assert.ok(files.includes(required), required);
   }
-  for (const forbidden of ["benchmarks/", "plugins/", ".agents/", ".codex/", "tests/", "docs/"]) {
+  for (const forbidden of ["benchmarks/", "plugins/", ".agents/", ".codex/", "tests/", "docs/", "scripts/"]) {
     assert.equal(files.some((path) => path.startsWith(forbidden)), false, forbidden);
   }
   assert.equal(files.some((path) => path.includes("__pycache__") || path.endsWith(".pyc")), false);

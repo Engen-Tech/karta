@@ -49,6 +49,18 @@ npm run check:pi
 
 The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating.
 
+## Before Pi package changes go remote
+
+Any change to the Pi package, runtime, tests, or operator docs must pass the packed-artifact smoke test on the exact local tree before it is pushed, tagged, or otherwise sent to a remote.
+
+Mac or Linux, local terminal in the Karta checkout:
+
+```sh
+npm run smoke:pi-package
+```
+
+The smoke test must use the installed `pi` executable, an isolated Pi agent directory, and the artifact produced by `npm pack`. A checkout loaded directly with `-e` does not satisfy this gate.
+
 ## Roundtable edict (house-only)
 
 karta's own binders and deliveries may not proceed without a recorded multi-model review. This is a house rule for the karta repo building itself — consumer repos never carry it. It matches karta's standing doctrine: enforced checks over skippable prose.
