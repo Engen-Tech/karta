@@ -662,6 +662,10 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
              ("path", {"d": "M12 12v3"})],
     "arrowdown": [("path", {"d": "M12 5v14"}),
                   ("path", {"d": "m19 12-7 7-7-7"})],
+    # The disclosure chevron. Kept distinct from `arrowdown`: a full arrow reads
+    # as "go there", and the item row's expander is saying "there is more under
+    # here". It turns a half-turn while the detail is open.
+    "chevron": [("path", {"d": "m6 9 6 6 6-6"})],
     # The two lane glyphs the wave step headers wear. NOT ported — the design
     # marks a step with a numeral alone, which cannot say whether the step's
     # runs go at once or one after another. Drawn as lanes rather than borrowed
@@ -786,9 +790,17 @@ _PHASE_DEFS = [
     {"key": "later", "label": "Later",     "meaning": "waiting its turn in the sequence"},
 ]
 
-# oracle.type -> icon name (the design carries these; fall back to unit)
+# oracle.type -> icon name. The design carries a glyph for each type a binder
+# can declare — the flask for a unit or smoke check, the two-node graph for an
+# integration one, the chain for end to end, the eye for a visual one — and an
+# opted-out item borrows the flask, because what it names is still the check
+# that is NOT being run. A type nobody anticipated falls back to the flask
+# rather than rendering a blank square where an icon should be.
 _ORACLE_ICON = {"unit": "unit", "integration": "integration", "e2e": "e2e",
                 "smoke": "unit", "visual": "visual", "opt-out": "unit"}
+ORACLE_ICON_FALLBACK = "unit"
+# the oracle type an opted-out item reports (set by _enrich, not by the binder)
+OPT_OUT_TYPE = "opt-out"
 
 
 # ---------------------------------------------------------------------------
@@ -1475,6 +1487,10 @@ body{
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
 .item__chip{ display:flex; align-items:center; gap:4px; flex:none; margin-left:auto; padding:2px 7px; }
+/* the disclosure chevron: it turns a half-turn while the detail is open, so the
+   row says "there is more here" and then "you are looking at it". */
+.item__caret{ display:flex; flex:none; align-self:center; color:var(--mut); transition:transform .15s; }
+.item__caret--open{ transform:rotate(180deg); }
 .item__word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; white-space:nowrap; }
 
 /* The RUNNING card's breathing footer strip. It breathes rather than sweeps:
@@ -1489,10 +1505,28 @@ body{
   margin:0 11px 10px 42px; padding:9px 11px; background:var(--bg);
   border:1px solid var(--line); animation:karta-fade .2s ease;
 }
-.item__detail-head{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--mut); }
-.item__assert{ font-size:11.5px; color:var(--ink); margin-top:6px; }
-.item__cmd{ font-family:var(--mono); font-size:11px; color:var(--mut); margin-top:7px; }
-.item__dep{ display:flex; align-items:center; gap:5px; font-size:11px; color:var(--halt); margin-top:7px; }
+/* the detail itself: a two-column grid, mono uppercase labels down the left in
+   --mut-2 (the muted step below body copy, which is what keeps eight labels from
+   competing with the eight values beside them) and the value column free to
+   wrap. Paths, commands and refs take the mono column treatment; prose does not. */
+.detail{ display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 12px; margin:0; }
+.detail__label{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2); margin:0; padding-top:2px;
+}
+.detail__value{
+  margin:0; min-width:0; font-size:11.5px; line-height:1.5; color:var(--ink);
+  display:flex; align-items:center; flex-wrap:wrap; gap:5px; overflow-wrap:anywhere;
+}
+.detail__value--mono{ font-family:var(--mono); font-size:10.5px; color:var(--mut); }
+.detail__list{ list-style:none; margin:0; padding:0; width:100%; display:flex; flex-direction:column; gap:3px; }
+.detail__entry{ display:block; }
+.detail__name{ font-family:var(--mono); font-size:9.5px; color:var(--mut-2); margin-right:6px; }
+.detail__empty{ font-family:var(--mono); font-size:10px; color:var(--mut-2); }
+.detail__chips{ display:flex; flex-wrap:wrap; gap:5px; }
+.detail__chip{ display:flex; align-items:center; gap:4px; padding:2px 7px; }
+.detail__chip-id{ font-family:var(--mono); font-size:9.5px; }
+.detail__chip-word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; }
 
 /* empty state (no binders) */
 .empty{ text-align:center; padding:28px 0 34px; }
@@ -1521,9 +1555,12 @@ body{
      reading as urgent through colour and icon rather than through blinking. */
   .karta-alarm{ animation:none !important; opacity:1 !important; color:var(--halt) !important; }
 
-  /* The one motion outside the design's five settles as well: the disclosure
-     fade drops. */
+  /* The motions outside the design's five settle as well: the disclosure fade
+     drops, and the two carets arrive already turned instead of turning. The
+     rotation itself is KEPT — it is the state, not the motion — so an open
+     disclosure still points down with the transition taken away. */
   .item__detail{ animation:none !important; }
+  .binder__caret, .item__caret{ transition:none !important; }
   .phase__mark--pulse{ animation:none !important; }
   /* The RUNNING card's footer strip is breathe, and breathe keeps going: with
      motion off, "this item is building right now" still has to be visible on
@@ -2041,6 +2078,153 @@ def binder_panel(binder: dict, state: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# The per-item detail grid — what one work item is actually contracted to do.
+#
+# The feed was widened for exactly this: every item already carries its contract,
+# its touches, its estimate, the FULL assertions array (not only the first) and
+# an opted-out oracle's recorded reason. None of it costs a git call and none of
+# it is derived twice — the rows below are that JSON, labelled, plus string
+# formatting over a slug, an id and a status.
+#
+# Two absences that are NOT the same thing, and the reason this file distinguishes
+# them at all: a field the binder never declared arrives as None, and a field the
+# binder declared with nothing in it arrives as "" / [] / {}. "This item has no
+# contract" and "this item's contract is blank" are different facts about the
+# PLAN, so an undeclared field renders no row at all, while a declared-empty one
+# renders its row and says so. Collapsing the two would let a blank contract read
+# as a missing one and hide a planning mistake behind a tidy page.
+# ---------------------------------------------------------------------------
+
+# The grid's labels. Python-owned like the panel's meta labels and the rail's
+# title, so the self-test reads the wording the page ships rather than a second
+# copy typed beside it. `check` names the oracle type; `unchecked` is the row an
+# opted-out item gets INSTEAD of a command, because the page's job there is to
+# state what is going unchecked and why.
+DETAIL_LABELS = {
+    "check": "check",
+    "asserts": "passes when",
+    "unchecked": "unchecked",
+    "command": "run",
+    "contract": "contract",
+    "touches": "touches",
+    "estimate": "size",
+    "ref": "git ref",
+    "waiting": "waiting on",
+}
+# What a row says when the binder declared the field and left it empty.
+DETAIL_EMPTY_LABEL = "declared, but empty"
+
+# The item's own git artifacts, spelled the way karta writes them. Formatting,
+# not derivation: the status the feed already carries says which one exists.
+ITEM_BRANCH_FMT = "karta/{slug}/item-{id}"
+ITEM_MARKER_FMT = "refs/karta/{slug}/item-{id}/{marker}"
+# The three states that leave a marker ref behind. `building` has a branch and
+# no marker yet; ready and blocked have not touched git at all, so they get no row —
+# naming a ref that does not exist would be a page inventing a fact.
+ITEM_REF_MARKERS = ("done", "built", "failed")
+
+
+def _detail_declared(value) -> tuple[bool, bool]:
+    """(declared, empty) for one widened feed field. None is UNDECLARED — the
+    binder never carried it. A string, list or mapping carrying nothing is
+    declared-and-empty, which is a different statement and renders differently."""
+    if value is None:
+        return (False, False)
+    if isinstance(value, str):
+        return (True, not value.strip())
+    if isinstance(value, (list, dict)):
+        return (True, len(value) == 0)
+    return (True, False)
+
+
+def _detail_text(value) -> str:
+    """One value as the page's text. Binder prose is already a string; anything
+    else is shown as its JSON rather than as a language's idea of str()."""
+    return value if isinstance(value, str) else json.dumps(value, separators=(",", ":"))
+
+
+def _detail_pairs(value) -> list[dict]:
+    """A declared value as name/value lines: a mapping keeps its keys as names
+    (a contract's `exposes`, `consumes`, …), a sequence renders unnamed lines
+    (assertions, touched paths), a scalar renders one unnamed line."""
+    if isinstance(value, dict):
+        return [{"name": str(k), "value": _detail_text(v)} for k, v in value.items()]
+    if isinstance(value, list):
+        return [{"name": "", "value": _detail_text(v)} for v in value]
+    return [{"name": "", "value": _detail_text(value)}]
+
+
+def _detail_row(key: str, kind: str, *, text: str = "", pairs=(), chips=(),
+                mono: bool = False, icon: str = "", empty: bool = False) -> dict:
+    """One row of the grid, in the one shape the template binds: a label, a kind
+    that says how to draw it, and exactly the payload that kind reads."""
+    return {"key": key, "label": DETAIL_LABELS[key], "kind": kind,
+            "empty": empty, "text": text, "pairs": list(pairs),
+            "chips": list(chips), "mono": mono, "icon": icon}
+
+
+def item_ref(slug: str, item_id: str, status: str) -> str | None:
+    """The git ref this item's status implies, or None when git holds nothing
+    for it yet. String formatting over facts the feed already carries — this
+    makes no git call and asks nothing about the repository."""
+    if status in ITEM_REF_MARKERS:
+        return ITEM_MARKER_FMT.format(slug=slug, id=item_id, marker=status)
+    if status == "building":
+        return ITEM_BRANCH_FMT.format(slug=slug, id=item_id)
+    return None
+
+
+def item_detail(it: dict, slug: str, status_by_id: dict | None = None) -> list[dict]:
+    """The detail rows for one work item. Python twin of the page's itemDetail().
+
+    `status_by_id` is the binder's own item -> status map, the SAME metadata the
+    cards are drawn from, so a blocked-by chip cannot disagree with the card of
+    the item it names."""
+    # MIRROR: change together with itemDetail() in _APP_JS and the detail self-test.
+    status_by_id = status_by_id or {}
+    otype = it.get("oracle") or "unit"
+    rows = [_detail_row("check", "text", text=otype,
+                        icon=_ORACLE_ICON.get(otype, ORACLE_ICON_FALLBACK))]
+
+    def add(key, value, kind, mono=False):
+        declared, empty = _detail_declared(value)
+        if not declared:
+            return                      # undeclared: no row at all
+        if empty:
+            rows.append(_detail_row(key, kind, empty=True,
+                                    text=DETAIL_EMPTY_LABEL, mono=mono))
+        elif kind == "list":
+            rows.append(_detail_row(key, kind, pairs=_detail_pairs(value), mono=mono))
+        else:
+            rows.append(_detail_row(key, kind, text=_detail_text(value), mono=mono))
+
+    add("asserts", it.get("assertions"), "list")
+    # an opted-out item states its reason INSTEAD of a command: it has no check
+    # to run, and offering one would claim a check that is not happening.
+    if otype == OPT_OUT_TYPE:
+        add("unchecked", it.get("oracle_reason"), "text")
+    else:
+        add("command", it.get("cmd"), "text", mono=True)
+    add("contract", it.get("contract"), "list")
+    add("touches", it.get("touches"), "list", mono=True)
+    add("estimate", it.get("estimate"), "text")
+    add("ref", item_ref(slug, it.get("id"), it.get("status")), "text", mono=True)
+
+    # blocked_by is DERIVED, not declared — the engine sets it only while
+    # something is genuinely unmet — so an absent or empty one means "waiting on
+    # nothing" and gets no row rather than a declared-empty marker.
+    blockers = it.get("blocked_by") or []
+    if blockers:
+        chips = []
+        for dep in blockers:
+            meta = _STATE_META.get(status_by_id.get(dep), _STATE_META["blocked"])
+            chips.append({"id": dep, "word": meta["word"], "color": meta["color"],
+                          "soft": meta["soft"], "badge": meta["badge"]})
+        rows.append(_detail_row("waiting", "chips", chips=chips))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # The next action. The engine derives exactly ONE of these per repo — the
 # `next_action` karta_next.py already hands the karta-status skill, its terminal
 # map and its footer — and the band at the top of the column states it.
@@ -2133,6 +2317,12 @@ const BRANCH_FMT = __BRANCH_FMT__;
 // reason the rail's legend is — the order and the wording are asserted against
 // what the page ships, not against a second copy typed here.
 const PANEL = __PANEL__;
+
+// The per-item detail grid's own table, handed over from the server: the row
+// labels, the wording a declared-but-empty field gets, the oracle-icon fallback
+// and the two spellings of an item's git refs. Python-owned for the same reason
+// the panel's labels are — the page states what the server defines, once.
+const DETAIL = __DETAIL__;
 
 // Pure feed transition — state in, state out, no I/O. `status` is the HTTP
 // status the poll answered with, or null when the request never completed.
@@ -2384,6 +2574,101 @@ function panelMeta(b, state) {
   return out;
 }
 
+// --- the per-item detail grid: what one work item is contracted to do -------
+// Every value below is already on the page — the widened feed carries each
+// item's contract, touches, estimate, full assertions array and opt-out reason —
+// so this is labelling and string formatting, never a second derivation and
+// never a request. Mirrored by item_detail() in serve_status.py, which the
+// self-test drives — keep the two in lockstep.
+
+// undeclared (null/undefined) is NOT the same as declared-and-empty: the first
+// means the binder never carried the field, the second that it carried nothing.
+// Returns [declared, empty].
+// MIRROR: change together with _detail_declared() in serve_status.py.
+function detailDeclared(v) {
+  if (v === null || v === undefined) return [false, false];
+  if (typeof v === 'string') return [true, v.trim() === ''];
+  if (Array.isArray(v)) return [true, v.length === 0];
+  if (typeof v === 'object') return [true, Object.keys(v).length === 0];
+  return [true, false];
+}
+
+// MIRROR: change together with _detail_text() in serve_status.py.
+function detailText(v) { return (typeof v === 'string') ? v : JSON.stringify(v); }
+
+// MIRROR: change together with _detail_pairs() in serve_status.py.
+function detailPairs(v) {
+  if (Array.isArray(v)) return v.map(x => ({ name: '', value: detailText(x) }));
+  if (v && typeof v === 'object') {
+    return Object.keys(v).map(k => ({ name: String(k), value: detailText(v[k]) }));
+  }
+  return [{ name: '', value: detailText(v) }];
+}
+
+// MIRROR: change together with _detail_row() in serve_status.py.
+function detailRow(key, kind, o) {
+  o = o || {};
+  return { key: key, label: DETAIL.labels[key], kind: kind, empty: !!o.empty,
+           text: o.text || '', pairs: o.pairs || [], chips: o.chips || [],
+           mono: !!o.mono, icon: o.icon || '' };
+}
+
+// The git ref the item's status implies — or null when git holds nothing for it
+// yet, in which case no row is drawn rather than a ref that does not exist.
+// MIRROR: change together with item_ref() in serve_status.py.
+function itemRef(slug, id, status) {
+  if (DETAIL.markers.indexOf(status) !== -1) {
+    return DETAIL.marker_fmt.replace('{slug}', slug).replace('{id}', id)
+      .replace('{marker}', status);
+  }
+  if (status === 'building') {
+    return DETAIL.branch_fmt.replace('{slug}', slug).replace('{id}', id);
+  }
+  return null;
+}
+
+// MIRROR: change together with item_detail() in serve_status.py and the detail self-test.
+function itemDetail(it, slug, byId) {
+  byId = byId || {};
+  const otype = it.oracle || 'unit';
+  const rows = [detailRow('check', 'text',
+    { text: otype, icon: ORACLE_ICON[otype] || DETAIL.icon_fallback })];
+
+  const add = (key, value, kind, mono) => {
+    const d = detailDeclared(value);
+    if (!d[0]) return;                    // undeclared: no row at all
+    if (d[1]) rows.push(detailRow(key, kind, { empty: true, text: DETAIL.empty, mono: mono }));
+    else if (kind === 'list') rows.push(detailRow(key, kind, { pairs: detailPairs(value), mono: mono }));
+    else rows.push(detailRow(key, kind, { text: detailText(value), mono: mono }));
+  };
+
+  add('asserts', it.assertions, 'list');
+  // an opted-out item states its reason INSTEAD of a command: there is no check
+  // to run, and offering one would claim a check that is not happening.
+  if (otype === DETAIL.opt_out) add('unchecked', it.oracle_reason, 'text');
+  else add('command', it.cmd, 'text', true);
+  add('contract', it.contract, 'list');
+  add('touches', it.touches, 'list', true);
+  add('estimate', it.estimate, 'text');
+  add('ref', itemRef(slug, it.id, it.status), 'text', true);
+
+  // blocked_by is DERIVED, not declared — set only while something is genuinely
+  // unmet — so nothing to wait on means no row, not a declared-empty marker.
+  const blockers = it.blocked_by || [];
+  if (blockers.length) {
+    rows.push(detailRow('waiting', 'chips', {
+      chips: blockers.map(dep => {
+        // the blocker's OWN live state, off the same metadata its card is drawn
+        // from. A blocker the map somehow does not name reads as waiting, never
+        // as NEXT — a chip must not promise a run that is not ready.
+        const m = STATE_META[byId[dep]] || STATE_META.blocked;
+        return { id: dep, word: m.word, color: m.color, soft: m.soft, badge: m.badge };
+      }),
+    }));
+  }
+  return rows;
+}
+
 // MIRROR: change together with binder_panel() in serve_status.py and the panel self-test.
 function binderPanel(b, state) {
   const waves = wavesOf((b.items && b.items.detail) || []);
@@ -2531,7 +2816,9 @@ const app = createApp({
   methods: {
     metaFor,
     doneCountOf,
-    oracleIconName(it) { return ORACLE_ICON[it.oracle] || 'unit'; },
+    // an oracle type nobody anticipated still gets a glyph — the server names
+    // the fallback, so the card and the detail grid resolve it identically.
+    oracleIconName(it) { return ORACLE_ICON[it.oracle] || DETAIL.icon_fallback; },
     isOpen(slug, key) {
       return (this.open[slug] !== undefined) ? this.open[slug] : (key === 'now');
     },
@@ -2552,12 +2839,15 @@ const app = createApp({
       const panel = binderPanel(b, this.state);
       const waveArr = panel.waves;   // a thin archived row groups into none
       const tot = b.items.total;
+      // the binder's own item -> status map, so a blocked-by chip reads the
+      // blocker's live state off the same metadata that draws the blocker's card
+      const byId = {};
+      ((b.items && b.items.detail) || []).forEach(r => { byId[r.id] = r.status; });
       const waves = waveArr.map((w, wi) => ({
         step: panel.steps[wi],
         multi: w.length > 1,
         items: w.map(it => {
           const im = metaFor(it.status);
-          const dep = (it.deps && it.deps[it.deps.length - 1]) || '';
           return {
             id: it.id,
             title: it.title || it.id,
@@ -2574,7 +2864,10 @@ const app = createApp({
             // because that token is exactly what sits on top of the fill.
             bar: !!im.on, on: im.on || '',
             oracle: it.oracle || 'unit', oracleIcon: this.oracleIconName(it),
-            assert: it.assert, cmd: it.cmd, hasDep: !!dep, depName: dep,
+            // the disclosure's rows: the whole widened feed for this item,
+            // labelled. Built here rather than in the template so the shape the
+            // page binds is the shape the Python twin is driven against.
+            detail: itemDetail(it, b.slug, byId),
           };
         }),
       }));
@@ -2951,13 +3244,32 @@ const app = createApp({
                           </div>
                           <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
                         </div>
+                        <span class="item__caret" data-kw-item-caret :class="{ 'item__caret--open': isExpanded(b.slug, it.id) }" aria-hidden="true"><icon name="chevron" :size="13" color="var(--mut)" /></span>
                       </button>
                       <div class="item__shim" data-kw-item-strip v-if="it.building"><div class="item__shim-fill"></div></div>
                       <div class="item__detail" data-kw-item-detail v-if="isExpanded(b.slug, it.id)">
-                        <div class="item__detail-head"><icon :name="it.oracleIcon" :size="12" color="var(--mut)" /><span>passes its {{ it.oracle }} check when:</span></div>
-                        <div class="item__assert" v-if="it.assert">{{ it.assert }}</div>
-                        <div class="item__cmd" v-if="it.cmd">$ {{ it.cmd }}</div>
-                        <div class="item__dep" v-if="it.hasDep"><icon name="arrowdown" :size="12" color="var(--halt)" />runs after {{ it.depName }} passes</div>
+                        <dl class="detail" data-kw-item-detail-grid>
+                          <template v-for="r in it.detail" :key="r.key">
+                            <dt class="detail__label" :data-kw-detail-key="r.key">{{ r.label }}</dt>
+                            <dd class="detail__value" :class="{ 'detail__value--mono': r.mono }">
+                              <span class="detail__empty" data-kw-detail-empty v-if="r.empty">{{ r.text }}</span>
+                              <template v-else-if="r.kind === 'text'">
+                                <icon v-if="r.icon" :name="r.icon" :size="11" color="var(--mut)" /><span>{{ r.text }}</span>
+                              </template>
+                              <ul class="detail__list" v-else-if="r.kind === 'list'">
+                                <li class="detail__entry" data-kw-detail-entry v-for="(p, pi) in r.pairs" :key="pi">
+                                  <span class="detail__name" v-if="p.name">{{ p.name }}</span>{{ p.value }}
+                                </li>
+                              </ul>
+                              <span class="detail__chips" v-else>
+                                <span class="detail__chip" data-kw-blocked-chip :data-kw-blocked-state="c.word"
+                                  :style="{ background: c.soft, color: c.color }" v-for="c in r.chips" :key="c.id">
+                                  <icon :name="c.badge" :size="10" :color="c.color" /><span class="detail__chip-id">{{ c.id }}</span><span class="detail__chip-word">{{ c.word }}</span>
+                                </span>
+                              </span>
+                            </dd>
+                          </template>
+                        </dl>
                       </div>
                     </div>
                   </div>
@@ -3038,6 +3350,15 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
             "meta": {"default": META_DEFAULT_LABEL,
                      "integration": META_INTEGRATION_LABEL,
                      "packs": META_PACKS_LABEL},
+        }))
+        .replace("__DETAIL__", _inert_json({
+            "labels": DETAIL_LABELS,
+            "empty": DETAIL_EMPTY_LABEL,
+            "opt_out": OPT_OUT_TYPE,
+            "icon_fallback": ORACLE_ICON_FALLBACK,
+            "branch_fmt": ITEM_BRANCH_FMT,
+            "marker_fmt": ITEM_MARKER_FMT,
+            "markers": list(ITEM_REF_MARKERS),
         }))
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
         .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
@@ -8843,6 +9164,455 @@ def _c_item_detail_disclosure(ctx):
             and "isExpanded(" in app and "toggleItem(" in app)
 
 
+# --- the per-item detail grid ------------------------------------------------
+# The disclosure's contents: every assertion, the contract, the touched files,
+# the size, the git ref, and a chip per thing the item is still waiting on. The
+# model is a Python twin driven by direct call, so what the grid contains is
+# PROVEN over fixtures rather than argued from the template; each check then
+# reads the one binding the template owes that fixture.
+
+# One work item as the widened feed carries it, with every field declared — so a
+# check can remove exactly the field it is about instead of assembling a row.
+_DETAIL_ITEM = {
+    "id": "detail-item", "status": "done", "oracle": "unit",
+    "cmd": "npm run lint && npm test",
+    "assertions": ["the first thing holds", "the second thing holds",
+                   "the third thing holds"],
+    "contract": {"exposes": "the detail grid", "consumes": "the widened feed"},
+    "touches": ["skills/karta-status/scripts/serve_status.py"],
+    "estimate": "M",
+}
+
+# The hooks this behaviour introduces, named here so a missing registration
+# fails in THIS item and says which hook, rather than surfacing later as an
+# unexplained finding in the whole-page sweep.
+_DETAIL_HOOKS = ("data-kw-item-detail-grid", "data-kw-detail-key",
+                 "data-kw-detail-entry", "data-kw-detail-empty",
+                 "data-kw-blocked-chip", "data-kw-blocked-state",
+                 "data-kw-item-caret")
+
+
+def _rows_by_key(rows: list[dict]) -> dict:
+    return {r["key"]: r for r in rows}
+
+
+@_covers("item-detail-renders-every-assertion", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: [
+             dict(r, pairs=r["pairs"][:1]) for r in c["item_detail"](it, slug, by)]},
+                 lambda c: _renamed(c, "data-kw-detail-entry", "page"),
+                 lambda c: _renamed(c, "data-kw-item-detail-grid", "page")])
+def _c_detail_every_assertion(ctx):
+    """EVERY assertion, in the order the binder wrote them — not the first one
+    standing in for the rest. An oracle's assertions are the whole statement of
+    what the item has to do; showing one of three is the page choosing which
+    two-thirds of the contract the reader does not get to see.
+
+    Driven by direct call over a three-assertion item; the template's job is to
+    loop the pairs the twin returned, which is what the binding here reads."""
+    rows = _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", {}))
+    asserts = rows.get("asserts")
+    if not asserts or asserts["kind"] != "list":
+        return False
+    if [p["value"] for p in asserts["pairs"]] != _DETAIL_ITEM["assertions"]:
+        return False
+    grid = _tags_with(ctx["page"], "data-kw-item-detail-grid")
+    entry = _tags_with(ctx["page"], "data-kw-detail-entry")
+    if len(grid) != 1 or len(entry) != 1:
+        return False
+    loop = _attrs(_tag_after(ctx["page"], grid[0]))
+    eattrs = _attrs(entry[0])
+    return ("it.detail" in loop.get("v-for", "") and loop.get(":key") == "r.key"
+            and "r.pairs" in eattrs.get("v-for", "") and bool(eattrs.get(":key")))
+
+
+@_covers("item-detail-rows-are-labelled", kind="rendered", hook="data-kw-detail-key",
+         breaks=[lambda c: _renamed(c, "data-kw-detail-key", "page"),
+                 lambda c: {"detail_labels": dict(c["detail_labels"],
+                                                  contract="check")}])
+def _c_detail_row_labels(ctx):
+    """Every row says which field it is showing, in the server's wording — one
+    definition, carried to the page, never a second copy typed in the template.
+    The labels are distinct from each other, because two rows reading the same
+    word is a grid that cannot be read at all."""
+    labels = ctx["detail_labels"]
+    if len(set(labels.values())) != len(labels):
+        return False
+    if ctx["detail_inlined"].get("labels") != labels:
+        return False
+    rows = ctx["item_detail"](_DETAIL_ITEM, "s-detail", {})
+    if not rows or any(r["label"] != labels[r["key"]] for r in rows):
+        return False
+    tags = _tags_with(ctx["page"], "data-kw-detail-key")
+    return (len(tags) == 1
+            and _attrs(tags[0]).get(":data-kw-detail-key") == "r.key")
+
+
+@_covers("item-detail-omits-an-undeclared-field", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+             dict(it, contract=it.get("contract") or {}), slug, by)},
+                 lambda c: {"item_detail": lambda it, slug, by:
+                            c["item_detail"](it, slug, by)[:1]}])
+def _c_detail_omits_undeclared(ctx):
+    """A field the binder never declared renders NO ROW — not an empty one. The
+    two are different facts about the plan: "this item has no contract" and
+    "this item's contract is blank" mean different things, and a page that draws
+    both as an empty row hides the second behind the first.
+
+    Driven by direct call: an item declaring nothing keeps only the row that is
+    always true of it (which check it passes), and a fully declared item keeps
+    every row, in one stated order."""
+    bare = {"id": "bare", "status": "ready", "oracle": "unit"}
+    if [r["key"] for r in ctx["item_detail"](bare, "s-detail", {})] != ["check"]:
+        return False
+    full = [r["key"] for r in ctx["item_detail"](_DETAIL_ITEM, "s-detail", {})]
+    return full == ["check", "asserts", "command", "contract", "touches",
+                    "estimate", "ref"]
+
+
+@_covers("item-detail-marks-a-declared-empty-field", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: [
+             dict(r, empty=False) for r in c["item_detail"](it, slug, by)]},
+                 lambda c: {"detail_empty_label": "(none)"},
+                 lambda c: _renamed(c, "data-kw-detail-empty", "page")])
+def _c_detail_marks_declared_empty(ctx):
+    """The other half of the same rule: a field the binder DID declare and left
+    empty keeps its row and says so, in the server's wording. So the reader can
+    tell a plan that never mentioned a contract from one that mentioned it and
+    wrote nothing — the second is a planning mistake worth seeing."""
+    blank = dict(_DETAIL_ITEM, contract={}, touches=[], estimate="   ")
+    rows = _rows_by_key(ctx["item_detail"](blank, "s-detail", {}))
+    for key in ("contract", "touches", "estimate"):
+        row = rows.get(key)
+        if not row or not row["empty"]:
+            return False
+        if row["text"] != ctx["detail_empty_label"] or row["pairs"] or row["chips"]:
+            return False
+    gone = dict(_DETAIL_ITEM, contract=None, touches=None, estimate=None)
+    if any(k in _rows_by_key(ctx["item_detail"](gone, "s-detail", {}))
+           for k in ("contract", "touches", "estimate")):
+        return False
+    marker = _tags_with(ctx["page"], "data-kw-detail-empty")
+    return (len(marker) == 1 and _attrs(marker[0]).get("v-if") == "r.empty"
+            and ctx["detail_inlined"].get("empty") == ctx["detail_empty_label"])
+
+
+@_covers("item-detail-opt-out-states-its-reason", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+             dict(it, oracle="unit"), slug, by)},
+                 lambda c: {"opt_out_type": "skipped"}])
+def _c_detail_opt_out(ctx):
+    """An opted-out item shows the reason it was opted out INSTEAD of a check
+    command. It has no check to run, so offering one would claim a check that is
+    not happening — the page's job here is to state plainly what is going
+    unchecked, which is the only reason an opt-out is allowed to exist."""
+    reason = "no automated check — a human looks at this before release"
+    opted = dict(_DETAIL_ITEM, oracle=ctx["opt_out_type"], oracle_reason=reason)
+    rows = _rows_by_key(ctx["item_detail"](opted, "s-detail", {}))
+    if "command" in rows or "unchecked" not in rows:
+        return False
+    if rows["unchecked"]["text"] != reason:
+        return False
+    if (rows.get("check") or {}).get("text") != ctx["opt_out_type"]:
+        return False
+    checked = _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", {}))
+    return ("unchecked" not in checked and "command" in checked
+            and checked["command"]["text"] == _DETAIL_ITEM["cmd"]
+            and checked["command"]["mono"] is True)
+
+
+@_covers("item-detail-names-the-items-git-ref", kind="behaviour",
+         breaks=[lambda c: {"marker_fmt": "refs/karta/{slug}/{id}/{marker}"},
+                 lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+                     dict(it, status="done"), slug, by)}])
+def _c_detail_item_ref(ctx):
+    """The item's own git artifact, spelled the way karta writes it: the marker
+    ref once a run has finished, the item BRANCH while it is still running, and
+    nothing at all before git holds anything — a ready item gets no ref row,
+    because naming a ref that does not exist is the page inventing a fact.
+
+    All of it is formatting over the slug, the id and the status the feed
+    already carries. Nothing here asks git anything."""
+    slug, iid = "s-detail", _DETAIL_ITEM["id"]
+    for status in ctx["ref_markers"]:
+        row = _rows_by_key(ctx["item_detail"](dict(_DETAIL_ITEM, status=status),
+                                              slug, {})).get("ref")
+        want = ctx["marker_fmt"].format(slug=slug, id=iid, marker=status)
+        if not row or row["text"] != want or not row["mono"]:
+            return False
+    running = _rows_by_key(ctx["item_detail"](dict(_DETAIL_ITEM, status="building"),
+                                              slug, {})).get("ref")
+    if not running or running["text"] != ctx["branch_fmt"].format(slug=slug, id=iid):
+        return False
+    for status in ("ready", "blocked"):
+        if "ref" in _rows_by_key(ctx["item_detail"](dict(_DETAIL_ITEM, status=status),
+                                                    slug, {})):
+            return False
+    inlined = ctx["detail_inlined"]
+    return (inlined.get("marker_fmt") == ctx["marker_fmt"]
+            and inlined.get("branch_fmt") == ctx["branch_fmt"]
+            and list(inlined.get("markers") or []) == list(ctx["ref_markers"]))
+
+
+@_covers("oracle-type-icons-all-resolve", kind="behaviour",
+         breaks=[lambda c: {"oracle_icon": dict(c["oracle_icon"],
+                                                visual="no-such-icon")},
+                 lambda c: {"icon_fallback": "no-such-icon"}])
+def _c_oracle_icons_resolve(ctx):
+    """Every oracle type a binder can declare resolves to a drawn icon, and a
+    type nobody anticipated falls back to one rather than rendering a blank
+    square where a glyph should be. The fallback is the server's, so the card's
+    accessor and the detail grid's row can never disagree about it."""
+    icons, table = ctx["icons"], ctx["oracle_icon"]
+    if not table or any(v not in icons for v in table.values()):
+        return False
+    if ctx["icon_fallback"] not in icons:
+        return False
+    if not {"unit", "integration", "e2e", "smoke", "visual",
+            ctx["opt_out_type"]} <= set(table):
+        return False
+    unknown = ctx["item_detail"](dict(_DETAIL_ITEM, oracle="a-type-from-2030"),
+                                 "s-detail", {})[0]
+    if unknown["icon"] != ctx["icon_fallback"]:
+        return False
+    return ("DETAIL.icon_fallback" in ctx["app_src"]
+            and "ORACLE_ICON[" in ctx["app_src"])
+
+
+@_covers("blocked-by-chips-carry-the-blockers-state", kind="rendered",
+         hook="data-kw-blocked-chip",
+         breaks=[lambda c: _renamed(c, "data-kw-blocked-chip", "page"),
+                 lambda c: _renamed(c, "data-kw-blocked-state", "page"),
+                 lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+                     it, slug, {})}])
+def _c_blocked_chips(ctx):
+    """One chip per thing this item is still waiting on, each carrying the
+    BLOCKER's own live state — read off the same metadata that draws the
+    blocker's card, so the chip and the card can never disagree. A blocker that
+    has halted and one that has passed must not read alike; that is the whole
+    point of putting the state on the chip instead of just the name.
+
+    Driven by direct call over two blockers in different states."""
+    by = {"one": "done", "two": "failed"}
+    waiting = dict(_DETAIL_ITEM, status="blocked", blocked_by=["one", "two"])
+    chips = (_rows_by_key(ctx["item_detail"](waiting, "s-detail", by))
+             .get("waiting") or {}).get("chips") or []
+    if len(chips) != 2 or chips[0]["word"] == chips[1]["word"]:
+        return False
+    for chip, dep in zip(chips, waiting["blocked_by"]):
+        meta = ctx["state_meta"][by[dep]]
+        if chip["id"] != dep or chip["badge"] != meta["badge"]:
+            return False
+        if (chip["word"], chip["color"], chip["soft"]) != (meta["word"],
+                                                           meta["color"],
+                                                           meta["soft"]):
+            return False
+    if "waiting" in _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", by)):
+        return False
+    tags = _tags_with(ctx["page"], "data-kw-blocked-chip")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get(":data-kw-blocked-state") == "c.word"
+            and "r.chips" in attrs.get("v-for", "") and attrs.get(":key") == "c.id")
+
+
+@_covers("item-detail-caret-turns-and-settles", kind="rendered",
+         hook="data-kw-item-caret",
+         breaks=[lambda c: _renamed(c, "data-kw-item-caret", "page"),
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".item__caret")},
+                 lambda c: {"css": c["css"].replace(".item__caret--open{",
+                                                    ".item__caret--shut{")}])
+def _c_item_caret(ctx):
+    """The row's chevron turns while its detail is open, off the SAME predicate
+    that reports the expanded state — one truth, so the glyph cannot point one
+    way while assistive tech is told the other. It is decorative on top of a
+    button that already announces itself, so it is hidden from assistive tech
+    rather than read out twice.
+
+    Under reduced motion the TURN is kept and the turning is dropped: the
+    rotation is the state, the transition is the motion, and only the second is
+    something the reader asked to stop.
+
+    Source-level: this reads the binding and the stylesheet, not a browser."""
+    page, css = ctx["page"], ctx["css"]
+    caret = _tags_with(page, "data-kw-item-caret")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(caret) != 1 or len(row) != 1:
+        return False
+    attrs = _attrs(caret[0])
+    gate = _class_binding(attrs).get("item__caret--open", "")
+    if not gate or gate not in _attrs(row[0]).get(":aria-expanded", ""):
+        return False
+    if attrs.get("aria-hidden") != "true":
+        return False
+    base = _decls_for(css, ".item__caret")
+    turned = _decls_for(css, ".item__caret--open")
+    settled = _decls_for(_reduced_block(css), ".item__caret")
+    if not base or not turned or not settled:
+        return False
+    return (any(d.get("transition") for d in base)
+            and any("rotate" in d.get("transform", "") for d in turned)
+            and all(_norm(d.get("transition", "")).startswith("none")
+                    for d in settled)
+            and not any(d.get("transform") for d in settled))
+
+
+@_covers("item-detail-values-are-inert", kind="behaviour",
+         breaks=[lambda c: {"render": lambda s: json.dumps(s)},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "{{ p.value }}", '<b v-html="p.value"></b>')},
+                 lambda c: {"inert_vectors": ()}])
+def _c_detail_values_inert(ctx):
+    """The widest, most attacker-influenced strings on the page — binder-authored
+    contract prose, file paths, assertion text — reach the grid the same way
+    every other engine value does: inside the inlined state JSON through
+    _inert_json, interpolated as a text node. All four hostile shapes are fired
+    at once, because an escape that stops a script break-out can leave an image
+    error handler, an svg load handler, a mixed-case tag or a javascript: URL
+    entirely untouched. Nothing on this path is bound with v-html."""
+    vectors = ctx["inert_vectors"]
+    if not vectors:
+        return False
+    seed = ctx["state"]["binders"][0]
+    detail = [{"id": "i-%d" % i, "status": "ready",
+               "contract": {"exposes": "exposes " + v},
+               "touches": ["path/to/" + v],
+               "assertions": ["asserts " + v],
+               "oracle_reason": "because " + v}
+              for i, v in enumerate(vectors)]
+    binder = dict(seed, slug="s-detail-hostile",
+                  items=dict(seed["items"], total=len(detail), detail=detail))
+    page = ctx["render"](dict(ctx["state"], binders=[binder]))
+    rows = ((_inlined_state(page).get("binders") or [{}])[0]
+            .get("items", {}).get("detail", []))
+    if len(rows) != len(vectors):
+        return False
+    for i, vector in enumerate(vectors):
+        if vector in page:
+            return False
+        row = rows[i]
+        if not row["contract"]["exposes"].endswith(vector):
+            return False
+        if not row["touches"][0].endswith(vector):
+            return False
+        if not row["assertions"][0].endswith(vector):
+            return False
+        if not row["oracle_reason"].endswith(vector):
+            return False
+    clean = ctx["render"](ctx["state"])
+    return (page.count("</script>") == clean.count("</script>")
+            and "v-html" not in ctx["app_src"])
+
+
+@_covers("item-expansion-is-keyed-per-item", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "return !!this.expanded[slug + '/' + id];", "return !!this.expanded;")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "const k = slug + '/' + id;", "const k = 'open';")}])
+def _c_item_expansion_keyed(ctx):
+    """Opening one item's detail opens THAT item's and no other's. What is open
+    is held as a map keyed by binder slug and work-item id — the same composite
+    the toggle writes and the row reads — never as a page-level flag, which is
+    the shape that would open every card on the page at once. It is the same
+    defect the copy confirmation had, in a different place.
+
+    Source-level: the keying is read off the accessor, off the toggle, and off
+    the arguments the template hands both. Nothing runs Vue here."""
+    app, page = ctx["app_src"], ctx["page"]
+    row = _tags_with(page, "data-kw-item-row")
+    detail = _tags_with(page, "data-kw-item-detail")
+    if len(row) != 1 or len(detail) != 1:
+        return False
+    return ("expanded: {}," in app
+            and "return !!this.expanded[slug + '/' + id];" in app
+            and "const k = slug + '/' + id;" in app
+            and "[k]: !this.expanded[k]" in app
+            and _attrs(row[0]).get("@click") == "toggleItem(b.slug, it.id)"
+            and _attrs(detail[0]).get("v-if") == "isExpanded(b.slug, it.id)")
+
+
+@_covers("item-expansion-survives-a-poll", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "this.state = this.withArchived(s);",
+             "this.state = this.withArchived(s); this.expanded = {};")},
+                 lambda c: {"app_src": c["app_src"].replace("expanded: {},", "")}])
+def _c_item_expansion_survives_poll(ctx):
+    """A poll replaces the whole state object; it must not close what the reader
+    opened. What is expanded is the page's own state, not the feed's — it is
+    never derived from a binder — and the poll's success path assigns the feed
+    and nothing else, so a refresh under an open disclosure leaves it open.
+
+    Source-level: the poll handler is read for what it assigns. That a real
+    browser keeps the panel open across a real refresh is on the human
+    checklist — no browser runs here."""
+    app = ctx["app_src"]
+    poll = _js_block(app, "    poll() {")
+    computed = _js_block(app, "  computed: {")
+    if not poll or not computed:
+        return False
+    return ("expanded: {}," in app
+            and "this.state = this.withArchived(s);" in poll
+            and "expanded" not in poll and "expanded" not in computed)
+
+
+@_covers("item-detail-mirror-matches-its-twin", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "add('touches', it.touches, 'list', true);", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (!d[0]) return;", "if (false) return;")}])
+def _c_item_detail_mirror(ctx):
+    """A browser runs the JavaScript, not the Python — so the twin every check
+    above drives is only evidence while the two really are one behaviour.
+    Compared branch for branch: the same rows added under the same keys in the
+    same order, the same undeclared / declared-empty split, the same opt-out
+    fork, the same ref derivation, the same blocker fallback, and each side
+    carrying the marker that names the other."""
+    app = ctx["app_src"]
+    marker = "// MIRROR: change together with item_detail() in serve_status.py"
+    if marker not in app:
+        return False
+    js = app[app.index(marker):]
+    js = js[:js.index("\n}\n")]
+    py = inspect.getsource(item_detail)
+
+    def order(src, quote):
+        seen = [(src.index(token), key) for key, token in
+                ((k, "add(%s%s%s," % (quote, k, quote)) for k in
+                 ("asserts", "unchecked", "command", "contract", "touches",
+                  "estimate", "ref")) if token in src]
+        return [key for _, key in sorted(seen)]
+
+    if order(js, "'") != order(py, '"') or len(order(js, "'")) != 7:
+        return False
+    return ("if (!d[0]) return;" in js and "if (d[1])" in js
+            and "DETAIL.empty" in js
+            and "if (otype === DETAIL.opt_out)" in js
+            and "itemRef(slug, it.id, it.status)" in js
+            and "STATE_META[byId[dep]] || STATE_META.blocked" in js
+            and "if not declared:" in py and "if empty:" in py
+            and "DETAIL_EMPTY_LABEL" in py
+            and "if otype == OPT_OUT_TYPE:" in py
+            and 'item_ref(slug, it.get("id"), it.get("status"))' in py
+            and '_STATE_META.get(status_by_id.get(dep), _STATE_META["blocked"])' in py
+            and "MIRROR: change together with itemDetail()" in py)
+
+
+@_covers("item-detail-hooks-are-registered", kind="behaviour",
+         breaks=[lambda c: {"detail_hooks":
+                            c["detail_hooks"] + (KW_PREFIX + "detail-ghost",)},
+                 lambda c: _renamed(c, "data-kw-detail-entry", "page", "eph",
+                                    "empty_page", "degraded_page")])
+def _c_detail_hooks_registered(ctx):
+    """Every hook this behaviour introduces actually reaches the page AND is
+    read by a registered check. The whole-page rule says the same thing about
+    every hook there is; this one names THIS item's, so a hook added here
+    without its check fails here, saying which hook, instead of surfacing later
+    as an unexplained finding in the sweep."""
+    hooks = _rendered_hooks(ctx)
+    named = ctx["detail_hooks"]
+    return bool(named) and all(h in hooks and _hook_is_read(h) for h in named)
+
+
 @_covers("chip-vocabulary", kind="rendered", hook="data-kw-item-chip",
          breaks=[lambda c: _renamed(c, "data-kw-item-chip", "page"),
                  lambda c: {"state_meta": dict(
@@ -10069,6 +10839,14 @@ def _coverage_context() -> dict:
                  "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS,
                  "key": COPY_KEY_BAND},
         "band_inlined": _inlined_const(page, "BAND"),
+        "item_detail": item_detail, "detail_labels": DETAIL_LABELS,
+        "detail_empty_label": DETAIL_EMPTY_LABEL,
+        "detail_inlined": _inlined_const(page, "DETAIL") or {},
+        "detail_hooks": _DETAIL_HOOKS,
+        "marker_fmt": ITEM_MARKER_FMT, "branch_fmt": ITEM_BRANCH_FMT,
+        "ref_markers": ITEM_REF_MARKERS,
+        "oracle_icon": _ORACLE_ICON, "icon_fallback": ORACLE_ICON_FALLBACK,
+        "opt_out_type": OPT_OUT_TYPE,
         "binder_panel": binder_panel, "count_order": _COUNT_ORDER,
         "lanes": {"parallel": _LANE_PARALLEL, "serial": _LANE_SERIAL},
         "panel_meta_labels": {"default": META_DEFAULT_LABEL,
@@ -10465,6 +11243,11 @@ def _run_self_test() -> int:
     wide_by_id = {d["id"]: d for d in wide_row["items"]["detail"]}
     full, skipped, bare = wide_by_id["full"], wide_by_id["skipped"], wide_by_id["bare"]
     wide_html = render_app_html(wide_state, "dark")
+    # the template alone, without the functions above it: the widened fields are
+    # allowed to be READ by the detail twin and nowhere else, so the bar that a
+    # field never appears in a binding is asserted over this region, not over the
+    # whole app source the twin lives in.
+    wide_template = _APP_JS[_APP_JS.index("  template: `"):]
     wide_wire = split_archived(wide_state)
     wide_json = _inert_json(wide_wire)
     parsed_wide = json.loads(wide_json)
@@ -10520,13 +11303,17 @@ def _run_self_test() -> int:
          "defense is that none of the widened fields (contract, touches, "
          "estimate, serialize, shared_resources, assertions, oracle_reason, "
          "sme) reaches a URL-bearing attribute, and the page feeds nothing to "
-         "v-html at all. That is the whole claim: a field the page CONSUMES — "
-         "the panel's footer reads sme — is barred from the one attribute class "
-         "that would navigate. That it then renders as inert text interpolation "
-         "is read off the template, not proven here",
+         "v-html at all. That is the whole claim, and the detail grid is what "
+         "makes it bite: the grid CONSUMES contract, touches, estimate, the "
+         "assertions array and the opt-out reason — but ONLY through the "
+         "twinned detail model, never bound in the template itself, so every "
+         "one of them crosses exactly one audited path and stays barred from "
+         "the one attribute class that would navigate. That they then render "
+         "as inert text interpolation is read off the template, not proven here",
          wide_hostile["javascript-url"] in wide_html  # present as inert JSON text
          and "v-html" not in wide_html
-         and all(("it." + f) not in wide_html for f in
+         and "itemDetail(" in wide_html   # consumed through the twinned model
+         and all(("it." + f) not in wide_template for f in
                  ("contract", "touches", "estimate", "serialize",
                   "shared_resources", "assertions", "oracle_reason"))
          and not [expr for expr in _url_attr_exprs(wide_html)
