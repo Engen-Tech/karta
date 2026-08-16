@@ -2086,30 +2086,70 @@ def _degraded_state(error: str) -> dict:
 # one — see _Handler._state_feed.
 
 
+# How deep the sanitizing walk descends before it renders the rest as null.
+#
+# Only the RECOVERY path is bounded, and json.dumps itself gives up somewhere
+# near 48000 levels, so nothing json could have encoded is ever truncated by
+# this — it exists purely so the walk survives a payload json ALREADY refused.
+# 100 sits an order of magnitude above anything the derivation produces (state
+# to binder to item to detail is about six) and an order of magnitude below
+# CPython's default recursion limit of 1000, where a plain recursive walk dies
+# around 1200 — headroom for the frames already on the stack while a request is
+# being served, and for the encoder's own frames on the retry.
+#
+# Fixed, deliberately, rather than derived from sys.getrecursionlimit(): the
+# ETag must be identical in every process holding equal state, and a bound that
+# varied per process would vary the bytes and so vary the tag.
+JSON_MAX_DEPTH = 100
+
+
 def _json_key(k) -> str:
     """A dict key as JSON names it — MIRRORING json.dumps, not str().
 
-    The two disagree exactly where it would be noticed: json writes a bool key
-    as "true"/"false" and a None key as "null", where str() writes "True",
-    "False" and "None". Since only the recovery path coerces keys, a divergence
-    here would render the same logical state under different key names depending
-    on whether some unrelated value sent it down that path. `bool` is checked
-    before `int` because it is a subclass of it."""
+    The two disagree wherever it would be noticed, and most of all on the keys
+    that force the recovery path in the first place: json names a non-finite
+    float key "NaN" / "Infinity" / "-Infinity" where str() gives "nan" / "inf" /
+    "-inf", a bool key "true"/"false" against "True"/"False", and a None key
+    "null" against "None". Since only the recovery path coerces keys, any
+    divergence would render the same logical state under different key names
+    depending on whether an unrelated value sent it down that path.
+
+    So this follows the order in json.encoder._make_iterencode exactly: str
+    passes through, float takes the float-string rule, then the three
+    identity tests, then int. FLOAT IS TESTED BEFORE THE BOOL AND NONE CHECKS
+    because json tests it there, and `int` comes last because bool is a subclass
+    of it. `int.__repr__` and `float.__repr__` are called unbound, as json calls
+    them, so a subclass overriding __str__ cannot rename its own key.
+
+    The closing str() covers key types json refuses outright (a tuple, a
+    Decimal). json emits no body at all for those, so there is no rendering of
+    its to disagree with — the coercion only ever turns "no reply" into one."""
     if isinstance(k, str):
         return k
-    if isinstance(k, bool):
-        return "true" if k else "false"
+    if isinstance(k, float):
+        if math.isnan(k):
+            return "NaN"
+        if math.isinf(k):
+            return "-Infinity" if math.copysign(1.0, k) < 0 else "Infinity"
+        return float.__repr__(k)
+    if k is True:
+        return "true"
+    if k is False:
+        return "false"
     if k is None:
         return "null"
+    if isinstance(k, int):
+        return int.__repr__(k)
     return str(k)
 
 
 def _json_safe(obj, _ancestors: tuple = ()):
     """A copy of `obj` the pinned serialisation can encode: every non-finite
     float becomes None, every dict key becomes the string JSON names it by, and
-    any reference back into the value currently being walked becomes None.
+    anything past JSON_MAX_DEPTH — including a reference back into the value
+    currently being walked — becomes None.
 
-    All three are the JSON-compliant rendering rather than data loss. JSON has
+    All of it is the JSON-compliant rendering rather than data loss. JSON has
     null and has no NaN, no Infinity and no way to express a cycle, so null IS
     how JSON says "nothing representable here". A coerced key colliding with a
     string key already present keeps the later value; a payload holding both `1`
@@ -2119,17 +2159,20 @@ def _json_safe(obj, _ancestors: tuple = ()):
     `_ancestors` holds the ids of the containers this walk is currently INSIDE,
     which is what makes the cycle guard a cycle guard: an object reached twice
     down two separate branches is copied twice, and only a reference back into
-    an enclosing container is cut. Without it a cyclic payload — which
-    json.dumps reports as a ValueError, so the recovery path catches it and
-    walks it — would recurse until RecursionError escaped and the request died
-    as a dropped connection instead of a reply.
+    an enclosing container is cut. Its LENGTH is the current depth, so one test
+    covers both ways this walk could fail to terminate in time — a cycle, which
+    json.dumps reports as a ValueError, and plain acyclic nesting deeper than
+    the encoder will go, which json.dumps reports as a RecursionError. Both
+    reach here through state_body's recovery path, and an unbounded walk would
+    then raise RecursionError of its own, escape, and leave the request as a
+    dropped connection rather than a reply.
 
     Plain containers are rebuilt, so a dict or list subclass cannot carry a
     value past the walk. Total over anything json can encode, and it rewrites
     nothing else — a value json cannot encode at all is left to raise where it
     would have raised anyway."""
     if isinstance(obj, (dict, list, tuple)):
-        if id(obj) in _ancestors:
+        if len(_ancestors) >= JSON_MAX_DEPTH or id(obj) in _ancestors:
             return None
         inside = _ancestors + (id(obj),)
         if isinstance(obj, dict):
@@ -2154,6 +2197,12 @@ def state_body(payload) -> tuple[str, str | None]:
     outcome than the 500 the fallback exists to avoid. `json.loads` accepts both
     literals, so a hand-edited binder really can put one into the state.
 
+    RecursionError is caught alongside the two: json.dumps reports a cycle as a
+    ValueError but plain nesting deeper than it will go as a RecursionError, and
+    letting that one through would leave the caller with a dropped connection
+    instead of a reply. _json_safe's own depth bound is what makes catching it
+    useful — an unbounded walk would only raise it again.
+
     A sanitized payload sorts and encodes, so it is normally still taggable and
     the poll keeps its saving. The last resort — keys that ARE strings and yet
     refuse to be ordered — serves the sanitized bytes without a tag: whatever
@@ -2162,11 +2211,11 @@ def state_body(payload) -> tuple[str, str | None]:
     serve."""
     try:
         body = _inert_json(payload, pinned=True)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         safe = _json_safe(payload)
         try:
             body = _inert_json(safe, pinned=True)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return (_inert_json(safe), None)
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
     return (body, f'"sha256:{digest}"')
@@ -4753,6 +4802,23 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     forced_body, _ = state_body({"a": dict(literal_keys), "n": float("nan")})
     naive_names = {str(k) for k in literal_keys}      # {"True","False","None"}
 
+    # every key type json itself names, against the name json actually gives it
+    class LyingInt(int):
+        def __str__(self):
+            return "wrong"
+
+    def json_key_name(k) -> str:
+        """The key name json.dumps produces for `k`, read back off its own
+        output rather than assumed."""
+        return next(iter(json.loads(json.dumps({k: 0}))))
+
+    key_cases = ["s", 5, 1.5, float("nan"), float("inf"), float("-inf"),
+                 True, False, None, LyingInt(1)]
+    mirrors_json = [i for i, k in enumerate(key_cases)
+                    if _json_key(k) == json_key_name(k)]
+    naive_matches = [i for i, k in enumerate(key_cases)
+                     if str(k) == json_key_name(k)]
+
     # a payload that refers back into itself: json.dumps calls this a
     # ValueError, so the recovery path receives it and has to survive the walk
     cyclic: dict = {"live": 1}
@@ -4766,6 +4832,38 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     # the same object twice down two branches is NOT a cycle and must survive
     shared = {"x": 1}
     shared_body, _ = state_body({"a": shared, "b": shared, "n": float("nan")})
+
+    def json_refuses_depth(cap: int = 2 ** 20) -> tuple[dict, int]:
+        """A dict chain deep enough that json.dumps itself gives up on it, plus
+        the depth that took. Found by doubling rather than hardcoded: the C
+        encoder's recursion headroom is a CPython build constant that has moved
+        between versions (about 48000 levels where this was written), and a
+        fixed fixture depth would quietly stop reaching the branch on a build
+        that allows more. Depth 0 means none was found, which fails the check
+        below rather than passing it vacuously."""
+        n = 10000
+        while n <= cap:
+            chain: dict = {}
+            cur = chain
+            for _ in range(n):
+                cur["n"] = {}
+                cur = cur["n"]
+            try:
+                _inert_json(chain, pinned=True)
+            except RecursionError:
+                return chain, n
+            n *= 2
+        return {}, 0
+
+    def chain_depth(doc) -> tuple[int, object]:
+        """(links walked, whatever the chain ends in) for a {"n": {...}} chain."""
+        n = 0
+        while isinstance(doc, dict) and "n" in doc:
+            doc, n = doc["n"], n + 1
+        return n, doc
+
+    deep_chain, deep_at = json_refuses_depth()
+    deep_body, deep_tag = state_body(deep_chain)
 
     checks += [
         ("an equal payload rebuilt as distinct objects with every dict's keys "
@@ -4834,6 +4932,35 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          not cyclic_raw_serializes
          and strict_json(shared_body)["a"] == strict_json(shared_body)["b"]
          == {"x": 1}),
+
+        # -- every key type, against the name json itself gives it -------------
+        ("the key coercion mirrors json's own for every type json names — str, "
+         "int, finite float, NaN, Infinity, -Infinity, True, False, None, and "
+         "an int subclass whose __str__ lies — each compared against the name "
+         "json.dumps actually emits rather than against a literal in this file",
+         mirrors_json == list(range(len(key_cases)))),
+        (f"and the companion: plain str() agrees with json on only "
+         f"{len(naive_matches)} of those {len(key_cases)} keys — it misnames "
+         f"the non-finite floats, which are the very keys that force the "
+         f"recovery path, as well as the bools, None and the lying subclass — "
+         f"so a coercion built on str() fails the check above instead of "
+         f"slipping through on the cases that happen to agree",
+         naive_matches == [0, 1, 2] and len(naive_matches) < len(key_cases)),
+
+        # -- nesting deeper than json itself will encode ----------------------
+        (f"a payload nested deeper than json.dumps will go — {deep_at} levels, "
+         f"found by doubling until the encoder gave up — is SERVED: the walk "
+         f"stops at JSON_MAX_DEPTH and renders the rest as null, so the body is "
+         f"{JSON_MAX_DEPTH} links deep, passes the strict parse, and carries a "
+         f"tag",
+         deep_tag is not None and parses_strictly(deep_body)
+         and chain_depth(strict_json(deep_body)) == (JSON_MAX_DEPTH, None)),
+        ("and the companion that proves it reached the branch at all: that same "
+         "payload raises out of the pinned serialisation rather than producing "
+         "a body — json reports deep acyclic nesting as a RecursionError, not "
+         "the ValueError a cycle gets, so before this it escaped state_body "
+         "entirely and the caller got a dropped connection",
+         deep_at > 0),
     ]
     return checks
 
