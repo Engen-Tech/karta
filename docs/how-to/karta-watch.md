@@ -68,12 +68,46 @@ steel **WAITING** chip — waiting its turn is normal flow, not an alarm.
 ## When the feed pauses
 
 The repo page header carries a feed light. While the page can reach the hub it reads
-**live from git — read-only**: every poll re-derives the state fresh from git, and nothing on
-the page can change anything. If two polls in a row fail — the hub died, or your machine slept —
+**live from git — read-only**: every poll derives the state fresh from git, nothing is held
+between polls, and nothing on the page can change anything. What an unchanged poll skips is the
+download, not the derivation — see the fingerprint below. If two polls in a row fail — the hub
+died, or your machine slept —
 the label flips to **snapshot — feed paused**: the page keeps showing the last state it fetched,
 but it is no longer updating. One missed poll never flips the label, and the first successful
-poll flips it back to live. To revive a dead hub, run the ensure one-liner in "After a reboot"
-below.
+poll flips it back to live. A hidden tab makes no requests at all, so it never flips the label
+either — the page picks up where it left off when you come back. To revive a dead hub, run the
+ensure one-liner in "After a reboot" below.
+
+## The state feed's fingerprint
+
+Both state feeds — `/state.json` in a single repo, and `/r/<slug>/state.json` on the hub — answer
+with an **ETag** response header: a short fingerprint of exactly the bytes that reply carried.
+Send that value back on the next request as `If-None-Match`, and if nothing has changed the server
+answers **304 Not Modified** with no body instead of re-sending the whole document. A tag stops
+matching the moment that repo's state changes, so a 304 never hides new work from you, and each
+repo has its own tag — two repos never share one.
+
+If you poll a feed with a script of your own, four things follow:
+
+- **A 304 carries no body.** Keep the state you already hold — a client that expects JSON on every
+  reply will find an empty response instead.
+- **The token is still checked first.** On the hub a missing or wrong `?key=`, or a Host header
+  outside the allowlist, is rejected before the fingerprint is considered at all: 403, and no ETag
+  on the reply. A conditional request is never a way around the token.
+- **HEAD never 304s.** A HEAD request always answers 200 with the ETag and no body, even when it
+  carries a matching `If-None-Match` — use HEAD to read the current tag cheaply, not to poll for
+  change.
+- **Archived binders ride thin after the first reply.** The page's initial load carries each
+  archived binder's full title, summary, and item counts. Every reply after that — a 200 with a
+  new body — carries only a compact `{slug, total, done}` entry per archived binder under the
+  `archived` key; a script that wants more than counts for a binder archived after load must keep
+  the detail from the first reply and join it by slug.
+
+The watch page already handles the first two for you. Each poll it makes sends back the last tag it
+received as `If-None-Match`, so an unchanged state costs a 304 with no body and the page skips the
+redraw — and a 304 counts as a healthy poll, because a feed with nothing new to say is still live.
+The page also stops polling while its tab is hidden and polls once the moment you come back to it,
+so a watch tab you left in the background costs nothing until you look at it.
 
 ## Turn it off
 

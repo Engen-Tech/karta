@@ -4,8 +4,10 @@
 # ///
 """karta-status poll server: a live, karta-branded status page over the engine.
 
-Zero dependencies — stdlib `http.server` only. Derives state fresh on every request
-from the CWD's `.karta/binders` + git, so running it from a repo renders that repo.
+Zero dependencies — stdlib `http.server` only. Derives state from the CWD's
+`.karta/binders` + git, so running it from a repo renders that repo. Every request
+derives afresh; the git side of that derivation is one batched pass rather than a
+query per binder, and an unchanged poll costs a 304 with no body.
 
   uv run --script serve_status.py                 # http://127.0.0.1:8765
   uv run --script serve_status.py --port 9000     # a different port
@@ -17,7 +19,9 @@ from the CWD's `.karta/binders` + git, so running it from a repo renders that re
 
 Routes:
   GET /            the app HTML shell (a self-contained document; renders via Vue)
-  GET /state.json  the enriched engine state as JSON (recomputed each request)
+  GET /state.json  the enriched engine state as JSON, derived fresh per request.
+                   Carries an ETag over the exact bytes served; a request whose
+                   If-None-Match matches it gets 304 with no body
   GET /assets/<f>  the brand bytes + the vendored Vue (mascot.png, icon.png,
                    vendor/vue.global.prod.js) — same-origin only
 
@@ -29,13 +33,16 @@ route — assets included — and the Host header must be exactly 127.0.0.1:<por
 or localhost:<port>:
   GET /                     landing page — one live card per opted-in repo
   GET /r/<slug>/            that repo's full Karta Watch page
-  GET /r/<slug>/state.json  that repo's state feed
+  GET /r/<slug>/state.json  that repo's state feed — same ETag / If-None-Match
+                            handling, per repo, and always behind the token
   GET /identity             version + script digest + pid + uptime + roster count
 
 The page is "Karta Watch": a read-only mirror of git. A thin stdlib server hands the
 browser the current state inline (for a correct first paint, and so a file:// snapshot
 works without a server) plus the vendored Vue app, which renders the whole design
-reactively and — when not on file:// — polls /state.json every 2.6s as a live mirror.
+reactively and — when not on file://, and only while the tab is visible — polls
+/state.json as a live mirror, replaying the last ETag so an unchanged state costs a
+304 with no body.
 The layout is a single "Delivery" panel holding a vertical timeline of phases —
 Delivered (past), Now (in flight), Next, Later — each phase listing the binders in it
 as expandable cards. A binder card expands to show its work items grouped into waves by
@@ -60,6 +67,7 @@ import io
 import json
 import logging
 import logging.handlers
+import math
 import os
 import re
 import secrets
@@ -392,7 +400,12 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
     """Delivered binders (`.karta/binders/archive/`) join the state as merged rows so
     the Delivered timeline phase keeps its history after karta-deliver archives a
     binder. Archival happens only on a complete run, so every item reads done. A live
-    binder always wins over an archived namesake."""
+    binder always wins over an archived namesake.
+
+    Each appended row is stamped `archived: true`. That flag is the only thing
+    telling an archived row from a live one downstream, and both sides of the
+    payload split read it: split_archived() picks the rows to compact, and the
+    page keeps the detail of exactly these rows as the client's retention map."""
     live = {ob["slug"] for ob in state["binders"]}
     for b in archived:
         if b["slug"] in live:
@@ -402,6 +415,7 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
                  if isinstance(it, dict) and isinstance(it.get("id"), str)]
         state["binders"].append({
             "slug": b["slug"], "after": [], "status": "merged", "is_next": False,
+            "archived": True,
             "items": {"total": len(items), "done": len(items), "built": 0, "failed": 0,
                       "building": 0, "ready": 0, "blocked": 0,
                       "detail": [{"id": it["id"], "status": "done"} for it in items]},
@@ -409,12 +423,146 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
     return state
 
 
-def current_state() -> dict:
-    """Recompute the engine state from the CWD's .karta + git. Never cached.
+# ---------------------------------------------------------------------------
+# The archived payload. A delivered binder is immutable — once karta-deliver
+# archives it, nothing about it changes again. But its row is nearly all prose:
+# a title, a summary, a motivation, and a titled, summarised, oracle-bearing
+# line per work item. On a real checkout that finished history dwarfs the live
+# work — 17 archived binders serialize to 98.5 KB of a /state.json carrying
+# ZERO live binders — and a browser tab re-downloads all of it every 2.6 s,
+# forever, growing with every delivery.
+#
+# So the detail travels ONCE, with the initial page, where it already rides as
+# the inlined first-paint state. The repeated poll carries only a compact entry
+# per archived binder: its slug and the counts the rail card renders, no prose.
+# The client keeps the detail it received at load and joins the two by slug —
+# join_archived() below, mirrored into the page's joinArchived(). Opening the
+# Delivered group stays instant, because nothing has to be fetched to render it.
+#
+# What this deliberately does NOT do, and why:
+#
+#   - it does not shrink the initial page, and no such claim is made. The detail
+#     still rides it. That IS the point: a saved file:// copy cannot fetch
+#     anything, so everything the Delivered group needs must already be in the
+#     document. The win is the REPEATED poll — about 98.5 KB down to about 2 KB.
+#   - it adds no route. Fetching detail on demand was considered and rejected:
+#     the route would take a slug (a path-traversal surface that would have to
+#     resolve against the known archived set), inherit the token check, the Host
+#     pin, asset confinement and _inert_json escaping — and still break the
+#     saved copy, which has no server to ask.
+#   - it does not repair the one degraded case. A binder archived WHILE a page
+#     is open arrives as a compact entry the client holds no detail for, because
+#     detail arrived at load and this binder was not archived then. It renders
+#     from the entry alone — its slug as the label, with its counts — visibly
+#     thinner than its neighbours until the next page load. That is accepted: it
+#     happens once, when a delivery finishes, and the repair would be exactly
+#     the fetch this mechanism exists to avoid.
+# ---------------------------------------------------------------------------
 
-    Returns the engine state with each item enriched (title/summary/oracle/assert/cmd/deps)
-    and each binder carrying its human title/summary/motivation, by joining back to the
-    binder definitions. Archived (delivered) binders are appended as merged rows."""
+# The wire ceiling for ONE compact entry, in the bytes _inert_json actually
+# emits. Derived from the entry's shape rather than guessed: the framing
+# ({"slug":"","total":N,"done":N} plus its separating comma) is fixed, the
+# counts are small integers, and karta's slugs are kebab-case ASCII running well
+# under 48 characters — so 96 bytes holds a 48-byte slug with headroom. A LONGER
+# slug widens the entry byte for byte, and archived_entry_bound() widens the
+# ceiling with it, so a long slug reports a wider bound instead of failing
+# without explanation. A RICHER entry shape gets no such allowance: it breaches
+# the ceiling at the stated slug length and must fail rather than quietly widen.
+ARCHIVED_ENTRY_BOUND_BYTES = 96
+ARCHIVED_ENTRY_BOUND_SLUG_BYTES = 48
+
+
+def archived_entry_bound(slug_bytes: int = ARCHIVED_ENTRY_BOUND_SLUG_BYTES) -> int:
+    """Wire bytes one compact archived entry may add to a poll, for a slug of
+    `slug_bytes`: 96 up to a 48-byte slug, widening byte for byte beyond it."""
+    return (ARCHIVED_ENTRY_BOUND_BYTES
+            + max(0, slug_bytes - ARCHIVED_ENTRY_BOUND_SLUG_BYTES))
+
+
+def _archived_entry(row: dict) -> dict:
+    """The compact per-poll form of one archived binder row: its slug and the
+    item counts the rail card renders. No prose, no item ids, no per-item
+    detail — every one of those is immutable and already at the client."""
+    items = row.get("items") or {}
+    total = int(items.get("total") or 0)
+    done = items.get("done")
+    return {"slug": row["slug"], "total": total,
+            "done": total if done is None else int(done)}
+
+
+def split_archived(state: dict) -> dict:
+    """The POLLED form of `state`: archived binder rows replaced by compact
+    entries under "archived". The page keeps the full form (render_app_html
+    inlines it) — only the repeated poll sheds the prose.
+
+    Read-only in both directions: hub mode's per-repo engine hands the same
+    state object to every consumer inside its cache window, so this builds a new
+    dict and a new binder list, and hands the live rows through by reference
+    rather than copying or editing them."""
+    live, archived = [], []
+    for row in state.get("binders") or []:
+        (archived if row.get("archived") else live).append(row)
+    polled = dict(state)
+    polled["binders"] = live
+    polled["archived"] = [_archived_entry(r) for r in archived]
+    return polled
+
+
+def join_archived(detail_by_slug: dict, compact_entries: list) -> list[dict]:
+    """Merge the archived detail held since page load with the compact entries a
+    poll carried, keyed by slug. This is the whole mechanism, as one pure
+    function, so the self-test drives it by direct call instead of through a
+    template it cannot reach. Mirrored by joinArchived() in _APP_JS.
+
+    A slug in both yields the full row it arrived with. A slug with only a
+    compact entry — archived while this page was open — yields a thin row: its
+    slug as the label (title null, so the page's titleCase(slug) fallback names
+    it), its counts, and no items. A slug with only stale detail and no compact
+    entry is no longer archived, so it disappears.
+
+    The invariant behind "the full row it arrived with", stated because it looks
+    like a bug twice a day: AN ARCHIVED ROW IS FROZEN AT PAGE LOAD, and a poll's
+    counts for a slug already held are advisory — deliberately discarded, not
+    forgotten. They cannot disagree. current_state() hands gather_git_facts()
+    the live binders only, so an archived binder's counts come from its archive
+    file, which does not change once written. A slug arriving archived mid-
+    session has no held row and so takes its counts from the entry, which is the
+    only case where they carry information."""
+    # MIRROR: change together with joinArchived() in _APP_JS and the archived self-test.
+    rows: list[dict] = []
+    for e in compact_entries or []:
+        slug = e.get("slug") if isinstance(e, dict) else None
+        if not isinstance(slug, str) or not slug:
+            continue
+        held = detail_by_slug.get(slug)
+        if held is not None:
+            rows.append(held)
+            continue
+        total = int(e.get("total") or 0)
+        done = e.get("done")
+        rows.append({
+            "slug": slug, "after": [], "status": "merged", "is_next": False,
+            "archived": True, "title": None, "summary": None,
+            "items": {"total": total, "done": total if done is None else int(done),
+                      "built": 0, "failed": 0, "building": 0, "ready": 0,
+                      "blocked": 0, "detail": []},
+        })
+    return rows
+
+
+def current_state() -> dict:
+    """The engine state for the CWD's .karta + git, enriched.
+
+    Derived on every call. Nothing is kept between calls: the binders are
+    loaded, git is queried in one batched pass, and the result is enriched and
+    returned. So a poll can never answer with a fact git has already moved past,
+    and no fingerprint has to be maintained in step with what the derivation
+    reads.
+
+    The state carries each item enriched (title/summary/oracle/assert/cmd/deps)
+    and each binder its human title/summary/motivation, joined back to the
+    binder definitions; archived (delivered) binders are appended as merged
+    rows."""
     binders = karta_next.load_binders()
     archived = karta_next.load_archived_binders()
     facts = karta_next.gather_git_facts(binders, karta_next._default_branch())
@@ -816,27 +964,73 @@ body{
 # mirror here is the deterministic seam the self-test drives. Keep in lockstep.
 # FEED_PAUSED_LABEL is a binder-declared shared term (byte-identical in the
 # watch docs) — this constant is its single definition.
+#
+# A conditional poll answers 304 far more often than 200, so which statuses
+# count as healthy is now part of this function's own domain rather than a
+# judgement the caller makes on its way in: 304 IS the saving working — the
+# feed is live, it just had nothing new to say — and reading it as a dead feed
+# would light the paused dot on a perfectly healthy page.
 # ---------------------------------------------------------------------------
 
 FEED_LIVE_LABEL = "live from git — read-only"
 FEED_PAUSED_LABEL = "snapshot — feed paused"
 FEED_PAUSE_AFTER = 2   # consecutive poll failures before the label flips
+FEED_OK_STATUSES = [200, 304]   # a poll status the feed counts as healthy
 
 
-def _feed_transition(state: dict, ok: bool) -> dict:
-    """Python mirror of the page's feedTransition(): state in, state out."""
+def _feed_transition(state: dict, status: int | None) -> dict:
+    """Python mirror of the page's feedTransition(): state in, state out.
+
+    `status` is the HTTP status the poll answered with, or None when the
+    request never completed. 200 and 304 are both healthy; anything else is a
+    failure, and only FEED_PAUSE_AFTER consecutive failures pause the feed."""
     # MIRROR: change together with feedTransition() in _APP_JS and the feed self-test.
-    if ok:
+    if status in FEED_OK_STATUSES:
         return {"failures": 0, "paused": False}
     failures = state["failures"] + 1
     return {"failures": failures, "paused": failures >= FEED_PAUSE_AFTER}
 
 
 # ---------------------------------------------------------------------------
+# The poll decision — should this moment ask the server anything at all?
+#
+# A hidden tab is the cheapest poll to skip: nobody is reading it, and the
+# answer it would download is thrown away. So the page stops polling while the
+# document is hidden and catches up the moment it comes back. The branching is
+# THIS pure function, not an `if` buried in a Vue lifecycle hook, because a
+# Python self-test can call a function directly and can never fire a lifecycle
+# hook — the page's pollDecision() below is the same function in JS, and both
+# the interval tick and the visibilitychange listener route through it, so
+# "hidden means no request" is decided in exactly one place.
+#
+# `has_etag` — whether a fingerprint from an earlier poll is held — is an input
+# on purpose and never changes the answer. A held tag makes a poll CHEAPER (a
+# 304 with no body), never unnecessary, and the self-test pins that
+# independence so a later edit cannot quietly turn "I already have a tag" into
+# "I need not ask", which would freeze the page on stale state.
+# ---------------------------------------------------------------------------
+
+
+def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:
+    """What this moment should do: 'skip', 'poll', or 'poll-now'.
+
+    'skip'      — the document is hidden: make no request, run no timer.
+    'poll-now'  — it just became visible: catch up at once, then resume the
+                  normal schedule.
+    'poll'      — it was visible and still is: the ordinary scheduled poll."""
+    # MIRROR: change together with pollDecision() in _APP_JS and the poll self-test.
+    if not visible:
+        return "skip"
+    if not was_visible:
+        return "poll-now"
+    return "poll"
+
+
+# ---------------------------------------------------------------------------
 # The Vue 3 app. Uses the vendored global build (Vue.createApp), an in-document
 # template (no build step). Mounts from the inlined initial state for a correct
-# first paint, then — only off file:// — polls /state.json every 2.6s as the live
-# mirror. The layout is the design's vertical phase timeline: a Delivery panel of
+# first paint, then — only off file://, and only while the tab is visible —
+# polls /state.json as the live mirror. The layout is the design's vertical phase timeline: a Delivery panel of
 # phases (Delivered/Now/Next/Later), each listing its binders as expandable cards,
 # each binder expanding to its waves (parallel-within, serial-between). All
 # interaction (open/expand, show-delivered, theme) is client state — no round-trip.
@@ -863,17 +1057,68 @@ const SHELL = __SHELL__;
 // constants the self-test asserts (FEED.paused is the shared feed-paused term).
 const FEED = __FEED_LABELS__;
 const FEED_PAUSE_AFTER = __FEED_PAUSE_AFTER__;
+const FEED_OK_STATUSES = __FEED_OK_STATUSES__;
 
-// Pure feed transition — state in, state out, no I/O. A success is always
-// live; only FEED_PAUSE_AFTER consecutive failures pause (a single transient
-// failure never flickers); the first success after a pause recovers. Mirrored
-// by _feed_transition() in serve_status.py, which the self-test drives —
+// Pure feed transition — state in, state out, no I/O. `status` is the HTTP
+// status the poll answered with, or null when the request never completed.
+// 200 and 304 are both healthy (a 304 is the conditional poll working, not a
+// dead feed); only FEED_PAUSE_AFTER consecutive failures pause (a single
+// transient failure never flickers); the first success after a pause recovers.
+// Mirrored by _feed_transition() in serve_status.py, which the self-test drives —
 // keep the two in lockstep.
 // MIRROR: change together with _feed_transition() in serve_status.py and the feed self-test.
-function feedTransition(state, ok) {
-  if (ok) return { failures: 0, paused: false };
+function feedTransition(state, status) {
+  if (FEED_OK_STATUSES.indexOf(status) !== -1) return { failures: 0, paused: false };
   const failures = state.failures + 1;
   return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
+}
+
+// The poll decision — should this moment ask the server anything at all? A
+// hidden tab downloads an answer nobody reads, so it polls not at all and
+// catches up the moment it comes back. Kept out of the lifecycle hooks as a
+// pure function so the Python self-test can call it directly (it can never
+// fire a Vue hook), and routed through by BOTH the interval tick and the
+// visibilitychange listener, so "hidden means no request" lives in one place.
+// `hasEtag` never changes the answer: a held tag makes a poll cheaper, never
+// unnecessary. Mirrored by poll_decision() in serve_status.py, which the
+// self-test drives — keep the two in lockstep.
+// MIRROR: change together with poll_decision() in serve_status.py and the poll self-test.
+function pollDecision(visible, wasVisible, hasEtag) {
+  if (!visible) return 'skip';
+  if (!wasVisible) return 'poll-now';
+  return 'poll';
+}
+
+// The archived join — the whole shed-archived-payload mechanism, kept out of
+// the template so the self-test can drive it. Delivered binders are immutable,
+// so their detail rides the initial page ONCE (already inlined, which is what
+// makes a saved file:// copy render the Delivered group with no server) and
+// every poll carries only a compact {slug,total,done} entry each. This merges
+// the two by slug: a slug in both keeps the full row it arrived with; a slug
+// with only a compact entry — a binder archived while this page was open —
+// renders thin, from the entry alone (title null, so titleCase(slug) names it),
+// which is accepted and deliberately NOT repaired by fetching; a slug with only
+// stale detail and no compact entry is no longer archived and disappears.
+// Mirrored by join_archived() in serve_status.py, which the self-test drives —
+// keep the two in lockstep.
+// MIRROR: change together with join_archived() in serve_status.py and the archived self-test.
+function joinArchived(detailBySlug, entries) {
+  const rows = [];
+  (entries || []).forEach(e => {
+    const slug = (e && e.slug);
+    if (typeof slug !== 'string' || !slug) return;
+    const held = detailBySlug[slug];
+    if (held !== undefined && held !== null) { rows.push(held); return; }
+    const total = Number(e.total) || 0;
+    const done = (e.done === undefined || e.done === null) ? total : Number(e.done);
+    rows.push({
+      slug: slug, after: [], status: 'merged', is_next: false,
+      archived: true, title: null, summary: null,
+      items: { total: total, done: done, built: 0, failed: 0, building: 0,
+               ready: 0, blocked: 0, detail: [] },
+    });
+  });
+  return rows;
 }
 
 // A render helper for inline <svg> icons, matching the design's icon() factory.
@@ -903,7 +1148,14 @@ const Icon = {
 };
 
 function metaFor(status) { return STATE_META[status] || STATE_META.ready; }
-function doneCountOf(b) { return b.items.detail.filter(d => d.status === 'done' || d.status === 'built').length; }
+// A thin archived row (joinArchived, for a binder archived mid-session) carries
+// its counts but no per-item detail, so fall back to the count it was handed
+// rather than reporting 0 done against a real total.
+function doneCountOf(b) {
+  const d = (b.items && b.items.detail) || [];
+  if (!d.length) return (b.items && b.items.done) || 0;
+  return d.filter(x => x.status === 'done' || x.status === 'built').length;
+}
 // fallback headline for a binder authored before it carried a human `title`:
 // turn its kebab slug into Title Case ("note-tags-edit" -> "Note Tags Edit").
 function titleCase(slug) {
@@ -933,17 +1185,30 @@ function wavesOf(items) {
 const app = createApp({
   components: { Icon },
   data() {
+    const initial = window.__KARTA_STATE__ || { binders: [], repo: { default_branch: 'main' }, next_action: {} };
+    // The retention map: archived detail arrives ONCE, inlined with this page,
+    // and every later poll carries only compact entries to join against it.
+    // Built here, at load, and never refreshed — a poll has no prose to give.
+    const archivedDetail = {};
+    (initial.binders || []).forEach(b => { if (b && b.archived) archivedDetail[b.slug] = b; });
     return {
-      state: window.__KARTA_STATE__ || { binders: [], repo: { default_branch: 'main' }, next_action: {} },
+      state: initial,
+      archivedDetail: archivedDetail,
       expanded: {},      // 'slug/itemId' -> bool
       open: {},          // slug -> bool (binder open/collapse; default-open for `now`)
       shell: SHELL,
       feed: { failures: 0, paused: false },
       polls: 0,
+      // The fingerprint the last poll answered with, replayed on the next one
+      // so an unchanged state comes back as a 304 with no body. Null until the
+      // first poll has been answered — the first request has nothing to hold.
+      etag: null,
+      wasVisible: document.visibilityState !== 'hidden',
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
       _pollTimer: null,
+      _onVisibility: null,
     };
   },
   computed: {
@@ -1023,7 +1288,7 @@ const app = createApp({
     // design's mkBinder(). Items come from the enriched engine detail.
     mkBinder(b, key) {
       const meta = PHASE_META[key];
-      const items = b.items.detail;
+      const items = b.items.detail || [];   // a thin archived row has none
       const waveArr = wavesOf(items);
       const dc = doneCountOf(b), tot = b.items.total;
       const waves = waveArr.map((w, wi) => ({
@@ -1072,13 +1337,57 @@ const app = createApp({
       document.documentElement.dataset.theme = this.theme;
       try { localStorage.setItem('karta-theme', this.theme); } catch (e) {}
     },
+    // A poll carries archived binders as compact entries, not as rows. Rejoin
+    // them with the detail held since page load, into a NEW object — Vue
+    // re-renders off the assignment, and the cached rows stay untouched.
+    withArchived(s) {
+      if (!s || !s.archived) return s;
+      const merged = Object.assign({}, s);
+      merged.binders = (s.binders || []).concat(joinArchived(this.archivedDetail, s.archived));
+      return merged;
+    },
+    // One moment of the loop: ask the pure decision what to do, then do it.
+    // The interval tick and the visibilitychange listener both land here, so a
+    // hidden tab stops the timer instead of ticking into a no-op, and coming
+    // back polls once immediately before the schedule resumes.
+    step() {
+      const visible = (document.visibilityState !== 'hidden');
+      const decision = pollDecision(visible, this.wasVisible, this.etag !== null);
+      this.wasVisible = visible;
+      if (decision === 'skip') { this.stopPolling(); return; }
+      if (decision === 'poll-now') this.startPolling();
+      this.poll();
+    },
+    startPolling() {
+      if (this._pollTimer === null) this._pollTimer = setInterval(() => this.step(), POLL_MS);
+    },
+    stopPolling() {
+      if (this._pollTimer !== null) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    },
     poll() {
       // Relative + query-preserving: at / this resolves to /state.json; under
       // the hub's /r/<slug>/ it is that repo's own feed — and ?key= rides along.
-      fetch('state.json' + location.search, { cache: 'no-store' })
-        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(s => { this.state = s; this.feed = feedTransition(this.feed, true); this.polls += 1; })
-        .catch(() => { this.feed = feedTransition(this.feed, false); });
+      // The held fingerprint rides along too, so an unchanged state answers 304
+      // with no body; the first poll holds none and asks unconditionally. The
+      // server sends Cache-Control: no-store, so nothing revalidates on its own
+      // — this header is the whole saving.
+      const headers = {};
+      if (this.etag !== null) headers['If-None-Match'] = this.etag;
+      fetch('state.json' + location.search, { cache: 'no-store', headers: headers })
+        .then(r => {
+          const tag = r.headers.get('ETag');
+          if (tag) this.etag = tag;
+          // 304: unchanged. Neither reassign state nor re-render — and count it
+          // as the healthy poll it is.
+          if (r.status === 304) { this.feed = feedTransition(this.feed, 304); this.polls += 1; return; }
+          if (!r.ok) throw new Error(r.status);
+          return r.json().then(s => {
+            this.state = this.withArchived(s);
+            this.feed = feedTransition(this.feed, 200);
+            this.polls += 1;
+          });
+        })
+        .catch(() => { this.feed = feedTransition(this.feed, null); });
     },
   },
   mounted() {
@@ -1086,13 +1395,20 @@ const app = createApp({
     // baked into data-theme on reload). CSS keys off :root[data-theme=...].
     document.documentElement.dataset.theme = this.theme;
     // The live mirror: only poll when actually served over http(s). A file://
-    // snapshot keeps the inlined first-paint state and never tries to fetch.
+    // snapshot keeps the inlined first-paint state and registers neither a
+    // timer nor a listener — it never tries to fetch.
     if (location.protocol !== 'file:') {
-      this._pollTimer = setInterval(() => this.poll(), POLL_MS);
+      this._onVisibility = () => this.step();
+      document.addEventListener('visibilitychange', this._onVisibility);
+      if (this.wasVisible) this.startPolling();
     }
   },
   beforeUnmount() {
-    clearInterval(this._pollTimer);
+    this.stopPolling();
+    if (this._onVisibility !== null) {
+      document.removeEventListener('visibilitychange', this._onVisibility);
+      this._onVisibility = null;
+    }
   },
   template: `
 <div class="wrap">
@@ -1228,7 +1544,7 @@ const app = createApp({
       (try <span class="mono">karta-plan</span>) and the delivery will chart itself here.</p>
   </section>
 
-  <footer class="foot">karta · derived fresh from git every poll · read-only</footer>
+  <footer class="foot">karta · mirrors git · read-only</footer>
 </div>
 `,
 });
@@ -1265,6 +1581,8 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
+        .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
+                                                    separators=(",", ":")))
         .replace("__ASSET_QS__", asset_qs)
     )
 
@@ -1294,10 +1612,21 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
 # ---------------------------------------------------------------------------
 
 
-def _inert_json(obj) -> str:
+def _inert_json(obj, *, pinned: bool = False) -> str:
     """json.dumps with markup-significant bytes escaped, JSON-correctly (the
-    output decodes to the identical value). See the neutralization note above."""
-    return (json.dumps(obj, separators=(",", ":"))
+    output decodes to the identical value). See the neutralization note above.
+
+    `pinned` adds the two properties the state feed needs and the inline page
+    does not. Keys are sorted, so two processes holding equal state emit the
+    same bytes — and therefore the same ETag — however their dicts happen to be
+    ordered. NaN and Infinity are refused rather than emitted bare: they are not
+    JSON, so JSON.parse rejects the reply the page fetches, and NaN would also
+    hash two payloads that are NOT equal to one identical tag. Refusing RAISES,
+    and state_body() answers that by sanitizing the payload and serializing
+    again — never by passing the raw value through some laxer encoder, which
+    would put back exactly what the refusal exists to keep off the wire."""
+    return (json.dumps(obj, separators=(",", ":"),
+                       sort_keys=pinned, allow_nan=not pinned)
             .replace("&", "\\u0026")
             .replace("<", "\\u003c")
             .replace(">", "\\u003e")
@@ -1718,6 +2047,181 @@ def _degraded_state(error: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# The state feed's fingerprint — conditional GET
+# ---------------------------------------------------------------------------
+#
+# A poll that changes nothing still costs the whole document. The fingerprint
+# lets that poll answer 304 instead: the body the route is about to serve is
+# hashed, the hash rides back as an ETag, and a browser replaying it in
+# If-None-Match gets the short reply with no body.
+#
+# The tag is STRONG — an unquoted-prefix `"sha256:<hex>"`, not `W/"..."` — and a
+# strong tag is a claim of byte-identity: hand back the same tag and the client
+# is entitled to reuse the bytes it already has, verbatim. So the tag is taken
+# over the exact bytes this route serves and not over any other rendering of the
+# same state. Hashing a second serialisation would leave the two free to drift —
+# change the wire form and every held tag starts certifying bytes the server no
+# longer sends — and would pay for a serialisation nobody transmits. One
+# function does both, which is why state_body() returns the pair.
+#
+# Three properties the saving rests on, each of which fails SILENTLY when
+# broken — the feed keeps working correctly and only the saving disappears:
+#
+#   Pinned serialisation. The bytes come out of _inert_json(pinned=True):
+#   sorted keys, fixed separators, no NaN or Infinity. Unpinned, dict insertion
+#   order would make the tag differ between two processes holding equal state
+#   and every conditional poll would miss.
+#
+#   No volatile field. What gets hashed is the derived state, which carries no
+#   timestamp, counter or uptime. One such field makes every tag unique and 304
+#   never fires.
+#
+#   No fallback encoder. A value json cannot serialize must RAISE rather than
+#   fall back to repr(), whose embedded object address differs per process — so
+#   no `default=` argument, ever.
+#
+# And one property that fails LOUDLY, which is why every call site checks it
+# first: authorisation runs before any conditional handling. A tag is an answer
+# about state, so a caller who could not have read the state must never receive
+# one — see _Handler._state_feed.
+
+
+# How deep the sanitizing walk descends before it renders the rest as null.
+#
+# Only the RECOVERY path is bounded, and json.dumps itself gives up somewhere
+# near 48000 levels, so nothing json could have encoded is ever truncated by
+# this — it exists purely so the walk survives a payload json ALREADY refused.
+# 100 sits an order of magnitude above anything the derivation produces (state
+# to binder to item to detail is about six) and an order of magnitude below
+# CPython's default recursion limit of 1000, where a plain recursive walk dies
+# around 1200 — headroom for the frames already on the stack while a request is
+# being served, and for the encoder's own frames on the retry.
+#
+# Fixed, deliberately, rather than derived from sys.getrecursionlimit(): the
+# ETag must be identical in every process holding equal state, and a bound that
+# varied per process would vary the bytes and so vary the tag.
+JSON_MAX_DEPTH = 100
+
+
+def _json_key(k) -> str:
+    """A dict key as JSON names it — MIRRORING json.dumps, not str().
+
+    The two disagree wherever it would be noticed, and most of all on the keys
+    that force the recovery path in the first place: json names a non-finite
+    float key "NaN" / "Infinity" / "-Infinity" where str() gives "nan" / "inf" /
+    "-inf", a bool key "true"/"false" against "True"/"False", and a None key
+    "null" against "None". Since only the recovery path coerces keys, any
+    divergence would render the same logical state under different key names
+    depending on whether an unrelated value sent it down that path.
+
+    So this follows the order in json.encoder._make_iterencode exactly: str
+    passes through, float takes the float-string rule, then the three
+    identity tests, then int. FLOAT IS TESTED BEFORE THE BOOL AND NONE CHECKS
+    because json tests it there, and `int` comes last because bool is a subclass
+    of it. `int.__repr__` and `float.__repr__` are called unbound, as json calls
+    them, so a subclass overriding __str__ cannot rename its own key.
+
+    The closing str() covers key types json refuses outright (a tuple, a
+    Decimal). json emits no body at all for those, so there is no rendering of
+    its to disagree with — the coercion only ever turns "no reply" into one."""
+    if isinstance(k, str):
+        return k
+    if isinstance(k, float):
+        if math.isnan(k):
+            return "NaN"
+        if math.isinf(k):
+            return "-Infinity" if math.copysign(1.0, k) < 0 else "Infinity"
+        return float.__repr__(k)
+    if k is True:
+        return "true"
+    if k is False:
+        return "false"
+    if k is None:
+        return "null"
+    if isinstance(k, int):
+        return int.__repr__(k)
+    return str(k)
+
+
+def _json_safe(obj, _ancestors: tuple = ()):
+    """A copy of `obj` the pinned serialisation can encode: every non-finite
+    float becomes None, every dict key becomes the string JSON names it by, and
+    anything past JSON_MAX_DEPTH — including a reference back into the value
+    currently being walked — becomes None.
+
+    All of it is the JSON-compliant rendering rather than data loss. JSON has
+    null and has no NaN, no Infinity and no way to express a cycle, so null IS
+    how JSON says "nothing representable here". A coerced key colliding with a
+    string key already present keeps the later value; a payload holding both `1`
+    and `"1"` is ambiguous on the wire either way, since the ordinary form emits
+    the same name twice.
+
+    `_ancestors` holds the ids of the containers this walk is currently INSIDE,
+    which is what makes the cycle guard a cycle guard: an object reached twice
+    down two separate branches is copied twice, and only a reference back into
+    an enclosing container is cut. Its LENGTH is the current depth, so one test
+    covers both ways this walk could fail to terminate in time — a cycle, which
+    json.dumps reports as a ValueError, and plain acyclic nesting deeper than
+    the encoder will go, which json.dumps reports as a RecursionError. Both
+    reach here through state_body's recovery path, and an unbounded walk would
+    then raise RecursionError of its own, escape, and leave the request as a
+    dropped connection rather than a reply.
+
+    Plain containers are rebuilt, so a dict or list subclass cannot carry a
+    value past the walk. Total over anything json can encode, and it rewrites
+    nothing else — a value json cannot encode at all is left to raise where it
+    would have raised anyway."""
+    if isinstance(obj, (dict, list, tuple)):
+        if len(_ancestors) >= JSON_MAX_DEPTH or id(obj) in _ancestors:
+            return None
+        inside = _ancestors + (id(obj),)
+        if isinstance(obj, dict):
+            return {_json_key(k): _json_safe(v, inside) for k, v in obj.items()}
+        return [_json_safe(v, inside) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
+
+
+def state_body(payload) -> tuple[str, str | None]:
+    """(body, ETag) for a state payload — the bytes to serve and the strong
+    quoted tag `"sha256:<hex>"` over exactly those bytes.
+
+    Serialized once, hashed once, so the tag can never name a representation
+    this server does not send.
+
+    A payload the pinned form refuses is SANITIZED and serialized again, not
+    handed to a laxer encoder. The difference matters: the ordinary form emits a
+    non-finite float as a bare `NaN` or `Infinity`, which is not JSON, so the
+    page would take a 200 it cannot parse and quietly stop updating — a worse
+    outcome than the 500 the fallback exists to avoid. `json.loads` accepts both
+    literals, so a hand-edited binder really can put one into the state.
+
+    RecursionError is caught alongside the two: json.dumps reports a cycle as a
+    ValueError but plain nesting deeper than it will go as a RecursionError, and
+    letting that one through would leave the caller with a dropped connection
+    instead of a reply. _json_safe's own depth bound is what makes catching it
+    useful — an unbounded walk would only raise it again.
+
+    A sanitized payload sorts and encodes, so it is normally still taggable and
+    the poll keeps its saving. The last resort — keys that ARE strings and yet
+    refuse to be ordered — serves the sanitized bytes without a tag: whatever
+    else goes wrong, no reply carries something a browser cannot parse. A value
+    json cannot encode at all still raises, because there is then nothing to
+    serve."""
+    try:
+        body = _inert_json(payload, pinned=True)
+    except (TypeError, ValueError, RecursionError):
+        safe = _json_safe(payload)
+        try:
+            body = _inert_json(safe, pinned=True)
+        except (TypeError, ValueError, RecursionError):
+            return (_inert_json(safe), None)
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return (body, f'"sha256:{digest}"')
+
+
+# ---------------------------------------------------------------------------
 # HTTP handler
 # ---------------------------------------------------------------------------
 
@@ -1729,10 +2233,13 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:  # quieter logs
         sys.stderr.write("  %s - %s\n" % (self.address_string(), fmt % args))
 
-    def _send(self, code: int, body: bytes, ctype: str, *, cache: bool = False) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, *, cache: bool = False,
+              etag: str | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        if etag:
+            self.send_header("ETag", etag)
         if cache:
             self.send_header("Cache-Control", "public, max-age=86400")
         else:
@@ -1741,13 +2248,70 @@ class _Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _text(self, code: int, text: str, ctype: str) -> None:
-        self._send(code, text.encode("utf-8"), f"{ctype}; charset=utf-8")
+    def _text(self, code: int, text: str, ctype: str,
+              *, etag: str | None = None) -> None:
+        self._send(code, text.encode("utf-8"), f"{ctype}; charset=utf-8",
+                   etag=etag)
+
+    def _state_feed(self, payload: dict) -> None:
+        """Serve a state payload as the conditional feed both modes share.
+
+        AUTHORISATION HAS ALREADY RUN at every call site — the ?key= token in
+        ephemeral mode, the Host pin AND the constant-time token comparison in
+        hub mode — so no unauthorised request ever reaches a tag. Keep that
+        order: a 304 is an answer about state, and a tag handed to a caller who
+        could not have read the state is a state oracle.
+
+        The tag covers what THIS route serves, not the unsplit state, so the
+        two feeds stay honest about their own bytes."""
+        body, etag = state_body(payload)
+        # HEAD routes through do_GET on this server, so it needs the explicit
+        # exemption: HEAD answers 200 with the tag and no body, never 304.
+        # Without it a later refactor turns HEAD into a cheap state probe.
+        # No tag means no conditional handling at all — there is nothing to
+        # compare against and nothing to promise the client about the bytes.
+        if etag and self.command != "HEAD" and self._if_none_match(etag):
+            return self._not_modified(etag)
+        return self._text(200, body, "application/json", etag=etag)
+
+    def _if_none_match(self, etag: str) -> bool:
+        """Does the request already hold this representation?
+
+        The header carries a comma-separated list, or the single token `*`.
+        `*` means "whatever you have" — it matches when the server has any
+        current representation, which it does or this method would not have been
+        reached. Otherwise each member is compared after dropping a `W/` weak
+        prefix, which is the comparison RFC 9110 defines for If-None-Match: our
+        own tags are strong, so a cache handing one back in weak form is still
+        naming the same bytes."""
+        supplied = self.headers.get("If-None-Match", "")
+        held = [candidate.strip() for candidate in supplied.split(",")]
+        if "*" in held:
+            return True
+        bare = etag.removeprefix("W/")
+        return any(candidate.removeprefix("W/") == bare for candidate in held)
+
+    def _not_modified(self, etag: str) -> None:
+        """304: the tag, and deliberately no body and no Content-Length."""
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
 
     def _key_ok(self, qs: dict) -> bool:
+        """Ephemeral mode's ?key= check.
+
+        No key configured is OPEN, deliberately: this mode binds loopback only
+        and the user starts it for their own session, so the open path is
+        written out rather than falling out of a comparison against None. When a
+        key IS set the comparison is constant-time, exactly as hub mode compares
+        its token — the two are the same kind of secret over the same loopback
+        socket, and they must not answer at different speeds."""
         if not self.required_key:
             return True
-        return qs.get("key", [None])[0] == self.required_key
+        supplied = qs.get("key", [""])[0] or ""
+        return hmac.compare_digest(supplied.encode("utf-8"),
+                                   self.required_key.encode("utf-8"))
 
     def do_HEAD(self) -> None:
         self.do_GET()
@@ -1768,7 +2332,10 @@ class _Handler(BaseHTTPRequestHandler):
         theme = theme if theme in ("light", "dark") else None
 
         if path == "/state.json":
-            return self._text(200, _inert_json(current_state()), "application/json")
+            # split_archived: the poll carries compact archived entries, not the
+            # immutable prose the initial page already delivered once. The
+            # conditional handling sits AFTER the key check above.
+            return self._state_feed(split_archived(current_state()))
 
         if path in ("/", "/index.html"):
             return self._text(200, render_app_html(
@@ -1778,7 +2345,11 @@ class _Handler(BaseHTTPRequestHandler):
         return self._text(404, "not found", "text/plain")
 
     def _serve_asset(self, path: str) -> None:
-        # resolve relative to the assets dir; allow one nested level (vendor/<f>).
+        # resolve relative to the assets dir. Any DEPTH beneath it serves — the
+        # confinement below is what bounds this, not the nesting level — and
+        # only files that already exist there do. vendor/<f> is the one nesting
+        # shipped today; anything put deeper is reachable, so put it there
+        # deliberately.
         rel = path[len("/assets/"):]
         target = (ASSETS_DIR / rel).resolve()
         # confine to the assets dir
@@ -1867,7 +2438,11 @@ class _HubHandler(_Handler):
             res = self.server.engine_for(root).state()
             state = res["state"] if res["ok"] else _degraded_state(res["error"])
             if m.group(2):
-                return self._text(200, _inert_json(state), "application/json")
+                # the hub's per-repo feed sheds archived prose exactly as the
+                # repo-mode feed does — same poll, same split — and carries the
+                # same fingerprint. Both the Host pin and the token comparison
+                # at the top of this method have already run and passed.
+                return self._state_feed(split_archived(state))
             repos = load_state(self.server.hub_state_dir)["repos"]
             return self._text(200, render_app_html(
                 state, theme, key_qs=key_qs,
@@ -3527,6 +4102,1033 @@ def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     return checks
 
 
+def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """shed-archived-payload: delivered history travels ONCE with the initial
+    page, the repeated poll carries a compact entry per archived binder, and the
+    client joins the two by slug. Every check drives the real seams the server
+    and the page use — split_archived() as the handlers serve it, join_archived()
+    as _APP_JS mirrors it — against a real git repository holding real archive
+    files, so the payload numbers are measured rather than asserted."""
+    import inspect
+
+    checks: list[tuple[str, bool]] = []
+    root = scratch / "archived"
+    root.mkdir(parents=True, exist_ok=True)
+
+    def git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                              text=True, check=True)
+
+    @contextlib.contextmanager
+    def in_dir(path: Path):
+        old = os.getcwd()
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(old)
+
+    def mk_repo(name: str) -> Path:
+        path = root / name
+        path.mkdir(parents=True, exist_ok=True)
+        git(["init", "-q", "-b", "main", "."], path)
+        git(["config", "user.email", "t@example.com"], path)
+        git(["config", "user.name", "t"], path)
+        (path / "f").write_text("c1")
+        git(["add", "f"], path)
+        git(["commit", "-q", "-m", "c1"], path)
+        return path
+
+    # A delivered binder is almost entirely prose — that prose is the payload
+    # this item stops re-sending, so the fixture carries it at the length real
+    # binders carry it rather than at fixture-stub length.
+    def archive_binder(slug: str, n_items: int = 12) -> dict:
+        return {
+            "slug": slug,
+            "title": f"Deliver the {slug} surface end to end",
+            "summary": ("Everything this binder shipped, described the way a "
+                        "reader who was not here needs it described, at the "
+                        "length a real binder summary actually runs to."),
+            "motivation": ("Why the work was worth doing, in the sentence or two "
+                           "of prose every binder carries with it."),
+            "scope": {"included": ["the surface"], "excluded": ["the redesign"]},
+            "work_items": [
+                {"id": f"{slug}-item-{i:02d}",
+                 "title": f"Work item {i} of the {slug} delivery",
+                 "summary": ("What this item changed, and why it was separable "
+                             "from the rest of the delivery, at the length an "
+                             "item summary actually runs to."),
+                 "depends_on": [f"{slug}-item-{i - 1:02d}"] if i else [],
+                 "oracle": {"type": "unit", "command": "uv run pytest -q",
+                            "assertions": ["the behaviour this item promised is "
+                                           "observable from outside the module"]}}
+                for i in range(n_items)],
+        }
+
+    # -- the budget: twenty archived binders, zero live -----------------------
+    twenty = mk_repo("twenty-archived")
+    arc = twenty / ".karta" / "binders" / "archive"
+    arc.mkdir(parents=True)
+    at_load = [f"delivered-binder-{i:02d}" for i in range(20)]
+    for slug in at_load:
+        (arc / f"{slug}.json").write_text(json.dumps(archive_binder(slug)))
+
+    with in_dir(twenty):
+        full_state = current_state()
+        polled = split_archived(full_state)
+        page = render_app_html(full_state, "dark", repo_name="karta")
+    polled_wire = _inert_json(polled)
+    full_wire = _inert_json(full_state)
+    rows = {b["slug"]: b for b in full_state["binders"] if b.get("archived")}
+    live_rows = [b for b in full_state["binders"] if not b.get("archived")]
+
+    checks += [
+        (f"with zero live binders and twenty archived binders the polled payload "
+         f"is {len(polled_wire)} bytes — under the fixed 8192-byte budget, "
+         f"against the {len(full_wire)} bytes the same state serializes in full",
+         not live_rows and len(rows) == 20
+         and len(polled_wire) < 8192 and len(full_wire) > 50000),
+        ("the poll carries no archived prose at all: no binder title, no binder "
+         "summary, no item title, no item summary, no oracle command",
+         "Deliver the" not in polled_wire
+         and "Everything this binder shipped" not in polled_wire
+         and "Work item" not in polled_wire
+         and "uv run pytest" not in polled_wire
+         and "observable from outside" not in polled_wire),
+        ("every archived binder that existed at page load keeps its title, its "
+         "summary and its item counts in the state the page is rendered from",
+         all(rows[s].get("title") and rows[s].get("summary")
+             and rows[s]["items"]["total"] == 12
+             and rows[s]["items"]["done"] == 12 for s in at_load)),
+        ("the initial page still inlines that archived detail and is NOT "
+         "expected to shrink — every at-load slug, its title and its summary "
+         "ride the document, which is what lets a saved file:// copy render the "
+         "Delivered group with no server to fetch from",
+         all(s in page for s in at_load)
+         and "Deliver the delivered-binder-00 surface end to end" in page
+         and "Everything this binder shipped" in page
+         and len(page) > len(full_wire)
+         and "location.protocol !== 'file:'" in page),
+    ]
+
+    # -- what /state.json actually puts on the wire ----------------------------
+    # /state.json is a published surface, so the shed is proved at the socket
+    # and not only at the helper the handler happens to call.
+    old_cwd = os.getcwd()
+    os.chdir(twenty)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=20)
+        try:
+            conn.request("GET", "/state.json")
+            served = conn.getresponse().read().decode()
+        finally:
+            conn.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        os.chdir(old_cwd)
+    served_doc = json.loads(served)
+    checks.append((
+        f"the served /state.json is the shed form: {len(served)} wire bytes "
+        f"carrying {len(served_doc.get('archived') or [])} compact entries, no "
+        f"archived row among its binders and no archived prose anywhere in it",
+        len(served) < 8192 and not served_doc["binders"]
+        and {e["slug"] for e in served_doc["archived"]} == set(at_load)
+        and "Deliver the" not in served and "Work item" not in served))
+
+    # -- the compact entry's shape --------------------------------------------
+    entries = polled["archived"]
+    one = entries[0]
+    prose_entry = dict(one, title=rows[one["slug"]]["title"])
+    checks += [
+        ("the compact entry is exactly a slug and its counts — no prose, no item "
+         "ids, no per-item detail — for every archived binder",
+         len(entries) == 20
+         and all(set(e) == {"slug", "total", "done"} for e in entries)
+         and all(isinstance(e["total"], int) and isinstance(e["done"], int)
+                 for e in entries)
+         and {e["slug"] for e in entries} == set(at_load)),
+        (f"an entry that carried prose FAILS the ceiling rather than quietly "
+         f"widening it: the same entry with a title added serializes to "
+         f"{len(_inert_json(prose_entry))} bytes against the "
+         f"{archived_entry_bound(len(one['slug']))}-byte bound for its slug",
+         len(_inert_json(prose_entry)) > archived_entry_bound(len(one["slug"]))),
+    ]
+
+    # -- the per-entry ceiling, measured at a stated slug length ---------------
+    def slug_of(i: int, slug_len: int) -> str:
+        stem = f"a{i:03d}-"
+        return stem + "b" * max(1, slug_len - len(stem))
+
+    def polled_bytes(n: int, slug_len: int) -> int:
+        base = {"repo": {"default_branch": "main"}, "order": None, "binders": [],
+                "next_action": {"level": "ready", "command": None, "human": "x"},
+                "warnings": [], "errors": []}
+        arch = [archive_binder(slug_of(i, slug_len)) for i in range(n)]
+        st = _enrich(_append_archived(base, arch), arch)
+        return len(_inert_json(split_archived(st)))
+
+    def growth(slug_len: int, n: int = 20) -> int:
+        return polled_bytes(n + 1, slug_len) - polled_bytes(n, slug_len)
+
+    g_short, g_48, g_80 = growth(12), growth(48), growth(80)
+    checks += [
+        (f"the polled payload grows by {g_48} wire bytes per additional archived "
+         f"binder measured at a 48-byte slug, and {g_short} at a 12-byte slug — "
+         f"both within the {archived_entry_bound(48)}-byte ceiling, which is "
+         f"stated for a slug of up to "
+         f"{ARCHIVED_ENTRY_BOUND_SLUG_BYTES} bytes",
+         g_48 <= archived_entry_bound(48) and g_short <= archived_entry_bound(12)),
+        (f"a slug beyond 48 bytes widens the entry proportionally rather than "
+         f"failing without explanation: at an 80-byte slug the entry costs "
+         f"{g_80} bytes, over the 48-byte ceiling of {archived_entry_bound(48)} "
+         f"and inside the widened {archived_entry_bound(80)}",
+         g_80 > archived_entry_bound(48) and g_80 <= archived_entry_bound(80)
+         and archived_entry_bound(80) - archived_entry_bound(48) == 32),
+    ]
+
+    # -- join_archived, called directly ---------------------------------------
+    held = rows[at_load[0]]
+    stale = {"slug": "no-longer-archived", "after": [], "status": "merged",
+             "is_next": False, "archived": True, "title": "Stale",
+             "items": {"total": 1, "done": 1, "built": 0, "failed": 0,
+                       "building": 0, "ready": 0, "blocked": 0,
+                       "detail": [{"id": "x", "status": "done"}]}}
+    detail_by_slug = {held["slug"]: held, stale["slug"]: stale}
+    mid_entry = {"slug": "archived-mid-session", "total": 7, "done": 7}
+    joined = join_archived(detail_by_slug,
+                           [_archived_entry(held), mid_entry, {"slug": ""}, None])
+    thin = joined[1] if len(joined) > 1 else {}
+    checks += [
+        ("join_archived merges by slug: a slug in both yields the full row it "
+         "arrived with, a slug with only a compact entry yields the thin row, "
+         "and a slug with only stale detail and no compact entry disappears",
+         len(joined) == 2 and joined[0] is held
+         and thin["slug"] == "archived-mid-session"
+         and "no-longer-archived" not in [r["slug"] for r in joined]),
+        ("a binder archived mid-session renders from its compact entry alone: "
+         "the slug names it (title null, so the page's titleCase(slug) fallback "
+         "labels it), the counts are its own, and the row is thin rather than "
+         "blank — no item detail and nothing fetched to fill it",
+         thin.get("title") is None and thin.get("summary") is None
+         and thin["items"]["total"] == 7 and thin["items"]["done"] == 7
+         and thin["items"]["detail"] == [] and thin["status"] == "merged"
+         and thin.get("archived") is True
+         and page.count("fetch(") == 1 and "fetch('state.json'" in page),
+        ("a thin archived row still reports its own counts on the page: "
+         "doneCountOf falls back to items.done when a row carries no per-item "
+         "detail, so a mid-session archival reads N/N and not 0/N",
+         "if (!d.length) return (b.items && b.items.done) || 0;" in page),
+    ]
+
+    # -- a live namesake still wins the join ----------------------------------
+    live_defs = [{"slug": "shared-slug", "title": "The live binder", "summary": "s",
+                  "motivation": "m", "scope": {"included": ["x"]},
+                  "work_items": [{"id": "a", "title": "A", "summary": "s",
+                                  "oracle": {"type": "unit", "assertions": ["x"],
+                                             "command": "c"}}]}]
+    arch2 = [archive_binder("shared-slug", 3), archive_binder("only-archived", 2)]
+    facts2 = {"default_branch": "main",
+              "binders": {"shared-slug": {"items": {"a": {}}}}}
+    st2 = karta_next.derive_state(live_defs, facts2,
+                                  frozenset(b["slug"] for b in arch2))
+    st2 = _enrich(_append_archived(st2, arch2), arch2 + live_defs)
+    p2 = split_archived(st2)
+    checks.append((
+        "an archived binder whose live namesake exists is still won by the live "
+        "binder: the live row stays a full row and no compact entry is emitted "
+        "for that slug, so the client can never join the archived one back in",
+        [b["slug"] for b in p2["binders"]] == ["shared-slug"]
+        and p2["binders"][0].get("title") == "The live binder"
+        and [e["slug"] for e in p2["archived"]] == ["only-archived"]))
+
+    # -- no additional git call for archived binders ---------------------------
+    def git_calls_in(repo: Path) -> int:
+        seen: list[list[str]] = []
+
+        def runner(cmd, **kw):
+            seen.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with in_dir(repo):
+            karta_next.gather_git_facts(karta_next.load_binders(), "main",
+                                        runner=runner)
+        return len(seen)
+
+    bare = mk_repo("no-archive")
+    with in_dir(twenty):
+        n_archived_files = len(karta_next.load_archived_binders())
+    empty_git_calls = git_calls_in(bare)
+    checks.append((
+        f"the derivation issues no additional git call for archived binders: "
+        f"{n_archived_files} archived binders on disk cost the same "
+        f"{git_calls_in(twenty)} git calls as none at all",
+        n_archived_files == 20 and git_calls_in(twenty) == empty_git_calls))
+
+    # -- archived values still reach the page through the inert-JSON path ------
+    hostile = archive_binder("x", 1)
+    hostile["slug"] = "</script><img src=x>& /etc"
+    hostile["title"] = "</script><b>pwn</b>&"
+    base_h = {"repo": {"default_branch": "main"}, "order": None, "binders": [],
+              "next_action": {"level": "ready", "command": None, "human": "x"},
+              "warnings": [], "errors": []}
+    st_h = _enrich(_append_archived(base_h, [hostile]), [hostile])
+    inlined_h = _inert_json(st_h)
+    wire_h = _inert_json(split_archived(st_h))
+    checks.append((
+        "archived binder values still reach the page and the poll through the "
+        "inert-JSON path: a hostile archived slug and title carry no raw markup "
+        "byte into either the inlined state or the compact entry, and both "
+        "decode back to the identical value",
+        "<" not in inlined_h and ">" not in inlined_h and "&" not in inlined_h
+        and "<" not in wire_h and ">" not in wire_h and "&" not in wire_h
+        and json.loads(inlined_h) == st_h
+        and json.loads(wire_h)["archived"][0]["slug"] == hostile["slug"]))
+
+    # -- the JS mirror of join_archived ---------------------------------------
+    # from the mirror marker through the function's closing brace — the same
+    # span the Python twin's own source covers, so the two are compared like
+    # for like rather than one of them silently missing its marker
+    start = _APP_JS.index("// MIRROR: change together with join_archived()")
+    js_body = _APP_JS[start:_APP_JS.index("\n}\n", start)]
+    py_body = inspect.getsource(join_archived)
+    thin_keys = list(thin) + list(thin["items"])
+    checks += [
+        ("the page ships joinArchived and calls it on every poll against the "
+         "retention map built once from the inlined at-load detail",
+         "function joinArchived(detailBySlug, entries)" in page
+         and "if (b && b.archived) archivedDetail[b.slug] = b;" in page
+         and "joinArchived(this.archivedDetail, s.archived)" in page
+         and "this.state = this.withArchived(s)" in page),
+        ("the mirrored JavaScript joinArchived matches its Python twin branch "
+         "for branch — the malformed-entry guard, the held-detail hit, the thin "
+         "row built from the entry alone, and the drop of detail no entry names",
+         "typeof slug !== 'string' || !slug" in js_body
+         and "isinstance(slug, str)" in py_body
+         and "rows.push(held)" in js_body and "rows.append(held)" in py_body
+         and "(entries || []).forEach" in js_body
+         and "for e in compact_entries" in py_body
+         and "detailBySlug[slug]" in js_body
+         and "detail_by_slug.get(slug)" in py_body
+         and "MIRROR: change together with join_archived()" in js_body
+         and "MIRROR: change together with joinArchived()" in py_body),
+        ("the thin row the JavaScript builds carries the same field set the "
+         "Python twin builds — a key added on one side alone fails here rather "
+         "than blanking the Delivered group in a browser nobody is testing",
+         all(f"{k}:" in js_body for k in thin_keys)
+         and len(thin_keys) == len(set(thin_keys))),
+    ]
+    return checks
+
+
+def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
+    """etag-conditional-get: the state feed carries a fingerprint, a poll that
+    already holds it gets 304 instead of the whole document, and the rules that
+    keep that honest hold — the tag is the hash of the exact bytes the reply
+    carried, authorisation runs before any conditional handling, HEAD (which
+    this server answers through the GET handler) never 304s, and the tag depends
+    on served state alone. This is also the only suite that drives ephemeral
+    mode's ?key= gate over a socket, so the key comparison is checked here
+    beside the conditional handling it guards. Driven over real loopback HTTP in
+    both modes, so the wire behaviour is measured and not asserted."""
+    import inspect
+
+    checks: list[tuple[str, bool]] = []
+    root = scratch / "etag"
+    root.mkdir(parents=True, exist_ok=True)
+
+    def strict_json(text: str):
+        """json.loads that refuses the bare NaN / Infinity / -Infinity literals.
+        Python's default accepts all three, which is exactly what hides the bug
+        this guards: a browser's JSON.parse refuses them and the poll throws."""
+        def reject(token):
+            raise ValueError(f"not JSON: {token}")
+        return json.loads(text, parse_constant=reject)
+
+    def parses_strictly(text: str) -> bool:
+        try:
+            strict_json(text)
+        except ValueError:
+            return False
+        return True
+
+    def hit(port: int, path: str, *, method: str = "GET",
+            headers: dict | None = None) -> tuple:
+        """(status, ETag, Content-Length, body) for one real request."""
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+        try:
+            conn.request(method, path, headers=headers or {})
+            resp = conn.getresponse()
+            return (resp.status, resp.getheader("ETag"),
+                    resp.getheader("Content-Length"), resp.read())
+        finally:
+            conn.close()
+
+    # -- repo mode: /state.json over loopback ---------------------------------
+    repo = root / "repo"
+    binders_dir = repo / ".karta" / "binders"
+    binders_dir.mkdir(parents=True)
+    for args in (["init", "-q", "-b", "main", "."],
+                 ["config", "user.email", "t@example.com"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=str(repo), capture_output=True,
+                       text=True, check=True)
+
+    def binder_json(slug: str) -> str:
+        return json.dumps(
+            {"slug": slug, "title": f"Binder {slug}", "summary": "s",
+             "motivation": "m", "scope": {"included": ["x"]},
+             "work_items": [{"id": "a", "title": "A", "summary": "s",
+                             "oracle": {"type": "unit", "command": "c",
+                                        "assertions": ["a is asserted"]}}]})
+
+    (binders_dir / "first.json").write_text(binder_json("first"))
+    subprocess.run(["git", "add", "-A"], cwd=str(repo), capture_output=True,
+                   text=True, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "c1"], cwd=str(repo),
+                   capture_output=True, text=True, check=True)
+
+    prev_key = _Handler.required_key
+    old_cwd = os.getcwd()
+    os.chdir(repo)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_port
+    try:
+        first = hit(port, "/state.json")
+        tag = first[1]
+        conditional = hit(port, "/state.json", headers={"If-None-Match": tag})
+        # a second full poll: an independent derivation of an untouched repo,
+        # which must produce the identical bytes and so the identical tag
+        repoll = hit(port, "/state.json")
+        head = hit(port, "/state.json", method="HEAD")
+        head_conditional = hit(port, "/state.json", method="HEAD",
+                               headers={"If-None-Match": tag})
+        # the two header forms a cache may hand back: the wildcard, and the same
+        # tag wearing a weak-validator prefix. Each is paired with a form that
+        # must NOT match, so a method that always returned True would fail here.
+        wildcard = hit(port, "/state.json", headers={"If-None-Match": "*"})
+        weak = hit(port, "/state.json", headers={"If-None-Match": "W/" + tag})
+        wrong_hex = '"sha256:' + "0" * 64 + '"'
+        stale = hit(port, "/state.json", headers={"If-None-Match": wrong_hex})
+        weak_stale = hit(port, "/state.json",
+                         headers={"If-None-Match": "W/" + wrong_hex})
+        head_wildcard = hit(port, "/state.json", method="HEAD",
+                            headers={"If-None-Match": "*"})
+        # a binder file lands: the held tag must stop matching
+        (binders_dir / "second.json").write_text(binder_json("second"))
+        changed = hit(port, "/state.json", headers={"If-None-Match": tag})
+        # the same route, same held tag, behind a key the caller does not have.
+        # The wrong keys are the same LENGTH as the real one: a comparison that
+        # short-circuits on length would still pass a shorter-token check.
+        _Handler.required_key = "s3cret"
+        unauthorised = hit(port, "/state.json", headers={"If-None-Match": tag})
+        wrong_key = hit(port, "/state.json?key=s3cr3t",
+                        headers={"If-None-Match": tag})
+        empty_key = hit(port, "/state.json?key=", headers={"If-None-Match": tag})
+        wildcard_unauthorised = hit(port, "/state.json",
+                                    headers={"If-None-Match": "*"})
+        authorised = hit(port, "/state.json?key=s3cret")
+        # and with no key configured the route is open, by design
+        _Handler.required_key = None
+        open_bare = hit(port, "/state.json")
+        open_keyed = hit(port, "/state.json?key=whatever")
+    finally:
+        _Handler.required_key = prev_key
+        srv.shutdown()
+        srv.server_close()
+        os.chdir(old_cwd)
+
+    # a state carrying the bytes the wire form escapes and the pre-fix hash did
+    # not: the two renderings differ, so the tag can name only one of them
+    marked = {"next_action": {"level": "ready",
+                              "command": "uv run karta/deliver <slug> & wait"}}
+    marked_body, marked_tag = state_body(marked)
+    marked_plain = json.dumps(marked, sort_keys=True, separators=(",", ":"))
+
+    checks += [
+        ("a first poll of /state.json answers 200 with a strong quoted ETag "
+         "naming its hash",
+         first[0] == 200 and isinstance(tag, str)
+         and re.fullmatch(r'"sha256:[0-9a-f]{64}"', tag) is not None
+         and len(first[3]) > 0),
+        ("replaying that tag as If-None-Match answers 304 carrying the same "
+         "tag, and the 304 has no body and no Content-Length header",
+         conditional[0] == 304 and conditional[1] == tag
+         and conditional[3] == b"" and conditional[2] is None),
+        ("polling an unchanged repository twice — each poll a full independent "
+         "derivation from git — yields the identical tag and the identical "
+         "bytes: no timestamp, counter or uptime leaked into the fingerprint",
+         repoll[1] == tag and repoll[3] == first[3]),
+        ("HEAD on /state.json answers 200 with the tag and no body, and stays "
+         "200 when the request holds the matching tag — this server routes HEAD "
+         "through the GET handler, so without that exemption HEAD would become "
+         "a cheap state probe",
+         head[0] == 200 and head[1] == tag and head[3] == b""
+         and head[2] == str(len(first[3]))
+         and head_conditional[0] == 200 and head_conditional[1] == tag
+         and head_conditional[3] == b""),
+        ("once a binder file lands the held tag no longer matches: the poll "
+         "answers 200 with the full body and a different tag",
+         changed[0] == 200 and isinstance(changed[1], str)
+         and changed[1] != tag and len(changed[3]) > 0),
+        ("an unauthorised /state.json request receives no ETag header at all, "
+         "even holding a valid tag — the key check runs before the conditional "
+         "handling, so a 304 can never become an unauthenticated path",
+         unauthorised[0] == 403 and unauthorised[1] is None
+         and authorised[0] == 200 and authorised[1] is not None),
+
+        # -- the tag names the bytes the reply carried, and nothing else -------
+        (f"the ETag is sha256 over the exact {len(first[3])} bytes of the reply "
+         f"it rode on — a strong tag is a claim of byte-identity, so the client "
+         f"reusing those bytes on a 304 is reusing what the server would have "
+         f"sent",
+         tag == '"sha256:%s"' % hashlib.sha256(first[3]).hexdigest()),
+        ("and the companion: for a state carrying the markup-significant bytes "
+         "the wire form escapes, the plain json.dumps rendering is NOT the "
+         "served body and does not hash to the served tag — so the check above "
+         "is a statement about the bytes sent, not about the state behind them, "
+         "and a tag taken over any second serialisation would fail it",
+         marked_body != marked_plain
+         and marked_tag == '"sha256:%s"' % hashlib.sha256(
+             marked_body.encode("utf-8")).hexdigest()
+         and marked_tag != '"sha256:%s"' % hashlib.sha256(
+             marked_plain.encode("utf-8")).hexdigest()),
+
+        # -- the two header forms a cache may hand back -----------------------
+        ("If-None-Match: * answers 304 — it asks for 'unchanged' against "
+         "whatever representation exists, and one does — while HEAD stays 200 "
+         "even for the wildcard",
+         wildcard[0] == 304 and wildcard[1] == tag and wildcard[3] == b""
+         and head_wildcard[0] == 200 and head_wildcard[1] == tag),
+        ("a tag handed back with the W/ weak prefix still matches, because "
+         "If-None-Match compares weakly and our own tags are strong — and the "
+         "companion cases prove the comparison is a comparison: a well-formed "
+         "tag naming a different hash misses in both the bare and the W/ form, "
+         "answering 200 with the whole body",
+         weak[0] == 304 and weak[1] == tag and weak[3] == b""
+         and stale[0] == 200 and stale[3] == first[3]
+         and weak_stale[0] == 200 and weak_stale[3] == first[3]),
+
+        # -- the ?key= gate the conditional handling sits behind ---------------
+        ("ephemeral mode compares its key in constant time, the way hub mode "
+         "compares its token, and says out loud that no key configured is open: "
+         "with no key set both a bare request and one carrying a stray key are "
+         "served",
+         "hmac.compare_digest" in inspect.getsource(_Handler._key_ok)
+         and "if not self.required_key" in inspect.getsource(_Handler._key_ok)
+         and open_bare[0] == 200 and open_keyed[0] == 200),
+        ("and with a key set it refuses everything else: no key at all, an "
+         "empty key, and a wrong key of the SAME LENGTH as the real one are "
+         "each 403 with no ETag — including the wildcard, which never becomes a "
+         "way to ask 'has it changed' without the token",
+         unauthorised[0] == 403 and empty_key[0] == 403
+         and wrong_key[0] == 403 and wrong_key[1] is None
+         and wildcard_unauthorised[0] == 403
+         and wildcard_unauthorised[1] is None),
+    ]
+
+    # -- hub mode: /r/<slug>/state.json, two repos ----------------------------
+    hub_dir = root / "hub-store"
+    a_root, b_root = root / "repo-a", root / "repo-b"
+    c_root = root / "repo-c"
+    a_root.mkdir()
+    b_root.mkdir()
+    c_root.mkdir()
+    rec_a = upsert_repo(a_root, opted_in=True, state_dir=hub_dir)
+    rec_b = upsert_repo(b_root, opted_in=True, state_dir=hub_dir)
+    rec_c = upsert_repo(c_root, opted_in=True, state_dir=hub_dir)
+
+    def fixture_state(human: str) -> dict:
+        return {"repo": {"default_branch": "main"}, "order": None,
+                "binders": [],
+                "next_action": {"level": "ready", "command": None,
+                                "human": human},
+                "warnings": [], "errors": []}
+
+    def nonfinite_state() -> dict:
+        """A state the pinned serialisation must refuse. json.loads accepts the
+        bare Infinity literal, so a hand-edited binder really can put one here —
+        and NaN would be worse still, hashing two states that are NOT equal to
+        one tag."""
+        st = fixture_state("resume repo-c")
+        st["warnings"] = [{"ratio": float("inf")}]
+        return st
+
+    served_a = {"state": fixture_state("resume repo-a")}
+    hub_token = get_token(hub_dir)
+    # ttl=0 so every request re-derives: the tag must come out of the state,
+    # not out of an engine handing back one memoised object
+    engines = {
+        str(a_root): RepoEngine(str(a_root), ttl=0.0, activity=lambda: None,
+                                runner=lambda: served_a["state"]),
+        str(b_root): RepoEngine(str(b_root), ttl=0.0, activity=lambda: None,
+                                runner=lambda: fixture_state("resume repo-b")),
+        str(c_root): RepoEngine(str(c_root), ttl=0.0, activity=lambda: None,
+                                runner=nonfinite_state),
+    }
+    hub = _HubServer(("127.0.0.1", 0), _HubHandler, token=hub_token,
+                     state_dir=hub_dir, identity=_identity_snapshot(),
+                     logger=_hub_logger(hub_dir))
+    hub.hub_engines.update(engines)
+    hub_port = hub.server_port
+    threading.Thread(target=hub.serve_forever, daemon=True).start()
+    ok_host = {"Host": f"127.0.0.1:{hub_port}"}
+    feed_a = f"/r/{rec_a['slug']}/state.json"
+    feed_b = f"/r/{rec_b['slug']}/state.json"
+    feed_c = f"/r/{rec_c['slug']}/state.json"
+    keyed = "?key=" + hub_token
+    try:
+        hub_a = hit(hub_port, feed_a + keyed, headers=ok_host)
+        tag_a = hub_a[1]
+        held = dict(ok_host, **{"If-None-Match": tag_a})
+        hub_a_cond = hit(hub_port, feed_a + keyed, headers=held)
+        hub_b = hit(hub_port, feed_b + keyed, headers=ok_host)
+        cross = hit(hub_port, feed_b + keyed, headers=held)
+        hub_head = hit(hub_port, feed_a + keyed, method="HEAD", headers=held)
+        no_token = hit(hub_port, feed_a, headers=held)
+        wrong_token = hit(hub_port, feed_a + "?key=wrong-" + hub_token,
+                          headers=held)
+        bad_host = hit(hub_port, feed_a + keyed,
+                       headers={"Host": f"evil.example:{hub_port}",
+                                "If-None-Match": tag_a})
+        # the repo whose state the pinned serialisation refuses: sanitized on
+        # the way out, so it is served as parseable JSON and stays conditional
+        nonfinite = hit(hub_port, feed_c + keyed, headers=ok_host)
+        nonfinite_cond = hit(hub_port, feed_c + keyed,
+                             headers=dict(ok_host, **{"If-None-Match": "*"}))
+        served_a["state"] = fixture_state("resume repo-a, one item further")
+        hub_a_changed = hit(hub_port, feed_a + keyed, headers=held)
+    finally:
+        hub.shutdown()
+        hub.server_close()
+
+    checks += [
+        ("the hub's per-repo feed behaves identically: 200 with a strong quoted "
+         "tag, then 304 carrying the same tag with no body and no "
+         "Content-Length",
+         hub_a[0] == 200 and isinstance(tag_a, str)
+         and re.fullmatch(r'"sha256:[0-9a-f]{64}"', tag_a) is not None
+         and hub_a_cond[0] == 304 and hub_a_cond[1] == tag_a
+         and hub_a_cond[3] == b"" and hub_a_cond[2] is None),
+        ("two repos holding different state never share a tag, and one repo's "
+         "tag replayed against the other is a miss rather than a 304",
+         hub_b[0] == 200 and hub_b[1] is not None and hub_b[1] != tag_a
+         and cross[0] == 200 and cross[1] == hub_b[1] and len(cross[3]) > 0),
+        ("a hub 304 still requires the token and the Host pin: a missing token, "
+         "a wrong token and a disallowed Host are each rejected 403 with no "
+         "ETag header at all, even when the request holds the matching tag",
+         no_token[0] == 403 and no_token[1] is None
+         and wrong_token[0] == 403 and wrong_token[1] is None
+         and bad_host[0] == 403 and bad_host[1] is None),
+        ("HEAD on the hub's per-repo state route answers 200 with the tag and "
+         "no body even when it holds the matching tag, never 304",
+         hub_head[0] == 200 and hub_head[1] == tag_a and hub_head[3] == b""),
+        ("when one repo's state changes its held tag stops matching — 200 with "
+         "a different tag, and the other repo is untouched",
+         hub_a_changed[0] == 200 and hub_a_changed[1] != tag_a
+         and len(hub_a_changed[3]) > 0),
+        ("a repo whose state carries a non-finite number is served as JSON a "
+         "browser can actually parse — the value arrives as null under a STRICT "
+         "parse that refuses the bare literals, exactly as JSON.parse does — and "
+         "the reply still carries a tag, so the poll keeps its saving too",
+         nonfinite[0] == 200 and nonfinite[1] is not None
+         and strict_json(nonfinite[3].decode("utf-8"))["warnings"]
+         == [{"ratio": None}]
+         and nonfinite_cond[0] == 304 and nonfinite_cond[1] == nonfinite[1]),
+        ("and the companion that makes that a real assertion: the shape this "
+         "replaced — falling back to the ordinary serialisation — emits that "
+         "same state as bare Infinity and FAILS the strict parse, which is a "
+         "200 the page cannot read and therefore a page that silently stops "
+         "updating",
+         "Infinity" in _inert_json(split_archived(nonfinite_state()))
+         and not parses_strictly(
+             _inert_json(split_archived(nonfinite_state())))),
+    ]
+
+    # -- the fingerprint itself: pinned, order-blind, identity-blind ----------
+    def reordered(obj):
+        """An equal value rebuilt as fresh objects with every dict's keys in
+        reverse insertion order — same content, different ordering, different
+        identity."""
+        if isinstance(obj, dict):
+            return {k: reordered(obj[k]) for k in reversed(list(obj))}
+        if isinstance(obj, list):
+            return [reordered(v) for v in obj]
+        return obj
+
+    payload = json.loads(first[3].decode("utf-8"))   # the real served state
+    shuffled = reordered(payload)
+    try:
+        state_body({"unserializable": object()})
+        raises_on_junk = False
+    except TypeError:
+        raises_on_junk = True
+
+    # a separate process, under a hash seed this one is not using: the tag has
+    # to survive a hub restart or the browser's held tag never matches again
+    probe = ("import importlib.util,json,sys;"
+             "spec=importlib.util.spec_from_file_location('probe',sys.argv[1]);"
+             "mod=importlib.util.module_from_spec(spec);"
+             "spec.loader.exec_module(mod);"
+             "sys.stdout.write(mod.state_body(json.load(sys.stdin))[1])")
+
+    def tag_in_child(obj, seed: str) -> str:
+        return subprocess.run([sys.executable, "-c", probe, str(_SCRIPT_PATH)],
+                              input=json.dumps(obj), capture_output=True,
+                              text=True, timeout=120,
+                              env=dict(os.environ, PYTHONHASHSEED=seed)).stdout.strip()
+
+    child_plain = tag_in_child(payload, "0")
+    child_shuffled = tag_in_child(shuffled, "12345")
+    int_key_body, int_key_tag = state_body({1: "a", "b": 2})
+    str_key_body, str_key_tag = state_body({"1": "a", "b": 2})
+
+    # the last resort: keys that ARE strings and still refuse to be ordered, so
+    # sanitizing leaves them alone and the pinned retry fails a second time
+    class Unorderable(str):
+        def __lt__(self, other):
+            raise TypeError("these keys do not sort")
+
+    stubborn = {Unorderable("a"): float("inf"), Unorderable("b"): 1}
+    stubborn_body, stubborn_tag = state_body(stubborn)
+
+    # keys json renders by a name str() does not agree on, on BOTH paths: the
+    # ordinary one, and the recovery one an unrelated NaN elsewhere forces
+    literal_keys = {True: 1, False: 2, None: 3}
+    plain_body, _ = state_body({"a": dict(literal_keys)})
+    forced_body, _ = state_body({"a": dict(literal_keys), "n": float("nan")})
+    naive_names = {str(k) for k in literal_keys}      # {"True","False","None"}
+
+    # every key type json itself names, against the name json actually gives it
+    class LyingInt(int):
+        def __str__(self):
+            return "wrong"
+
+    def json_key_name(k) -> str:
+        """The key name json.dumps produces for `k`, read back off its own
+        output rather than assumed."""
+        return next(iter(json.loads(json.dumps({k: 0}))))
+
+    key_cases = ["s", 5, 1.5, float("nan"), float("inf"), float("-inf"),
+                 True, False, None, LyingInt(1)]
+    mirrors_json = [i for i, k in enumerate(key_cases)
+                    if _json_key(k) == json_key_name(k)]
+    naive_matches = [i for i, k in enumerate(key_cases)
+                     if str(k) == json_key_name(k)]
+
+    # a payload that refers back into itself: json.dumps calls this a
+    # ValueError, so the recovery path receives it and has to survive the walk
+    cyclic: dict = {"live": 1}
+    cyclic["self"] = cyclic
+    cyclic_body, cyclic_tag = state_body(cyclic)
+    try:
+        _inert_json(cyclic)
+        cyclic_raw_serializes = True
+    except ValueError:
+        cyclic_raw_serializes = False
+    # the same object twice down two branches is NOT a cycle and must survive
+    shared = {"x": 1}
+    shared_body, _ = state_body({"a": shared, "b": shared, "n": float("nan")})
+
+    def json_refuses_depth(cap: int = 2 ** 20) -> tuple[dict, int]:
+        """A dict chain deep enough that json.dumps itself gives up on it, plus
+        the depth that took. Found by doubling rather than hardcoded: the C
+        encoder's recursion headroom is a CPython build constant that has moved
+        between versions (about 48000 levels where this was written), and a
+        fixed fixture depth would quietly stop reaching the branch on a build
+        that allows more. Depth 0 means none was found, which fails the check
+        below rather than passing it vacuously."""
+        n = 10000
+        while n <= cap:
+            chain: dict = {}
+            cur = chain
+            for _ in range(n):
+                cur["n"] = {}
+                cur = cur["n"]
+            try:
+                _inert_json(chain, pinned=True)
+            except RecursionError:
+                return chain, n
+            n *= 2
+        return {}, 0
+
+    def chain_depth(doc) -> tuple[int, object]:
+        """(links walked, whatever the chain ends in) for a {"n": {...}} chain."""
+        n = 0
+        while isinstance(doc, dict) and "n" in doc:
+            doc, n = doc["n"], n + 1
+        return n, doc
+
+    deep_chain, deep_at = json_refuses_depth()
+    deep_body, deep_tag = state_body(deep_chain)
+
+    checks += [
+        ("an equal payload rebuilt as distinct objects with every dict's keys "
+         "in reverse insertion order yields the identical body and so the "
+         "identical tag: the fingerprint reads content, never dict ordering or "
+         "object identity",
+         shuffled == payload and shuffled is not payload
+         and list(shuffled) != list(payload)
+         and state_body(shuffled) == state_body(payload)),
+        ("a value json cannot serialize raises instead of being repr()'d into "
+         "the hash — a repr carries an object address, which would differ per "
+         "process and quietly break every conditional poll",
+         raises_on_junk),
+        ("two separate processes, each under a different PYTHONHASHSEED and one "
+         "of them handed the reordered form, derive the identical tag from the "
+         "identical state — the serialisation is pinned, so a tag a browser "
+         "still holds keeps matching across a hub restart",
+         bool(child_plain) and child_plain == state_body(payload)[1]
+         and child_shuffled == child_plain),
+        ("a non-string dict key — which sorting refuses — is coerced to its "
+         "string form and the reply KEEPS its tag, coming out byte-identical to "
+         "the same payload written with the key as a string in the first place",
+         int_key_tag is not None and int_key_tag == str_key_tag
+         and int_key_body == str_key_body
+         and strict_json(int_key_body) == {"1": "a", "b": 2}),
+        ("the last resort still serves SANITIZED bytes: keys that are strings "
+         "and yet refuse to be ordered defeat the pinned retry too, so the reply "
+         "loses its tag — but the non-finite value beside them is still null and "
+         "the body still passes the strict parse",
+         stubborn_tag is None and parses_strictly(stubborn_body)
+         and strict_json(stubborn_body) == {"a": None, "b": 1}),
+        ("and the companion: the ordinary serialisation of that same payload — "
+         "what the untagged path would have returned before — emits bare "
+         "Infinity and fails the strict parse, so the check above is about the "
+         "sanitizing and not about the missing tag",
+         "Infinity" in _inert_json(stubborn)
+         and not parses_strictly(_inert_json(stubborn))),
+
+        # -- the recovery path names keys the way the ordinary path does -------
+        ("a bool or None dict key is named the way JSON names it — true, false, "
+         "null — and IDENTICALLY on both paths: the same logical state renders "
+         "the same key bytes whether it went out directly or was forced down "
+         "the recovery path by an unrelated NaN somewhere else",
+         strict_json(plain_body)["a"] == strict_json(forced_body)["a"]
+         == {"true": 1, "false": 2, "null": 3}),
+        ("and the companion that makes that discriminating: str() names those "
+         "same three keys True/False/None, which is neither what the ordinary "
+         "path emits nor what the check above accepts — so a coercion that "
+         "diverged from json's own would fail here rather than pass quietly",
+         naive_names == {"True", "False", "None"}
+         and naive_names.isdisjoint(strict_json(plain_body)["a"])),
+
+        # -- a payload that refers back into itself ---------------------------
+        ("a payload holding a reference to itself is SERVED rather than killing "
+         "the request: the cycle renders as null, the body passes the strict "
+         "parse, and it still carries a tag — where an unguarded walk would "
+         "have recursed until RecursionError escaped state_body entirely and "
+         "the caller got a dropped connection instead of any reply",
+         cyclic_tag is not None and parses_strictly(cyclic_body)
+         and strict_json(cyclic_body) == {"live": 1, "self": None}),
+        ("and the two companions: that same payload handed straight to the "
+         "ordinary serialisation raises rather than yielding a body, so the "
+         "sanitizing is what produced one — and an object referenced TWICE "
+         "without a cycle is copied twice rather than cut, so the guard tracks "
+         "the walk's own ancestors and not everything it has ever seen",
+         not cyclic_raw_serializes
+         and strict_json(shared_body)["a"] == strict_json(shared_body)["b"]
+         == {"x": 1}),
+
+        # -- every key type, against the name json itself gives it -------------
+        ("the key coercion mirrors json's own for every type json names — str, "
+         "int, finite float, NaN, Infinity, -Infinity, True, False, None, and "
+         "an int subclass whose __str__ lies — each compared against the name "
+         "json.dumps actually emits rather than against a literal in this file",
+         mirrors_json == list(range(len(key_cases)))),
+        (f"and the companion: plain str() agrees with json on only "
+         f"{len(naive_matches)} of those {len(key_cases)} keys — it misnames "
+         f"the non-finite floats, which are the very keys that force the "
+         f"recovery path, as well as the bools, None and the lying subclass — "
+         f"so a coercion built on str() fails the check above instead of "
+         f"slipping through on the cases that happen to agree",
+         naive_matches == [0, 1, 2] and len(naive_matches) < len(key_cases)),
+
+        # -- nesting deeper than json itself will encode ----------------------
+        (f"a payload nested deeper than json.dumps will go — {deep_at} levels, "
+         f"found by doubling until the encoder gave up — is SERVED: the walk "
+         f"stops at JSON_MAX_DEPTH and renders the rest as null, so the body is "
+         f"{JSON_MAX_DEPTH} links deep, passes the strict parse, and carries a "
+         f"tag",
+         deep_tag is not None and parses_strictly(deep_body)
+         and chain_depth(strict_json(deep_body)) == (JSON_MAX_DEPTH, None)),
+        ("and the companion that proves it reached the branch at all: that same "
+         "payload raises out of the pinned serialisation rather than producing "
+         "a body — json reports deep acyclic nesting as a RecursionError, not "
+         "the ValueError a cycle gets, so before this it escaped state_body "
+         "entirely and the caller got a dropped connection",
+         deep_at > 0),
+    ]
+    return checks
+
+
+def _poll_self_test_checks() -> list[tuple[str, bool]]:
+    """client-conditional-poll: the browser replays the fingerprint, does
+    nothing at all when the answer is "unchanged", and stops polling entirely
+    while the tab is hidden.
+
+    What this suite can and cannot see, stated once here so no reader mistakes
+    one for the other. It runs in Python: no browser, no Vue runtime, no
+    network. So it verifies exactly TWO things.
+
+      (1) The pure decision functions, CALLED DIRECTLY with arguments —
+          poll_decision() and _feed_transition(). That is where the real logic
+          lives, which is why the logic is factored out of the template rather
+          than left inline in a lifecycle hook this suite could never fire.
+      (2) STATIC properties of the rendered JS source — that a visibilitychange
+          listener is registered and a matching removal appears in
+          beforeUnmount, that the If-None-Match header is set, that the
+          registrations sit inside the file:// guard, and that each mirrored
+          function body still matches its Python twin branch for branch.
+
+    What it does NOT verify, and no check below is phrased as though it did:
+    the end-to-end browser behaviour. That a real browser issues no request
+    while the tab is hidden, sends the header it was told to send, and skips
+    the re-render on a 304 is asserted at the source level only — running it
+    would take a browser this suite deliberately does not have."""
+    import inspect
+
+    checks: list[tuple[str, bool]] = []
+
+    # -- poll_decision, called directly ---------------------------------------
+    both = (True, False)
+    decisions = {(v, w, e): poll_decision(v, w, e)
+                 for v in both for w in both for e in both}
+    checks += [
+        ("poll: a hidden document skips — poll_decision(visible=False, "
+         "was_visible=True, has_etag=True) is 'skip', and so is every other "
+         "hidden case",
+         poll_decision(False, True, True) == "skip"
+         and all(d == "skip" for (v, _w, _e), d in decisions.items() if not v)),
+        ("poll: a document that was visible and still is polls on schedule — "
+         "poll_decision(visible=True, was_visible=True, ...) is 'poll'",
+         all(decisions[(True, True, e)] == "poll" for e in both)),
+        ("poll: a document that just became visible catches up at once — "
+         "poll_decision(visible=True, was_visible=False, ...) is 'poll-now'",
+         all(decisions[(True, False, e)] == "poll-now" for e in both)),
+        ("poll: the held fingerprint never changes the decision — for every "
+         "visibility pair both has_etag values agree, so a held tag can never "
+         "become a reason to stop asking",
+         all(decisions[(v, w, True)] == decisions[(v, w, False)]
+             for v in both for w in both)),
+        ("poll: the decision is one of exactly three words, so the page's "
+         "branch on it can never fall through",
+         set(decisions.values()) == {"skip", "poll", "poll-now"}),
+    ]
+
+    # -- _feed_transition with a 304, called directly --------------------------
+    live0 = {"failures": 0, "paused": False}
+    one_fail = _feed_transition(live0, 500)
+    two_fail = _feed_transition(one_fail, 500)
+    checks += [
+        ("feed: a 304 counts exactly as a 200 does — the failure count resets "
+         "and the feed does not enter its paused state, from a healthy feed "
+         "and from a paused one alike",
+         _feed_transition(live0, 304) == _feed_transition(live0, 200) == live0
+         and _feed_transition(one_fail, 304) == live0
+         and _feed_transition(two_fail, 304) == live0
+         and _feed_transition(two_fail, 304)["paused"] is False),
+        ("feed: the two-consecutive-failure debounce is unchanged — one "
+         "failure stays live, two pause, and a request that never completed "
+         "(no status at all) is a failure",
+         one_fail == {"failures": 1, "paused": False}
+         and two_fail == {"failures": 2, "paused": True}
+         and _feed_transition(live0, None) == {"failures": 1, "paused": False}
+         and FEED_OK_STATUSES == [200, 304]),
+    ]
+
+    # -- the JS mirror of poll_decision ---------------------------------------
+    # from the mirror marker through the function's closing brace — the same
+    # span the Python twin's own source covers, so the two are compared like
+    # for like rather than one of them silently missing its marker
+    start = _APP_JS.index("// MIRROR: change together with poll_decision()")
+    js_body = _APP_JS[start:_APP_JS.index("\n}\n", start)]
+    py_body = inspect.getsource(poll_decision)
+    checks.append((
+        "poll: the mirrored JavaScript pollDecision matches its Python twin "
+        "branch for branch — the same two guards, in the same order, returning "
+        "the same three words, and each body carries the marker naming the other",
+        "function pollDecision(visible, wasVisible, hasEtag)" in js_body
+        and "if (!visible) return 'skip';" in js_body
+        and "if (!wasVisible) return 'poll-now';" in js_body
+        and "return 'poll';" in js_body
+        and "def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:" in py_body
+        and 'if not visible:' in py_body and 'return "skip"' in py_body
+        and 'if not was_visible:' in py_body and 'return "poll-now"' in py_body
+        and 'return "poll"' in py_body
+        and "MIRROR: change together with poll_decision()" in js_body
+        and "MIRROR: change together with pollDecision()" in py_body))
+
+    # -- static properties of the rendered JS source --------------------------
+    state = {
+        "repo": {"default_branch": "main"}, "order": None, "binders": [],
+        "next_action": {"level": "ready", "command": None, "human": "ready"},
+        "warnings": [], "errors": [],
+    }
+    page = render_app_html(state, "dark", repo_name="karta")
+
+    def _block(source: str, opener: str, closer: str) -> str:
+        at = source.index(opener)
+        return source[at:source.index(closer, at)]
+
+    mounted = _block(_APP_JS, "  mounted() {", "\n  },")
+    guarded = _block(mounted, "if (location.protocol !== 'file:') {", "\n    }")
+    unmount = _block(_APP_JS, "  beforeUnmount() {", "\n  },")
+    checks += [
+        ("poll (source-level): the page registers exactly one visibilitychange "
+         "listener and removes exactly that one in beforeUnmount, alongside the "
+         "poll timer — a lifecycle hook this suite cannot fire, so the pairing "
+         "is checked in the source",
+         page.count("addEventListener('visibilitychange'") == 1
+         and page.count("removeEventListener('visibilitychange'") == 1
+         and page.count("addEventListener(") == 1
+         and page.count("removeEventListener(") == 1
+         and page.count("setInterval(") == page.count("clearInterval(") == 1
+         and "document.addEventListener('visibilitychange', this._onVisibility)" in guarded
+         and "document.removeEventListener('visibilitychange', this._onVisibility)" in unmount
+         and "this.stopPolling()" in unmount
+         and "clearInterval(this._pollTimer)" in page),
+        ("poll (source-level): the poll sends If-None-Match with the held tag, "
+         "and the path that omits the header when no tag is held is present",
+         "headers['If-None-Match'] = this.etag;" in page
+         and "if (this.etag !== null) headers['If-None-Match'] = this.etag;" in page
+         and "const headers = {};" in page
+         and "{ cache: 'no-store', headers: headers }" in page),
+        ("poll (source-level): a 304 returns before the body is read, so the "
+         "page neither reassigns state nor re-renders — and still counts as a "
+         "healthy poll",
+         "if (r.status === 304) { this.feed = feedTransition(this.feed, 304); "
+         "this.polls += 1; return; }" in page
+         and page.index("if (r.status === 304)") < page.index("return r.json()")
+         and "if (tag) this.etag = tag;" in page),
+        ("poll (source-level): both the interval tick and the visibility "
+         "listener route through pollDecision, so 'hidden means no request' is "
+         "decided in one place and the timer is stopped rather than left "
+         "ticking into a no-op",
+         page.count("pollDecision(visible, this.wasVisible, this.etag !== null)") == 1
+         and "setInterval(() => this.step(), POLL_MS)" in page
+         and "this._onVisibility = () => this.step();" in guarded
+         and "if (decision === 'skip') { this.stopPolling(); return; }" in page
+         and "if (decision === 'poll-now') this.startPolling();" in page),
+        ("poll (source-level): the file:// snapshot path registers no timer and "
+         "no listener — every registration sits inside the protocol guard, and "
+         "nothing outside it starts either",
+         "this.startPolling()" in guarded
+         and "addEventListener" not in mounted.replace(guarded, "")
+         and "startPolling" not in mounted.replace(guarded, "")
+         and "setInterval" not in mounted.replace(guarded, "")),
+        ("poll: the change ships no new front-end dependency and no external "
+         "URL — the vendored Vue is still the only script the page loads",
+         page.count("<script src=") == 1
+         and "/assets/vendor/vue.global.prod.js" in page
+         and "http://" not in page and "https://" not in page),
+    ]
+    return checks
+
+
 def _run_self_test() -> int:
     """Render a fixture through the real engine+enrich pipeline (no repo needed) and
     assert the page's invariants: it renders, inlines its state, vendors Vue
@@ -3636,8 +5238,8 @@ def _run_self_test() -> int:
                                repo_name="gringotts", roster=others)
     eph_page = render_app_html(state, "dark", repo_name="karta")
     live0 = {"failures": 0, "paused": False}
-    fail1 = _feed_transition(live0, False)
-    fail2 = _feed_transition(fail1, False)
+    fail1 = _feed_transition(live0, 500)
+    fail2 = _feed_transition(fail1, 500)
     checks += [
         ("shell: the page <title> is '<repo> — Karta Watch' with the actual repo name",
          "<title>gringotts — Karta Watch</title>" in hub_page
@@ -3665,19 +5267,19 @@ def _run_self_test() -> int:
          and 'class="also"' in hub_page and "also watching:" in hub_page),
         ("feed: the transition is pure — success live; one failure stays live;"
          " two consecutive failures pause; the first success recovers",
-         _feed_transition(live0, True) == live0
+         _feed_transition(live0, 200) == live0
          and fail1 == {"failures": 1, "paused": False}
          and fail2 == {"failures": 2, "paused": True}
-         and _feed_transition(fail2, False)["paused"] is True
-         and _feed_transition(fail2, True) == live0),
+         and _feed_transition(fail2, 500)["paused"] is True
+         and _feed_transition(fail2, 200) == live0),
         ("feed: the paused label constant is present and wired to the"
          " poll-failure path",
          FEED_PAUSED_LABEL == "snapshot — feed paused"
          and _inert_json({"live": FEED_LIVE_LABEL,
                           "paused": FEED_PAUSED_LABEL}) in hub_page
          and "function feedTransition" in hub_page
-         and "feedTransition(this.feed, false)" in hub_page
-         and "feedTransition(this.feed, true)" in hub_page
+         and "feedTransition(this.feed, null)" in hub_page
+         and "feedTransition(this.feed, 200)" in hub_page
          and "{{ feedLabel }}" in hub_page
          and "FEED.paused : FEED.live" in hub_page),
     ]
@@ -3810,6 +5412,9 @@ def _run_self_test() -> int:
     checks += _store_self_test_checks(scratch)
     checks += _hub_self_test_checks(scratch)
     checks += _lifecycle_self_test_checks(scratch)
+    checks += _archived_self_test_checks(scratch)
+    checks += _etag_self_test_checks(scratch)
+    checks += _poll_self_test_checks()
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
@@ -3884,7 +5489,8 @@ def main() -> int:
     print(f"  state:    {url}state.json")
     if args.key:
         print(f"  guarded:  append ?key={args.key}")
-    print("  (Ctrl-C to stop; this is read-only and derives from git every request)")
+    print("  (Ctrl-C to stop; this is read-only and derives from git on every "
+          "request)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
