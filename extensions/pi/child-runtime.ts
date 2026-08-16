@@ -145,7 +145,7 @@ export async function createMirroredModelRuntime(
   if (resolvedParentAuth.ok) {
     unresolvedEnvironmentKeys = Object.keys(resolvedParentAuth.env ?? {});
     if (parentAuthStatus.source === "runtime" && resolvedParentAuth.apiKey) {
-      await runtime.setRuntimeApiKey(providerId, resolvedParentAuth.apiKey, { allowNetwork: false });
+      await runtime.setRuntimeApiKey(providerId, resolvedParentAuth.apiKey);
       copiedRuntimeCredential = true;
     }
   }

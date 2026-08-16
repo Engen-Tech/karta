@@ -26,6 +26,7 @@ async function fixture(): Promise<{ root: string; item: string; sibling: string;
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Test"]);
   await git(repo, ["config", "user.email", "karta@example.invalid"]);
+  await git(repo, ["config", "core.hooksPath", join(repo, ".git", "hooks")]);
   await writeFile(join(repo, "subject.txt"), "base\n");
   await mkdir(join(repo, ".karta"));
   await writeFile(join(repo, ".karta", "state.txt"), "owned\n");

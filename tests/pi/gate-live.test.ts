@@ -1,30 +1,17 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import {
   ModelRegistry,
   ModelRuntime,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, GateProviderPreflight } from "../../extensions/pi/child-runtime.ts";
-import {
-  hashEvidencePayload,
-  type KartaEvidenceManifest,
-  type KartaEvidencePayload,
-} from "../../extensions/pi/evidence.ts";
 import { executeGateOnEvidence } from "../../extensions/pi/gate-runner.ts";
-
-const exec = promisify(execFile);
+import { createGateEvidenceFixture } from "./fixtures/gate-evidence.ts";
 const PROVIDER = "karta-gate-live";
-
-async function git(cwd: string, args: string[]): Promise<string> {
-  return (await exec("git", args, { cwd })).stdout.trim();
-}
 
 async function readRequest(request: IncomingMessage): Promise<Record<string, unknown>> {
   let body = "";
@@ -91,78 +78,76 @@ function finalVerdict(systemPrompt: string): string {
   });
 }
 
-async function repositoryFixture(): Promise<{
-  root: string;
-  repo: string;
-  manifest: KartaEvidenceManifest;
-}> {
-  const root = await mkdtemp(join(tmpdir(), "karta-pi-gate-live-"));
-  const repo = join(root, "repo");
-  await mkdir(repo);
-  await writeFile(join(repo, "subject.txt"), "fixture\n");
-  await git(repo, ["init", "--initial-branch=main"]);
-  await git(repo, ["config", "user.name", "Karta Live Gate"]);
-  await git(repo, ["config", "user.email", "live-gate@invalid.example"]);
-  await git(repo, ["config", "commit.gpgSign", "false"]);
-  await git(repo, ["add", "."]);
-  await git(repo, ["commit", "--no-gpg-sign", "-m", "fixture"]);
-  const tip = await git(repo, ["rev-parse", "HEAD"]);
-  const tree = await git(repo, ["rev-parse", "HEAD^{tree}"]);
-  await git(repo, ["update-ref", "refs/heads/karta/demo/integration", tip]);
-  await git(repo, ["update-ref", "refs/heads/karta/demo/item-item-a", tip]);
-  const workItem = {
-    id: "item-a",
-    title: "Live gate fixture",
-    summary: "Exercise a real isolated child",
-    touches: ["subject.txt"],
-    oracle: { type: "unit", assertions: ["subject is present"] },
-  };
-  const payload: KartaEvidencePayload = {
-    binder: {
-      slug: "demo",
-      path: ".karta/binders/demo.json",
-      blob: tip,
-      sha256: "b".repeat(64),
-      document: { slug: "demo", work_items: [workItem] },
-    },
-    workItem,
-    git: {
-      integrationRef: "refs/heads/karta/demo/integration",
-      integrationTip: tip,
-      itemRef: "refs/heads/karta/demo/item-item-a",
-      itemTip: tip,
-      mergeBase: tip,
-      targetKind: "committed-tip",
-      targetTree: tree,
-    },
-    diff: {
-      format: "git-binary-patch",
-      sha256: "d".repeat(64),
-      bytes: 0,
-      touchedPaths: ["subject.txt"],
-      content: "",
-    },
-    checks: { manifest: { status: "not-required", targetTree: tree } },
-    files: [],
-    citations: [],
-    packs: [],
-  };
-  return {
-    root,
-    repo,
-    manifest: {
-      schema: "karta-evidence-v2",
-      generatedAt: new Date().toISOString(),
-      repositoryRoot: repo,
-      evidenceHash: hashEvidencePayload(payload),
-      payload,
-    },
-  };
-}
+test("shutdown aborts an active isolated provider stream", async () => {
+  const fixture = await createGateEvidenceFixture();
+  let reportStarted!: () => void;
+  let reportClosed!: () => void;
+  const started = new Promise<void>((resolve) => { reportStarted = resolve; });
+  const closed = new Promise<void>((resolve) => { reportClosed = resolve; });
+  const server = createServer((request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    response.write(`data: ${JSON.stringify(completionChunk({ role: "assistant", content: "KARTA" }, null))}\n\n`);
+    reportStarted();
+    request.once("close", reportClosed);
+  });
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const provider = `${PROVIDER}-shutdown`;
+  const runtime = await ModelRuntime.create({ allowModelNetwork: false });
+  runtime.registerProvider(provider, {
+    name: "Karta shutdown provider",
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    api: "openai-completions",
+    models: [{
+      id: "fixture",
+      name: "Karta gate fixture",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32_768,
+      maxTokens: 2_048,
+    }],
+  });
+  await runtime.setRuntimeApiKey(provider, "fixture-key");
+  const model = runtime.getModel(provider, "fixture");
+  assert.ok(model);
+  const ctx = {
+    cwd: fixture.repo,
+    model,
+    modelRegistry: new ModelRegistry(runtime),
+    thinkingLevel: "minimal",
+  } as unknown as ExtensionContext;
+  const registry = new ChildRegistry();
+  const preflight = new GateProviderPreflight();
+  const pending = preflight.ensure(ctx, registry);
+  const rejected = assert.rejects(() => pending);
+  try {
+    await started;
+    assert.equal(registry.size, 1);
+    await registry.abortAll();
+    await rejected;
+    await closed;
+    assert.equal(registry.size, 0);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
 
-test("real isolated child sessions run both gate profiles through a declarative provider", async () => {
-  const fixture = await repositoryFixture();
-  const requests: Array<{ tools: string[]; toolResults: number }> = [];
+test("stored, environment, runtime-key, and declarative provider classes complete both gate tool roundtrips", async () => {
+  const fixture = await createGateEvidenceFixture();
+  const requests: Array<{
+    tools: string[];
+    toolResults: number;
+    authorization?: string;
+    declarativeHeader?: string;
+  }> = [];
   const serverErrors: string[] = [];
   const server = createServer(async (request, response) => {
     try {
@@ -175,7 +160,12 @@ test("real isolated child sessions run both gate profiles through a declarative 
           })
         : [];
       const toolResults = messages.filter((message) => message.role === "tool").length;
-      requests.push({ tools, toolResults });
+      requests.push({
+        tools,
+        toolResults,
+        authorization: request.headers.authorization,
+        declarativeHeader: request.headers["x-karta-declarative"] as string | undefined,
+      });
       const systemPrompt = messages
         .filter((message) => message.role === "system")
         .map((message) => messageText(message.content))
@@ -238,59 +228,96 @@ test("real isolated child sessions run both gate profiles through a declarative 
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  const runtime = await ModelRuntime.create({ allowModelNetwork: false });
-  runtime.registerProvider(PROVIDER, {
-    name: "Karta controlled gate provider",
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    api: "openai-completions",
-    models: [
-      {
-        id: "fixture",
-        name: "Karta gate fixture",
-        reasoning: false,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 32_768,
-        maxTokens: 2_048,
-      },
-    ],
-  });
-  await runtime.setRuntimeApiKey(PROVIDER, "fixture-key", { allowNetwork: false });
-  const model = runtime.getModel(PROVIDER, "fixture");
-  assert.ok(model);
-  const ctx = {
-    cwd: fixture.repo,
-    model,
-    modelRegistry: new ModelRegistry(runtime),
-    thinkingLevel: "minimal",
-  } as unknown as ExtensionContext;
-  const registry = new ChildRegistry();
-  const preflight = new GateProviderPreflight();
+  const agentDir = join(fixture.root, "agent");
+  await mkdir(agentDir, { recursive: true });
+  const storedProvider = `${PROVIDER}-stored`;
+  await writeFile(join(agentDir, "auth.json"), JSON.stringify({
+    [storedProvider]: { type: "api_key", key: "fixture-key" },
+  }));
+  const priorAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const priorFixtureKey = process.env.KARTA_GATE_LIVE_KEY;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  process.env.KARTA_GATE_LIVE_KEY = "fixture-key";
+  const registries: ChildRegistry[] = [];
   try {
-    const acceptance = await executeGateOnEvidence(
-      ctx,
-      "acceptance-gate",
-      fixture.manifest,
-      preflight,
-      registry,
+    for (const authClass of ["stored", "environment", "runtime-key", "declarative"] as const) {
+      const provider = `${PROVIDER}-${authClass}`;
+      const runtime = await ModelRuntime.create({ allowModelNetwork: false });
+      runtime.registerProvider(provider, {
+        name: `Karta ${authClass} gate provider`,
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        api: "openai-completions",
+        ...(authClass === "environment" || authClass === "declarative"
+          ? { apiKey: "$KARTA_GATE_LIVE_KEY" }
+          : {}),
+        ...(authClass === "declarative" ? { headers: { "x-karta-declarative": "copied" } } : {}),
+        models: [
+          {
+            id: "fixture",
+            name: "Karta gate fixture",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 32_768,
+            maxTokens: 2_048,
+          },
+        ],
+      });
+      if (authClass === "runtime-key") {
+        await runtime.setRuntimeApiKey(provider, "fixture-key");
+      }
+      const model = runtime.getModel(provider, "fixture");
+      assert.ok(model);
+      const modelRegistry = new ModelRegistry(runtime);
+      const expectedSource = authClass === "runtime-key"
+        ? "runtime"
+        : authClass === "stored"
+          ? "stored"
+          : "environment";
+      assert.equal(modelRegistry.getProviderAuthStatus(provider).source, expectedSource);
+      const ctx = {
+        cwd: fixture.repo,
+        model,
+        modelRegistry,
+        thinkingLevel: "minimal",
+      } as unknown as ExtensionContext;
+      const registry = new ChildRegistry();
+      registries.push(registry);
+      const preflight = new GateProviderPreflight();
+      const acceptance = await executeGateOnEvidence(
+        ctx,
+        "acceptance-gate",
+        fixture.manifest,
+        preflight,
+        registry,
+      );
+      const safety = await executeGateOnEvidence(
+        ctx,
+        "safety-gate",
+        fixture.manifest,
+        preflight,
+        registry,
+      );
+      assert.equal(acceptance.verdict, "pass");
+      assert.equal(safety.verdict, "pass");
+      assert.equal(acceptance.evidenceHash, safety.evidenceHash);
+      assert.equal(registry.size, 0);
+      assert.equal(preflight.size, 1);
+    }
+    assert.equal(requests.length, 20);
+    assert.deepEqual(
+      requests.map((entry) => entry.toolResults),
+      Array.from({ length: 4 }, () => [0, 0, 4, 0, 4]).flat(),
     );
-    const safety = await executeGateOnEvidence(
-      ctx,
-      "safety-gate",
-      fixture.manifest,
-      preflight,
-      registry,
-    );
-    assert.equal(acceptance.verdict, "pass");
-    assert.equal(safety.verdict, "pass");
-    assert.equal(acceptance.evidenceHash, safety.evidenceHash);
-    assert.equal(registry.size, 0);
-    assert.equal(preflight.size, 1);
-    assert.equal(requests.length, 5);
-    assert.deepEqual(requests.map((entry) => entry.toolResults), [0, 0, 4, 0, 4]);
+    assert.equal(requests.every((entry) => entry.authorization === "Bearer fixture-key"), true);
+    assert.equal(requests.filter((entry) => entry.declarativeHeader === "copied").length, 5);
     assert.deepEqual(serverErrors, []);
   } finally {
-    await registry.abortAll();
+    if (priorAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = priorAgentDir;
+    if (priorFixtureKey === undefined) delete process.env.KARTA_GATE_LIVE_KEY;
+    else process.env.KARTA_GATE_LIVE_KEY = priorFixtureKey;
+    await Promise.all(registries.map((registry) => registry.abortAll()));
     await new Promise<void>((resolveClose, rejectClose) =>
       server.close((error) => error ? rejectClose(error) : resolveClose()),
     );

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createReadStream } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const exec = promisify(execFile);
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const PI_CLI = join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "cli.js");
 
 interface RpcCommand {
   name: string;
@@ -22,7 +23,7 @@ async function runPi(
   options: { cwd: string; agentDir: string },
 ): Promise<{ stdout: string; stderr: string }> {
   try {
-    return await exec("pi", args, {
+    return await exec(process.execPath, [PI_CLI, ...args], {
       cwd: options.cwd,
       env: { ...process.env, PI_CODING_AGENT_DIR: options.agentDir },
       maxBuffer: 20 * 1024 * 1024,
@@ -39,8 +40,8 @@ async function rpcCommands(cwd: string, agentDir: string): Promise<{
 }> {
   return new Promise((resolveRequest, rejectRequest) => {
     const child = execFile(
-      "pi",
-      ["--mode", "rpc", "--no-session", "--approve", "--no-context-files"],
+      process.execPath,
+      [PI_CLI, "--mode", "rpc", "--no-session", "--approve", "--no-context-files"],
       {
         cwd,
         env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
@@ -190,7 +191,7 @@ function hasKarta(commands: RpcCommand[]): boolean {
   return commands.some((command) => command.name === "karta-phase0");
 }
 
-test("local package install works through a spaced Unicode symlink", async (context) => {
+test("local package install works through a spaced Unicode symlink or Windows junction", async () => {
   const root = await mkdtemp(join(tmpdir(), "karta-pi-local-install-"));
   const agentDir = join(root, "agent");
   const cwd = join(root, "unrelated repo");
@@ -201,11 +202,8 @@ test("local package install works through a spaced Unicode symlink", async (cont
     try {
       await symlink(ROOT, link, "dir");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EPERM") {
-        context.skip("directory symlinks require elevated privileges on this Windows runner");
-        return;
-      }
-      throw error;
+      if ((error as NodeJS.ErrnoException).code !== "EPERM" || process.platform !== "win32") throw error;
+      await symlink(ROOT, link, "junction");
     }
     await runPi(["install", link], { cwd, agentDir });
     const loaded = await rpcCommands(cwd, agentDir);
@@ -254,6 +252,9 @@ test("pinned Git install updates, rolls back, uninstalls, and rejects a duplicat
     await runPi(["remove", v1], { cwd, agentDir });
     const listed = await runPi(["list"], { cwd, agentDir });
     assert.equal(listed.stdout.includes("karta.git"), false);
+    const gitCache = join(agentDir, "git");
+    const cacheEntries = await readdir(gitCache, { recursive: true });
+    assert.deepEqual(cacheEntries.filter((entry) => entry !== ".gitignore"), []);
   } finally {
     await closeServer(server);
     await rm(root, { recursive: true, force: true });

@@ -31,6 +31,7 @@ async function fixture(): Promise<{
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Hooks"]);
   await git(repo, ["config", "user.email", "hooks@invalid.example"]);
+  await git(repo, ["config", "core.hooksPath", join(repo, ".git", "hooks")]);
   await git(repo, ["config", "commit.gpgSign", "false"]);
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "base"]);

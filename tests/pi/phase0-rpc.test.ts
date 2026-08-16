@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const DYNAMIC_PROVIDER = join(ROOT, "tests", "pi", "fixtures", "dynamic-provider.ts");
+const PI_CLI = join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "cli.js");
 
 interface RpcCommand {
   name: string;
@@ -37,8 +38,9 @@ async function rpcRequest<T>(options: {
 }): Promise<T> {
   return new Promise<T>((resolveRequest, rejectRequest) => {
     const child = spawn(
-      "pi",
+      process.execPath,
       [
+        PI_CLI,
         "--mode",
         "rpc",
         "--no-session",

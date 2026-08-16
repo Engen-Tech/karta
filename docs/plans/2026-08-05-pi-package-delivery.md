@@ -14,10 +14,10 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |Branch|`feat/pi-package`|
 |Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
 |Completed|Phase 0 feasibility closure; Phases 1, 2, 3A–3E, 4A–4F, and 5|
-|In progress|Phase 6 — native compatibility, package lifecycle, documentation, and release checks|
-|First next action|Run the Phase 6 native compatibility and provider roundtrip matrix, then write the Pi operator guide from the tested behavior|
+|In progress|Phase 6 — native Windows compatibility and final owner-approved release checks|
+|First next action|Obtain an authenticated native Windows x86_64 runner, run the final matrix there, then request the explicit release approvals|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|Phase 4 interruption recovery and Phase 5 confined companion writers, exact commits, and final binder archival are ready on `feat/pi-package`|
+|Commit state|The Phase 6 candidate adds Pi 0.84.2 compatibility, native macOS/Linux coverage, provider roundtrips, package lifecycle coverage, and operator documentation on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-All five checks pass after Phase 5. The Pi suite currently runs 167 tests. `npm audit --omit=dev` reports zero vulnerabilities. The full development tree still carries the three known vulnerabilities inherited from Pi 0.83.0.
+The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 170 tests: 169 pass in the ordinary run and the opt-in live OAuth test is skipped; that test also passes separately with stored `openai-codex` OAuth. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows remains blocked because no authenticated runner is available.
 
 ## Non-negotiable invariants
 
