@@ -334,3 +334,39 @@ Two refusals rather than a wrong number:
 
 `--self-test` covers all of this, including that a source repository's full ref listing is
 byte-identical after a run and after a run interrupted partway through.
+
+# What was kept, and what was reverted
+
+Added 2026-08-16, after the delivery's multi-model review panel. **The derived-state cache
+measured in "The cache has a cold path and a warm path" was removed. The batching and the
+ETag stayed.** Every measurement above is left exactly as it was recorded — they are true
+readings of the code as it stood when the stopwatch ran, and the numbers are what argued the
+revert.
+
+Why the cache went:
+
+- **The warm hit it buys is about 7 ms, and 97 to 101% of that hit is computing the key.**
+  The table above says so in its own third column. The cache was paying almost its whole
+  steady-state cost to answer "has anything changed".
+- **A miss costs about 2.4x the uncached batched form** — 52.5 ms against 21.7 ms at 20
+  binders. Break-even is roughly 4.4 hits per miss, and this page exists to watch a delivery
+  *in flight*, which is exactly the regime where refs move on most polls.
+- **In hub mode it never hit at all.** The hub derives each repo in a child process
+  (`--print-state`) that exits before anything module-level could be reused, so the cache
+  was dead weight on the mode most likely to be left running.
+- **The key was a hand-maintained proxy for the derivation's inputs**, and no test can prove
+  such a list complete — an input nobody thought of is served stale and silently.
+
+What stands unchanged:
+
+- **The batching.** `gather_git_facts()` still answers every binder and item with three
+  whole-namespace ref queries. The "Derivation, batched, cache out of the picture" table is
+  the shipped path — it was measured with the cache out of the way, so it needs no re-run —
+  and so is every figure under "The committed benchmark".
+- **The ETag and the conditional poll.** An unchanged poll still costs a 304 with no body.
+  A 304 is safe by construction here: the tag is taken over the bytes just derived, not over
+  a proxy for them. The tag is now the sha256 of exactly the body served, which is the one
+  correction the panel's ETag findings called for.
+
+So the shipped steady-state poll is the "batched, no cache" column — 21.7 ms at 20 binders,
+against 613.5 ms before the work — with the download skipped whenever nothing moved.
