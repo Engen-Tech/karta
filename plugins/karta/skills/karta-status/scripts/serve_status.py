@@ -662,6 +662,18 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
              ("path", {"d": "M12 12v3"})],
     "arrowdown": [("path", {"d": "M12 5v14"}),
                   ("path", {"d": "m19 12-7 7-7-7"})],
+    # The two lane glyphs the wave step headers wear. NOT ported — the design
+    # marks a step with a numeral alone, which cannot say whether the step's
+    # runs go at once or one after another. Drawn as lanes rather than borrowed
+    # from `fork`/`arrowdown` so the two read as a pair at 12px: parallel is
+    # three flush strands starting together, serial is three stepped strands
+    # each starting where the one above ended.
+    "lane-parallel": [("path", {"d": "M4 6h16"}),
+                      ("path", {"d": "M4 12h16"}),
+                      ("path", {"d": "M4 18h16"})],
+    "lane-serial": [("path", {"d": "M3 6h6"}),
+                    ("path", {"d": "M9 12h6"}),
+                    ("path", {"d": "M15 18h6"})],
     "sun": [("circle", {"cx": 12, "cy": 12, "r": 4}), ("path", {"d": "M12 2v2"}), ("path", {"d": "M12 20v2"}), ("path", {"d": "m4.93 4.93 1.41 1.41"}), ("path", {"d": "m17.66 17.66 1.41 1.41"}), ("path", {"d": "M2 12h2"}), ("path", {"d": "M20 12h2"}), ("path", {"d": "m6.34 17.66-1.41 1.41"}), ("path", {"d": "m19.07 4.93-1.41 1.41"})],
     "moon": [("path", {"d": "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"})],
     "square": [("rect", {"x": 3, "y": 3, "width": 18, "height": 18, "rx": 2})],
@@ -1324,7 +1336,14 @@ body{
   display:flex; align-items:center; justify-content:center; width:25px; height:25px;
   flex:none; color:var(--on-halt);
 }
-.binder__title{ font-weight:600; font-size:15px; }
+.binder__title{ font-family:var(--serif); font-weight:400; font-size:22px; line-height:1.15; }
+/* the header's eyebrow: where this binder stands, in the phase's own wording,
+   above the headline rather than only as a coloured mark in the gutter. */
+.binder__eyebrow{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:2px;
+  text-transform:uppercase; display:block; margin-bottom:3px;
+}
+.binder__head-text{ min-width:0; }
 .binder__slug{
   display:flex; align-items:center; gap:4px; font-family:var(--mono); font-size:10px;
   color:var(--mut); padding:2px 6px; background:var(--surface-2);
@@ -1335,28 +1354,80 @@ body{
 .binder__count{ font-family:var(--mono); font-size:11px; color:var(--mut); flex:none; }
 .binder__caret{ display:flex; flex:none; color:var(--mut); transition:transform .15s; }
 .binder__caret--open{ transform:rotate(180deg); }
-.binder__bar{ height:4px; background:var(--line); }
-.binder__fill{ height:100%; transition:width .55s ease; }
-.binder__waves{ padding:18px; }
+/* The progress bar. The TRACK is hatched, not flat: work not yet run reads as
+   ruled-off ground rather than as empty bar, so a binder at 0% still looks like
+   a plan and not like a broken widget. The FILL stays solid — one flat band of
+   colour against the hatch is what makes the boundary legible. Static geometry,
+   no animation, so there is nothing here for reduced motion to settle. */
+.binder__bar{
+  height:6px; background:var(--line);
+  background-image:repeating-linear-gradient(135deg, var(--line-2) 0 1.5px, transparent 1.5px 6px);
+}
+.binder__fill{ height:100%; background-image:none; transition:width .55s ease; }
+
+/* The counts row. One cell per engine state that HAS runs — a state with none
+   contributes no cell at all. Colours come off the state metadata as inline
+   values (same rule as the item cards), so a state can never be added to the
+   engine and render untinted; what lives here is the shape. */
+.counts{
+  display:flex; flex-wrap:wrap; gap:6px;
+  padding:11px 18px; border-top:1px solid var(--line);
+}
+.counts__cell{
+  display:flex; align-items:baseline; gap:5px;
+  padding:3px 9px; border:1px solid transparent;
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+}
+.counts__n{ font-size:12px; font-variant-numeric:tabular-nums; }
+/* The one cell that has to be found without reading: halted work. It takes the
+   halt palette's deeper ink and its own outline rather than the soft tint the
+   other cells wear, so a halted count is visible at a glance in a wrapped row. */
+.counts__cell--halted{ border-color:var(--halt-line); }
+.counts__cell--halted .counts__n{ color:var(--halt-deep); }
+
+.binder__waves{ padding:0 18px 18px; }
 
 /* the queue summary line */
-.queue{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--mut); margin-bottom:16px; }
+.queue{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--mut); padding:14px 0 4px; }
 .queue__icon{ display:flex; }
 
-/* THEN separator between waves */
-.then{ display:flex; align-items:center; gap:9px; margin:15px 0; color:var(--mut); }
-.then__stub{ width:18px; height:1px; background:var(--line); }
-.then__icon{ display:flex; }
-.then__word{ font-family:var(--mono); font-size:9px; letter-spacing:2px; }
-.then__rule{ flex:1; height:1px; background:var(--line); }
-
-/* the "N runs in parallel" label within a multi-item wave */
-.parallel{
-  display:flex; align-items:center; gap:6px; font-size:9px; color:var(--mut);
-  letter-spacing:1px; text-transform:uppercase; margin-bottom:7px;
+/* A wave's step header. Sticky at the same offset the map rail uses, so it
+   parks directly under the page header instead of behind it; it paints its own
+   ground and rules itself off, because a header stuck over scrolling cards with
+   a transparent background is unreadable. */
+.step{
+  position:sticky; top:78px; z-index:3;
+  display:flex; align-items:center; gap:9px;
+  margin:16px 0 9px; padding:6px 9px;
+  background:var(--surface-2); border-bottom:1px solid var(--line);
 }
-.parallel__icon{ display:flex; }
+.step__numeral{
+  font-family:var(--serif); font-size:25px; line-height:1; font-weight:400;
+  font-variant-numeric:tabular-nums; color:var(--mut-2); flex:none;
+}
+.step__lane{ display:flex; flex:none; color:var(--mut); }
+.step__label{ font-size:11px; color:var(--mut); }
+.step__count{ font-family:var(--mono); font-size:10px; color:var(--mut); }
+.step__pos{
+  margin-left:auto; flex:none;
+  font-family:var(--mono); font-size:9px; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2);
+}
 .wave{ display:grid; gap:11px; margin-bottom:2px; }
+
+/* The footer meta bar: which branches this binder runs on, and which stack
+   packs its builds are written against. An entry with nothing to say is absent
+   rather than empty. */
+.bmeta{
+  display:flex; flex-wrap:wrap; gap:5px 16px;
+  padding:9px 18px; border-top:1px solid var(--line); background:var(--surface-2);
+}
+.bmeta__entry{ display:flex; align-items:baseline; gap:6px; min-width:0; }
+.bmeta__label{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2); flex:none;
+}
+.bmeta__value{ font-family:var(--mono); font-size:10.5px; color:var(--mut); overflow-wrap:anywhere; }
 
 /* A work item. Six engine states, six treatments, and the colours come off the
    state metadata as inline custom values rather than living here as six more
@@ -1791,6 +1862,185 @@ def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# The per-binder panel: the header's progress, the counts row, the wave step
+# headers and the footer meta bar.
+#
+# All four are pure functions of state the feed ALREADY carries — the per-item
+# statuses, each item's depends_on, the repo's default branch and the binder's
+# own `sme` list. Nothing here costs a git call: the integration branch is the
+# same INTEGRATION_BRANCH_FMT string formatting the header chip uses, and the
+# wave grouping is the dependency-depth rule the page already computed inline.
+#
+# They live here rather than in the template for the reason branch_chips,
+# rail_groups and join_archived do: the gate has no browser, so the rules are
+# driven by direct call over fixtures and the page's binderPanel() is held to
+# the same shape by a MIRROR note on each side.
+# ---------------------------------------------------------------------------
+
+# The counts row's reading order — most urgent first, then the two greens, then
+# the two queued states. It must name EVERY engine state: a state missing here
+# would be counted nowhere while its cards still render, so the row would total
+# less than the cards below it. The self-test compares the two sets.
+_COUNT_ORDER = ("building", "failed", "done", "built", "ready", "blocked")
+
+# The lane a wave runs in. A step holding more than one run goes at once; a step
+# holding a single run goes in turn behind the step above it. The label is the
+# glyph's ACCESSIBLE name — the glyph is decorative on its own, and a numeral
+# beside it says nothing about how the step executes.
+_LANE_PARALLEL = {"key": "parallel", "icon": "lane-parallel",
+                  "label": "this step runs at once"}
+_LANE_SERIAL = {"key": "serial", "icon": "lane-serial",
+                "label": "this step runs in turn"}
+
+# The footer meta bar's entry labels. Owned here so the page and the self-test
+# read one string rather than two copies of it.
+META_DEFAULT_LABEL = "default"
+META_INTEGRATION_LABEL = "integration"
+META_PACKS_LABEL = "packs"
+
+
+def _panel_progress(binder: dict) -> dict:
+    """How far a binder's runs have got: the finished share of its total.
+
+    "Finished" is the same count the rail reads (merged or built-awaiting-merge),
+    so the panel's percentage and the rail card's N/M can never disagree. A
+    binder with no runs reads 0% rather than dividing by zero."""
+    # MIRROR: change together with panelProgress() in _APP_JS.
+    total = (binder.get("items") or {}).get("total") or 0
+    done = _rail_done(binder)
+    pct = round(done / total * 100) if total else 0
+    return {"done": done, "total": total, "pct": pct,
+            "pct_label": "%d%%" % pct, "fill_w": "%d%%" % pct,
+            "count_label": "%d/%d %s" % (done, total,
+                                         "run" if total == 1 else "runs")}
+
+
+def _panel_counts(binder: dict) -> list[dict]:
+    """The counts row: one entry per engine state that actually has runs.
+
+    Counted off the per-item detail when the row carries it — so the row totals
+    exactly the cards drawn below it — and off the carried per-state counts when
+    it does not (a thin archived row has counts but no detail). A state with no
+    runs contributes NO entry: a row of zeroes is noise, and "no halted runs" is
+    said by the halted entry being absent, not by a 0 beside it."""
+    # MIRROR: change together with panelCounts() in _APP_JS.
+    items = binder.get("items") or {}
+    detail = items.get("detail") or []
+    if detail:
+        tally = {state: 0 for state in _COUNT_ORDER}
+        for row in detail:
+            status = row.get("status")
+            if status in tally:
+                tally[status] += 1
+    else:
+        tally = {state: (items.get(state) or 0) for state in _COUNT_ORDER}
+    out = []
+    for state in _COUNT_ORDER:
+        n = tally[state]
+        if not n:
+            continue
+        meta = _STATE_META[state]
+        out.append({"key": state, "n": n, "word": meta["word"],
+                    "color": meta["color"], "soft": meta["soft"],
+                    "halted": state == "failed"})
+    return out
+
+
+def _waves_of(items: list[dict]) -> list[list[dict]]:
+    """Group work items into dependency-depth waves: depth is the longest chain
+    of declared dependencies, everything at one depth is one wave, waves run in
+    turn and a wave's own runs go at once. A dependency naming an item outside
+    this binder contributes no depth, and a cycle stops at the item it re-enters
+    rather than recursing forever."""
+    # MIRROR: change together with wavesOf() in _APP_JS.
+    by_id = {it["id"]: it for it in items if isinstance(it.get("id"), str)}
+    depth: dict[str, int] = {}
+    seen: set[str] = set()
+
+    def calc(item: dict) -> int:
+        key = item["id"]
+        if key in depth:
+            return depth[key]
+        if key in seen:
+            return 0
+        seen.add(key)
+        d = 0
+        for dep in item.get("deps") or []:
+            if dep in by_id:
+                d = max(d, 1 + calc(by_id[dep]))
+        depth[key] = d
+        return d
+
+    for item in by_id.values():
+        calc(item)
+    out = []
+    for d in range(max(depth.values(), default=-1) + 1):
+        wave = [it for it in items
+                if isinstance(it.get("id"), str) and depth[it["id"]] == d]
+        if wave:
+            out.append(wave)
+    return out
+
+
+def _panel_steps(waves: list[list[dict]]) -> list[dict]:
+    """One sticky step header per wave: its numeral, its lane, how many runs it
+    holds, and where it sits in the sequence. `position`/`total` are what makes a
+    header readable once it is stuck to the top of the viewport and its
+    neighbours have scrolled away."""
+    # MIRROR: change together with panelSteps() in _APP_JS.
+    total = len(waves)
+    steps = []
+    for i, wave in enumerate(waves):
+        lane = _LANE_PARALLEL if len(wave) > 1 else _LANE_SERIAL
+        steps.append({
+            "numeral": str(i + 1), "lane": lane["key"],
+            "icon": lane["icon"], "lane_label": lane["label"],
+            "n": len(wave),
+            "count_label": "%d %s" % (len(wave),
+                                      "run" if len(wave) == 1 else "runs"),
+            "position": "step %d of %d" % (i + 1, total),
+        })
+    return steps
+
+
+def _panel_meta(binder: dict, state: dict) -> list[dict]:
+    """The footer meta bar: the repository's default branch, this binder's real
+    integration branch, and the stack packs it pins.
+
+    The integration branch is spelled with INTEGRATION_BRANCH_FMT — the same
+    constant the header chip uses — so the footer names a branch a reader could
+    actually check out rather than the design's placeholder. A binder pinning no
+    packs contributes NO packs entry: an empty list is not a fact worth a slot."""
+    # MIRROR: change together with panelMeta() in _APP_JS.
+    out = []
+    default = (state.get("repo") or {}).get("default_branch") or ""
+    if default:
+        out.append({"key": "default", "label": META_DEFAULT_LABEL,
+                    "value": default})
+    slug = binder.get("slug") or ""
+    if slug:
+        out.append({"key": "integration", "label": META_INTEGRATION_LABEL,
+                    "value": INTEGRATION_BRANCH_FMT.format(slug=slug)})
+    packs = binder.get("sme") or []
+    if packs:
+        out.append({"key": "packs", "label": META_PACKS_LABEL,
+                    "value": ", ".join(str(p) for p in packs)})
+    return out
+
+
+def binder_panel(binder: dict, state: dict) -> dict:
+    """The whole panel model for one binder: progress, counts, waves, step
+    headers and the footer meta bar. Python twin of the page's binderPanel()."""
+    # MIRROR: change together with binderPanel() in _APP_JS and the panel self-test.
+    waves = _waves_of((binder.get("items") or {}).get("detail") or [])
+    return {"progress": _panel_progress(binder),
+            "counts": _panel_counts(binder),
+            "waves": waves,
+            "steps": _panel_steps(waves),
+            "meta": _panel_meta(binder, state)}
+
+
+# ---------------------------------------------------------------------------
 # The next action. The engine derives exactly ONE of these per repo — the
 # `next_action` karta_next.py already hands the karta-status skill, its terminal
 # map and its footer — and the band at the top of the column states it.
@@ -1876,6 +2126,13 @@ const FEED_OK_STATUSES = __FEED_OK_STATUSES__;
 // The integration-branch spelling, from the same Python constant the self-test
 // asserts against — the header chip must name a branch you could check out.
 const BRANCH_FMT = __BRANCH_FMT__;
+
+// The binder panel's own tables, handed over from the server: the counts row's
+// reading order, the two lanes a wave step can run in (glyph + accessible
+// label), and the footer meta bar's entry labels. Python-owned for the same
+// reason the rail's legend is — the order and the wording are asserted against
+// what the page ships, not against a second copy typed here.
+const PANEL = __PANEL__;
 
 // Pure feed transition — state in, state out, no I/O. `status` is the HTTP
 // status the poll answered with, or null when the request never completed.
@@ -2052,6 +2309,90 @@ function wavesOf(items) {
   return out;
 }
 
+// --- the per-binder panel: progress, counts, step headers, footer meta -------
+// Four pure functions over state the feed already carries, each mirrored by its
+// twin in serve_status.py, which the self-test drives — keep the two in
+// lockstep. Nothing here fetches, derives from git, or reads the DOM.
+
+// MIRROR: change together with _panel_progress() in serve_status.py.
+function panelProgress(b) {
+  const total = (b.items && b.items.total) || 0;
+  const done = doneCountOf(b);
+  const pct = total ? Math.round(done / total * 100) : 0;
+  return {
+    done: done, total: total, pct: pct,
+    pct_label: pct + '%', fill_w: pct + '%',
+    count_label: done + '/' + total + (total === 1 ? ' run' : ' runs'),
+  };
+}
+
+// One cell per engine state that HAS runs — counted off the cards actually
+// drawn when the row carries detail, off its carried counts when it does not.
+// A zero contributes no cell: absence is the statement.
+// MIRROR: change together with _panel_counts() in serve_status.py.
+function panelCounts(b) {
+  const items = b.items || {};
+  const detail = items.detail || [];
+  const tally = {};
+  PANEL.count_order.forEach(s => { tally[s] = 0; });
+  if (detail.length) {
+    detail.forEach(r => { if (tally[r.status] !== undefined) tally[r.status] += 1; });
+  } else {
+    PANEL.count_order.forEach(s => { tally[s] = items[s] || 0; });
+  }
+  const out = [];
+  PANEL.count_order.forEach(s => {
+    const n = tally[s];
+    if (!n) return;
+    const m = STATE_META[s];
+    out.push({ key: s, n: n, word: m.word, color: m.color, soft: m.soft,
+               halted: s === 'failed' });
+  });
+  return out;
+}
+
+// MIRROR: change together with _panel_steps() in serve_status.py.
+function panelSteps(waves) {
+  const total = waves.length;
+  return waves.map((w, i) => {
+    const lane = w.length > 1 ? PANEL.lanes.parallel : PANEL.lanes.serial;
+    return {
+      numeral: String(i + 1), lane: lane.key, icon: lane.icon,
+      lane_label: lane.label, n: w.length,
+      count_label: w.length + (w.length === 1 ? ' run' : ' runs'),
+      position: 'step ' + (i + 1) + ' of ' + total,
+    };
+  });
+}
+
+// The real integration branch, spelled with the server's own BRANCH_FMT — the
+// design's placeholder branch text is mock content. An entry with nothing to
+// say (no default branch, no packs pinned) is omitted, never rendered empty.
+// MIRROR: change together with _panel_meta() in serve_status.py.
+function panelMeta(b, state) {
+  const out = [];
+  const def = ((state && state.repo) || {}).default_branch || '';
+  if (def) out.push({ key: 'default', label: PANEL.meta.default, value: def });
+  if (b.slug) {
+    out.push({ key: 'integration', label: PANEL.meta.integration,
+               value: BRANCH_FMT.replace('{slug}', b.slug) });
+  }
+  const packs = b.sme || [];
+  if (packs.length) {
+    out.push({ key: 'packs', label: PANEL.meta.packs, value: packs.join(', ') });
+  }
+  return out;
+}
+
+// MIRROR: change together with binder_panel() in serve_status.py and the panel self-test.
+function binderPanel(b, state) {
+  const waves = wavesOf((b.items && b.items.detail) || []);
+  return {
+    progress: panelProgress(b), counts: panelCounts(b), waves: waves,
+    steps: panelSteps(waves), meta: panelMeta(b, state),
+  };
+}
+
 const app = createApp({
   components: { Icon },
   data() {
@@ -2208,13 +2549,11 @@ const app = createApp({
     // design's mkBinder(). Items come from the enriched engine detail.
     mkBinder(b, key) {
       const meta = PHASE_META[key];
-      const items = b.items.detail || [];   // a thin archived row has none
-      const waveArr = wavesOf(items);
-      const dc = doneCountOf(b), tot = b.items.total;
+      const panel = binderPanel(b, this.state);
+      const waveArr = panel.waves;   // a thin archived row groups into none
+      const tot = b.items.total;
       const waves = waveArr.map((w, wi) => ({
-        serial: wi > 0,
-        showParallel: w.length > 1,
-        parallelLabel: w.length + ' runs in parallel',
+        step: panel.steps[wi],
         multi: w.length > 1,
         items: w.map(it => {
           const im = metaFor(it.status);
@@ -2243,15 +2582,16 @@ const app = createApp({
       let queueLabel = tot + (tot === 1 ? ' run' : ' runs');
       if (waveArr.length === 1 && tot > 1) queueLabel += ' · all run in parallel';
       else if (waveArr.length > 1) queueLabel += ' · ' + shape + ' — parallel within a step, serial between';
-      const pct = tot ? Math.round(dc / tot * 100) : 0;
       return {
         slug: b.slug, key, color: meta.color, mark: meta.mark,
         title: b.title || titleCase(b.slug),
+        eyebrow: meta.phrase,
         blurb: b.summary || b.motivation || '',
         now: key === 'now',
         done: key === 'past',
-        pctLabel: pct + '%', fillW: pct + '%',
-        countLabel: dc + '/' + tot + (tot === 1 ? ' run' : ' runs'),
+        pctLabel: panel.progress.pct_label, fillW: panel.progress.fill_w,
+        countLabel: panel.progress.count_label,
+        counts: panel.counts, meta: panel.meta,
         open: this.isOpen(b.slug, key),
         queueLabel, waves,
       };
@@ -2556,7 +2896,10 @@ const app = createApp({
                 @click="toggleBinder(b.slug, b.key)"
                 :aria-expanded="b.open ? 'true' : 'false'">
                 <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-halt)" /></span>
-                <span class="binder__title">{{ b.title }}</span>
+                <span class="binder__head-text">
+                  <span class="binder__eyebrow" data-kw-binder-eyebrow :style="{ color: b.color }">{{ b.eyebrow }}</span>
+                  <span class="binder__title">{{ b.title }}</span>
+                </span>
                 <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
                 <span class="binder__spacer"></span>
                 <span class="binder__pct">{{ b.pctLabel }}</span>
@@ -2564,20 +2907,28 @@ const app = createApp({
                 <span class="binder__caret" :class="{ 'binder__caret--open': b.open }"><icon name="arrowdown" :size="13" color="var(--mut)" /></span>
               </button>
               <div class="binder__blurb" v-if="b.blurb">{{ b.blurb }}</div>
-              <div class="binder__bar"><div class="binder__fill" :style="{ width: b.fillW, background: b.color }"></div></div>
+              <div class="binder__bar" data-kw-binder-progress role="img" :aria-label="b.countLabel"><div class="binder__fill" data-kw-binder-fill :style="{ width: b.fillW, background: b.color }"></div></div>
+
+              <div class="counts" data-kw-binder-counts v-if="b.counts.length">
+                <span class="counts__cell" data-kw-count :data-kw-count-state="c.key"
+                  :class="{ 'counts__cell--halted': c.halted }"
+                  :style="{ background: c.soft, color: c.color }" v-for="c in b.counts" :key="c.key">
+                  <span class="counts__n">{{ c.n }}</span>{{ c.word }}
+                </span>
+              </div>
 
               <div class="binder__waves" data-kw-binder-waves v-if="b.open">
                 <div class="queue"><span class="queue__icon"><icon name="fork" :size="12" color="var(--mut)" /></span><span>{{ b.queueLabel }}</span></div>
 
                 <template v-for="(w, wi) in b.waves" :key="wi">
-                  <div class="then" v-if="w.serial">
-                    <span class="then__stub"></span>
-                    <span class="then__icon"><icon name="arrowdown" :size="11" color="var(--mut)" /></span>
-                    <span class="then__word">THEN</span>
-                    <span class="then__rule"></span>
-                  </div>
-                  <div class="parallel" v-if="w.showParallel">
-                    <span class="parallel__icon"><icon name="fork" :size="11" color="var(--mut)" /></span>{{ w.parallelLabel }}
+                  <div class="step" data-kw-wave-step :data-kw-wave-lane="w.step.lane">
+                    <span class="step__numeral" data-kw-wave-step-numeral>{{ w.step.numeral }}</span>
+                    <span class="step__lane" data-kw-wave-lane-glyph role="img" :aria-label="w.step.lane_label"><icon :name="w.step.icon" :size="13" color="var(--mut)" /></span>
+                    <!-- the same wording the glyph already announces, so it is
+                         hidden from assistive tech rather than read out twice -->
+                    <span class="step__label" data-kw-wave-step-label aria-hidden="true">{{ w.step.lane_label }}</span>
+                    <span class="step__count" data-kw-wave-step-count>{{ w.step.count_label }}</span>
+                    <span class="step__pos" data-kw-wave-step-position>{{ w.step.position }}</span>
                   </div>
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
                     <div class="item" data-kw-item :data-kw-item-status="it.word" :data-kw-item-weight="it.weight"
@@ -2611,6 +2962,13 @@ const app = createApp({
                     </div>
                   </div>
                 </template>
+              </div>
+
+              <div class="bmeta" data-kw-binder-meta v-if="b.meta.length">
+                <span class="bmeta__entry" data-kw-meta-entry :data-kw-meta-key="m.key" v-for="m in b.meta" :key="m.key">
+                  <span class="bmeta__label">{{ m.label }}</span>
+                  <span class="bmeta__value">{{ m.value }}</span>
+                </span>
               </div>
             </div>
           </div>
@@ -2674,6 +3032,13 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
         .replace("__BRANCH_FMT__", _inert_json(INTEGRATION_BRANCH_FMT))
+        .replace("__PANEL__", _inert_json({
+            "count_order": list(_COUNT_ORDER),
+            "lanes": {"parallel": _LANE_PARALLEL, "serial": _LANE_SERIAL},
+            "meta": {"default": META_DEFAULT_LABEL,
+                     "integration": META_INTEGRATION_LABEL,
+                     "packs": META_PACKS_LABEL},
+        }))
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
         .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
                                                     separators=(",", ":")))
@@ -6493,6 +6858,20 @@ def _attrs(tag: str) -> dict[str, str]:
     return {m.group(1): (m.group(2) or "") for m in _ATTR_RE.finditer(body)}
 
 
+def _url_attr_exprs(doc: str) -> list[str]:
+    """Every URL-bearing attribute value in `doc` — href/src/action/formaction,
+    static or Vue-bound. The population a "no untrusted field reaches a URL"
+    rule is measured against, so consuming a feed field as inert TEXT stays
+    allowed while binding it into a navigable URL does not."""
+    urlish = ("href", "src", "action", "formaction", "xlink:href")
+    out = []
+    for tag in re.finditer(r"<[a-zA-Z][^<>]*>", doc):
+        for name, value in _attrs(tag.group(0)).items():
+            if name.lstrip(":@").lower() in urlish:
+                out.append(value)
+    return out
+
+
 def _class_binding(attrs: dict[str, str]) -> dict[str, str]:
     """Vue's `:class` object binding as {class name: the expression gating it}."""
     return {c: e.strip() for c, e in
@@ -7310,6 +7689,396 @@ def _c_show_delivered_key(ctx):
     app = ctx["app_src"]
     return ("localStorage.getItem('karta-show-delivered')" in app
             and "localStorage.setItem('karta-show-delivered'" in app)
+
+
+# --- the per-binder panel: progress, counts, wave steps, footer meta ---------
+#
+# The panel model is a Python twin driven by direct call over fixtures, so
+# "three dependency depths render three step headers" is PROVEN rather than
+# argued from the template. What source inspection still carries is the last
+# hop: that the template binds the twin's fields and does not filter them.
+
+
+def _panel_binder(ctx: dict, detail: list[dict], **over) -> dict:
+    """A binder row carrying `detail` as its work items, counts kept honest."""
+    seed = ctx["state"]["binders"][0]
+    items = dict(seed["items"], total=len(detail), detail=detail)
+    for state in ctx["count_order"]:
+        items[state] = sum(1 for row in detail if row.get("status") == state)
+    items["done"] = sum(1 for row in detail if row.get("status") == "done")
+    return dict(seed, slug="s-panel", items=items, **over)
+
+
+# a,b at depth 0; c behind a; d behind c — three depths, sizes 2 / 1 / 1
+_PANEL_DETAIL = [{"id": "a", "status": "done", "deps": []},
+                 {"id": "b", "status": "done", "deps": []},
+                 {"id": "c", "status": "building", "deps": ["a"]},
+                 {"id": "d", "status": "blocked", "deps": ["c"]}]
+
+
+@_covers("binder-header-states-its-phase", kind="rendered",
+         hook="data-kw-binder-eyebrow",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-eyebrow", "page"),
+                 lambda c: {"app_src": c["app_src"].replace("eyebrow: meta.phrase",
+                                                            "eyebrow: ''")},
+                 lambda c: {"phase_meta": {k: {x: y for x, y in v.items()
+                                               if x != "phrase"}
+                                           for k, v in c["phase_meta"].items()}}])
+def _c_binder_header_eyebrow(ctx):
+    """Where a binder stands, said in words above its headline. The wording is
+    the PHASE's own phrase — the same one the timeline row uses — so the eyebrow
+    and the gutter mark can never disagree, and every phase has one."""
+    tags = _tags_with(ctx["page"], "data-kw-binder-eyebrow")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return ("eyebrow: meta.phrase" in ctx["app_src"]
+            and "b.color" in attrs.get(":style", "")
+            and all(m.get("phrase") for m in ctx["phase_meta"].values()))
+
+
+@_covers("binder-progress-is-the-finished-share", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             progress=dict(c["binder_panel"](b, s)["progress"],
+                           pct=100, fill_w="100%"))},
+                 lambda c: _renamed(c, "data-kw-binder-fill", "page"),
+                 lambda c: _renamed(c, "data-kw-binder-progress", "page")])
+def _c_binder_progress_share(ctx):
+    """The bar's filled proportion IS finished-over-total, driven by direct call
+    over a binder at nothing, part-way and all done — and a binder with no runs
+    at all, which reads 0% instead of dividing by zero. The template's fill then
+    takes its width from that same number, so the picture cannot drift from the
+    count printed beside it."""
+    done_row = {"id": "x", "status": "done", "deps": []}
+    todo_row = {"id": "y", "status": "ready", "deps": []}
+    cases = [([], 0), ([todo_row], 0), ([done_row], 100),
+             ([done_row, todo_row], 50),
+             ([done_row, dict(todo_row, id="z"), dict(todo_row, id="w")], 33)]
+    for detail, want in cases:
+        rows = [dict(r, id=r["id"] + str(i)) for i, r in enumerate(detail)]
+        prog = ctx["binder_panel"](_panel_binder(ctx, rows), ctx["state"])["progress"]
+        if prog["pct"] != want or prog["fill_w"] != str(want) + "%":
+            return False
+        if prog["done"] > prog["total"]:
+            return False
+    fill = _tags_with(ctx["page"], "data-kw-binder-fill")
+    track = _tags_with(ctx["page"], "data-kw-binder-progress")
+    if len(fill) != 1 or len(track) != 1:
+        return False
+    return ("b.fillW" in _attrs(fill[0]).get(":style", "")
+            and "b.countLabel" in _attrs(track[0]).get(":aria-label", ""))
+
+
+@_covers("progress-track-hatches-the-unrun-share", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             "repeating-linear-gradient", "linear-gradient")},
+                 lambda c: {"css": c["css"].replace("background-image:none;", "")}])
+def _c_progress_track_hatched(ctx):
+    """Work not yet run is drawn as hatched ground, not as blank bar — so a
+    binder at 0% still reads as a plan. The hatch belongs to the TRACK; the fill
+    explicitly clears it, because a hatched fill over a hatched track would
+    erase the very boundary the bar exists to show.
+
+    Static geometry with no animation, so reduced motion has nothing to settle
+    here. Whether the two actually separate at a glance is perceptual and no
+    gate can answer it — this asserts the treatments exist and differ."""
+    track = _decls_for(ctx["css"], ".binder__bar")
+    fill = _decls_for(ctx["css"], ".binder__fill")
+    if not track or not fill:
+        return False
+    hatched = [d for d in track
+               if "repeating-linear-gradient" in d.get("background-image", "")]
+    cleared = [d for d in fill if _norm(d.get("background-image", "")) == "none"]
+    animated = [d for d in track + fill if "animation" in d]
+    return bool(hatched) and bool(cleared) and not animated
+
+
+@_covers("counts-row-totals-the-cards-below-it", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s), counts=c["binder_panel"](b, s)["counts"][:1])},
+                 lambda c: {"binder_panel": lambda b, s: dict(
+                     c["binder_panel"](b, s),
+                     counts=[dict(e, n=e["n"] + 1)
+                             for e in c["binder_panel"](b, s)["counts"]])},
+                 lambda c: _renamed(c, "data-kw-binder-counts", "page"),
+                 lambda c: _renamed(c, "data-kw-count", "page")])
+def _c_counts_row_totals(ctx):
+    """The row's numbers add up to the cards drawn under it — including BUILT,
+    the state whose card this binder's predecessor item added. Driven by direct
+    call: the tally per state equals the detail rows in that state, and the sum
+    equals the number of rows the page will draw one card each for.
+
+    Source-level for "one card per row": the cards loop is unfiltered and keyed
+    on the work-item id (its own registered behaviour), so the row count IS the
+    card count. Nothing here runs Vue."""
+    detail = [{"id": "i-" + s, "status": s, "deps": []}
+              for s in ctx["engine_states"]] + [{"id": "extra", "status": "done",
+                                                 "deps": []}]
+    panel = ctx["binder_panel"](_panel_binder(ctx, detail), ctx["state"])
+    counts = panel["counts"]
+    if sum(e["n"] for e in counts) != len(detail):
+        return False
+    for entry in counts:
+        want = sum(1 for row in detail if row["status"] == entry["key"])
+        if entry["n"] != want or entry["word"] != ctx["state_meta"][entry["key"]]["word"]:
+            return False
+    if {e["key"] for e in counts} != set(ctx["engine_states"]):
+        return False
+    row = _tags_with(ctx["page"], "data-kw-binder-counts")
+    cell = _tags_with(ctx["page"], "data-kw-count")
+    if len(row) != 1 or len(cell) != 1:
+        return False
+    return ("b.counts" in _attrs(cell[0]).get("v-for", "")
+            and _attrs(cell[0]).get(":key") == "c.key")
+
+
+@_covers("counts-row-omits-a-zero", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             counts=[{"key": k, "n": 0, "word": "X", "color": "", "soft": "",
+                      "halted": False} for k in c["count_order"]])},
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="b.counts.length"', "")}])
+def _c_counts_row_omits_a_zero(ctx):
+    """A state with no runs contributes NO cell — absence is the statement, and
+    a row of zeroes would bury the one or two numbers that matter. A binder with
+    no runs at all renders no row rather than an empty strip, which is what the
+    row's own v-if is for."""
+    only_done = [{"id": "a", "status": "done", "deps": []}]
+    counts = ctx["binder_panel"](_panel_binder(ctx, only_done),
+                                 ctx["state"])["counts"]
+    if [e["key"] for e in counts] != ["done"] or counts[0]["n"] != 1:
+        return False
+    empty = ctx["binder_panel"](_panel_binder(ctx, []), ctx["state"])["counts"]
+    if empty:
+        return False
+    cell = _tags_with(ctx["page"], "data-kw-count")
+    row = _tags_with(ctx["page"], "data-kw-binder-counts")
+    if len(cell) != 1 or len(row) != 1:
+        return False
+    return (_attrs(cell[0]).get(":data-kw-count-state") == "c.key"
+            and "b.counts" in _attrs(row[0]).get("v-if", ""))
+
+
+@_covers("counts-row-covers-every-engine-state", kind="behaviour",
+         breaks=[lambda c: {"count_order": tuple(s for s in c["count_order"]
+                                                 if s != "built")},
+                 lambda c: {"engine_states": c["engine_states"] + ("skipped",)},
+                 lambda c: {"count_order": c["count_order"] + ("done",)}])
+def _c_counts_row_covers_every_state(ctx):
+    """The row's reading order names every engine state exactly once. A state
+    missing here would be counted nowhere while its cards still rendered, so the
+    row would silently total less than the cards below it — the same failure
+    mode that lost the built state its card."""
+    order = list(ctx["count_order"])
+    return (len(order) == len(set(order)) == len(ctx["engine_states"])
+            and set(order) == set(ctx["engine_states"])
+            and all(s in ctx["state_meta"] for s in order)
+            and list(ctx["panel_inlined"]["count_order"]) == order)
+
+
+@_covers("wave-step-header-per-dependency-depth", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s), steps=c["binder_panel"](b, s)["steps"][:1])},
+                 lambda c: {"binder_panel": lambda b, s: dict(
+                     c["binder_panel"](b, s),
+                     steps=[dict(e, position="step") for e in
+                            c["binder_panel"](b, s)["steps"]])},
+                 lambda c: _renamed(c, "data-kw-wave-step", "page"),
+                 lambda c: _renamed(c, "data-kw-wave-step-position", "page")])
+def _c_wave_step_per_depth(ctx):
+    """One step header per dependency depth, each stating where it sits AND how
+    many steps there are — because once a header is stuck to the top of the
+    viewport its neighbours have scrolled away and "step 2" alone says nothing.
+
+    Driven by direct call over a four-item binder whose depends_on chain is
+    three deep. Grouping stays dependency-depth only; grouping by serialization
+    is a separate, flagged item and nothing here reads `serialize`."""
+    panel = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL), ctx["state"])
+    steps, waves = panel["steps"], panel["waves"]
+    if len(waves) != 3 or len(steps) != 3:
+        return False
+    for i, step in enumerate(steps):
+        if step["numeral"] != str(i + 1):
+            return False
+        if step["position"] != "step %d of %d" % (i + 1, len(steps)):
+            return False
+    if "serialize" in json.dumps(steps):
+        return False
+    head = _tags_with(ctx["page"], "data-kw-wave-step")
+    numeral = _tags_with(ctx["page"], "data-kw-wave-step-numeral")
+    pos = _tags_with(ctx["page"], "data-kw-wave-step-position")
+    if len(head) != 1 or len(numeral) != 1 or len(pos) != 1:
+        return False
+    return ("w.step" in _text_in(ctx["page"], "data-kw-wave-step-position")
+            and "w.step" in _text_in(ctx["page"], "data-kw-wave-step-numeral"))
+
+
+@_covers("wave-step-count-matches-its-depth", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             steps=[dict(e, n=1, count_label="1 run") for e in
+                    c["binder_panel"](b, s)["steps"]])},
+                 lambda c: _renamed(c, "data-kw-wave-step-count", "page")])
+def _c_wave_step_count(ctx):
+    """Each header's run count is the number of items actually at that depth —
+    not the binder's total, and not the wave above it. Singular and plural are
+    both spelled, so a one-run step does not read "1 runs"."""
+    panel = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL), ctx["state"])
+    steps, waves = panel["steps"], panel["waves"]
+    at_depth = [len(w) for w in waves]
+    if at_depth != [2, 1, 1] or [s["n"] for s in steps] != at_depth:
+        return False
+    for step in steps:
+        word = "run" if step["n"] == 1 else "runs"
+        if step["count_label"] != "%d %s" % (step["n"], word):
+            return False
+    count = _tags_with(ctx["page"], "data-kw-wave-step-count")
+    return (len(count) == 1
+            and "w.step" in _text_in(ctx["page"], "data-kw-wave-step-count"))
+
+
+@_covers("wave-lane-glyph-has-an-accessible-label", kind="rendered",
+         hook="data-kw-wave-lane-glyph",
+         breaks=[lambda c: _renamed(c, "data-kw-wave-lane-glyph", "page"),
+                 lambda c: _renamed(c, "data-kw-wave-lane", "page"),
+                 lambda c: _renamed(c, "data-kw-wave-step-label", "page"),
+                 lambda c: {"lanes": {k: dict(v, label="a step")
+                                      for k, v in c["lanes"].items()}}])
+def _c_wave_lane_accessible_label(ctx):
+    """A numeral cannot say whether a step's runs go at once or one after
+    another — the lane glyph does, and a glyph is nothing to a screen reader
+    unless it is labelled. So the glyph is an image with an accessible name
+    naming the lane, the two lanes are named differently, and the visible copy
+    beside it repeats that name and is therefore hidden from assistive tech
+    rather than announced twice.
+
+    Source-level: this reads the accessible name off the rendered template, not
+    off an accessibility tree — no browser is involved, so the announcement
+    itself is on the human browser checklist."""
+    glyph = _tags_with(ctx["page"], "data-kw-wave-lane-glyph")
+    head = _tags_with(ctx["page"], "data-kw-wave-lane")
+    label = _tags_with(ctx["page"], "data-kw-wave-step-label")
+    if len(glyph) != 1 or len(head) != 1 or len(label) != 1:
+        return False
+    gattrs, hattrs = _attrs(glyph[0]), _attrs(head[0])
+    if gattrs.get("role") != "img" or "lane_label" not in gattrs.get(":aria-label", ""):
+        return False
+    if hattrs.get(":data-kw-wave-lane") != "w.step.lane":
+        return False
+    if _attrs(label[0]).get("aria-hidden") != "true":
+        return False
+    lanes = ctx["lanes"]
+    labels = {k: v["label"] for k, v in lanes.items()}
+    if len(set(labels.values())) != len(labels):
+        return False
+    if "at once" not in labels["parallel"] or "in turn" not in labels["serial"]:
+        return False
+    return all(v["icon"] in ctx["icons"] and v["key"] == k
+               for k, v in lanes.items())
+
+
+@_covers("wave-step-header-sticks-under-the-page-header", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(".step{", ".step-x{")},
+                 lambda c: {"css": c["css"].replace(
+                     "background:var(--surface-2); border-bottom", "border-bottom")}])
+def _c_wave_step_sticky(ctx):
+    """The step header parks directly under the page header — the same offset
+    the map rail sticks at, so the two agree — and paints its own ground,
+    because a header stuck over scrolling cards with a transparent background is
+    unreadable. The binder's own anchor offset is left alone, so a rail card's
+    jump still lands clear of the header it scrolls beneath."""
+    step = _decls_for(ctx["css"], ".step")
+    rail = _decls_for(ctx["css"], ".rail")
+    binder = _decls_for(ctx["css"], ".binder")
+    if not step or not rail or not binder:
+        return False
+    stuck = [d for d in step if _norm(d.get("position", "")) == "sticky"]
+    if not stuck:
+        return False
+    tops = {_norm(d.get("top", "")) for d in stuck}
+    rail_tops = {_norm(d.get("top", "")) for d in rail
+                 if _norm(d.get("position", "")) == "sticky"}
+    if not tops or tops != rail_tops:
+        return False
+    if not any(d.get("background") for d in stuck):
+        return False
+    return any(d.get("scroll-margin-top") for d in binder)
+
+
+@_covers("binder-meta-names-the-real-integration-branch", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             meta=[dict(e, value="integration/x") for e in
+                   c["binder_panel"](b, s)["meta"]])},
+                 lambda c: {"binder_panel": lambda b, s: dict(
+                     c["binder_panel"](b, s),
+                     meta=[e for e in c["binder_panel"](b, s)["meta"]
+                           if e["key"] != "default"])},
+                 lambda c: _renamed(c, "data-kw-binder-meta", "page"),
+                 lambda c: _renamed(c, "data-kw-meta-entry", "page")])
+def _c_binder_meta_branches(ctx):
+    """The footer states the two branches this binder actually runs on: the
+    repository's default branch as the engine derived it, and karta's REAL
+    integration branch for this slug — the design's placeholder branch text is
+    mock content, and a chip naming a branch nobody could check out would be
+    worse than no chip. Spelled with the same format string the header chip
+    uses, so the two can never drift apart. No git call: both are string
+    formatting over facts the feed already carries."""
+    binder = _panel_binder(ctx, _PANEL_DETAIL, sme=["alpha-pack"])
+    meta = ctx["binder_panel"](binder, ctx["state"])["meta"]
+    by_key = {e["key"]: e for e in meta}
+    if set(by_key) != {"default", "integration", "packs"}:
+        return False
+    want = ctx["integration_fmt"].format(slug=binder["slug"])
+    if by_key["integration"]["value"] != want or binder["slug"] not in want:
+        return False
+    if by_key["default"]["value"] != ctx["state"]["repo"]["default_branch"]:
+        return False
+    labels = ctx["panel_meta_labels"]
+    if [by_key[k]["label"] for k in ("default", "integration", "packs")] != [
+            labels["default"], labels["integration"], labels["packs"]]:
+        return False
+    bar = _tags_with(ctx["page"], "data-kw-binder-meta")
+    entry = _tags_with(ctx["page"], "data-kw-meta-entry")
+    if len(bar) != 1 or len(entry) != 1:
+        return False
+    return (_attrs(entry[0]).get(":data-kw-meta-key") == "m.key"
+            and "b.meta" in _attrs(entry[0]).get("v-for", ""))
+
+
+@_covers("binder-meta-omits-an-empty-pack-list", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: (
+             lambda p: dict(p, meta=p["meta"] + [{"key": "packs",
+                                                  "label": "packs",
+                                                  "value": ""}])
+         )(c["binder_panel"](b, s))},
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="b.meta.length"', "")}])
+def _c_binder_meta_omits_empty_packs(ctx):
+    """A binder pinning no stack packs gets no packs entry — not an entry with
+    nothing after its label. The list the feed carries is the whole input: a
+    binder that declares `sme` gets it listed, a binder that does not gets one
+    fewer slot, and the bar itself disappears when it has nothing at all."""
+    bare = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL),
+                               ctx["state"])["meta"]
+    if any(e["key"] == "packs" for e in bare):
+        return False
+    if any(not e["value"] for e in bare):
+        return False
+    packed = ctx["binder_panel"](
+        _panel_binder(ctx, _PANEL_DETAIL, sme=["alpha-pack", "beta-pack"]),
+        ctx["state"])["meta"]
+    packs = [e for e in packed if e["key"] == "packs"]
+    if len(packs) != 1 or "beta-pack" not in packs[0]["value"]:
+        return False
+    nothing = ctx["binder_panel"]({"slug": "", "sme": [], "items": {}},
+                                  {"repo": {}})["meta"]
+    if nothing:
+        return False
+    bar = _tags_with(ctx["page"], "data-kw-binder-meta")
+    return len(bar) == 1 and "b.meta" in _attrs(bar[0]).get("v-if", "")
 
 
 # --- the map rail ------------------------------------------------------------
@@ -8225,6 +8994,8 @@ def _c_waiting_never_says_blocked(ctx):
     chrome += [d["meaning"] for d in ctx["phase_defs"]]
     chrome += [entry["text"] for entry in ctx["rail_legend"]]
     chrome += [ctx["rail_title"], ctx["title_suffix"]]
+    chrome += [lane["label"] for lane in ctx["lanes"].values()]
+    chrome += list(ctx["panel_meta_labels"].values())
     chrome += list(ctx["band"].values()) + list(ctx["refresh_labels"].values())
     chrome += list(ctx["feed_labels"].values()) + list(ctx["hub_chip"])
     return (sm["blocked"]["word"] == "WAITING"
@@ -9298,6 +10069,12 @@ def _coverage_context() -> dict:
                  "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS,
                  "key": COPY_KEY_BAND},
         "band_inlined": _inlined_const(page, "BAND"),
+        "binder_panel": binder_panel, "count_order": _COUNT_ORDER,
+        "lanes": {"parallel": _LANE_PARALLEL, "serial": _LANE_SERIAL},
+        "panel_meta_labels": {"default": META_DEFAULT_LABEL,
+                              "integration": META_INTEGRATION_LABEL,
+                              "packs": META_PACKS_LABEL},
+        "panel_inlined": _inlined_const(page, "PANEL"),
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
@@ -9742,15 +10519,25 @@ def _run_self_test() -> int:
          "_inert_json leaves it as inert text — the fourth vector's real "
          "defense is that none of the widened fields (contract, touches, "
          "estimate, serialize, shared_resources, assertions, oracle_reason, "
-         "sme) are bound into an href/src attribute or v-html anywhere: this "
-         "item is pure data plumbing (design_reference: none), so no template "
-         "expression references them at all",
+         "sme) reaches a URL-bearing attribute, and the page feeds nothing to "
+         "v-html at all. That is the whole claim: a field the page CONSUMES — "
+         "the panel's footer reads sme — is barred from the one attribute class "
+         "that would navigate. That it then renders as inert text interpolation "
+         "is read off the template, not proven here",
          wide_hostile["javascript-url"] in wide_html  # present as inert JSON text
          and "v-html" not in wide_html
          and all(("it." + f) not in wide_html for f in
                  ("contract", "touches", "estimate", "serialize",
                   "shared_resources", "assertions", "oracle_reason"))
-         and "b.sme" not in wide_html),
+         and not [expr for expr in _url_attr_exprs(wide_html)
+                  if any(f in expr for f in
+                         ("contract", "touches", "estimate", "serialize",
+                          "shared_resources", "assertions", "oracle_reason",
+                          "sme"))]),
+        ("widen: the URL-attribute rule can actually fail — an href bound to a "
+         "widened field is caught (negative control)",
+         bool([expr for expr in _url_attr_exprs('<a :href="b.sme[0]">x</a>')
+               if "sme" in expr])),
     ]
 
     # Ephemeral mode never touches the store: everything above rendered pages

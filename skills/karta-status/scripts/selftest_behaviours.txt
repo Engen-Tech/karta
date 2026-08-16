@@ -159,3 +159,21 @@ item-cards-key-on-the-work-item-id
 waiting-wording-never-says-blocked
 item-title-and-summary-are-inert
 copy-confirmation-is-per-affordance
+
+# The per-binder panel: its header, its counts row, its wave step headers and
+# its footer meta bar. The panel model is a Python twin driven by direct call,
+# so the wave grouping and the counts are PROVEN over fixtures rather than
+# argued from the template — the template's job is only to bind what the twin
+# returned, and each check reads that binding.
+binder-header-states-its-phase
+binder-progress-is-the-finished-share
+progress-track-hatches-the-unrun-share
+counts-row-totals-the-cards-below-it
+counts-row-omits-a-zero
+counts-row-covers-every-engine-state
+wave-step-header-per-dependency-depth
+wave-step-count-matches-its-depth
+wave-lane-glyph-has-an-accessible-label
+wave-step-header-sticks-under-the-page-header
+binder-meta-names-the-real-integration-branch
+binder-meta-omits-an-empty-pack-list
