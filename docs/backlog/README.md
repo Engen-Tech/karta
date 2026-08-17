@@ -55,6 +55,29 @@ Status legend: **Ready** (scoped, unblocked) · **Blocked** (needs a prerequisit
 
 ---
 
+## 4. the commit gate cannot accept a single-model review — *Ready* (filed 2026-08-17)
+
+**What.** Teach `scripts/hooks/roundtable_gate.py` and `run_review.py` a second, clearly-labelled
+record kind, so a multi-lens panel review can satisfy the plan-commit gate without ever claiming to
+be a multi-model roundtable.
+
+**Why it matters.** `.karta/roundtable.json` has one master switch, and the only record the gate
+accepts is one that cleared the `min_providers` floor. With the roundtable environment unavailable
+the only option is `enabled: false`, which turns off both enforced gates — so karta's own binders
+are now reviewed by discipline instead of by a check, which is the skippable prose the doctrine
+exists to avoid.
+
+**The surprise that makes it cheaper.** The gate never inspects a record; it delegates to
+`check_fresh()`, which compares `reviewed_hash` and nothing else. A record containing only a correct
+hash already passes (verified). So the gate side accepts a non-roundtable record today — the work is
+making that deliberate and labelled. The same finding is a latent hole on its own: a hand-written
+hash file passes with no review behind it.
+
+Full report, evidence, constraints and the open design decisions:
+[`roundtable-panel-record/BUG.md`](roundtable-panel-record/BUG.md).
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
