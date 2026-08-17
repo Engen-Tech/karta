@@ -901,6 +901,139 @@ _KEYFRAMES: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
+# The human browser checklist.
+#
+# The self-test has no browser. It renders documents and reads them as text, so
+# every claim about what a BROWSER does — a font falling back, a colour painting,
+# a header sticking, a caret turning, an aria-live region announcing, a network
+# panel staying silent — is verified at the SOURCE level or not at all. That is a
+# real limit, and the honest response to a limit is to name what it leaves out
+# rather than to let the passing count imply coverage it does not have.
+#
+# So the redesign's unverifiable set is enumerated here, in the file the checks
+# live in, instead of in a build report that scrolls away. Each entry names the
+# check, what a person actually does to run it, and WHY no assertion can make
+# the claim. The self-test holds the shape (`_c_browser_checklist_is_walkable`);
+# `--browser-checklist` prints it for whoever is walking it.
+#
+# This is a listing, in the same class as --list-behaviours: it adds nothing to
+# the page and no control a reader of the page can reach.
+# ---------------------------------------------------------------------------
+
+BROWSER_CHECKLIST: list[dict[str, str]] = [
+    {"key": "fonts-render-and-fall-back",
+     "walk": "Load a repo page. The headings are Newsreader, the body IBM Plex "
+             "Sans, the paths and commands IBM Plex Mono. Then put a binder "
+             "slug with non-Latin characters on screen and confirm those "
+             "glyphs fall through to a system face instead of showing boxes.",
+     "why": "the sheet declares the stacks and the unicode-range; whether the "
+            "browser picked the vendored face, and what it did outside that "
+            "range, is a rendering result no text assertion reaches"},
+    {"key": "both-palettes-paint",
+     "walk": "Open ?theme=light and ?theme=dark, then remove both and switch "
+             "the OS between light and dark. All four paths paint a full "
+             "palette with readable contrast — no unstyled flash, no token "
+             "falling back to black on white.",
+     "why": "the checks prove every token resolves and both blocks define the "
+            "same names; that the composited result is legible is a human call"},
+    {"key": "empty-and-degraded-states-arrived-on-the-new-design",
+     "walk": "Point the page at a repo with no binder planned: the mascot and "
+             "the empty message sit on the new palette and type roles, not on "
+             "the old page's. Then stop the engine and reload: the degraded "
+             "state says the engine is unavailable, in the same treatment. "
+             "Neither one may look like a leftover from the previous design.",
+     "why": "the checks prove both states render, carry their hooks, and name "
+            "only defined tokens — none of which can tell you the state ARRIVED "
+            "on the new design rather than being left behind, which is the one "
+            "thing this whole sweep exists to catch"},
+    {"key": "sticky-header-and-rail-anchors-land-clear",
+     "walk": "Scroll a long binder. The page header stays put, a wave step "
+             "header stacks UNDER it rather than through it, and clicking a "
+             "rail entry lands the binder below the header, not behind it.",
+     "why": "sticky offsets are arithmetic in the sheet; whether the two "
+            "stacked bars actually clear each other is a layout result"},
+    {"key": "name-underline-draws",
+     "walk": "Reload with motion enabled and watch the repo name: the "
+             "underline draws once, left to right, and does not redraw on a "
+             "poll.",
+     "why": "a one-shot stroke-dashoffset animation has no rendered evidence"},
+    {"key": "built-and-passed-separate-at-a-scan",
+     "walk": "Put a built card and a passed card on screen together, in BOTH "
+             "themes, and look at them the way you would glance at the page — "
+             "not by inspecting them. They must read as two states at a "
+             "glance, on glyph and colour together.",
+     "why": "the checks prove the two carry different words, glyphs and "
+            "tokens; 'tells them apart at a glance' is exactly the judgement "
+            "a machine cannot make"},
+    {"key": "halted-reads-urgent-with-motion-off",
+     "walk": "Turn the reduced-motion preference ON. A halted item still reads "
+             "as the loudest thing on screen — full-strength halt colour and "
+             "its octagon — and nothing blinks.",
+     "why": "the settling declarations are asserted; 'still reads as urgent' "
+            "is perceptual"},
+    {"key": "status-dot-breathes-under-reduced-motion",
+     "walk": "With reduced motion still on, confirm the feed dot, the brand "
+             "dot and a running card's footer strip KEEP breathing — this is "
+             "the one motion deliberately left running.",
+     "why": "an opacity animation surviving a media query is a computed style, "
+            "not text"},
+    {"key": "chevron-turns-and-detail-survives-a-poll",
+     "walk": "Expand one item. The chevron turns. Leave it open across at "
+             "least one automatic refresh and confirm it is still open, still "
+             "the same item, and the page did not scroll. Then collapse it: "
+             "the chevron turns back and the detail closes, and the item beside "
+             "it never opened along with it.",
+     "why": "the expansion key and the poll's state merge are asserted by "
+            "direct call; that the DOM survives the re-render is runtime"},
+    {"key": "copied-announces",
+     "walk": "With a screen reader running, press a copy button. 'Copied' is "
+             "announced once, and the label returns to 'Copy' afterwards.",
+     "why": "aria-live is an assistive-technology behaviour; the markup is all "
+            "the gate can see"},
+    {"key": "refresh-off-goes-silent",
+     "walk": "Turn automatic refresh off, open the network panel, and watch "
+             "for longer than several refresh intervals would have taken — "
+             "including a tab switch away and back, and a window focus change. "
+             "It stays silent. Then reload and confirm it is still off.",
+     "why": "THE claim of the refresh model, and the one nothing static "
+            "reaches: a request not issued leaves no trace to assert on"},
+    {"key": "offline-snapshot-opens",
+     "walk": "Save a repo page to disk and open the file:// copy with no "
+             "server running. It renders fully, the fonts fall back, and the "
+             "network panel shows no request at all.",
+     "why": "the protocol guard is read in the source; that the saved file "
+            "opens and stays quiet is end to end"},
+    {"key": "hub-reads-as-the-same-product",
+     "walk": "Open the hub landing beside a repo page. Same palette, same type "
+             "roles, same chip idiom — it reads as one product, not two.",
+     "why": "shared tokens are asserted; visual kinship is a judgement"},
+    {"key": "narrow-reflow",
+     "walk": "Narrow the window past the rail breakpoint. The rail becomes a "
+             "list above the delivery, nothing overflows sideways, and the "
+             "wave grid drops to one column further down.",
+     "why": "the media queries are asserted; that the result reflows without "
+            "clipping needs a viewport"},
+]
+
+
+# The motions that are NOT part of the design's five-motion state vocabulary —
+# interaction transitions rather than things a reader is meant to read a state
+# off. They carry no rail-legend entry (the legend explains state, and a fade
+# says nothing about state), but they owe the same stated reduced-motion
+# behaviour: a motion nobody wrote the legend for is still motion.
+#
+# Keeping them in a second dict rather than in _KEYFRAMES is what lets the
+# legend check stay an EXACT cover of the vocabulary while the reduced-motion
+# audit covers every keyframe the sheet defines. Ship a seventh motion and it
+# belongs in one dict or the other — `_c_every_keyframe_settles` reads the union
+# against what the CSS actually defines, so leaving it out of both fails.
+_KEYFRAMES_OFF_LEGEND: dict[str, str] = {
+    "karta-fade": "drops entirely — the disclosure opens in place, since the "
+                  "fade carries no information the open panel does not already "
+                  "carry by being there",
+}
+
+# ---------------------------------------------------------------------------
 # The rail's "Motion = state" legend. The page encodes state in movement and in
 # shape, and a reader who has not been told that reads a pulsing dot as
 # decoration. So the vocabulary is written down beside the map that uses it.
@@ -1538,9 +1671,16 @@ body{
 .foot{ text-align:center; font-size:12.5px; color:var(--mut); padding-top:2px; }
 
 @media (prefers-reduced-motion: reduce){
-  /* Five motions, five stated settlings. None is left running unconditionally,
-     and none is simply frozen where freezing would delete the signal — the page
-     still has to say "this is alive", "this is running", "this is halted". */
+  /* Every keyframe the sheet defines settles here — the design's five motions
+     below, then the ones outside that vocabulary. None is left running
+     unconditionally, and none is simply frozen where freezing would delete the
+     signal: the page still has to say "this is alive", "this is running",
+     "this is halted". The audit is `_c_every_keyframe_settles`, and it reads
+     THIS sheet rather than a list kept beside it, so a seventh motion added
+     without a settling fails instead of being settled by convention. Every
+     SELECTOR that applies a motion is answered, not only the motion's own
+     class — a settled `.karta-breathe` with a second element still breathing
+     would be a rule that reads as enforced and is not. */
 
   /* BREATHE keeps breathing. A status page that stops signalling life reads as
      broken, and an opacity fade is not movement. */
@@ -1799,17 +1939,29 @@ def branch_chips(state: dict) -> list[dict]:
     integration branch of the binder that is in flight — there is at most one, so
     the first `in_flight` binder in the engine's derived order wins, and a repo
     with nothing in flight shows the default branch alone rather than a chip
-    pointing at a branch that does not exist."""
+    pointing at a branch that does not exist.
+
+    BOTH chips wear the branch glyph, and neither carries an `icon` field to say
+    so. The glyph is a type marker, not decoration: it says "this pill is a git
+    ref you could check out". Carried by one chip and withheld from the other, it
+    would imply a distinction that does not exist — both chips are branches, and
+    the header already tells them apart by name and by key. The design mock draws
+    it once, but its second pill was an invented `integration/<something>`; the
+    shipped chip names a real branch, so it earns the same marker.
+
+    The template draws the glyph for every chip rather than reading a per-chip
+    field, which is what makes the decision structural: with no field there is
+    nothing to set differently on one chip, so the two cannot drift apart
+    again."""
     # MIRROR: change together with branchChips() in _APP_JS and the chip self-test.
     chips = []
     default = (state.get("repo") or {}).get("default_branch") or ""
     if default:
-        chips.append({"key": "default", "name": default, "icon": "branch"})
+        chips.append({"key": "default", "name": default})
     for binder in state.get("binders") or []:
         if binder.get("status") == "in_flight" and binder.get("slug"):
             chips.append({"key": "integration",
-                          "name": INTEGRATION_BRANCH_FMT.format(slug=binder["slug"]),
-                          "icon": ""})
+                          "name": INTEGRATION_BRANCH_FMT.format(slug=binder["slug"])})
             break
     return chips
 
@@ -2345,17 +2497,19 @@ __REFRESH_SHARED__
 // polled state rather than baked in at first paint, so the chip follows the
 // delivery as it moves. The branch spelling comes from Python as BRANCH_FMT —
 // one definition, two runtimes. Mirrored by branch_chips() in serve_status.py,
-// which the self-test drives — keep the two in lockstep.
+// which the self-test drives — keep the two in lockstep. Neither chip carries an
+// icon field: the template draws the branch glyph for every chip, because both
+// chips ARE branches and a marker withheld from one would read as a difference.
 // MIRROR: change together with branch_chips() in serve_status.py and the chip self-test.
 function branchChips(state) {
   const chips = [];
   const def = ((state && state.repo) || {}).default_branch || '';
-  if (def) chips.push({ key: 'default', name: def, icon: 'branch' });
+  if (def) chips.push({ key: 'default', name: def });
   const binders = (state && state.binders) || [];
   for (let i = 0; i < binders.length; i++) {
     const b = binders[i];
     if (b && b.status === 'in_flight' && b.slug) {
-      chips.push({ key: 'integration', name: BRANCH_FMT.replace('{slug}', b.slug), icon: '' });
+      chips.push({ key: 'integration', name: BRANCH_FMT.replace('{slug}', b.slug) });
       break;
     }
   }
@@ -3061,7 +3215,7 @@ const app = createApp({
     </div>
     <div class="hdr-right">
       <span class="branch-chip" data-kw-branch-chip :data-kw-branch-chip-key="b.key" v-for="b in branches" :key="b.key">
-        <icon v-if="b.icon" :name="b.icon" :size="11" color="var(--mut-2)" /><span class="branch-chip__name">{{ b.name }}</span>
+        <icon name="branch" :size="11" color="var(--mut-2)" data-kw-branch-chip-glyph /><span class="branch-chip__name">{{ b.name }}</span>
       </span>
       <div class="hrefresh" data-kw-refresh-cluster>
         <span v-if="autoRefresh" class="hrefresh__meter" data-kw-refresh-countdown>{{ countdownLabel }}</span>
@@ -7183,12 +7337,18 @@ def _url_attr_exprs(doc: str) -> list[str]:
     """Every URL-bearing attribute value in `doc` — href/src/action/formaction,
     static or Vue-bound. The population a "no untrusted field reaches a URL"
     rule is measured against, so consuming a feed field as inert TEXT stays
-    allowed while binding it into a navigable URL does not."""
+    allowed while binding it into a navigable URL does not.
+
+    Both of Vue's binding spellings are normalized, not just the shorthand. This
+    page writes `:href` everywhere today, so a population built on `:` alone
+    would have let a `v-bind:href` through — a gap that costs one regex to close
+    now and would be invisible the day someone writes the long form."""
     urlish = ("href", "src", "action", "formaction", "xlink:href")
     out = []
     for tag in re.finditer(r"<[a-zA-Z][^<>]*>", doc):
         for name, value in _attrs(tag.group(0)).items():
-            if name.lstrip(":@").lower() in urlish:
+            bare = re.sub(r"^(?::|@|v-bind:|v-on:)", "", name.strip()).lower()
+            if bare in urlish:
                 out.append(value)
     return out
 
@@ -7547,6 +7707,41 @@ def _c_shell_branch_chips(ctx):
             and [c["key"] for c in chips] == ["default", "integration"])
 
 
+@_covers("shell-branch-chip-glyph-on-every-chip", kind="rendered",
+         hook="data-kw-branch-chip-glyph",
+         breaks=[lambda c: _renamed(c, "data-kw-branch-chip-glyph", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     '<icon name="branch" :size="11" color="var(--mut-2)"'
+                     ' data-kw-branch-chip-glyph',
+                     '<icon v-if="b.icon" :name="b.icon" :size="11"'
+                     ' color="var(--mut-2)" data-kw-branch-chip-glyph')},
+                 lambda c: {"branch_chips": lambda s: [
+                     dict(ch, icon="branch" if ch["key"] == "default" else "")
+                     for ch in c["branch_chips"](s)]}])
+def _c_branch_chip_glyph(ctx):
+    """The branch glyph is drawn for EVERY branch chip, unconditionally, and no
+    chip carries a field that could turn it off.
+
+    The glyph is a type marker — "this pill is a git ref" — so giving it to the
+    default branch and withholding it from the integration branch would encode a
+    difference that is not there. Drawing it from the template rather than from a
+    per-chip `icon` field is what keeps that true: there is no field left to set
+    differently, so the check reads BOTH facts — one unconditional glyph inside
+    the chip, and no icon key in the chips the deriver returns."""
+    tags = _tags_with(ctx["page"], "data-kw-branch-chip-glyph")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    if "v-if" in attrs or attrs.get("name") != "branch":
+        return False
+    # the glyph sits INSIDE the chip it marks, not beside the chip row
+    chip = _tags_with(ctx["page"], "data-kw-branch-chip")
+    if not chip or _tag_after(ctx["page"], chip[0]) != tags[0]:
+        return False
+    chips = ctx["branch_chips"](ctx["state"])
+    return bool(chips) and not any("icon" in ch for ch in chips)
+
+
 @_covers("shell-branch-chip-names", kind="behaviour",
          breaks=[lambda c: {"integration_fmt": "integration/{slug}"},
                  lambda c: {"branch_inlined": "somewhere/else"},
@@ -7897,6 +8092,157 @@ def _c_five_keyframes_settle(ctx):
                 return False
         elif anim != "none":
             return False
+    return True
+
+
+@_covers("forced-theme-renders-the-whole-page", kind="behaviour",
+         breaks=[lambda c: {"render_themed": lambda s, t: c["render_themed"](s, "dark")},
+                 lambda c: {"render_themed": lambda s, t: _renamed(
+                     {"page": c["render_themed"](s, t)}, "data-kw-rail", "page")["page"]},
+                 lambda c: {"render_themed": lambda s, t: _renamed(
+                     {"page": c["render_themed"](s, t)}, "data-kw-band", "page")["page"]}])
+def _c_forced_theme_renders_whole_page(ctx):
+    """`?theme=light` and `?theme=dark` are how the page gets screenshotted, and
+    a forced render is a document nobody looks at until a screenshot comes back
+    wrong. So each one is checked for the WHOLE page, not just the attribute:
+    the theme actually lands on the root, and the rail, the band and the item
+    cards are all there — a forced theme must not be a thinner document than the
+    default one."""
+    render, state = ctx["render_themed"], ctx["state"]
+    for theme in ("light", "dark"):
+        doc = render(state, theme)
+        root = _tags_named(doc, "html")
+        if not root or _attrs(root[0]).get("data-theme") != theme:
+            return False
+        for hook in ("data-kw-shell", "data-kw-rail", "data-kw-band",
+                     "data-kw-item"):
+            if not _tags_with(doc, hook):
+                return False
+    return render(state, "light") != render(state, "dark")
+
+
+@_covers("not-found-is-plain-text-never-an-untokened-page", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'self._text(404, "not found", "text/plain")',
+             'self._html(404, render_app_html({}, "dark"))')},
+                 # one of the hub's two not-founds answering as markup: enough
+                 # to reopen the untokened-page surface, and easy to miss
+                 lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+                     'self._text(404, "not found", "text/plain")',
+                     'self._text(404, "not found", "text/html")', 1)},
+                 lambda c: {"repo_dispatch": "", "hub_dispatch": ""}])
+def _c_not_found_is_plain_text(ctx):
+    """The sweep's reading of "the 404 renders on the new tokens": there is no
+    404 PAGE, and that is the point.
+
+    Every not-found in both dispatchers answers as `text/plain`. A styled 404
+    would be an HTML surface reachable before authorisation — served to a wrong
+    Host, a bad token, a climbed asset path — and it is the one document nobody
+    would notice going stale through a restyle, because nobody looks at it until
+    something breaks. Holding it to plain text is stronger than holding it to the
+    palette: a document that carries no markup cannot carry stale markup. So the
+    check is that no 404 path ever renders a page, in either mode."""
+    sources = [ctx["repo_dispatch"], ctx["hub_dispatch"]]
+    if not all(src.strip() for src in sources):
+        return False
+    # Read the dispatchers as SYNTAX, not as text. Counting the characters "404"
+    # would make a comment that merely mentions a 404 fail the check — the kind
+    # of guard that gets weakened the first time it cries wolf.
+    for src in sources:
+        try:
+            tree = ast.parse(textwrap.dedent(src))
+        except SyntaxError:
+            return False
+        codes = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Constant) and n.value == 404]
+        plain = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and ast.unparse(n) == "self._text(404, 'not found', 'text/plain')"]
+        if not codes or len(plain) != len(codes):
+            return False
+    return True
+
+
+@_covers("browser-checklist-enumerates-what-no-check-can-prove", kind="behaviour",
+         breaks=[lambda c: {"browser_checklist": []},
+                 lambda c: {"browser_checklist": [dict(e, why="")
+                                                  for e in c["browser_checklist"]]},
+                 lambda c: {"browser_checklist": [dict(e, key="same")
+                                                  for e in c["browser_checklist"]]},
+                 lambda c: {"browser_checklist": [
+                     e for e in c["browser_checklist"]
+                     if "refresh" not in e["key"] and "reduced-motion" not in e["key"]
+                     and "palettes" not in e["key"]]}])
+def _c_browser_checklist_is_walkable(ctx):
+    """The gate has no browser, so the guarantees it cannot make are ENUMERATED
+    rather than left to be inferred from a passing count.
+
+    Every entry has to be walkable — a distinct name, an instruction naming what
+    a person actually does, and a stated reason no assertion can stand in for it.
+    A `why` left blank is the failure mode this guards: an entry with no reason
+    is a claim someone gave up on rather than a limit someone named.
+
+    The topic floor is the other half, and it is what the contract pins: the
+    walks the item was CHARTERED to produce have to be present, so shrinking the
+    list can never quietly drop the ones that matter most. The empty and degraded
+    states are on that floor because they are the pair this whole sweep exists
+    for — a checklist that skips them is the exact omission the item guards
+    against, and the first review of this list caught it missing."""
+    entries = ctx["browser_checklist"]
+    if not entries:
+        return False
+    keys = [e.get("key", "") for e in entries]
+    if len(set(keys)) != len(keys):
+        return False
+    for entry in entries:
+        if not all(entry.get(f, "").strip() for f in ("key", "walk", "why")):
+            return False
+        if len(entry["walk"].split()) < 8:      # a name, not an instruction
+            return False
+    joined = " ".join(keys)
+    return all(topic in joined for topic in
+               ("empty-and-degraded", "offline-snapshot", "palettes",
+                "reduced-motion", "refresh-off", "chevron"))
+
+
+@_covers("every-keyframe-settles-under-reduced-motion", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"] + "\n@keyframes karta-nudge{ to{ left:1px; } }"
+                                              "\n.nudge{ animation:karta-nudge 1s linear; }"},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".item__detail")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".phase__mark--pulse")},
+                 lambda c: {"keyframes_off_legend": {}}])
+def _c_every_keyframe_settles(ctx):
+    """The reduced-motion audit, scoped to what the STYLESHEET defines rather
+    than to a hand-kept list. `_c_five_keyframes_settle` above holds the design's
+    five motions to their vocabulary; this one holds the sheet to itself, and
+    that difference is the whole point — the five-motion check cannot see a sixth
+    keyframe, so a motion added outside the vocabulary would settle by convention
+    alone. Here every `@keyframes karta-*` the page ships must (a) be declared in
+    one of the two registries with a stated behaviour, and (b) have EVERY
+    selector that applies it answered in the reduced-motion block, so a motion
+    cannot be settled on its own class while a second element keeps it running.
+    """
+    css = ctx["css"]
+    stated = dict(ctx["keyframes"], **ctx["keyframes_off_legend"])
+    reduced = _reduced_block(css)
+    if not reduced:
+        return False
+    defined = set(re.findall(r"@keyframes\s+(karta-[\w-]+)", css))
+    if not defined or defined != set(stated):
+        return False                          # a motion in neither registry, or
+                                              # a registry entry with no keyframe
+    outside = css.replace(reduced, "")
+    for name in defined:
+        if not stated[name].strip():
+            return False                      # declared with no stated behaviour
+        applied = [sel for sel, decls in _css_rules(outside)
+                   if _animates_with(decls, name)]
+        if not applied:
+            return False                      # defined and applied by nothing
+        for sel in applied:
+            settled = _decls_for(reduced, sel)
+            if not settled or not settled[0].get("animation", "").strip():
+                return False                  # this element left running
     return True
 
 
@@ -8258,6 +8604,62 @@ def _c_wave_step_count(ctx):
     count = _tags_with(ctx["page"], "data-kw-wave-step-count")
     return (len(count) == 1
             and "w.step" in _text_in(ctx["page"], "data-kw-wave-step-count"))
+
+
+def _waves_unguarded(items: list[dict]) -> list[list[dict]]:
+    """A deliberately unguarded wavesOf: an unresolvable dependency still adds a
+    depth, and a cycle is only stopped by a recursion limit. The known-bad input
+    `_c_wave_guards_are_exercised` is proved against — without it the check would
+    pass on a grouping that never had the guards at all."""
+    depth = {it["id"]: 0 for it in items}
+    for it in items:
+        depth[it["id"]] = len(it.get("deps") or [])
+    out = [[it for it in items if depth[it["id"]] == d]
+           for d in range(max(depth.values(), default=-1) + 1)]
+    return [w for w in out if w]
+
+
+@_covers("wave-grouping-survives-a-cycle-and-a-foreign-dependency",
+         kind="behaviour",
+         breaks=[lambda c: {"waves_of": _waves_unguarded},
+                 # every item in its own wave: a foreign dependency has been let
+                 # add a depth, so two independent items no longer run together
+                 lambda c: {"waves_of": lambda items: [[it] for it in items]},
+                 # a guard that drops the item it stopped at instead of zeroing it
+                 lambda c: {"waves_of": lambda items: [items[:1]]},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (seen[it.id]) return 0; seen[it.id] = true;", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (byId[dep])", "if (true)")}])
+def _c_wave_guards_are_exercised(ctx):
+    """The two guards inside the wave grouping, driven by direct call rather than
+    left to a fixture that happens never to hit them.
+
+    A binder can carry a dependency naming an item that is not in it (an `after:`
+    predecessor, a hand-edited binder), and a malformed binder can carry a cycle.
+    Neither is the page's to diagnose — but neither may cost the reader the map:
+    a foreign dependency adds no depth, and a cycle stops at the item it re-enters
+    instead of recursing until the interpreter gives up. Both fixtures assert the
+    stronger property too: every item still appears exactly once, so a guard can
+    never quietly drop a work item off the panel."""
+    waves_of = ctx["waves_of"]
+
+    foreign = [{"id": "a", "deps": []},
+               {"id": "b", "deps": ["planned-in-another-binder"]}]
+    grouped = waves_of(foreign)
+    if [[it["id"] for it in w] for w in grouped] != [["a", "b"]]:
+        return False                          # a dep off the binder added depth
+
+    cyclic = [{"id": "x", "deps": ["y"]}, {"id": "y", "deps": ["x"]}]
+    grouped = waves_of(cyclic)
+    flat = [it["id"] for w in grouped for it in w]
+    if sorted(flat) != ["x", "y"] or len(grouped) > len(cyclic):
+        return False                          # an item lost, or depth ran away
+
+    # and the browser's twin carries the same two guards, since the panel a
+    # reader actually sees is grouped by wavesOf() and not by this function.
+    js = _js_block(ctx["app_src"], "function wavesOf(items) {")
+    return "if (seen[it.id]) return 0;" in js and "if (byId[dep])" in js
 
 
 @_covers("wave-lane-glyph-has-an-accessible-label", kind="rendered",
@@ -8636,7 +9038,11 @@ def _c_rail_title_fallback(ctx):
                  lambda c: {"css": c["css"].replace(
                      ".rail{ position:static !important;",
                      ".rail{ position:sticky !important;")},
-                 lambda c: {"app_src": c["app_src"] + "\naddEventListener('resize');"}])
+                 lambda c: {"app_src": c["app_src"] + "\naddEventListener('resize');"},
+                 # the wide grid collapsed to a single track: nothing is left for
+                 # the breakpoint to collapse, so the rail never was a column
+                 lambda c: {"css": re.sub(r"(\.split\{[^}]*grid-template-columns:)"
+                                          r"[^;]+", r"\g<1>1fr", c["css"], count=1)}])
 def _c_rail_narrow_breakpoint(ctx):
     """Wide, the rail is a sticky column. Below the narrow breakpoint the grid
     collapses to one column and the rail unsticks, so a phone reads the map as a
@@ -8645,7 +9051,17 @@ def _c_rail_narrow_breakpoint(ctx):
     the refresh model already owned, and the rail adds none."""
     css = ctx["css"]
     wide = _decls_for(css, ".split")
-    if not wide or "minmax" not in wide[0].get("grid-template-columns", ""):
+    if not wide:
+        return False
+    # TWO tracks wide, one track narrow — the structural fact. Deliberately not
+    # "the wide rule says minmax": that spelling is one way to write a two-track
+    # grid, and requiring it would fail a future fixed-width rail that reflows
+    # exactly as well. The invariant is the collapse, not the sizing function.
+    # Parenthesized sizing functions collapse to one token first, so a single
+    # `minmax(0, 1fr)` track cannot be miscounted as two by the whitespace split.
+    wide_cols = re.sub(r"\([^()]*\)", "()",
+                       _norm(wide[0].get("grid-template-columns", "")))
+    if len(wide_cols.split()) < 2:
         return False
     if not any(_norm(d.get("position", "")) == "sticky"
                for d in _decls_for(css, ".rail")):
@@ -10810,7 +11226,10 @@ def _coverage_context() -> dict:
         "css": _strip_css_comments(_page_css()),
         "hub_css": _strip_css_comments(_HUB_CSS),
         "palette": _PALETTE, "retired": _RETIRED_TOKENS,
-        "keyframes": _KEYFRAMES, "hub_chip": _HUB_CHIP,
+        "keyframes": _KEYFRAMES,
+        "keyframes_off_legend": _KEYFRAMES_OFF_LEGEND,
+        "waves_of": _waves_of, "browser_checklist": BROWSER_CHECKLIST,
+        "hub_chip": _HUB_CHIP,
         "vendored_weights": _vendored_weights(),
         "app_src": _APP_JS,
         "repo_dispatch": inspect.getsource(_Handler.do_GET),
@@ -10835,6 +11254,7 @@ def _coverage_context() -> dict:
         "next_action_of": next_action_of,
         "next_action_accessor": _js_block(_APP_JS, "    nextAction() {"),
         "render": lambda s: render_app_html(s, "dark", repo_name=repo_name),
+        "render_themed": lambda s, t: render_app_html(s, t, repo_name=repo_name),
         "band": {"eyebrow": BAND_EYEBROW, "copy": COPY_LABEL,
                  "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS,
                  "key": COPY_KEY_BAND},
@@ -11325,6 +11745,16 @@ def _run_self_test() -> int:
          "widened field is caught (negative control)",
          bool([expr for expr in _url_attr_exprs('<a :href="b.sme[0]">x</a>')
                if "sme" in expr])),
+        ("sweep: the URL-attribute population covers Vue's LONG binding form "
+         "too — a v-bind:href is caught the same as a :href, so the rule cannot "
+         "be sidestepped by spelling the binding out (negative control)",
+         bool([e for e in _url_attr_exprs('<a v-bind:href="b.sme[0]">x</a>')
+               if "sme" in e])
+         and bool([e for e in _url_attr_exprs('<img v-bind:src="it.touches">')
+                   if "touches" in e])
+         # and a NON-url long-form binding is still not swept in, so widening
+         # the population did not turn every bound attribute into a URL
+         and not _url_attr_exprs('<a v-bind:title="b.sme[0]">x</a>')),
     ]
 
     # Ephemeral mode never touches the store: everything above rendered pages
@@ -11382,8 +11812,17 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true", help="render fixtures, check invariants, exit 0/1")
     ap.add_argument("--list-behaviours", action="store_true",
                     help="print the coverage registry as JSON (the anchor floor reads this)")
+    ap.add_argument("--browser-checklist", action="store_true",
+                    help="print the checks only a human with a browser can make")
     args = ap.parse_args()
 
+    if args.browser_checklist:
+        # What the self-test cannot prove, named. Printed rather than left in a
+        # build report so it is still here the next time someone needs to walk it.
+        for i, entry in enumerate(BROWSER_CHECKLIST, 1):
+            print("%2d. %s\n    %s\n    (no check can prove this: %s)\n"
+                  % (i, entry["key"], entry["walk"], entry["why"]))
+        return 0
     if args.list_behaviours:
         # The floor in validate_plugin.py compares the committed anchor against
         # this, from outside the file every binder item edits.

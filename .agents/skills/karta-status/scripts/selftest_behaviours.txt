@@ -177,3 +177,37 @@ wave-lane-glyph-has-an-accessible-label
 wave-step-header-sticks-under-the-page-header
 binder-meta-names-the-real-integration-branch
 binder-meta-omits-an-empty-pack-list
+
+# The expandable item detail, and the state that lets one card open on its own.
+# Registered by the disclosure item, anchored here by the closing sweep: the
+# disclosure item read the "no later item edits this file" note as covering the
+# anchor too and reverted its own append. The nine items before it appended, and
+# the operator confirmed the delivery's practice — an item anchors what it
+# registered — so the fourteen land here rather than staying unguarded.
+blocked-by-chips-carry-the-blockers-state
+item-detail-caret-turns-and-settles
+item-detail-hooks-are-registered
+item-detail-marks-a-declared-empty-field
+item-detail-mirror-matches-its-twin
+item-detail-names-the-items-git-ref
+item-detail-omits-an-undeclared-field
+item-detail-opt-out-states-its-reason
+item-detail-renders-every-assertion
+item-detail-rows-are-labelled
+item-detail-values-are-inert
+item-expansion-is-keyed-per-item
+item-expansion-survives-a-poll
+oracle-type-icons-all-resolve
+
+# The closing sweep's own six — the states and guarantees no single item owned.
+# The reduced-motion audit is the one that had to exist: the five-motion check
+# reads a hand-kept list, so a SIXTH keyframe was settled by convention alone and
+# a seventh would have slipped through entirely. This one reads the stylesheet.
+# The last two are the sweep's honesty entries: the 404 that is deliberately NOT
+# a page, and the enumeration of what nothing here can prove at all.
+every-keyframe-settles-under-reduced-motion
+wave-grouping-survives-a-cycle-and-a-foreign-dependency
+shell-branch-chip-glyph-on-every-chip
+forced-theme-renders-the-whole-page
+not-found-is-plain-text-never-an-untokened-page
+browser-checklist-enumerates-what-no-check-can-prove
