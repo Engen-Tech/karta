@@ -103,6 +103,12 @@ A PreToolUse hook sees a command before it runs, so it can only match command te
 
 When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo.
 
+### When the retroactive panel rejects a hatch-committed binder
+
+The hatch defers the review; it never waives it. So the panel can come back with blockers against a plan that is already committed, and a committed binder is read-only — `guard_binder_immutability.py` denies the edit, and that guard stays.
+
+The sanctioned path is **withdrawal, not a history rewrite**. Commit the deletion of the binder file, then commit the corrected plan under the same slug together with its review record. The binder gate skips the deletion commit by construction (a deleted path has no staged plan to review), and both commits move forward, so the audit trail keeps the rejected plan, its rejection, and its replacement. Resetting or amending the offending commit destroys that trail and only works while it is unpushed.
+
 Full operator guide: [docs/how-to/roundtable.md](docs/how-to/roundtable.md).
 
 ## Kaizen dogfood policy (this repo)

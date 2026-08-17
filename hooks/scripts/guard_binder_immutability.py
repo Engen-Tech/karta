@@ -68,7 +68,10 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
         "resume story; an archived binder (.karta/binders/archive/) is delivered history and "
         "is never edited. To change the plan, re-plan with karta-plan (which writes a fresh "
         "binder file) or draft a new, not-yet-committed binder; writes to untracked binder "
-        "drafts are not blocked.")
+        "drafts are not blocked. If nothing has been delivered from this binder and the plan "
+        "is simply wrong — a retroactive review rejected it, say — withdraw it: commit the "
+        "deletion of this file, then commit the corrected plan (the same slug is fine) with "
+        "its review record. Never rewrite history to edit a binder in place.")
 
 
 def _run_self_test() -> int:
@@ -143,7 +146,15 @@ def _run_self_test() -> int:
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
             failures += 0 if ok else 1
 
-    total = len(cases) + 2
+    # The denial has to name the withdrawal path, or a rejected plan tempts the
+    # reader into a history rewrite instead.
+    _, reason = decide(pre("Write", file_path=".karta/binders/checkout.json", content="{}"),
+                       tracked=tracked)
+    msg_ok = "withdraw it" in reason and "commit the deletion" in reason
+    print(f"[{'PASS' if msg_ok else 'FAIL'}] denial names the withdrawal path")
+    failures += 0 if msg_ok else 1
+
+    total = len(cases) + 3
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 
