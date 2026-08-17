@@ -1,5 +1,13 @@
 # Roundtable edict (house-only)
 
+> **Currently switched off.** `.karta/roundtable.json` carries `enabled: false`, so the roundtable
+> tool is not called and neither enforced gate fires. The review requirement itself still stands —
+> it is met today by the multi-lens panel in `scripts/review/binder_review_panel.js`. See
+> "Review before commit" in [AGENTS.md](../../AGENTS.md) for the current rule and for what the
+> switch-off trades away. **A panel result is not a roundtable record and must never be filed as
+> one:** every lens is the same model wearing a different hat, so it cannot meet `min_providers`.
+> Everything below describes the machinery for when it is turned back on.
+
 karta's own binders and deliveries may not land without a recorded multi-model review. This is a house rule for the karta repo building itself; consumer repos never carry it. This guide is how you run the review and file its result.
 
 The gate is deterministic: it checks that *a fresh recorded review of this exact content exists*, never what the panel concluded. The panel's opinion varies run to run, so it never blocks — skipping the review is what blocks. You read the findings and decide what to act on.

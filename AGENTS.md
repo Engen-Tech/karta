@@ -44,15 +44,36 @@ uv run scripts/sync_codex_skills.py --check
 
 The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating.
 
-## Roundtable edict (house-only)
+## Review before commit (house-only)
 
-karta's own binders and deliveries may not proceed without a recorded multi-model review. This is a house rule for the karta repo building itself — consumer repos never carry it. It matches karta's standing doctrine: enforced checks over skippable prose.
+karta's own binders and deliveries get a multi-perspective review before they land. This is a house rule for the karta repo building itself — consumer repos never carry it.
 
-**Standing direction (2026-07-28): the review is not optional workflow — every karta binder is roundtabled before commit, always.** The stakes are the framework itself: a flawed binder propagates into every consumer repo. The escape hatch below exists for a down review environment only, never as a convenience; a hatch-committed binder gets its panel retroactively as soon as the environment is back.
+**Standing direction: every karta binder is reviewed before commit, always**, and the same before landing a delivery branch on main. The stakes are the framework itself: a flawed binder propagates into every consumer repo. That requirement has not changed. What performs the review has.
 
-The gate is deterministic. It enforces one fact — *a fresh recorded review of this exact content exists* — never the panel's verdict. The review is nondeterministic (different models, different runs), so disagreeing with the findings never blocks; skipping the review is what blocks. You still read the findings and decide what to act on.
+### What runs today
 
-### The four points
+`.karta/roundtable.json` carries `enabled: false`. The roundtable tool is not called, and **both enforced gates are inert** — the hook reads that switch and exits 0. The review is now the multi-lens panel:
+
+```
+Workflow({ scriptPath: 'scripts/review/binder_review_panel.js',
+           args: { binder: '<slug>', focus: '<optional extra lens>' } })
+```
+
+Six adversarial lenses over one shared ground-truth read, each finding re-verified against the repo before it counts. What it has over an external panel is access: every lens opens the actual source and runs the actual commands, so a finding either cites a `file:line` or it does not survive the verify phase.
+
+**A panel result is never a roundtable record.** Every lens is the same model wearing a different hat, so it cannot meet the `min_providers` floor. Never pipe it to `scripts/roundtable/run_review.py --record`, and never file it under `.karta/roundtable/`. The two are different kinds of evidence and conflating them would make the audit trail lie.
+
+### What this trades away
+
+Say it plainly, because it cuts against karta's own doctrine of enforced checks over skippable prose: the roundtable edict was *enforced* — a PreToolUse hook blocked the commit until a fresh record of that exact content existed. With the switch off, nothing blocks. The review now depends on whoever is at the keyboard choosing to run it, which is exactly the strength the old prose-only disclosure had, and it was not enough.
+
+Two routes back to enforcement, neither built: restore a working multi-provider environment and set `enabled: true`; or teach `scripts/hooks/roundtable_gate.py` to also accept a committed panel record as its own clearly-labelled kind that never claims to be multi-model.
+
+### The roundtable machinery, for when it returns
+
+Switched off, not removed — still present and still correct. The gate was deterministic: it enforced one fact, *a fresh recorded review of this exact content exists*, never the panel's verdict, so disagreeing with findings never blocked and only skipping the review did.
+
+#### The four points, when enabled
 
 | Point | Git event | Treatment |
 |-|-|-|
@@ -61,9 +82,9 @@ The gate is deterministic. It enforces one fact — *a fresh recorded review of 
 | Verify (a built diff) | none | helper-available (advisory) |
 | Standalone (ad hoc) | none | helper-available (advisory) |
 
-Plan-commit and deliver-merge have a real commit to block, so they are gated. Verify and standalone have no commit or stop moment to hang an edict on, so they get the same one-command helper with no hard gate.
+Plan-commit and deliver-merge have a real commit to block, so those are the two that were gated. Verify and standalone have no commit or stop moment to hang an edict on, so they got the same one-command helper with no hard gate. With the switch off, all four are advisory.
 
-### Run the panel, then record it
+#### Running it, once it is back on
 
 The tool per point is configured in `.karta/roundtable.json` (default `roundtable-critique`). A script cannot run roundtable — it is an MCP tool the agent calls. So the flow is two steps:
 
@@ -72,19 +93,19 @@ The tool per point is configured in `.karta/roundtable.json` (default `roundtabl
 
 The gate then confirms the record with `run_review.py --check`. The `min_providers` floor keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it.
 
-### Rules the gate enforces
+#### Rules the gate enforced
 
 - **Records must be committed.** The recorder stages the record under `.karta/roundtable/`, and the binder-commit gate requires it to be in the same commit (staged, or already in `HEAD`). A record that lives only in the working tree does not satisfy the gate — `.karta/roundtable/` is the committed audit trail.
 - **Binder freshness keys on the staged blob.** The binder gate hashes the *staged* bytes (`git show :<path>`), not the working-tree file. Review one version of the binder and stage a different one, and the gate re-arms — you must re-review what you are actually committing.
 - **The merge gate is narrow.** It fires only for a `git merge` naming a `karta/*/integration` branch while you are on the default branch. Nothing else trips it.
 
-### Accepted bypasses
+#### Accepted bypasses
 
 A PreToolUse hook sees a command before it runs, so it can only match command text and read current git state — it cannot judge a post-condition like "will this make the integration tip an ancestor." So these paths are **not** gated, by design, and are the same class of deliberate escape as the hatch below: landing integration content via `git cherry-pick`, `git rebase`, or `git reset --hard`; and a `git merge --squash` followed by a separate `git commit`. The doctrine names them plainly rather than pretending the gate is airtight.
 
-### Escape hatch
+#### Escape hatch
 
-When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo.
+When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With `enabled: false` the hatch is moot: nothing is gated, so there is nothing to escape.
 
 Full operator guide: [docs/how-to/roundtable.md](docs/how-to/roundtable.md).
 
