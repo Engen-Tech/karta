@@ -1,0 +1,207 @@
+{
+  "slug": "pi-visual-primitives",
+  "title": "The three parts Pi needs before it can judge a screenshot",
+  "summary": "Build and prove the pieces a visual check depends on: turning a reviewed tree into a directory you can run, owning the processes started against it, and reporting whether a page actually rendered. Nothing in build or delivery behavior changes yet.",
+  "motivation": "Planning the visual gate stalled twice on two questions nobody could answer from a desk: how a pre-commit tree becomes a running application, and how we know a page rendered at all. This binder answers both by building the parts, so the next plan rests on measurements instead of assumptions.",
+  "scope": {
+    "included": [
+      "materializing a tree object that has no commit behind it, and a drift check that says whether the directory is still that tree",
+      "a cancellable managed service with process-tree cleanup and a health check that distinguishes ready, exited, and never-bound",
+      "render-health reporting from the capture scripts, and a design server that serves no more than the directory holding the file it was given",
+      "one end-to-end proof that the three compose on this repository, plus a written record of the answers the next plan needs"
+    ],
+    "excluded": [
+      "any screenshot comparison, verdict, model session, or image handling",
+      "any change to build finalization, delivery, recovery, human acceptance, or Git ref ordering",
+      "any change to the binder schema or to what karta-plan emits",
+      "new package dependencies or pinned browser tooling; this binder uses the Playwright CLI already on PATH",
+      "changing how Claude Code or Codex invoke the capture scripts today — every script change here is additive and their current command lines keep working",
+      "Windows enablement and any consumer application's UI"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "TypeScript/Node Pi extension on @earendil-works/pi-coding-agent 0.84.2; Git plumbing over tree objects; stdlib Python capture scripts run with uv; Playwright CLI resolved from PATH as the existing skill route already does"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring"
+  ],
+  "shared_terms": [
+    {
+      "id": "render-health-payload",
+      "canonical": "karta-render-health-v1",
+      "items": [
+        "capture-render-health",
+        "primitives-proof"
+      ]
+    }
+  ],
+  "env_contract": {
+    "command": "npm run check:pi",
+    "supports_isolation": false,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "node",
+        "version": ">=22.19.0"
+      },
+      {
+        "name": "uv",
+        "version": ">=0.4"
+      },
+      {
+        "name": "chromium",
+        "version": "*"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "tree-materialization",
+      "title": "Turn a reviewed tree into a directory you can run",
+      "summary": "Write a Git tree object out to a disposable directory, and answer reliably whether that directory still matches the tree it came from.",
+      "estimate": "M",
+      "depends_on": [
+        "managed-services"
+      ],
+      "shared_resources": [
+        "pi-process-lifecycle"
+      ],
+      "contract": "EXPOSES a materializer that takes a Git tree object with no commit behind it and produces a disposable directory, plus a drift check that answers whether the directory still matches that tree. Boundaries the implementation must respect and the tests must show: git worktree add is unusable here because it requires a commit-ish, so materialization goes through an explicit index; symlink and gitlink entries are handled deliberately so nothing in the directory resolves outside it; the directory sits outside every repository worktree; and it is removed on every exit path including cancellation and session shutdown, registered through the lifecycle owner managed-services establishes. The drift check compares tracked paths and additionally reports the untracked set it found, because untracked output such as installed dependencies or build artifacts is expected here but a later caller must be able to decide for itself whether that output disqualifies the directory. Whether a caller may supply its own directory is decided here and stated either way \u2014 an accepted directory is only ever trusted after the drift check passes.",
+      "touches": [
+        "extensions/pi/tree-materializer.ts",
+        "extensions/pi/lifecycle-registry.ts",
+        "tests/pi/tree-materializer.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "genuine novelty: first Karta code that materializes a pre-commit tree object rather than checking out a commit",
+          "sensitive boundary: the drift check is what later work will rely on to claim a directory is the reviewed tree"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/tree-materializer.test.ts && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi",
+        "assertions": [
+          "a tree object with no commit behind it materializes, and the same call fails cleanly on a tree that does not exist",
+          "the drift check reports a clean match on a fresh materialization, catches an edit, deletion, or mode change to a tracked file, and lists untracked output rather than hiding it",
+          "a symlink or gitlink entry cannot make the directory resolve outside itself",
+          "the directory and its contents are gone after success, failure, cancellation, and session shutdown"
+        ]
+      }
+    },
+    {
+      "id": "managed-services",
+      "title": "Karta owns every process it starts",
+      "summary": "Start a long-lived command under Karta's lifecycle, wait for it to answer on a loopback port, and guarantee the whole process tree dies when the run ends.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "EXPOSES a managed-service primitive built by extending the existing managed-command path rather than duplicating it: one long-lived command with an explicit working directory, bounded environment additions, logs written to a caller-supplied private directory that is never inside a repository worktree, a lifecycle parent, and an idempotent stop handle that terminates the whole process tree. Services start in one of two declared modes, because both already exist in this codebase: a fixed mode where the caller names the loopback URL and starting refuses if that port is already listening, and an announced mode where the service binds an ephemeral port and reports it back, which is what the design server does today. EXPOSES a health check that waits for a caller-supplied loopback URL, a required start input that is never inferred, with bounded retries, and reports three outcomes a caller can act on differently: ready, the command exited, or it never bound before the deadline. Ready means the URL answered an HTTP request, not merely that a TCP connection opened. Starting refuses outright when the port is already listening, so a server Karta did not start can never be mistaken for one it did. The refusal narrows the race window rather than closing it, and the tests say so. How a caller and a command come to agree on the port, by environment injection or by accepting whatever the command binds, is measured here and written up by primitives-proof \u2014 that answer is a deliverable of this binder, not an assumption inside it.",
+      "shared_resources": [
+        "pi-process-lifecycle"
+      ],
+      "touches": [
+        "extensions/pi/managed-service.ts",
+        "extensions/pi/managed-command.ts",
+        "extensions/pi/process-manager.ts",
+        "extensions/pi/lifecycle-registry.ts",
+        "tests/pi/managed-service.test.ts",
+        "tests/pi/process-manager.test.ts",
+        "tests/pi/lifecycle-registry.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "new authority: Karta starts and kills long-lived process trees it did not previously own",
+          "shared resource: extends the existing lifecycle registry every other Pi child already depends on"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/managed-service.test.ts tests/pi/lifecycle-registry.test.ts && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi",
+        "assertions": [
+          "a service and every descendant it spawned are gone after success, failure, timeout, cancellation, and session shutdown",
+          "a command that exits and a command that never binds are reported as different outcomes, each preserving bounded exit, stdout, and stderr",
+          "fixed mode refuses an already-listening port instead of adopting the running server, and announced mode reports the ephemeral port the service actually bound",
+          "ready is reported only for an HTTP response, never for a bare TCP connect",
+          "the child process receives only the declared environment additions on top of what it inherits",
+          "service logs land in the caller's private directory, and a log path inside a repository worktree is refused rather than silently redirected"
+        ]
+      }
+    },
+    {
+      "id": "capture-render-health",
+      "title": "Prove the page actually rendered",
+      "summary": "Make the capture scripts report whether a page really loaded, and stop the design server from serving anything beyond the directory holding the file it was handed.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "EXPOSES karta-render-health-v1 from the capture script: the strongest evidence the available capture tooling can actually observe about failed loads, meaning per-URL detail where the Playwright CLI exposes it and a named, documented limit where it does not, plus a signal separating a populated render from an empty one, so two blank pages can never be captured, compared, and passed. Establishing what is observable without adding dependencies is part of this item's job, and the answer is handed to primitives-proof, which owns the findings note. ADDS a containment guard to the design server rather than a new mode, because handing it a file path already skips discovery and already serves only that file's parent directory \u2014 never a worktree root \u2014 so it cannot publish a whole tree or its .git on a loopback port. The guard also refuses any request that escapes that parent directory. The directory-and-discovery mode Claude Code and Codex use keeps working and gains the same guard, and karta-validate's skill doc is updated to say so. Both scripts carry self-tests covering the old and new call shapes, and every mirror stays byte-identical to its canonical copy.",
+      "touches": [
+        "skills/karta-validate/scripts/capture_view.py",
+        ".agents/skills/karta-validate/scripts/capture_view.py",
+        "plugins/karta/skills/karta-validate/scripts/capture_view.py",
+        "skills/karta-validate/scripts/serve_design.py",
+        ".agents/skills/karta-validate/scripts/serve_design.py",
+        "plugins/karta/skills/karta-validate/scripts/serve_design.py",
+        "skills/karta-validate/SKILL.md",
+        ".agents/skills/karta-validate/SKILL.md",
+        "plugins/karta/skills/karta-validate/SKILL.md",
+        "tests/pi/script-tool.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "cross-runtime blast radius: these scripts are the capture route Claude Code and Codex run today",
+          "closes a stated exposure: the design server currently serves whatever directory it infers"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/script-tool.test.ts && uv run skills/karta-validate/scripts/capture_view.py --self-test && uv run skills/karta-validate/scripts/serve_design.py --self-test && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi && KARTA_VISUAL_BROWSER=1 npm run check:pi",
+        "assertions": [
+          "a page whose subresources cannot resolve surfaces that failure to the caller at whatever detail the tooling supports, and the limit is documented where it does not support per-URL detail",
+          "an empty render is distinguishable from a populated one in the reported payload",
+          "explicit-file mode refuses a worktree root and serves only the named file's parent, and no request escapes that parent to reach .git or a sibling directory",
+          "the capture and design command lines Claude Code and Codex use today still work unchanged, and all script and skill mirrors stay byte-identical"
+        ]
+      }
+    },
+    {
+      "id": "primitives-proof",
+      "title": "Show the three parts work together, and write down what we learned",
+      "summary": "Run one composed pass on this repository — tree to directory, app to port, page to capture — and record the answers the next plan depends on.",
+      "estimate": "M",
+      "depends_on": [
+        "tree-materialization",
+        "managed-services",
+        "capture-render-health"
+      ],
+      "contract": "CONSUMES the three primitives and proves they compose on this repository: a tree object with no commit behind it becomes a directory, a controlled fixture application starts inside it and answers on its port, the design server serves a fixture design file, the page is captured, and render health comes back. No comparison, no verdict, no model session, and no change to build or delivery behavior. Every process, directory, browser session, and handle is gone when the pass finishes, including when it is cancelled midway. The browser leg runs only when KARTA_VISUAL_BROWSER is set, following the existing opt-in live-test precedent in tests/pi, so Chromium never becomes a requirement of a bare npm run check:pi, which is also this repo's env_contract command and part of its pre-commit gate. Every acceptance check in this binder that asserts browser behaviour runs the suite a second time with that switch set, so no render-health claim is ever satisfied by a skipped test. EXPOSES a findings note carrying four named sections \u2014 dependency provisioning, port agreement, tracked versus untracked drift, and trustworthy render signals \u2014 so the next binder is planned from what this one measured rather than from what it hoped.",
+      "touches": [
+        "tests/pi/visual-primitives.test.ts",
+        "tests/pi/fixtures/visual-app/",
+        "docs/plans/2026-08-16-pi-visual-primitives-findings.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": []
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/visual-primitives.test.ts && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi && KARTA_VISUAL_BROWSER=1 npm run check:pi",
+        "assertions": [
+          "the composed pass runs against a tree object with no commit behind it and returns render health for the fixture application through the design server",
+          "no process, directory, browser session, or handle survives a completed pass or a cancelled one",
+          "a bare suite run needs no browser and skips the capture leg, while the KARTA_VISUAL_BROWSER run actually drives it and fails rather than skips when render health is broken",
+          "the findings note exists and carries all four named sections"
+        ]
+      }
+    }
+  ]
+}
