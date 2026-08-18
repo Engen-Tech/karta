@@ -1261,9 +1261,13 @@ body{
   letter-spacing:1.8px; text-transform:uppercase; color:var(--mut);
   line-height:1;
 }
+/* The view's own name, and the page's one top-level heading. Every property a
+   browser's heading defaults would otherwise decide — family, weight, step and
+   margin — is stated here, so the element carries the outline without the tag
+   moving anything: it paints exactly as it did before it was a heading. */
 .shell__repo-name{
   position:relative; display:inline-block; max-width:100%;
-  font-family:var(--mono); font-weight:600; font-size:15px;
+  font-family:var(--mono); font-weight:600; font-size:15px; margin:0;
   color:var(--accent-deep); line-height:1.15; white-space:nowrap;
 }
 /* The hand-drawn underline. The stroke length is this path's own, so it
@@ -3242,7 +3246,7 @@ const app = createApp({
       <a v-if="shell.home" class="shell__home" data-kw-shell-home :href="shell.home">← home</a>
       <div class="shell__txt">
         <span class="shell__eyebrow">Repo</span>
-        <span class="shell__repo-name" data-kw-shell-repo>{{ shell.name }}<svg class="shell__underline" data-kw-shell-underline viewBox="0 0 220 14" preserveAspectRatio="none" aria-hidden="true"><path class="karta-draw" d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"></path></svg></span>
+        <h1 class="shell__repo-name" data-kw-shell-repo>{{ shell.name }}<svg class="shell__underline" data-kw-shell-underline viewBox="0 0 220 14" preserveAspectRatio="none" aria-hidden="true"><path class="karta-draw" d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"></path></svg></h1>
       </div>
       <div class="shell__feed" data-kw-feed :class="{ 'shell__feed--paused': feed.paused }" :data-kw-feed-paused="feed.paused ? 'true' : 'false'">
         <span class="shell__feed-dot" data-kw-feed-dot aria-hidden="true"></span>{{ feedLabel }}
@@ -7274,6 +7278,10 @@ _COVERAGE_REGISTRY: dict[str, dict] = {}
 # The rendered documents a hook may legitimately live in.
 _DOC_KEYS = ("page", "eph", "empty_page", "degraded_page", "hub", "hub_empty",
              "hub_all")
+# The repo view, in each of the states it renders in — _DOC_KEYS without the hub
+# landing, which is a different page with an outline of its own and is not the
+# view this binder compares against the design.
+_APP_DOC_KEYS = ("page", "eph", "empty_page", "degraded_page")
 
 
 def _covers(name: str, *, kind: str, hook: str | None = None,
@@ -7341,6 +7349,22 @@ def _tags_named(doc: str, name: str) -> list[str]:
     _tag_after: the checks navigate structure, they do not match markup."""
     return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
             if _tag_name(m.group(0)) == name]
+
+
+_HEADING_NAME_RE = re.compile(r"h[1-6]")
+
+
+def _headings(doc: str) -> list[str]:
+    """Every heading start tag in `doc`, in document order — the outline as a
+    reader's rotor walks it. Kept beside _tags_named for the same reason: the
+    checks navigate structure, they do not match markup."""
+    return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
+            if _HEADING_NAME_RE.fullmatch(_tag_name(m.group(0)))]
+
+
+def _heading_level(tag: str) -> int:
+    """A heading start tag's level, 1..6."""
+    return int(_tag_name(tag)[1])
 
 
 def _style_text(doc: str) -> str:
@@ -7584,6 +7608,20 @@ def _moved_inside(ctx: dict, hook: str, into: str) -> dict:
     block = _subtree(page, _tags_with(page, hook)[0])
     host = _tags_with(page, into)[0]
     return {"page": page.replace(block, "", 1).replace(host, host + block, 1)}
+
+
+def _retagged(ctx: dict, hook: str, name: str, *doc_keys: str) -> dict:
+    """A document whose `hook` element opens as `name` instead — the control for
+    a heading that was never made one, or made one where the design heads
+    nothing. Only the START tag moves, which is the whole of what an outline
+    reader sees: every structural reader here works off start tags, so that is
+    where a tag claim is read from and where a control has to lie."""
+    out = {}
+    for key in doc_keys:
+        doc = ctx[key]
+        tag = _tags_with(doc, hook)[0]
+        out[key] = doc.replace(tag, "<" + name + tag[1 + len(_tag_name(tag)):], 1)
+    return out
 
 
 def _gated_by(ctx: dict, hook: str, expr: str) -> dict:
@@ -8596,6 +8634,165 @@ def _c_binder_headline_type_step(ctx):
             and set(roles) <= set(_VAR_DEF_RE.findall(css))
             and roles["--serif"] in ctx["vendored_weights"]
             and sizes == {str(ctx["headline_px"]) + "px"})
+
+
+# --- the outline: one heading for the view, one per binder beneath it -------
+#
+# The design's only headings are its five binder titles (export 256, 430, 482,
+# 661, 841); it carries no h2 through h6 in 940 lines, and it heads no page
+# SECTION at all — the map's title is a span, the next-action kicker a div,
+# every wave header's label a span, the footer nothing. Its script also shows
+# one binder section at a time, so a RENDERED design view holds exactly one
+# heading, never five.
+#
+# This page heads each binder the way the design does. What it adds is one
+# heading naming the view, because it renders every binder a repo has at once
+# where the design renders one — and several binder headlines cannot all be
+# top-level without leaving a reader no sense of what contains what. So a
+# rendered view of either has exactly one top-level heading; the only
+# difference is that this page's binder titles are nested under theirs. That
+# difference is written into docs/conventions/watch-design-fidelity.md with its
+# reason, so the comparison at the end of this binder reads it as intended.
+#
+# Nothing else becomes a heading. What the design leaves a span, a div or bare
+# footer text stays that, and goes on being named by the landmarks this page
+# already gives it — which is more than the design does, since it exposes no
+# named regions at all and its own map aside has no accessible name.
+
+
+@_covers("one-top-level-heading-names-the-view", kind="rendered",
+         hook="data-kw-shell-repo",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-repo", "page"),
+                 lambda c: _retagged(c, "data-kw-shell-repo", "span", "page"),
+                 lambda c: _retagged(c, "data-kw-binder-heading", "h1", "page")])
+def _c_view_heading(ctx):
+    """The page names itself once, at the top level, and opens its outline with
+    that name: the repo whose watch this is. It is the element the header
+    already rendered that name in — the tag moved, no second copy of the string
+    arrived — and it holds in every state the view has, including the one with
+    no binders in it at all, where it is the only heading on the page."""
+    for key in _APP_DOC_KEYS:
+        doc = ctx[key]
+        headings = _headings(doc)
+        named = _tags_with(doc, "data-kw-shell-repo")
+        tops = [t for t in headings if _heading_level(t) == 1]
+        if len(named) != 1 or tops != named or headings[:1] != named:
+            return False
+        if "shell.name" not in _text_in(doc, "data-kw-shell-repo"):
+            return False
+    return True
+
+
+@_covers("binder-headlines-sit-one-level-down", kind="rendered",
+         hook="data-kw-binder-heading",
+         breaks=[lambda c: _retagged(c, "data-kw-binder-heading", "h3", "page"),
+                 lambda c: _retagged(c, "data-kw-shell-repo", "h2", "page"),
+                 lambda c: _moved_inside(c, "data-kw-binder-heading",
+                                         "data-kw-band")])
+def _c_binder_headline_level(ctx):
+    """The binder headline is a heading one rung under the view's, and it lives
+    inside the repeat that draws a binder — so the outline gains one entry per
+    binder the page renders rather than one for the lot of them. The levels the
+    page uses are 1 and 2 and nothing else, in that order: no rung is skipped on
+    the way down, and nothing sits below a binder headline claiming to be part
+    of it."""
+    page = ctx["page"]
+    heads = _tags_with(page, "data-kw-binder-heading")
+    binders = _tags_with(page, "data-kw-binder")
+    if len(heads) != 1 or len(binders) != 1:
+        return False
+    levels = [_heading_level(t) for t in _headings(page)]
+    return (_heading_level(heads[0]) == 2
+            and "b in p.binders" in _attrs(binders[0]).get("v-for", "")
+            and heads[0] in _subtree(page, binders[0])
+            and levels[:1] == [1] and set(levels) == {1, 2}
+            and all(b - a <= 1 for a, b in zip(levels, levels[1:])))
+
+
+@_covers("unheaded-regions-stay-unheaded", kind="rendered",
+         hook="data-kw-rail-title",
+         breaks=[lambda c: _retagged(c, "data-kw-rail-title", "h2", "page"),
+                 lambda c: _retagged(c, "data-kw-band-eyebrow", "h2", "page"),
+                 lambda c: _retagged(c, "data-kw-wave-step-label", "h3",
+                                     "page")])
+def _c_nothing_else_is_headed(ctx):
+    """No heading is invented for anything the design leaves unheaded. The map's
+    title, the next-action kicker and every wave header's label stay the plain
+    elements the design makes them, the footer holds no heading, and the page's
+    whole outline is the view's name plus the binder headlines under it — so
+    this list cannot be extended quietly by heading something else."""
+    page = ctx["page"]
+    for hook in ("data-kw-rail-title", "data-kw-band-eyebrow",
+                 "data-kw-wave-step-label"):
+        tags = _tags_with(page, hook)
+        if not tags or any(t in _headings(page) for t in tags):
+            return False
+    feet = _tags_named(page, "footer")
+    return (len(feet) == 1 and not _headings(_subtree(page, feet[0]))
+            and set(_headings(page))
+            == set(_tags_with(page, "data-kw-shell-repo")
+                   + _tags_with(page, "data-kw-binder-heading")))
+
+
+@_covers("landmark-names-never-echo-a-heading", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+                     ' aria-label="karta\'s map"', "")},
+                 lambda c: {"page": c["page"].replace(
+                     'aria-label="the next action"', 'aria-label=""')},
+                 lambda c: {"page": c["page"].replace(
+                     'aria-label="delivery"',
+                     'aria-label="%s"' % c["state"]["binders"][0]["title"])}])
+def _c_landmark_names(ctx):
+    """Adding an outline must not make anything announce twice. Every region
+    this page names still carries a name — the design names none at all, and
+    that lead is not given up here — and no region's name is the same words as a
+    heading inside it. Where the two ever would be, the rule is that the heading
+    text is what stays and the region takes its name FROM that heading with
+    aria-labelledby rather than holding a second copy; today no region and no
+    heading collide, so the branch is stated and unexercised."""
+    page = ctx["page"]
+    spoken = {ctx["repo_name"].strip().lower()}
+    spoken |= {b["title"].strip().lower() for b in ctx["state"]["binders"]}
+    for element in ("nav", "aside", "section"):
+        for tag in _tags_named(page, element):
+            attrs = _attrs(tag)
+            label = attrs.get("aria-label", "").strip()
+            if not label and not attrs.get("aria-labelledby", "").strip():
+                return False
+            if label.lower() in spoken:
+                return False
+    return True
+
+
+@_covers("headings-keep-the-step-they-had", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+                     "font-size:15px; margin:0;", "font-size:15px;")},
+                 lambda c: {"css": c["css"].replace(
+                     "font-family:var(--mono); font-weight:600;", "")},
+                 lambda c: {"css": c["css"].replace(
+                     "letter-spacing:-.02em; margin:7px 0 0;",
+                     "letter-spacing:-.02em;")}])
+def _c_headings_keep_their_step(ctx):
+    """Making an element a heading must not move it on the page. A browser's own
+    heading rules decide four things — family, weight, step and margin — so every
+    heading here states all four in a rule the sheet already carries, and its
+    family arrives through one of the three type roles rather than a fourth
+    stack invented for a heading. Whether the result PAINTS at the design's step
+    is not settled here; that is the rendered comparison at the end of this
+    binder."""
+    css, roles = ctx["css"], ctx["type_roles"]
+    for tag in _headings(ctx["page"]):
+        decls = [d for cls in _attrs(tag).get("class", "").split()
+                 for d in _decls_for(css, "." + cls)]
+        stated = {p: {_norm(d[p]) for d in decls if d.get(p)}
+                  for p in ("font-family", "font-weight", "font-size", "margin")}
+        if not all(stated.values()):
+            return False
+        families = {v for f in stated["font-family"]
+                    for v in _VAR_REF_RE.findall(f)}
+        if len(families) != 1 or not families <= set(roles):
+            return False
+    return True
 
 
 @_covers("binder-progress-is-the-finished-share", kind="behaviour",
