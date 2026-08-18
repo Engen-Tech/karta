@@ -308,3 +308,24 @@ wave-header-bleeds-to-the-panel-edge
 wave-header-labels-take-case-treatment-on-one-side
 wave-joins-come-from-named-spacing-steps
 wave-step-position-counts-the-runs-own-waves
+
+# One summary line, and a current binder that reads as current. The first two
+# hold the panel's state reading: it is one row of three — bar, count, grouped
+# per-state readings — and the count renders once, outside the control that
+# collapses the panel rather than copied beside it. The third holds those
+# readings as labels rather than chips. The next three hold the map: the current
+# binder is ringed twice and neither ring moves, it is the only card carrying a
+# bar at all, and on that bar the fill takes a real width (it shipped inline, so
+# every bar measured zero and painted alike) while the hatch marks the
+# remainder the legend above already names. The last two hold wording: three
+# fixed labels take the design's words in the design's own places, with no
+# phrase they replaced left anywhere, and the delivered toggle announces what
+# its number counts instead of announcing as the number.
+panel-summary-is-one-row
+merged-count-leaves-the-collapse-control
+state-readings-are-labels-not-chips
+current-binder-carries-a-static-ring-pair
+only-the-current-binder-carries-a-bar
+rail-bar-fills-solid-and-hatches-the-remainder
+design-wording-lands-where-the-design-puts-it
+delivered-toggle-announces-in-words
