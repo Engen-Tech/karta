@@ -78,6 +78,16 @@ Full report, evidence, constraints and the open design decisions:
 
 ---
 
+## 5. Watch page: main panel should show binder detail, not phase groups — *Ready* (filed 2026-08-18)
+
+**What.** The watch page's main panel groups binders under Now / Next / Later phase headers. It should instead be a detail view of whichever binder is selected in the left rail, with no phase grouping inside the panel.
+
+**Why it matters.** It is the one confirmed, blocking defect the watch-fidelity binder's closing design comparison could not clear — see finding 1 in [`docs/conventions/watch-design-fidelity.md`](../conventions/watch-design-fidelity.md#findings-from-the-latest-run). Fixing it means changing how the panel is selected and driven, which the watch-fidelity binder scoped out as a binder of its own.
+
+**Notes for whoever picks this up.** The linked finding has the full description, the check for telling the grouping apart from the delivery frame (a difference the watch-fidelity binder did keep), and the box-level count to confirm against once fixed.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
