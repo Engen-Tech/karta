@@ -166,6 +166,18 @@ copy-confirmation-is-per-affordance
 # argued from the template — the template's job is only to bind what the twin
 # returned, and each check reads that binding.
 binder-header-states-its-phase
+
+# The masthead the design opens a panel with — eyebrow, headline, slug — lifted
+# out of the collapse control this page keeps and the design does not have. The
+# headline is a heading of its own outside the button's subtree; the button is
+# named outright now that it no longer contains the name; collapsing takes the
+# wave list and leaves the masthead; and the headline is set in the existing
+# serif role at the design's display step.
+binder-headline-outside-its-toggle
+binder-toggle-names-its-binder
+collapsed-binder-keeps-its-masthead
+binder-headline-at-the-serif-display-step
+
 binder-progress-is-the-finished-share
 progress-track-hatches-the-unrun-share
 counts-row-totals-the-cards-below-it
