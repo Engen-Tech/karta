@@ -32,6 +32,20 @@ is `always: true` so the guidance applies to the watch page regardless.
 - Keep every browser-facing value flowing from the engine state the server hands over,
   so the page stays a mirror of git rather than a second source of truth.
 - Clean up on `beforeUnmount` — the poll timer and any listener added at mount.
+- Factor a CSS magnitude that other declarations depend on (a border width, a bar height, a
+  radius) into one named module constant and interpolate it everywhere the stylesheet uses
+  it, rather than repeating the literal. This delivery collapsed seven such literals into
+  constants (`HEADLINE_PX`, `CARD_TITLE_PX`, `HEADER_CONTROL_PX`, `BAR_HEIGHT_PX`,
+  `PANEL_BORDER_PX`/`PANEL_PAD_PX`, four `RADIUS_*_PX`), each removing a place the
+  stylesheet and its self-test could silently drift apart (seen 2026-08-18, watch-fidelity
+  delivery). Ties into hvue.4: a self-test can only assert structure over a derivation,
+  never a literal, when the source is a named constant in the first place.
+- When a self-test asserts a computed box metric (width, height, offset) on an element,
+  check it against a rendered DOM — a real or headless browser — rather than static source
+  inspection alone. A `display:inline` element silently ignores an assigned width, and that
+  exact bug survived four rounds of inspection-only review before one worker measured it
+  live (seen 2026-08-18, watch-fidelity delivery: `.rail__fill` computed `display:inline`,
+  so its bound width measured 0px).
 
 ## Don't
 
