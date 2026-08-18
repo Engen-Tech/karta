@@ -329,3 +329,19 @@ only-the-current-binder-carries-a-bar
 rail-bar-fills-solid-and-hatches-the-remainder
 design-wording-lands-where-the-design-puts-it
 delivered-toggle-announces-in-words
+
+# The containers get their corners back. The first holds the shape language
+# itself: four of the design's five rectangular steps land, each on the
+# containers the design gives it, derived from one named constant apiece rather
+# than typed in as literals — and the declined fifth is held as an absence, so
+# a 2px step introduced onto an element this page draws as an SVG glyph or a
+# painted gradient fails rather than passes. The second holds everything that
+# was already round: every dot stays a circle and every pill stays a pill,
+# named one by one, with the band's Copy button the single declaration that
+# leaves the pill set for the step the design actually gives it. The third
+# holds the command chip's edge at the 28% the design draws it at, still drawn
+# by the band's own token rather than by a literal that would stop following
+# the theme.
+container-corners-are-the-designs-four-steps
+round-shapes-keep-their-shape
+command-chip-edge-at-the-designs-strength
