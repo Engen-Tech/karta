@@ -1156,6 +1156,56 @@ PANEL_INSET_BUDGET_PX = 16
 # accident: wrap one more div around a card and the self-test says which.
 MAIN_TO_CARD_LEVELS = 6
 
+# The header bar's height, in px, and the ONE place it is stated. The design
+# declares `height:70px` on its header's inner row and confirms that number nine
+# times over by sticking every one of its wave headers at `top:70px`
+# (docs/designs/karta-watch-1440x900-light.html, the header row and the wave
+# header inside each panel). The bar's own 1px bottom border sits on top of it,
+# so what RENDERS is 71 — a computed total, never a number the design declared,
+# and never written into this sheet as if it were one.
+#
+# Four offsets hang off this bar, and every one of them re-derives from this
+# constant rather than repeating it: the map rail's sticky top, the wave step
+# header's sticky top, the binder anchor's scroll-margin and the rail's
+# max-height. The sheet is built through `_css_from()`, so the self-test renders
+# it a second time at a DIFFERENT bar height and proves all four moved with it —
+# a literal typed into any of them stays put and fails.
+BAR_HEIGHT_PX = 70
+
+# The binder panel body's padding, in px. It is named because the wave step
+# header's full bleed is stated AGAINST it: the header's side margins are its
+# negative and the header's side padding is its positive, so the two cancel out
+# to the panel's own edge while the header's content stays inset to the cards'
+# column. The design does exactly this at its own 30 (the wave header's
+# `margin:22px -30px 14px` against its panel body's `padding:… 30px …`); 18 is
+# this page's panel body, so 18 is what cancels here.
+PANEL_BODY_PAD_PX = 18
+
+# The two joins around a wave header, in px, as the design declares them: 22
+# above and 14 below (the wave header's own margins). Named rather than typed
+# into the rule so the rhythm is tuned in one place, and so the self-test can
+# assert WHICH step is used rather than which pixel value results.
+WAVE_HEAD_LEAD_PX = 22
+WAVE_HEAD_TRAIL_PX = 14
+
+# The gap between a wave's cards and the wave header on either side of them —
+# THIS PAGE'S own step, and recorded as this page's decision rather than as the
+# design's number. The design has no single number to copy here: one panel
+# declares a 16px column gap, the next 14px, and the third declares no flex and
+# no gap at all, so the joins it renders are three different sizes. 16 is the
+# one this page picks, stated once.
+WAVE_STACK_GAP_PX = 16
+
+# The wave header's two labels. The design sets a case treatment on ONE side
+# only: the left label is mono 11px, uppercase, tracked at .16em, in
+# full-strength ink; the right label is mono 10px and declares no
+# `text-transform` and no `letter-spacing` at all. It reads lowercase because
+# its copy is written lowercase, which is a fact about the copy and not a rule,
+# so nothing here transforms it.
+WAVE_HEAD_LABEL_PX = 11
+WAVE_HEAD_LABEL_TRACKING = ".16em"
+WAVE_HEAD_POS_PX = 10
+
 _RAIL_LEGEND: list[dict] = [
     {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
      "text": "pulsing — in flight"},
@@ -1186,7 +1236,7 @@ _RAIL_LEGEND: list[dict] = [
 # same-origin — NO remote fonts, no CDN, and every stack keeps a system fallback.
 # ---------------------------------------------------------------------------
 
-_CSS = ("""
+_CSS_TEMPLATE = """
 :root{__DARK__}
 @media (prefers-color-scheme: light){ :root{__LIGHT__} }
 :root[data-theme="dark"]{__DARK__}
@@ -1234,7 +1284,7 @@ body{
   background:var(--bg); color:var(--ink);
   font-family:var(--sans); font-size:15px; line-height:1.5;
   -webkit-font-smoothing:antialiased;
-  padding:36px 34px 56px;
+  padding:0 34px 56px;
   display:flex; flex-direction:column; align-items:center;
   min-height:100vh;
 }
@@ -1333,7 +1383,7 @@ body{
 .top--shell{
   position:sticky; top:0; z-index:40; gap:14px;
   background:var(--bg); border-bottom:1px solid var(--line);
-  margin:0 -34px; padding:12px 34px;
+  margin:0 -34px; padding:0 34px; height:__BARH__px;
 }
 
 /* repo-page header shell: the mascot + wordmark brand (the hub anchor), the
@@ -1412,7 +1462,8 @@ body{
 .main{ min-width:0; display:flex; flex-direction:column; gap:20px; }
 
 .rail{
-  position:sticky; top:78px; max-height:calc(100vh - 104px); overflow-y:auto;
+  position:sticky; top:__BARH__px; max-height:calc(100vh - __BARH__px - 34px);
+  overflow-y:auto;
   display:flex; flex-direction:column; gap:14px; padding:4px 6px 14px; min-width:0;
 }
 .rail__head{ display:flex; align-items:baseline; gap:9px; }
@@ -1583,7 +1634,10 @@ body{
 
 /* a binder card. `scroll-margin-top` is what makes a rail card's anchor jump
    land BELOW the sticky header instead of under it — CSS, not a scroll handler. */
-.binder{ border:1px solid var(--line); background:var(--bg); scroll-margin-top:88px; }
+.binder{
+  border:1px solid var(--line); background:var(--bg);
+  scroll-margin-top:calc(__BARH__px + 18px);
+}
 .binder--now{ border-color:var(--now); }
 .binder--done{ border-color:var(--green); }
 /* a real <button> (keyboard-operable expander) styled to the existing look */
@@ -1661,7 +1715,10 @@ body{
 .counts__cell--halted{ border-color:var(--halt-line); }
 .counts__cell--halted .counts__n{ color:var(--halt-deep); }
 
-.binder__waves{ padding:0 18px 18px; }
+.binder__waves{
+  display:flex; flex-direction:column; gap:__WAVEGAP__px;
+  padding:0 __PANELBODYPAD__px __PANELBODYPAD__px;
+}
 
 /* the queue summary line */
 .queue{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--mut); padding:14px 0 4px; }
@@ -1672,24 +1729,27 @@ body{
    ground and rules itself off, because a header stuck over scrolling cards with
    a transparent background is unreadable. */
 .step{
-  position:sticky; top:78px; z-index:3;
+  position:sticky; top:__BARH__px; z-index:3;
   display:flex; align-items:center; gap:9px;
-  margin:16px 0 9px; padding:6px 9px;
-  background:var(--surface-2); border-bottom:1px solid var(--line);
+  margin:__WAVELEAD__px -__PANELBODYPAD__px __WAVETRAIL__px;
+  padding:11px __PANELBODYPAD__px 9px;
+  background:var(--bg); border-bottom:1px solid var(--line);
 }
 .step__numeral{
   font-family:var(--serif); font-size:25px; line-height:1; font-weight:400;
   font-variant-numeric:tabular-nums; color:var(--mut-2); flex:none;
 }
 .step__lane{ display:flex; flex:none; color:var(--mut); }
-.step__label{ font-size:11px; color:var(--mut); }
+.step__label{
+  font-family:var(--mono); font-size:__WHLABEL__px; letter-spacing:__WHTRACK__;
+  text-transform:uppercase; color:var(--ink);
+}
 .step__count{ font-family:var(--mono); font-size:10px; color:var(--mut); }
 .step__pos{
   margin-left:auto; flex:none;
-  font-family:var(--mono); font-size:9px; letter-spacing:1.5px;
-  text-transform:uppercase; color:var(--mut-2);
+  font-family:var(--mono); font-size:__WHPOS__px; color:var(--mut-2);
 }
-.wave{ display:grid; gap:11px; margin-bottom:2px; }
+.wave{ display:grid; gap:11px; }
 
 /* The footer meta bar: which branches this binder runs on, and which stack
    packs its builds are written against. An entry with nothing to say is absent
@@ -1878,18 +1938,42 @@ body{
   .wave{ grid-template-columns:1fr !important; }
 }
 """
-        .replace("__DARK__", _DARK_VARS)
-        .replace("__LIGHT__", _LIGHT_VARS)
-        .replace("__NARROW__", str(RAIL_NARROW_PX))
-        .replace("__HEADLINE__", str(HEADLINE_PX))
-        .replace("__CARDSTATE__", str(CARD_STATE_PX))
-        .replace("__CARDTRACK__", CARD_STATE_TRACKING)
-        .replace("__CARDMETA__", str(CARD_META_PX))
-        .replace("__CARDTITLE__", str(CARD_TITLE_PX))
-        .replace("__HCTL__", str(HEADER_CONTROL_PX))
-        .replace("__PANELBORDER__", str(PANEL_BORDER_PX))
-        .replace("__PANELPAD__", str(PANEL_PAD_PX))
-        .strip())
+
+
+def _css_from(bar_px: int) -> str:
+    """The stylesheet with every value this file names interpolated into it.
+
+    The header bar's height is a PARAMETER and not a constant read in place, for
+    one reason: four offsets hang off that bar — the rail's sticky top, the wave
+    step header's sticky top, the binder anchor's scroll-margin and the rail's
+    max-height — and the only way to prove they derive from it rather than
+    happening to agree with it is to render the sheet again at a different bar
+    height and watch all four move. That second render is what the self-test
+    does; a literal typed into any of the four stays where it was and fails."""
+    return (_CSS_TEMPLATE
+            .replace("__DARK__", _DARK_VARS)
+            .replace("__LIGHT__", _LIGHT_VARS)
+            .replace("__NARROW__", str(RAIL_NARROW_PX))
+            .replace("__HEADLINE__", str(HEADLINE_PX))
+            .replace("__CARDSTATE__", str(CARD_STATE_PX))
+            .replace("__CARDTRACK__", CARD_STATE_TRACKING)
+            .replace("__CARDMETA__", str(CARD_META_PX))
+            .replace("__CARDTITLE__", str(CARD_TITLE_PX))
+            .replace("__HCTL__", str(HEADER_CONTROL_PX))
+            .replace("__PANELBORDER__", str(PANEL_BORDER_PX))
+            .replace("__PANELPAD__", str(PANEL_PAD_PX))
+            .replace("__PANELBODYPAD__", str(PANEL_BODY_PAD_PX))
+            .replace("__WAVELEAD__", str(WAVE_HEAD_LEAD_PX))
+            .replace("__WAVETRAIL__", str(WAVE_HEAD_TRAIL_PX))
+            .replace("__WAVEGAP__", str(WAVE_STACK_GAP_PX))
+            .replace("__WHLABEL__", str(WAVE_HEAD_LABEL_PX))
+            .replace("__WHTRACK__", WAVE_HEAD_LABEL_TRACKING)
+            .replace("__WHPOS__", str(WAVE_HEAD_POS_PX))
+            .replace("__BARH__", str(bar_px))
+            .strip())
+
+
+_CSS = _css_from(BAR_HEIGHT_PX)
 
 
 def _page_css(asset_qs: str = "") -> str:
@@ -3574,7 +3658,7 @@ const app = createApp({
                     <span class="step__count" data-kw-wave-step-count>{{ w.step.count_label }}</span>
                     <span class="step__pos" data-kw-wave-step-position>{{ w.step.position }}</span>
                   </div>
-                  <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
+                  <div class="wave" data-kw-wave :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
                     <div class="item" data-kw-item :data-kw-item-status="it.word" :data-kw-item-weight="it.weight"
                       :data-kw-item-open="it.openAtRest ? 'true' : 'false'"
                       :class="{ 'item--building': it.building, 'item--urgent': it.urgent, 'item--dashed': it.dashed }"
@@ -8061,6 +8145,135 @@ def _c_header_sticky_bar(ctx):
     return False
 
 
+# The four offsets that hang off the header bar, as (selector, property). Named
+# here rather than typed into the check so adding a fifth is one edit and the
+# check that proves they all move with the bar picks it up.
+_BAR_DERIVED = ((".rail", "top"), (".rail", "max-height"),
+                (".step", "top"), (".binder", "scroll-margin-top"))
+
+# The header controls THIS PAGE carries and the design was never asked to model:
+# its header holds exactly one interactive control. These are preserved, not
+# matched, and the check below fails if any of them leaves the bar.
+_HEADER_OWN_CONTROLS = ("data-kw-shell-mascot", "data-kw-shell-repo",
+                        "data-kw-shell-underline", "data-kw-branch-chip",
+                        "data-kw-theme-toggle", "data-kw-refresh-cluster",
+                        "data-kw-refresh-now", "data-kw-auto-refresh")
+
+
+@_covers("page-opens-with-the-header-bar", kind="rendered", hook="data-kw-top",
+         breaks=[lambda c: _renamed(c, "data-kw-top", "page"),
+                 lambda c: {"css": c["css"].replace(
+                     "padding:0 34px 56px", "padding:36px 34px 56px")},
+                 lambda c: {"css": _restyled(c["css"], ".wrap", "margin-top:12px")},
+                 lambda c: {"page": _spaced_above(c["page"], "data-kw-top")}])
+def _c_page_opens_with_the_bar(ctx):
+    """The bar is the first thing in the page's box: nothing renders above it,
+    no spacer sits before it, and no box it sits inside pushes it down.
+
+    The page used to open with a 36px strip of its own padding, so the bar
+    floated below the top of the window instead of meeting it. The design's page
+    wrapper declares no padding at all. Checked three ways, because any one of
+    them alone leaves a hole: the bar opens its parent, so no sibling precedes
+    it; every box between the document and the bar reads zero on its top margin
+    and its top padding, so nothing offsets it; and a top inset stated in
+    something no pixel can be read out of fails rather than being guessed at."""
+    page, css = ctx["page"], ctx["css"]
+    tops = _tags_with(page, "data-kw-top")
+    if len(tops) != 1 or _tag_name(tops[0]) != "header":
+        return False
+    chain = _containers_between(page, "", tops[0])
+    if not chain or _tag_after(page, chain[-1]) != tops[0]:
+        return False
+    for tag in chain:
+        decls = _rules_for_tag(css, tag) + _decls_for(css, _tag_name(tag))
+        for prop in ("margin", "padding"):
+            if _px_length(_box_side(decls, prop, "top")) != 0:
+                return False
+    return True
+
+
+@_covers("bar-height-named-once-and-every-offset-derived", kind="rendered",
+         hook="data-kw-top",
+         breaks=[lambda c: _renamed(c, "data-kw-top", "page"),
+                 lambda c: {"bar_height_px": c["bar_height_px"] + 6},
+                 lambda c: {"css": c["css"].replace(
+                     "top:%dpx; z-index:3" % BAR_HEIGHT_PX, "top:78px; z-index:3")},
+                 lambda c: {"css": c["css"].replace(
+                     "scroll-margin-top:calc(%dpx + 18px)" % BAR_HEIGHT_PX,
+                     "scroll-margin-top:88px")},
+                 lambda c: {"css": c["css"].replace(
+                     "max-height:calc(100vh - %dpx - 34px)" % BAR_HEIGHT_PX,
+                     "max-height:calc(100vh - 104px)")},
+                 lambda c: {"css": _restyled(c["css"], ".hdr-right",
+                                             "height:%dpx" % BAR_HEIGHT_PX)},
+                 lambda c: {"css": _restyled(
+                     c["css"], ".top", "min-height:%dpx" % (BAR_HEIGHT_PX + 1))}])
+def _c_bar_height_named_once(ctx):
+    """The bar's height is stated ONCE, at the number the design declares, and
+    every offset that hangs off it re-derives from that one statement.
+
+    Two different things are proven here and neither implies the other. That the
+    height is stated once is read off the sheet: exactly one rule in it declares
+    that height, and it is one of the bar's own. That the four offsets DERIVE
+    from it is proven by rendering the whole sheet a second time at a different
+    bar height and reading the same four again — each one has to have moved, and
+    moved by exactly what the bar moved by. A literal typed into any of them
+    reads correctly at the sheet's own height and stays put in the second
+    render, which is precisely the drift a text comparison cannot see.
+
+    The rendered total is the bar plus its 1px bottom border, and that total is a
+    consequence rather than a number the design declared — so the sheet may not
+    state it anywhere, and the check fails if it does."""
+    page, css, bar = ctx["page"], ctx["css"], ctx["bar_height_px"]
+    tops = _tags_with(page, "data-kw-top")
+    if len(tops) != 1:
+        return False
+    stated = "%dpx" % bar
+    if len([d for _sel, d in _css_rules(css)
+            if _norm(d.get("height", "")) == stated]) != 1:
+        return False
+    if not any(_norm(d.get("height", "")) == stated
+               for d in _rules_for_tag(css, tops[0])):
+        return False
+    if "%dpx" % (bar + 1) in css:
+        return False
+    probe_px = bar + 7
+    probe = _strip_css_comments(ctx["css_from"](probe_px))
+    for selector, prop in _BAR_DERIVED:
+        here = {_norm(d[prop]) for d in _decls_for(css, selector) if prop in d}
+        there = {_norm(d[prop]) for d in _decls_for(probe, selector) if prop in d}
+        if len(here) != 1 or len(there) != 1 or here == there:
+            return False
+        if next(iter(here)).replace(stated, "%dpx" % probe_px) != next(iter(there)):
+            return False
+    return True
+
+
+@_covers("header-bar-keeps-the-pages-own-controls", kind="rendered",
+         hook="data-kw-top",
+         breaks=[lambda c: _renamed(c, "data-kw-top", "page"),
+                 lambda c: _renamed(c, "data-kw-theme-toggle", "page"),
+                 lambda c: _renamed(c, "data-kw-branch-chip", "page"),
+                 lambda c: _moved_inside(c, "data-kw-refresh-cluster",
+                                         "data-kw-main")])
+def _c_header_keeps_its_own_controls(ctx):
+    """Re-pitching the bar keeps everything this page puts in it. The mascot,
+    the repository name and its hand-drawn underline, the branch chips, the
+    theme toggle and the refresh cluster all still render, and each still sits
+    INSIDE the bar rather than merely somewhere on the page — which is the half
+    a presence check misses when a control gets pushed out of a shortened bar.
+
+    None of these come from the design: its header holds one control and no
+    chips, no timestamp and no refresh. They are this page's own and they are
+    preserved here, not matched against anything."""
+    page = ctx["page"]
+    tops = _tags_with(page, "data-kw-top")
+    if len(tops) != 1:
+        return False
+    bar = _subtree(page, tops[0])
+    return all(_tags_with(bar, hook) for hook in _HEADER_OWN_CONTROLS)
+
+
 @_covers("shell-brand-mascot", kind="rendered", hook="data-kw-shell-mascot",
          breaks=[lambda c: _renamed(c, "data-kw-shell-mascot", "page"),
                  lambda c: {"page": c["page"].replace("mascot.png",
@@ -8845,6 +9058,14 @@ _PANEL_DETAIL = [{"id": "a", "status": "done", "deps": []},
                  {"id": "c", "status": "building", "deps": ["a"]},
                  {"id": "d", "status": "blocked", "deps": ["c"]}]
 
+# a chain four deep, so the wave count is FOUR. The step position says which
+# step of how many, and a three-wave fixture cannot tell a real count from a
+# hard-coded three: both read "step 2 of 3". This one can.
+_PANEL_DEEP = [{"id": "a", "status": "done", "deps": []},
+               {"id": "b", "status": "done", "deps": ["a"]},
+               {"id": "c", "status": "built", "deps": ["b"]},
+               {"id": "d", "status": "building", "deps": ["c"]}]
+
 
 @_covers("binder-header-states-its-phase", kind="rendered",
          hook="data-kw-binder-eyebrow",
@@ -9444,7 +9665,8 @@ def _c_wave_lane_accessible_label(ctx):
 @_covers("wave-step-header-sticks-under-the-page-header", kind="behaviour",
          breaks=[lambda c: {"css": c["css"].replace(".step{", ".step-x{")},
                  lambda c: {"css": c["css"].replace(
-                     "background:var(--surface-2); border-bottom", "border-bottom")}])
+                     "background:var(--bg); border-bottom:1px solid var(--line);\n}",
+                     "border-bottom:1px solid var(--line);\n}")}])
 def _c_wave_step_sticky(ctx):
     """The step header parks directly under the page header — the same offset
     the map rail sticks at, so the two agree — and paints its own ground,
@@ -9467,6 +9689,164 @@ def _c_wave_step_sticky(ctx):
     if not any(d.get("background") for d in stuck):
         return False
     return any(d.get("scroll-margin-top") for d in binder)
+
+
+@_covers("wave-header-bleeds-to-the-panel-edge", kind="rendered",
+         hook="data-kw-wave-step",
+         breaks=[lambda c: _renamed(c, "data-kw-wave-step", "page"),
+                 lambda c: {"panel_body_pad_px": c["panel_body_pad_px"] + 4},
+                 lambda c: {"css": c["css"].replace(
+                     "margin:%dpx -%dpx %dpx" % (WAVE_HEAD_LEAD_PX,
+                                                 PANEL_BODY_PAD_PX,
+                                                 WAVE_HEAD_TRAIL_PX),
+                     "margin:%dpx 0 %dpx" % (WAVE_HEAD_LEAD_PX,
+                                             WAVE_HEAD_TRAIL_PX))},
+                 lambda c: {"css": _restyled(c["css"], ".step",
+                                             "background:var(--surface-2)")}])
+def _c_wave_header_full_bleed(ctx):
+    """A wave header runs to the panel's own edge rather than sitting inset
+    inside it, and it repaints the panel's surface rather than tinting a strip.
+
+    The bleed is a cancellation and is checked as one: the header's side margins
+    are the negative of the panel body's side padding and its own side padding
+    is the positive, so the ground reaches the edge while the words stay lined
+    up with the cards. Read off the named panel padding, so moving that one
+    number moves both halves and typing either of them by hand fails.
+
+    The ground is checked against the PANEL's own background rather than against
+    a colour named here: the design gives the header the same surface value the
+    panel declares, which is what makes it read as the panel repainting itself
+    while cards scroll under it. A tint of its own fails even when it looks
+    close. Whether it PAINTS that way is the rendered comparison at the end of
+    this binder; what is settled here is which value it resolves to."""
+    page, css, pad = ctx["page"], ctx["css"], ctx["panel_body_pad_px"]
+    heads = _tags_with(page, "data-kw-wave-step")
+    body = _tags_with(page, "data-kw-binder-waves")
+    panels = _tags_with(page, "data-kw-binder")
+    if len(heads) != 1 or len(body) != 1 or len(panels) != 1:
+        return False
+    head_rules, body_rules = _rules_for_tag(css, heads[0]), _rules_for_tag(css, body[0])
+    for side in ("left", "right"):
+        if _px_length(_box_side(body_rules, "padding", side)) != pad:
+            return False
+        if _norm(_box_side(head_rules, "margin", side)) != "-%dpx" % pad:
+            return False
+        if _px_length(_box_side(head_rules, "padding", side)) != pad:
+            return False
+    ground = {_norm(d["background"]) for d in head_rules if d.get("background")}
+    surface = {_norm(d["background"]) for d in _rules_for_tag(css, panels[0])
+               if d.get("background")}
+    return bool(ground) and ground == surface
+
+
+@_covers("wave-header-labels-take-case-treatment-on-one-side", kind="rendered",
+         hook="data-kw-wave-step-label",
+         breaks=[lambda c: _renamed(c, "data-kw-wave-step-label", "page"),
+                 lambda c: {"wave_head_type": dict(c["wave_head_type"],
+                                                   label_tracking=".2em")},
+                 lambda c: {"css": _restyled(c["css"], ".step__label",
+                                             "text-transform:none")},
+                 lambda c: {"css": _restyled(c["css"], ".step__pos",
+                                             "text-transform:lowercase")},
+                 lambda c: {"css": _restyled(c["css"], ".step__pos",
+                                             "letter-spacing:1.5px")}])
+def _c_wave_header_label_case(ctx):
+    """The design sets a case treatment on ONE side of the wave header. The left
+    label is uppercase and tracked, on the mono, in full-strength ink. The right
+    label declares no text-transform and no letter-spacing at all — it reads
+    lowercase because its copy is written lowercase, and that is a fact about
+    the copy, not a rule the design states.
+
+    So the right half of this check is the harder half: it asserts an ABSENCE.
+    A page that transformed the right side to lowercase would look identical and
+    would be claiming a rule the design never declared, which is why a
+    lowercase transform there fails here rather than passing as a match."""
+    page, css, type_ = ctx["page"], ctx["css"], ctx["wave_head_type"]
+    left = _tags_with(page, "data-kw-wave-step-label")
+    right = _tags_with(page, "data-kw-wave-step-position")
+    if len(left) != 1 or len(right) != 1:
+        return False
+    lrules, rrules = _rules_for_tag(css, left[0]), _rules_for_tag(css, right[0])
+    for tag, rules, step in ((left[0], lrules, type_["label_px"]),
+                             (right[0], rrules, type_["pos_px"])):
+        families = {role for cls in _attrs(tag).get("class", "").split()
+                    for role in _role_of(css, cls)}
+        sizes = {_norm(d["font-size"]) for d in rules if d.get("font-size")}
+        if families != {"--mono"} or sizes != {"%dpx" % step}:
+            return False
+    if {_norm(d["text-transform"]) for d in lrules if d.get("text-transform")} != {"uppercase"}:
+        return False
+    if {_norm(d["letter-spacing"]) for d in lrules if d.get("letter-spacing")} != {type_["label_tracking"]}:
+        return False
+    return not any(d.get("text-transform") or d.get("letter-spacing")
+                   for d in rrules)
+
+
+@_covers("wave-joins-come-from-named-spacing-steps", kind="rendered",
+         hook="data-kw-wave",
+         breaks=[lambda c: _renamed(c, "data-kw-wave", "page"),
+                 lambda c: {"wave_joins": dict(c["wave_joins"],
+                                               gap_px=c["wave_joins"]["gap_px"] + 4)},
+                 lambda c: {"wave_joins": dict(c["wave_joins"], lead_px=16)},
+                 lambda c: {"css": _restyled(c["css"], ".wave", "margin-bottom:2px")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__waves",
+                                             "gap:30px")}])
+def _c_wave_joins_named_steps(ctx):
+    """The gap above a wave's first card and the gap below its last card both
+    come from named steps rather than from values typed where they landed.
+
+    Three numbers make those two joins and each is read off the constant that
+    states it: the header's own 22 above and 14 below, which the design
+    declares, and the panel column's single gap, which it does not — the design
+    uses three different column gaps in three panels, so that one is this page's
+    choice and is recorded as one. The cards' own row is required to charge
+    nothing on either join, so the column's one gap owns both and a one-off
+    margin cannot creep back in beside it.
+
+    What is settled here is WHICH step each join uses. What the joins measure
+    once painted is the rendered comparison at the end of this binder."""
+    page, css, joins = ctx["page"], ctx["css"], ctx["wave_joins"]
+    rows = _tags_with(page, "data-kw-wave")
+    heads = _tags_with(page, "data-kw-wave-step")
+    body = _tags_with(page, "data-kw-binder-waves")
+    if len(rows) != 1 or len(heads) != 1 or len(body) != 1:
+        return False
+    gaps = {_norm(d["gap"]) for d in _rules_for_tag(css, body[0]) if d.get("gap")}
+    if gaps != {"%dpx" % joins["gap_px"]}:
+        return False
+    head_rules = _rules_for_tag(css, heads[0])
+    if _px_length(_box_side(head_rules, "margin", "top")) != joins["lead_px"]:
+        return False
+    if _px_length(_box_side(head_rules, "margin", "bottom")) != joins["trail_px"]:
+        return False
+    row_rules = _rules_for_tag(css, rows[0])
+    return all(_px_length(_box_side(row_rules, prop, side)) == 0
+               for prop in ("margin", "padding") for side in ("top", "bottom"))
+
+
+@_covers("wave-step-position-counts-the-runs-own-waves", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             steps=[dict(e, position="step %d of 3" % (i + 1)) for i, e
+                    in enumerate(c["binder_panel"](b, s)["steps"])])},
+                 lambda c: _renamed(c, "data-kw-wave-step-position", "page")])
+def _c_wave_step_position_real_count(ctx):
+    """The step position states the RUN's own wave count, so a thirteen-wave
+    binder reads thirteen. The design's "step 1 of 3" is its mock's number and
+    not a format to copy.
+
+    Driven over a fixture four dependency depths deep, and the check refuses a
+    three-wave fixture outright: against three waves a real count and a
+    hard-coded three render the same words, so the fixture that proves this has
+    to be one where they differ."""
+    panel = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DEEP), ctx["state"])
+    steps, waves = panel["steps"], panel["waves"]
+    if len(steps) == 3 or len(steps) != len(waves):
+        return False
+    for i, step in enumerate(steps):
+        if step["position"] != "step %d of %d" % (i + 1, len(steps)):
+            return False
+    return "w.step" in _text_in(ctx["page"], "data-kw-wave-step-position")
 
 
 @_covers("binder-meta-names-the-real-integration-branch", kind="behaviour",
@@ -10310,6 +10690,13 @@ def _rewrapped(page: str, hook: str) -> str:
     tag = _tags_with(page, hook)[0]
     block = _subtree(page, tag)
     return page.replace(block, "<div>" + block + "</div>", 1)
+
+
+def _spaced_above(page: str, hook: str) -> str:
+    """A page with an empty box put BEFORE `hook`'s element — the control for a
+    spacer that pushed the header bar down the page."""
+    tag = _tags_with(page, hook)[0]
+    return page.replace(tag, '<div class="kw-spacer"></div>' + tag, 1)
 
 
 def _marked(page: str) -> str:
@@ -12660,6 +13047,14 @@ def _coverage_context() -> dict:
         "panel_frame": {"border_px": PANEL_BORDER_PX, "pad_px": PANEL_PAD_PX,
                         "budget_px": PANEL_INSET_BUDGET_PX},
         "main_to_card_levels": MAIN_TO_CARD_LEVELS,
+        "bar_height_px": BAR_HEIGHT_PX, "css_from": _css_from,
+        "panel_body_pad_px": PANEL_BODY_PAD_PX,
+        "wave_joins": {"lead_px": WAVE_HEAD_LEAD_PX,
+                       "trail_px": WAVE_HEAD_TRAIL_PX,
+                       "gap_px": WAVE_STACK_GAP_PX},
+        "wave_head_type": {"label_px": WAVE_HEAD_LABEL_PX,
+                           "label_tracking": WAVE_HEAD_LABEL_TRACKING,
+                           "pos_px": WAVE_HEAD_POS_PX},
         "inset_vectors": _INSET_VECTORS, "inset_reader": _side_inset,
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
