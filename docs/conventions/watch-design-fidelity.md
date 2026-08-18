@@ -61,6 +61,22 @@ That inline detail is a property of the drawn mock — a panel that happens to h
 
 The check type is the other thing to read carefully here. It is not in the meta line on either side: the design writes it into the disclosure button's own label, and so does this page, where the button is the whole card row.
 
+### The phase spine is gone; a slim delivery frame stays
+
+The design's main column runs from the dark next-action band straight into the binder's own bordered panel. There is no wrapper around that panel, no phase grouping repeated inside it, and the column declares no left border at all. The panel states no width, no max-width and no margin of its own, so a card inside it starts one border and one pad in from the column's edge — one container level, and the cards get the rest of the width.
+
+This page used to charge three. A "Delivery" panel with a 30px pad, then a phase row with a 50px gutter carrying a spine, then the binder card: four left edges stacked up before a work item began, against the design's two.
+
+**The spine is gone.** The map down the left already groups every binder under the same four phases — Delivered, Now, Next, Later — so a spine running down the panel said it a second time, and charged every card the gutter's indent to say it. Its icon and its vertical rule are both gone, and so is the row wrapper that only existed to sit the gutter beside the content. A card now sits one box shallower than it did.
+
+**The wrapper stays, as a frame.** It is not the same case as the spine. It carries what the design was never asked to model: which repository this watch is of, and how many binders it holds. So instead of being deleted it is held to a frame — a 1px border and a 14px pad, 15px a side, against a budget of 16. The stylesheet takes both numbers from named constants in `serve_status.py`, and the self-test reads those same two, so re-pitching the frame is one edit and drifting the sheet off it fails the build.
+
+The budget is checked on more than the two numbers, because there are cheaper ways to steal the same width. A shorthand is read on its horizontal step, so a three-value padding's bottom cannot stand in for its left and right. A contributor written as a `var()`, `calc()`, `clamp()`, `rem` or percentage fails rather than being guessed at. And a `width`, `max-width`, offset or `transform` on the frame is refused outright — the page's column cap already exists a level up, on the shared wrapper, which is where a cap belongs.
+
+So a comparison will still find one more container around a binder card here than in the design, and that container is this frame. Reported as a difference it is this decision; reported as *indent* it is a defect, because the frame is budgeted not to read as one.
+
+What none of this settles is whether the panel stops **looking** indented and the cards visibly regain their width. The checks behind it are pure Python with no browser: they prove the arithmetic and the shape of the nesting, not the painted result. That is what the run described at the top of this file is for.
+
 ## What's out of scope here
 
 This runbook and the checks built on it cover one view at one viewport in one theme. The design carries two responsive breakpoints (880px and 640px) and a dark theme that are not built or compared by this binder — recorded as a deliberate deferral, the obvious next binder, not an oversight.

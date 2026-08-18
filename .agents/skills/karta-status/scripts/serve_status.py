@@ -44,8 +44,8 @@ works without a server) plus the vendored Vue app, which renders the whole desig
 reactively and — when not on file://, and only while the tab is visible — polls
 /state.json as a live mirror, replaying the last ETag so an unchanged state costs a
 304 with no body.
-The layout is a single "Delivery" panel holding a vertical timeline of phases —
-Delivered (past), Now (in flight), Next, Later — each phase listing the binders in it
+The layout is a slim "Delivery" frame holding four phase groups — Delivered (past),
+Now (in flight), Next, Later — each phase listing the binders in it
 as expandable cards. A binder card expands to show its work items grouped into waves by
 dependency depth (parallel within a wave, serial between), each item click-to-expand for
 its oracle assertion, command, and dependency. Light + dark ship in one stylesheet via
@@ -1086,6 +1086,40 @@ CARD_STATE_PX = 10
 CARD_STATE_TRACKING = ".14em"
 CARD_META_PX = 11
 
+# The delivery wrapper's frame, in px — its border and its padding, which are
+# together the whole horizontal cost it charges a card on each side.
+#
+# The design has no wrapper: its main column goes from the dark next-action band
+# straight into the binder's own bordered panel, and that panel declares no
+# width, no max-width and no margin of its own (docs/designs/karta-watch-1440x900
+# -light.html, the surface card following the band). This page keeps a wrapper
+# because it carries what the design was never asked to model — which repository
+# this watch is of, and how many binders it holds — so the wrapper is held to a
+# frame instead: a border and a small pad, and nothing else that narrows what is
+# inside it.
+#
+# TWO constants and not one, because a frame that keeps a border has two
+# different non-zero numbers and one name cannot cover both. Their sum is the
+# per-side inset, and PANEL_INSET_BUDGET_PX is the ceiling the self-test holds
+# that sum to. Re-pitching the frame is an edit here, not a hunt through the
+# sheet: the stylesheet interpolates both and the check reads the same two.
+PANEL_BORDER_PX = 1
+PANEL_PAD_PX = 14
+# The ceiling, stated separately from the numbers it bounds so tightening the
+# frame and tightening the rule stay two different edits. 16px per side is the
+# budget this wrapper was approved under.
+PANEL_INSET_BUDGET_PX = 16
+
+# How many elements a work-item card sits inside, counting outwards to the
+# page's main region and stopping before it. It is 6, and it was 7: the phase
+# row used to be a flex pair — a 50px gutter carrying the spine beside a body
+# carrying the content — so the row and the body were two elements where one
+# would do. With the spine gone the gutter went, and the row absorbed the body.
+#
+# The wrapper's level stays. Stated here so the depth is an assertion and not an
+# accident: wrap one more div around a card and the self-test says which.
+MAIN_TO_CARD_LEVELS = 6
+
 _RAIL_LEGEND: list[dict] = [
     {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
      "text": "pulsing — in flight"},
@@ -1473,8 +1507,16 @@ body{
 }
 .band__copy:hover{ background:var(--band-kick); }
 
-/* delivery panel */
-.panel{ background:var(--surface); border:1px solid var(--line); padding:24px 30px 16px; }
+/* The delivery wrapper. A FRAME and not a panel: a border and a small pad off
+   the two named constants above, and nothing else — no width, no max-width, no
+   margin, no offset — so the binder cards inside it sit close to the main
+   column's own edge the way the design's do. What it is here for is the context
+   the design was never asked to model: which repository this is, and how many
+   binders it holds. */
+.panel{
+  background:var(--surface); border:__PANELBORDER__px solid var(--line);
+  padding:__PANELPAD__px;
+}
 .panel__head{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
 .panel__kicker{
   font-size:10.5px; letter-spacing:2px; font-weight:600;
@@ -1484,17 +1526,13 @@ body{
 .panel__summary{ margin-left:auto; font-size:12px; color:var(--mut); }
 .panel__note{ font-size:12.5px; color:var(--mut); line-height:1.5; margin-bottom:18px; }
 
-/* a phase row: tree gutter + content */
-.phase{ display:flex; }
-.phase__gutter{ position:relative; flex:none; width:50px; }
-.phase__line{ position:absolute; left:24px; width:2px; background:var(--line-2); }
-.phase__mark{
-  position:absolute; left:25px; top:23px; transform:translate(-50%,-50%);
-  display:flex; align-items:center; justify-content:center;
-  width:26px; height:26px; border:2px solid; z-index:1;
-}
-.phase__mark--pulse{ animation:karta-ring 1.8s ease-out infinite; }
-.phase__body{ flex:1; min-width:0; padding:14px 0 22px; }
+/* A phase row. It draws no spine and no gutter: the map on the left already
+   groups every binder under one of these four phases, so a second copy running
+   down the panel restated it and charged every card 50px of indent for the
+   repetition. With the gutter gone the row carries the content directly — the
+   flex pair it used to be is one element now — so it costs vertical rhythm and
+   nothing horizontal. */
+.phase{ min-width:0; padding:14px 0 22px; }
 .phase__head{ display:flex; align-items:baseline; gap:9px; margin-bottom:14px; }
 .phase__label{ font-size:11.5px; font-weight:600; letter-spacing:2.5px; text-transform:uppercase; }
 .phase__meaning{ font-size:11.5px; color:var(--mut); }
@@ -1774,7 +1812,6 @@ body{
      disclosure still points down with the transition taken away. */
   .item__detail{ animation:none !important; }
   .binder__caret, .item__caret{ transition:none !important; }
-  .phase__mark--pulse{ animation:none !important; }
   /* The RUNNING card's footer strip is breathe, and breathe keeps going: with
      motion off, "this item is building right now" still has to be visible on
      the card itself, not only in the chip word. */
@@ -1799,6 +1836,8 @@ body{
         .replace("__CARDSTATE__", str(CARD_STATE_PX))
         .replace("__CARDTRACK__", CARD_STATE_TRACKING)
         .replace("__CARDMETA__", str(CARD_META_PX))
+        .replace("__PANELBORDER__", str(PANEL_BORDER_PX))
+        .replace("__PANELPAD__", str(PANEL_PAD_PX))
         .strip())
 
 
@@ -3035,15 +3074,14 @@ const app = createApp({
     phases() {
       let defs = PHASE_DEFS;
       if (!this.showDelivered) defs = defs.filter(d => d.key !== 'past');
-      return defs.map((d, i) => {
+      return defs.map(d => {
         const recs = this.tagged.filter(t => t.key === d.key);
         const meta = PHASE_META[d.key];
         return {
           key: d.key, label: d.label, meaning: d.meaning, color: meta.color,
-          mark: meta.mark, pulse: !!meta.pulse,
-          // the tree line: first row starts at the node, last row ends at it.
-          lineStyle: i === 0 ? 'top:23px; bottom:0;'
-            : (i === defs.length - 1 ? 'top:0; height:23px;' : 'top:0; bottom:0;'),
+          // no mark and no line: the spine they drew is gone, and a field
+          // nothing renders is a field that rots. The phase's mark still
+          // reaches the page — through mkBinder, on the binder's own header.
           count: recs.length + (recs.length === 1 ? ' binder' : ' binders'),
           empty: recs.length === 0,
           binders: recs.map(t => this.mkBinder(t.b, t.key)),
@@ -3424,7 +3462,7 @@ const app = createApp({
   </section>
 
   <template v-if="hasBinders">
-    <section class="panel" aria-label="delivery">
+    <section class="panel" data-kw-delivery-panel aria-label="delivery">
       <div class="panel__head">
         <span class="panel__kicker">Delivery</span>
         <span class="panel__name">{{ deliveryName }}</span>
@@ -3434,14 +3472,6 @@ const app = createApp({
         stands; inside one, the runs are its parallel + serial queue.</div>
 
       <div class="phase" data-kw-phase :data-kw-phase-key="p.key" v-for="p in phases" :key="p.key">
-        <div class="phase__gutter">
-          <div class="phase__line" :style="p.lineStyle"></div>
-          <div class="phase__mark" :class="{ 'phase__mark--pulse': p.pulse }"
-            :style="{ borderColor: p.color, background: p.pulse ? p.color : 'var(--surface)', color: p.pulse ? 'var(--on-halt)' : p.color }">
-            <icon :name="p.mark" :size="13" :color="p.pulse ? 'var(--on-halt)' : p.color" />
-          </div>
-        </div>
-        <div class="phase__body">
           <div class="phase__head">
             <span class="phase__label" :style="{ color: p.color }">{{ p.label }}</span>
             <span class="phase__meaning">{{ p.meaning }}</span>
@@ -3556,7 +3586,6 @@ const app = createApp({
               </div>
             </div>
           </div>
-        </div>
       </div>
     </section>
   </template>
@@ -7420,11 +7449,151 @@ def _subtree(doc: str, start_tag: str) -> str:
     return doc[start:at]
 
 
+def _start_tags(doc: str) -> list[str]:
+    """Every start tag in `doc`, in source order. The checks ask questions about
+    elements — what kind, what rule — and this is how they get the elements
+    without carrying a markup fragment to compare against."""
+    return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)]
+
+
 def _tags_named(doc: str, name: str) -> list[str]:
     """Every start tag in `doc` whose element name is `name`. Same reason as
     _tag_after: the checks navigate structure, they do not match markup."""
     return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
             if _tag_name(m.group(0)) == name]
+
+
+# Elements that never open a nesting level: the HTML void set, plus Vue's own
+# `template`, which renders no element at all — a `v-for` on one is a loop, not
+# a box, and counting it as a level would make the page look deeper than it
+# paints.
+_NON_NESTING = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+                "link", "meta", "param", "source", "track", "wbr", "template"}
+
+
+def _containers_between(doc: str, outer: str, inner: str) -> list[str]:
+    """The start tags still OPEN when `inner` is reached, counted inwards from
+    `outer` and not including it — the boxes an element actually sits inside.
+
+    This is how "how deeply is a card nested" is asked without counting tags
+    that are not levels: a void or self-closing element opens nothing, a Vue
+    `template` paints nothing, and an end tag closes the nearest matching start
+    rather than whatever happens to be on top."""
+    start, stop = doc.index(outer) + len(outer), doc.index(inner)
+    stack: list[str] = []
+    for m in re.finditer(r"<(/?)([a-zA-Z][\w-]*)([^<>]*)>", doc[start:stop]):
+        closing, name, rest = m.group(1), m.group(2).lower(), m.group(3)
+        if closing:
+            for i in range(len(stack) - 1, -1, -1):
+                if _tag_name(stack[i]).lower() == name:
+                    del stack[i:]
+                    break
+        elif name not in _NON_NESTING and not rest.rstrip().endswith("/"):
+            stack.append(m.group(0))
+    return stack
+
+
+def _rules_for_tag(css: str, tag: str) -> list[dict[str, str]]:
+    """Every declaration block the stylesheet gives `tag`'s classes, in sheet
+    order — what the element actually resolves to, rather than one rule of it."""
+    return [d for cls in _attrs(tag).get("class", "").split()
+            for d in _decls_for(css, "." + cls)]
+
+
+# a box shorthand's four steps, in the order CSS states them
+_BOX_STEPS = ("top", "right", "bottom", "left")
+
+# what a length reads as when it is stated in something this cannot add up
+_UNREADABLE = "?"
+
+
+def _box_shorthand(value: str) -> list[str]:
+    """A 1-to-4-value box shorthand expanded to its four steps. One value fills
+    all four, two split vertical/horizontal, three state top, HORIZONTAL, bottom
+    — which is the trap this exists for: a three-value padding's third step is
+    its bottom, and reading it as the left one lets a wide frame declare itself
+    narrow. Anything else yields no steps, and a caller reads that as unusable
+    rather than as zero."""
+    parts = value.split()
+    if len(parts) == 1:
+        return parts * 4
+    if len(parts) == 2:
+        return [parts[0], parts[1], parts[0], parts[1]]
+    if len(parts) == 3:
+        return [parts[0], parts[1], parts[2], parts[1]]
+    return parts if len(parts) == 4 else []
+
+
+def _box_side(decls: list[dict[str, str]], prop: str, side: str) -> str:
+    """What `prop` resolves to on one `side` across `decls` in cascade order —
+    longhand and shorthand alike, later declarations winning. An undeclared
+    property yields the empty string, which the caller reads as zero."""
+    value, want = "", prop + "-" + side
+    for block in decls:
+        for name, raw in block.items():
+            if name == prop:
+                steps = _box_shorthand(_norm(raw))
+                value = steps[_BOX_STEPS.index(side)] if steps else _UNREADABLE
+            elif name == want:
+                value = _norm(raw)
+    return value
+
+
+def _border_side_width(decls: list[dict[str, str]], side: str) -> str:
+    """The border WIDTH on one side, across the four spellings a stylesheet can
+    state it in. The shorthand's width is its first step, which is the only part
+    of `border` that costs horizontal room."""
+    value = ""
+    for block in decls:
+        for name, raw in block.items():
+            steps = _norm(raw).split()
+            if name in ("border", "border-" + side):
+                value = steps[0] if steps else _UNREADABLE
+            elif name == "border-width":
+                four = _box_shorthand(_norm(raw))
+                value = four[_BOX_STEPS.index(side)] if four else _UNREADABLE
+            elif name == "border-" + side + "-width":
+                value = _norm(raw)
+    return value
+
+
+_PX_RE = re.compile(r"(\d+)px")
+# a CSS zero, in the unitless spelling and in every unit — zero is zero in all
+# of them, so it costs nothing whichever way it was written
+_ZERO_RE = re.compile(r"0[a-z%]*")
+
+
+def _px_length(value: str) -> int | None:
+    """A bare whole-pixel length as an integer; an undeclared one, or a zero in
+    any unit, as 0; and None for everything else. A var(), a calc(), a clamp(),
+    a rem, a percentage or a viewport unit carrying a real number is not
+    something a pixel budget can be checked against, so it reads as unusable and
+    fails the check rather than being guessed at."""
+    value = value.strip()
+    if not value or _ZERO_RE.fullmatch(value):
+        return 0
+    m = _PX_RE.fullmatch(value)
+    return int(m.group(1)) if m else None
+
+
+def _side_inset(decls: list[dict[str, str]], side: str) -> list[int | None]:
+    """The three things that push content in from one edge — margin, padding and
+    border width — as pixel integers, with None for any of them stated in
+    something unreadable."""
+    return [_px_length(_box_side(decls, "margin", side)),
+            _px_length(_box_side(decls, "padding", side)),
+            _px_length(_border_side_width(decls, side))]
+
+
+def _restyled(css: str, selector: str, extra: str) -> str:
+    """`selector`'s rule with `extra` appended to its declarations — the control
+    for a frame that took back the room the budget forbids it. Appended rather
+    than substituted so the cascade decides, exactly as a real edit would."""
+    for prelude, body in _css_sections(css):
+        if selector in [s.strip() for s in prelude.split(",")]:
+            rule = prelude + "{" + body + "}"
+            return css.replace(rule, prelude + "{" + body + ";" + extra + "}", 1)
+    return css
 
 
 _HEADING_NAME_RE = re.compile(r"h[1-6]")
@@ -8400,7 +8569,7 @@ def _c_browser_checklist_is_walkable(ctx):
          breaks=[lambda c: {"css": c["css"] + "\n@keyframes karta-nudge{ to{ left:1px; } }"
                                               "\n.nudge{ animation:karta-nudge 1s linear; }"},
                  lambda c: {"css": _drop_reduced_rule(c["css"], ".item__detail")},
-                 lambda c: {"css": _drop_reduced_rule(c["css"], ".phase__mark--pulse")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-ring")},
                  lambda c: {"keyframes_off_legend": {}}])
 def _c_every_keyframe_settles(ctx):
     """The reduced-motion audit, scoped to what the STYLESHEET defines rather
@@ -9961,6 +10130,266 @@ def _c_phase_timeline(ctx):
             and attrs.get(":key") == "p.key"
             and [d["key"] for d in ctx["phase_defs"]] ==
             ["past", "now", "next", "later"])
+
+
+# --- the delivery frame, and the spine that used to run down beside it -------
+#
+# The design's main column goes from the dark next-action band straight into the
+# binder's own bordered panel. There is no wrapper around it, no phase grouping
+# repeated inside it, and the column itself declares no left border at all
+# (docs/designs/karta-watch-1440x900-light.html, the surface card that follows
+# the band). That panel states no width, no max-width and no margin of its own,
+# so a card inside it starts one border and one pad in from the column's edge
+# and nothing else — one container level, and the cards get the rest.
+#
+# This page had three. A "Delivery" panel with a 30px pad, then a phase row with
+# a 50px gutter carrying the spine, then the binder card — four concentric left
+# edges before a work item, where the design draws two.
+#
+# The SPINE is the one that had no defence. The map on the left already groups
+# every binder under one of these same four phases, so the spine restated a
+# grouping the reader had already been given, and charged every card the
+# gutter's indent to do it. It is gone, and its row wrapper with it.
+#
+# The WRAPPER is a different case and it stays. It carries what the design was
+# never asked to model — which repository this watch is of, and how many binders
+# it holds — so it survives as a frame instead of a panel: a border and a small
+# pad off two named constants, held to a stated per-side ceiling, and forbidden
+# from narrowing what is inside it any other way. The ceiling is checked and the
+# mock's own measurement is not, because a budget is a rule and a measurement is
+# an observation.
+#
+# What none of these four can settle is whether the panel STOPS READING as
+# indented once painted: this suite has no browser. They prove the arithmetic
+# and the shape; the painted comparison is this binder's closing gate.
+
+# A spine is made of two things, and neither is a name: a rule pinned out of
+# flow with a width and a ground, and a glyph sitting on it. These are the
+# properties that build one, so a spine cannot come back under a new class name.
+_SPINE_PROPS = ("position", "background", "background-color", "width")
+
+
+def _spined(page: str) -> str:
+    """A page with a vertical rule put back beside the phase row — the control
+    for a spine that returned under a name this check never knew."""
+    row = _tags_with(page, "data-kw-phase")[0]
+    return page.replace(row, row + '<b class="kw-spine"></b>', 1)
+
+
+def _rewrapped(page: str, hook: str) -> str:
+    """A page with one more box put around `hook`'s element — the control for a
+    card that quietly gained a level of nesting."""
+    tag = _tags_with(page, hook)[0]
+    block = _subtree(page, tag)
+    return page.replace(block, "<div>" + block + "</div>", 1)
+
+
+def _marked(page: str) -> str:
+    """A page with the spine's glyph put back on the phase row — the control for
+    a mark that outlived the rule it was pinned to."""
+    row = _tags_with(page, "data-kw-phase")[0]
+    return page.replace(row, row + '<icon name="check" :size="13" />', 1)
+
+
+@_covers("no-phase-spine-beside-the-panel", kind="rendered", hook="data-kw-phase",
+         breaks=[lambda c: _renamed(c, "data-kw-phase", "page"),
+                 lambda c: {"page": _spined(c["page"]),
+                            "css": c["css"] + "\n.kw-spine{ position:absolute;"
+                                              " width:2px; background:var(--line-2); }"},
+                 lambda c: {"page": _marked(c["page"])}])
+def _c_no_phase_spine(ctx):
+    """Nothing between the delivery frame and the first binder card draws a
+    spine — no rule running down beside the panel, and no glyph pinned to one.
+
+    Read from what a spine is MADE of rather than from the names this page's own
+    spine went by: in the frame's chrome, no element carries an icon, and no
+    element resolves to a rule that takes itself out of flow, paints a ground,
+    or holds a width. A spine rebuilt under a different class name still fails
+    this. The frame's own start tag is excluded, because a frame is allowed its
+    surface — it is the ONE level that survives here."""
+    page, css = ctx["page"], ctx["css"]
+    panel = _tags_with(page, "data-kw-delivery-panel")
+    rows = _tags_with(page, "data-kw-phase")
+    binders = _tags_with(page, "data-kw-binder")
+    if len(panel) != 1 or len(rows) != 1 or len(binders) != 1:
+        return False
+    inside = _subtree(page, panel[0])
+    if rows[0] not in inside or binders[0] not in inside:
+        return False
+    chrome = inside[len(panel[0]):inside.index(binders[0])]
+    if any(_tag_name(t) in ("icon", "svg") for t in _start_tags(chrome)):
+        return False
+    return not any(prop in block
+                   for tag in _start_tags(chrome)
+                   for block in _rules_for_tag(css, tag)
+                   for prop in _SPINE_PROPS)
+
+
+@_covers("delivery-frame-stays-inside-its-inset-budget", kind="rendered",
+         hook="data-kw-delivery-panel",
+         breaks=[lambda c: _renamed(c, "data-kw-delivery-panel", "page"),
+                 lambda c: {"css": _restyled(c["css"], ".panel", "padding:30px")},
+                 lambda c: {"css": _restyled(c["css"], ".panel",
+                                             "padding:8px 30px 16px")},
+                 lambda c: {"css": _restyled(c["css"], ".panel",
+                                             "padding-left:calc(2px + 6px)")},
+                 lambda c: {"css": _restyled(c["css"], ".panel", "max-width:900px")},
+                 lambda c: {"css": _restyled(c["css"], ".panel", "margin-left:20px")},
+                 lambda c: {"css": _restyled(c["css"], ".panel", "left:-40px")}])
+def _c_delivery_frame_inset_budget(ctx):
+    """The frame costs at most the budgeted pixels of horizontal room on EACH
+    side — its margin, its padding and its border width added up — and it takes
+    room away no other way.
+
+    Every part of that sentence is load: a shorthand is read on its horizontal
+    step, so a three-value padding's bottom can never stand in for its left and
+    right; a contributor stated in a var(), a calc(), a clamp(), a rem or a
+    percentage is not a number a budget can be checked against and fails rather
+    than being guessed at; and a width, a max-width, an offset or a transform
+    narrows the cards while margin and padding still read as met, so those are
+    refused outright. The page's column cap already exists a level up, on the
+    shared wrapper, which is where a cap belongs."""
+    page, css = ctx["page"], ctx["css"]
+    frame = ctx["panel_frame"]
+    tags = _tags_with(page, "data-kw-delivery-panel")
+    if len(tags) != 1:
+        return False
+    decls = _rules_for_tag(css, tags[0])
+    if not decls:
+        return False
+    for prop in ("width", "max-width", "left", "right", "inset", "transform"):
+        if any(prop in block for block in decls):
+            return False
+    for side in ("left", "right"):
+        parts = _side_inset(decls, side)
+        if any(part is None for part in parts):
+            return False
+        if sum(parts) > frame["budget_px"]:
+            return False
+    return True
+
+
+@_covers("frame-inset-comes-from-named-steps", kind="rendered",
+         hook="data-kw-delivery-panel",
+         breaks=[lambda c: {"panel_frame": dict(c["panel_frame"], pad_px=9)},
+                 lambda c: {"panel_frame": dict(c["panel_frame"], border_px=3)},
+                 lambda c: {"css": _restyled(c["css"], ".panel", "padding-right:9px")},
+                 lambda c: {"css": _restyled(c["css"], ".phase__binders",
+                                             "padding-left:12px")},
+                 lambda c: {"css": _restyled(c["css"], ".phase", "margin-left:8px")}])
+def _c_frame_inset_named_steps(ctx):
+    """The frame's inset is two named constants this file states once and the
+    stylesheet interpolates — the same arrangement RAIL_NARROW_PX and the card's
+    type steps already use. Two and not one, because a frame that keeps a border
+    has a border number and a pad number and they are not the same number.
+
+    The self-test reads those same two, so re-pitching the frame is one edit
+    here rather than a hunt through the sheet, and drifting the sheet off them
+    fails. Both sides resolve to the same pair, so the edit moves both at once.
+
+    And the frame is the ONLY level that charges anything: between it and a
+    binder card nothing else declares a horizontal inset, so the card's width is
+    the column's minus twice these two — one edit, not a scatter across four
+    containers the way it was."""
+    page, css = ctx["page"], ctx["css"]
+    frame = ctx["panel_frame"]
+    tags = _tags_with(page, "data-kw-delivery-panel")
+    binders = _tags_with(page, "data-kw-binder")
+    if len(tags) != 1 or len(binders) != 1:
+        return False
+    decls = _rules_for_tag(css, tags[0])
+    for side in ("left", "right"):
+        margin, pad, border = _side_inset(decls, side)
+        if (margin, pad, border) != (0, frame["pad_px"], frame["border_px"]):
+            return False
+    between = _containers_between(page, tags[0], binders[0])
+    for tag in between:
+        for side in ("left", "right"):
+            if any(part != 0 for part in _side_inset(_rules_for_tag(css, tag), side)):
+                return False
+    return True
+
+
+# What the inset reader must get right, as (stylesheet fragment, left, right),
+# with None for a side no pixel budget can be checked against. The budget check
+# above is only as good as this reader, and most of these spellings are not the
+# one the sheet happens to use today — a frame restated as `border-width` or as
+# a four-value padding would otherwise read as zero and pass a budget it broke.
+#
+# The three-value rows are the trap the item was written around: `8px 30px 16px`
+# is 30 on both sides, and a reader that took the third step would call it 16
+# and wave through a frame at nearly twice the ceiling.
+_INSET_VECTORS = (
+    ("padding:14px", 14, 14),
+    ("padding:6px 12px", 12, 12),
+    ("padding:8px 30px 16px", 30, 30),
+    ("padding:1px 2px 3px 4px", 4, 2),
+    ("padding:0", 0, 0),
+    ("padding:14px; padding-left:2px", 2, 14),
+    ("margin:5px; padding:4px", 9, 9),
+    ("margin:0 auto", None, None),
+    ("padding:1rem", None, None),
+    ("padding-right:calc(2px + 6px)", 0, None),
+    ("padding:var(--pad)", None, None),
+    ("border:3px solid red", 3, 3),
+    ("border-width:1px 7px", 7, 7),
+    ("border-left-width:9px", 9, 0),
+    ("border:3px solid red; border-right-width:0", 3, 0),
+    ("", 0, 0),
+)
+
+
+@_covers("inset-reader-adds-up-every-spelling", kind="behaviour",
+         breaks=[lambda c: {"inset_vectors": tuple(
+             (frag, right, left) for frag, left, right in c["inset_vectors"])},
+                 lambda c: {"inset_reader": lambda decls, side: [
+                     _px_length(_box_side(decls, "margin", side)),
+                     _px_length(_box_side(decls, "padding", side)),
+                     0]}])
+def _c_inset_reader_every_spelling(ctx):
+    """The reader the budget stands on, run over every spelling a stylesheet can
+    state an inset in. Longhand and shorthand, one value through four, margin
+    and padding and all four ways to write a border width, plus the lengths it
+    must REFUSE rather than guess at — a rem, a percentage, a calc(), a var(),
+    an auto margin.
+
+    It exists because the budget check reads one rule today and would keep
+    passing if the reader quietly returned zero for a spelling that rule never
+    uses. The controls are a table with its two sides swapped, which a
+    symmetric-only reader would survive, and a reader that stops counting the
+    border, which the budget's own frame would still satisfy."""
+    read = ctx["inset_reader"]
+    for fragment, left, right in ctx["inset_vectors"]:
+        decls = _decls_for(".kw{" + fragment + "}", ".kw")
+        for side, want in (("left", left), ("right", right)):
+            parts = read(decls, side)
+            got = None if any(p is None for p in parts) else sum(parts)
+            if got != want:
+                return False
+    return True
+
+
+@_covers("a-card-sits-one-level-shallower", kind="rendered", hook="data-kw-main",
+         breaks=[lambda c: {"main_to_card_levels": c["main_to_card_levels"] + 1},
+                 lambda c: {"page": _rewrapped(c["page"], "data-kw-item")},
+                 lambda c: _renamed(c, "data-kw-item", "page")])
+def _c_card_sits_one_level_shallower(ctx):
+    """A work-item card sits inside the counted number of boxes and no more,
+    down from one box deeper before this. The spine's row wrapper was the level
+    that went: with the gutter gone the row had nothing to sit a body beside, so
+    the two became one. The frame's level stays and is one of these.
+
+    Counted from what actually paints — a void element opens no box, and Vue's
+    `template` renders none — and read off the module constant rather than off a
+    number typed here, so nesting a card one deeper fails and says by how much
+    rather than quietly deepening the page."""
+    page = ctx["page"]
+    main = _tags_with(page, "data-kw-main")
+    cards = _tags_with(page, "data-kw-item")
+    if len(main) != 1 or len(cards) != 1:
+        return False
+    return (len(_containers_between(page, main[0], cards[0]))
+            == ctx["main_to_card_levels"])
 
 
 @_covers("delivered-binder-treatment", kind="rendered", hook="data-kw-binder",
@@ -12026,6 +12455,10 @@ def _coverage_context() -> dict:
         "card_lead": {"state_px": CARD_STATE_PX, "meta_px": CARD_META_PX,
                       "state_tracking": CARD_STATE_TRACKING},
         "card_facts": _CARD_FACTS,
+        "panel_frame": {"border_px": PANEL_BORDER_PX, "pad_px": PANEL_PAD_PX,
+                        "budget_px": PANEL_INSET_BUDGET_PX},
+        "main_to_card_levels": MAIN_TO_CARD_LEVELS,
+        "inset_vectors": _INSET_VECTORS, "inset_reader": _side_inset,
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
