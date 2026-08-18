@@ -1931,6 +1931,14 @@ body{
 .bmeta{
   display:flex; flex-wrap:wrap; gap:5px 16px;
   padding:9px 18px; border-top:1px solid var(--line); background:var(--surface-2);
+  /* The panel's last child carries a solid fill, so its square corners would
+     paint straight through the parent's rounded ones and defeat them. The
+     parent cannot clip instead: the wave step headers inside it are
+     position:sticky, and overflow:hidden on an ancestor kills sticky. So the
+     footer rounds its own bottom corners, at the parent's radius less the
+     border it sits inside — derived, so a re-render at another panel step
+     moves it too. */
+  border-radius:0 0 __RADPANELINNER__px __RADPANELINNER__px;
 }
 .bmeta__entry{ display:flex; align-items:baseline; gap:6px; min-width:0; }
 .bmeta__label{
@@ -2167,6 +2175,7 @@ def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None,
             .replace("__WHTRACK__", WAVE_HEAD_LABEL_TRACKING)
             .replace("__WHPOS__", str(WAVE_HEAD_POS_PX))
             .replace("__RADPANEL__", str(radii["panel"]))
+            .replace("__RADPANELINNER__", str(max(0, radii["panel"] - PANEL_BORDER_PX)))
             .replace("__RADCARD__", str(radii["card"]))
             .replace("__RADDISC__", str(radii["disclosure"]))
             .replace("__RADCHIP__", str(radii["chip"]))
