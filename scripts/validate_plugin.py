@@ -92,6 +92,8 @@ def check() -> list[str]:
     _check_codex(errors, present)
     _check_hooks(errors)
     _check_skill_scripts(errors)
+    _check_behaviour_anchor(errors)
+    _check_vendored_fonts(errors)
     return errors
 
 
@@ -289,6 +291,163 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                         "(allowed: enabled, tool, providers, min_providers, focus, points)")
 
 
+# --- the Karta Watch coverage floor ----------------------------------------
+# serve_status.py is the file every item of a watch binder edits, so a check and
+# the expectation it guards can be deleted together in one edit with nothing to
+# notice. The anchor below lives beside it but is NOT it, and no restyle item
+# touches the anchor — so the deletion still fails here.
+
+WATCH_SCRIPT = SKILLS / "karta-status" / "scripts" / "serve_status.py"
+BEHAVIOUR_ANCHOR = SKILLS / "karta-status" / "scripts" / "selftest_behaviours.txt"
+KW_PREFIX = "data-kw-"
+
+
+def _anchored_behaviours(anchor: Path) -> list[str]:
+    """One behaviour name per line; blank lines and # comments ignored."""
+    return [ln.strip() for ln in anchor.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _registered_behaviours(script: Path) -> tuple[dict, str | None]:
+    """The live coverage registry, read from the page's own script. (registry, error)."""
+    try:
+        proc = subprocess.run([sys.executable, str(script), "--list-behaviours"],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {}, f"could not read the coverage registry ({e})"
+    if proc.returncode != 0:
+        tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-2:])
+        return {}, f"--list-behaviours failed ({tail})"
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        return {}, f"--list-behaviours emitted invalid JSON ({e})"
+    if not isinstance(data, dict):
+        return {}, "--list-behaviours must emit a JSON object of behaviour -> entry"
+    return data, None
+
+
+def _check_behaviour_anchor(errors: list[str], anchor: Path | None = None,
+                            registry: dict | None = None,
+                            script: Path | None = None) -> None:
+    """Compare the committed anchor against the live coverage registry as a FLOOR:
+    every anchored behaviour must still be registered; extra registrations pass, so
+    a later item can add its own. Equality would be self-defeating — each restyle
+    item introduces new behaviours and would fail against a frozen anchor.
+
+    An absent or empty anchor is itself a failure: a floor compared against nothing
+    passes vacuously, which is the exact hole the anchor exists to close."""
+    anchor = anchor or BEHAVIOUR_ANCHOR
+    try:
+        label = str(anchor.relative_to(ROOT))
+    except ValueError:
+        label = anchor.name
+    if not anchor.is_file():
+        errors.append(f"{label}: missing — the Karta Watch coverage floor would "
+                      "have nothing to compare against and would pass vacuously")
+        return
+    anchored = _anchored_behaviours(anchor)
+    if not anchored:
+        errors.append(f"{label}: empty — the coverage floor would pass vacuously; "
+                      "it must name every behaviour the page's self-test must keep")
+        return
+    if registry is None:
+        registry, failure = _registered_behaviours(script or WATCH_SCRIPT)
+        if failure:
+            errors.append(f"{label}: {failure}")
+            return
+    for name in anchored:
+        if name not in registry:
+            errors.append(f"{label}: anchors '{name}', which serve_status.py's "
+                          "coverage registry no longer has — a behaviour lost its "
+                          "check (add it back, or drop the anchor line deliberately)")
+    # Entry shape: the kind rule, enforced from outside the file that declares it.
+    for name, entry in sorted(registry.items()):
+        entry = entry if isinstance(entry, dict) else {}
+        kind = entry.get("kind")
+        if kind == "rendered":
+            if not str(entry.get("hook") or "").startswith(KW_PREFIX):
+                errors.append(f"{label}: registry entry '{name}' is rendered but "
+                              f"names no {KW_PREFIX}* hook")
+        elif kind == "behaviour":
+            if not entry.get("check"):
+                errors.append(f"{label}: registry entry '{name}' is a behaviour but "
+                              "names no check that exercises it")
+        else:
+            errors.append(f"{label}: registry entry '{name}' declares no kind "
+                          "(expected rendered or behaviour)")
+
+
+# --- the vendored typefaces -------------------------------------------------
+# The page's three families are BINARY files inside the shipped plugin, and the
+# two Codex mirrors are generated copies. Byte drift in a font is invisible in a
+# diff and would ship a different face to Codex users than to Claude Code users,
+# so the mirrors are compared byte for byte here rather than trusted. The same
+# comparison covers serve_status.py, which every item of a watch binder edits.
+#
+# All three families are Open Font Licence: redistributing a face without its
+# licence file is a licensing defect, not an untidiness, so an absent licence is
+# an error and not a warning.
+
+MIRROR_SKILL_ROOTS = (Path(".agents") / "skills",
+                      Path("plugins") / "karta" / "skills")
+WATCH_FONTS_REL = Path("karta-status") / "assets" / "fonts"
+WATCH_SCRIPT_REL = Path("karta-status") / "scripts" / "serve_status.py"
+
+
+def _mirror_drift(canonical: Path, twins: list[Path]) -> list[str]:
+    """Byte-level drift of one canonical file against each generated mirror copy."""
+    data = canonical.read_bytes()
+    out = []
+    for twin in twins:
+        if not twin.is_file():
+            out.append(f"{canonical.name} is missing from {twin.parent}")
+        elif twin.read_bytes() != data:
+            out.append(f"{canonical.name} differs from canonical in {twin.parent}")
+    return out
+
+
+def _check_vendored_fonts(errors: list[str], root: Path | None = None) -> None:
+    """Every vendored font and licence, plus the page script itself, byte-identical
+    in the canonical tree and both Codex mirrors — and one licence per family."""
+    root = root or ROOT
+    label = "skills/karta-status/assets/fonts"
+    fonts = root / "skills" / WATCH_FONTS_REL
+    mirror_fonts = [root / m / WATCH_FONTS_REL for m in MIRROR_SKILL_ROOTS]
+    if not fonts.is_dir():
+        errors.append(f"{label}: missing — the page declares vendored faces "
+                      "with no files to serve")
+        return
+    manifest_path = fonts / "manifest.json"
+    if not manifest_path.is_file():
+        errors.append(f"{label}: manifest.json missing — the vendored faces have "
+                      "no declared record to check the files against")
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except ValueError as e:
+        errors.append(f"{label}/manifest.json: invalid JSON ({e})")
+        return
+    families = manifest.get("families") or {}
+    if not families:
+        errors.append(f"{label}/manifest.json: names no families, so no licence "
+                      "can be required of it")
+    for family, entry in sorted(families.items()):
+        licence = (entry or {}).get("licence") or ""
+        if not licence or not (fonts / licence).is_file():
+            errors.append(f"{label}: family '{family}' ships no licence file "
+                          f"('{licence or 'none declared'}') — an OFL face "
+                          "redistributed without its licence")
+    for f in sorted(p for p in fonts.iterdir() if p.is_file()):
+        for problem in _mirror_drift(f, [m / f.name for m in mirror_fonts]):
+            errors.append(f"{label}: {problem}")
+    script = root / "skills" / WATCH_SCRIPT_REL
+    if script.is_file():
+        for problem in _mirror_drift(script, [root / m / WATCH_SCRIPT_REL
+                                              for m in MIRROR_SKILL_ROOTS]):
+            errors.append(f"skills/{WATCH_SCRIPT_REL.as_posix()}: {problem}")
+
+
 DG_SCHEMA = ROOT / "skills" / "karta-doc-gardner" / "references" / "doc-gardner-schema.json"
 _TYPE_BY_NAME = {"boolean": bool, "string": str}
 
@@ -373,6 +532,44 @@ def _self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
         failures += 0 if ok else 1
 
+        # The Karta Watch coverage floor: the anchor is compared as a floor, and an
+        # absent/empty anchor or a malformed registry entry is itself a failure.
+        live = {"a-behaviour": {"kind": "rendered", "hook": "data-kw-a", "check": "_c_a"},
+                "another": {"kind": "behaviour", "hook": None, "check": "_c_b"}}
+        anc = Path(td) / "anchor.txt"
+        anchor_cases = [
+            ("anchor floor: every anchored behaviour registered -> no error",
+             "# a comment\n\na-behaviour\nanother\n", live, []),
+            ("anchor floor: an extra registration the anchor omits still passes",
+             "a-behaviour\n", live, []),
+            ("anchor floor: an anchored behaviour missing from the registry fails",
+             "a-behaviour\ngone-behaviour\n", live, ["anchors 'gone-behaviour'"]),
+            ("anchor floor: an emptied anchor fails (a floor over nothing is vacuous)",
+             "# only comments left\n\n", live, ["empty"]),
+            ("anchor floor: a rendered entry naming no data-kw hook fails",
+             "a-behaviour\n", {"a-behaviour": {"kind": "rendered", "hook": "", "check": "_c_a"}},
+             ["names no data-kw-* hook"]),
+            ("anchor floor: a behaviour entry naming no check fails",
+             "a-behaviour\n", {"a-behaviour": {"kind": "behaviour", "hook": None, "check": ""}},
+             ["names no check"]),
+            ("anchor floor: an entry with neither kind fails",
+             "a-behaviour\n", {"a-behaviour": {"kind": None, "hook": None, "check": None}},
+             ["declares no kind"]),
+        ]
+        for name, anchor_text, reg, want in anchor_cases:
+            anc.write_text(anchor_text)
+            errs: list[str] = []
+            _check_behaviour_anchor(errs, anchor=anc, registry=reg)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
+        errs = []
+        _check_behaviour_anchor(errs, anchor=Path(td) / "absent-anchor.txt", registry=live)
+        ok = bool(errs) and any("missing" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] anchor floor: a missing anchor fails"
+              + ("" if ok else f" — got {errs!r}"))
+        failures += 0 if ok else 1
+
         # _run_self_test enforces "every gated script exposes --self-test": check all three
         # dispositions on fabricated scripts. Their paths are outside ROOT, exercising rel().
         rst = Path(td) / "rst"
@@ -400,7 +597,57 @@ def _self_test() -> int:
             ok = (bool(errs) == want_err) and (want_sub is None or any(want_sub in e for e in errs))
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
             failures += 0 if ok else 1
-    total = len(cases) + 1 + len(rst_cases)
+
+        # The vendored fonts: a synthetic repo shape with the canonical tree and
+        # both Codex mirrors, then one deliberately broken copy per rule. Font
+        # drift is invisible in a diff, so each rule is driven against a known-bad
+        # tree rather than only against the (clean) real one.
+        def _font_tree(base: Path, *, licence=True, mirror_bytes=b"WOFF2",
+                       script_bytes=b"# page\n", manifest=True):
+            for rel in ("skills",) + tuple(m.as_posix() for m in MIRROR_SKILL_ROOTS):
+                (base / rel / WATCH_FONTS_REL).mkdir(parents=True, exist_ok=True)
+                (base / rel / WATCH_SCRIPT_REL).parent.mkdir(parents=True, exist_ok=True)
+            canon = base / "skills" / WATCH_FONTS_REL
+            (canon / "demo-400.woff2").write_bytes(b"WOFF2")
+            if licence:
+                (canon / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE")
+            if manifest:
+                (canon / "manifest.json").write_text(json.dumps(
+                    {"families": {"Demo": {"licence": "demo-OFL.txt"}},
+                     "faces": [{"family": "Demo", "weight": 400,
+                                "file": "demo-400.woff2"}]}))
+            (base / "skills" / WATCH_SCRIPT_REL).write_bytes(b"# page\n")
+            for m in MIRROR_SKILL_ROOTS:
+                mirror = base / m / WATCH_FONTS_REL
+                (mirror / "demo-400.woff2").write_bytes(mirror_bytes)
+                if licence:
+                    (mirror / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE")
+                if manifest:
+                    (mirror / "manifest.json").write_bytes(
+                        (canon / "manifest.json").read_bytes())
+                (base / m / WATCH_SCRIPT_REL).write_bytes(script_bytes)
+            return base
+
+        font_cases = [
+            ("fonts: canonical tree mirrored byte for byte, licence present -> no error",
+             {}, []),
+            ("fonts: a font byte-differing in a mirror fails (drift a diff cannot show)",
+             {"mirror_bytes": b"WOFF2-tampered"}, ["differs from canonical"]),
+            ("fonts: a family whose licence file is absent fails",
+             {"licence": False}, ["ships no licence file"]),
+            ("fonts: serve_status.py differing from its mirror fails",
+             {"script_bytes": b"# drifted\n"}, ["serve_status.py"]),
+            ("fonts: an absent manifest fails (nothing to check the files against)",
+             {"manifest": False}, ["manifest.json missing"]),
+        ]
+        for i, (name, kwargs, want) in enumerate(font_cases):
+            errs = []
+            _check_vendored_fonts(errs, root=_font_tree(Path(td) / f"fonts{i}", **kwargs))
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
+    total = (len(cases) + 1 + len(rst_cases) + len(anchor_cases) + 1
+             + len(font_cases))
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 

@@ -1,0 +1,213 @@
+# Karta Watch — the behaviours the page's self-test must never stop checking.
+#
+# This file is the ANCHOR, and it lives OUTSIDE serve_status.py deliberately:
+# every item in a watch binder edits serve_status.py, so a registry entry and
+# its expectation can be deleted together in one edit and nothing would notice.
+# The anchor is not in that file, so the deletion still fails.
+#
+# validate_plugin.py compares it against the live coverage registry
+# (`serve_status.py --list-behaviours`) as a FLOOR, never as equality:
+#   - every name here MUST be present in the registry, or the validator fails;
+#   - extra registered behaviours are fine, so a later item can add its own.
+# Equality would be self-defeating — each restyle item introduces new
+# behaviours, and a frozen anchor compared by equality would fail all of them.
+#
+# One behaviour per line. Blank lines and # comments are ignored. Adding a line
+# tightens the floor; removing one is a deliberate, reviewable decision to stop
+# guarding that behaviour — not something a refactor should ever do quietly.
+
+page-title-repo-name
+shell-region
+shell-kmark-home-anchor
+shell-home-link
+shell-repo-name
+shell-ephemeral-no-hub
+shell-feed-indicator
+header-sticky-bar
+shell-brand-mascot
+shell-name-underline
+shell-branch-chips
+shell-branch-chip-names
+every-rendered-hook-is-covered
+palette-light-and-dark-agree
+palette-four-selector-cascade
+no-undefined-css-variables
+retired-tokens-unreferenced
+waiting-state-distinct-from-ready
+halted-state-carries-a-foreground
+delivered-and-built-share-one-green
+five-keyframes-each-settle-under-reduced-motion
+reduced-motion-keeps-halt-and-run-legible
+type-roles-bound-to-vendored-weights
+reduced-motion-breathes
+show-delivered-aria-pressed
+show-delivered-persistence-key
+theme-toggle-control
+theme-persistence-key
+theme-query-override
+switcher-also-watching
+phase-timeline-groups
+delivered-binder-treatment
+binder-disclosure-aria-expanded
+item-disclosure-aria-expanded
+expand-collapse-state
+item-detail-disclosure
+chip-vocabulary
+chip-icons-resolve
+empty-state-mascot
+degraded-state
+hub-landing-cards
+hub-landing-empty
+route-repo-page
+route-state-json
+route-assets
+hub-route-landing
+hub-route-repo-page
+hub-route-repo-state-json
+hub-route-identity
+hub-token-constant-time
+ephemeral-key-gate-constant-time
+hub-host-pinning
+asset-directory-confinement
+vendored-font-faces
+font-manifest-agreement
+font-payload-budget
+font-licences-shipped
+font-src-same-origin
+font-stack-system-fallback
+page-fetches-nothing-remote
+single-front-end-runtime
+inert-json-escaping
+poll-loop-interval
+feed-live-paused-debounce
+file-snapshot-no-polling
+poll-decision-hidden-tab
+no-visual-change-hooks-are-attribute-only
+
+# The refresh controls: the reader decides when the page asks git anything.
+# poll-loop-interval, poll-decision-hidden-tab and file-snapshot-no-polling
+# above are DELIBERATELY superseded, never dropped — each still names a
+# behaviour that must hold, and each now reads it off refresh_decision and the
+# two-timer model instead of the retired poll_decision.
+refresh-cluster-region
+refresh-countdown-region
+refresh-age-when-off
+manual-refresh-control
+auto-refresh-toggle
+refresh-off-means-off
+refresh-decision-mirror
+refresh-single-poll-timer
+refresh-countdown-is-local
+refresh-baseline-reset-in-caller
+refresh-timers-torn-down
+manual-refresh-not-reentrant
+auto-refresh-persistence-key
+refresh-off-wording-is-not-feed-paused
+
+# The hub landing, brought onto the same tokens, type and motion as the pages it
+# links to — and off its own ten-second meta refresh onto the shared decision.
+hub-card-verdict-vocabulary
+hub-landing-token-parity
+hub-refresh-shared-decision
+hub-refresh-off-means-off
+hub-no-meta-refresh
+
+# The map rail down the left-hand side: the two-column shell, the four groups
+# every binder is placed into exactly once, the delivered group's toggle moved
+# into the group it reveals, the one dot that moves, and the legend that says
+# what the movement means. The narrow breakpoint is CSS alone — no scroll or
+# resize listener was added, and rail-unsticks-at-narrow-breakpoint asserts it.
+rail-two-column-shell
+rail-region
+rail-group-order
+rail-binder-cards
+rail-in-flight-dot-breathes
+rail-motion-legend
+rail-holds-the-delivered-toggle
+rail-delivered-group-hides-its-cards
+rail-title-falls-back-to-title-case
+rail-unsticks-at-narrow-breakpoint
+
+# The single next action, stated at the top of the column. One derivation feeds
+# it — karta_next's next_action, the same object the karta-status footer prints
+# — so the page and the terminal cannot disagree, and no git call was added to
+# say it. The command copies as one click; when there is no command left, the
+# sentence stands alone.
+next-action-band
+next-action-is-the-engines
+next-action-command-copies-what-it-shows
+next-action-end-state-offers-no-command
+next-action-copy-handler
+next-action-command-is-inert
+
+# One card treatment per engine state — including the sixth the design forgot.
+# An item committed on its branch but not yet merged used to render nothing at
+# all: the metadata had no distinct treatment for it, so it read as passed. It
+# now takes the same --green at inverted weight (border, no fill), a merge glyph
+# and its own word, and no seventh colour was added to the palette to say it.
+# The border weight is a named role — calm or urgent — so the assertion has a
+# structural source instead of matching a CSS declaration.
+every-engine-state-has-a-card
+built-is-outlined-green-passed-is-filled
+built-card-carries-no-green-fill
+no-token-invented-for-the-built-state
+built-and-passed-separate-on-three-cues
+card-border-weight-is-a-named-role
+halted-card-opens-with-a-solid-bar
+running-card-breathes-and-keeps-breathing
+item-cards-key-on-the-work-item-id
+waiting-wording-never-says-blocked
+item-title-and-summary-are-inert
+copy-confirmation-is-per-affordance
+
+# The per-binder panel: its header, its counts row, its wave step headers and
+# its footer meta bar. The panel model is a Python twin driven by direct call,
+# so the wave grouping and the counts are PROVEN over fixtures rather than
+# argued from the template — the template's job is only to bind what the twin
+# returned, and each check reads that binding.
+binder-header-states-its-phase
+binder-progress-is-the-finished-share
+progress-track-hatches-the-unrun-share
+counts-row-totals-the-cards-below-it
+counts-row-omits-a-zero
+counts-row-covers-every-engine-state
+wave-step-header-per-dependency-depth
+wave-step-count-matches-its-depth
+wave-lane-glyph-has-an-accessible-label
+wave-step-header-sticks-under-the-page-header
+binder-meta-names-the-real-integration-branch
+binder-meta-omits-an-empty-pack-list
+
+# The expandable item detail, and the state that lets one card open on its own.
+# Registered by the disclosure item, anchored here by the closing sweep: the
+# disclosure item read the "no later item edits this file" note as covering the
+# anchor too and reverted its own append. The nine items before it appended, and
+# the operator confirmed the delivery's practice — an item anchors what it
+# registered — so the fourteen land here rather than staying unguarded.
+blocked-by-chips-carry-the-blockers-state
+item-detail-caret-turns-and-settles
+item-detail-hooks-are-registered
+item-detail-marks-a-declared-empty-field
+item-detail-mirror-matches-its-twin
+item-detail-names-the-items-git-ref
+item-detail-omits-an-undeclared-field
+item-detail-opt-out-states-its-reason
+item-detail-renders-every-assertion
+item-detail-rows-are-labelled
+item-detail-values-are-inert
+item-expansion-is-keyed-per-item
+item-expansion-survives-a-poll
+oracle-type-icons-all-resolve
+
+# The closing sweep's own six — the states and guarantees no single item owned.
+# The reduced-motion audit is the one that had to exist: the five-motion check
+# reads a hand-kept list, so a SIXTH keyframe was settled by convention alone and
+# a seventh would have slipped through entirely. This one reads the stylesheet.
+# The last two are the sweep's honesty entries: the 404 that is deliberately NOT
+# a page, and the enumeration of what nothing here can prove at all.
+every-keyframe-settles-under-reduced-motion
+wave-grouping-survives-a-cycle-and-a-foreign-dependency
+shell-branch-chip-glyph-on-every-chip
+forced-theme-renders-the-whole-page
+not-found-is-plain-text-never-an-untokened-page
+browser-checklist-enumerates-what-no-check-can-prove

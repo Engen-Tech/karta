@@ -22,8 +22,9 @@ Routes:
   GET /state.json  the enriched engine state as JSON, derived fresh per request.
                    Carries an ETag over the exact bytes served; a request whose
                    If-None-Match matches it gets 304 with no body
-  GET /assets/<f>  the brand bytes + the vendored Vue (mascot.png, icon.png,
-                   vendor/vue.global.prod.js) — same-origin only
+  GET /assets/<f>  the brand bytes, the vendored Vue and the vendored typefaces
+                   (mascot.png, icon.png, vendor/vue.global.prod.js,
+                   fonts/*.woff2) — same-origin only
 
 Hub mode (--hub) serves every opted-in repo from the per-user store instead of
 the CWD. `--ensure` revives it as a detached daemon when needed (the daemon
@@ -50,11 +51,12 @@ dependency depth (parallel within a wave, serial between), each item click-to-ex
 its oracle assertion, command, and dependency. Light + dark ship in one stylesheet via
 prefers-color-scheme; `?theme=light|dark` forces one (screenshots). Self-contained: no
 CDN, no remote images, no remote fonts, no external JS — Vue is the one vendored
-same-origin file.
+runtime, and the three typefaces are subset woff2 files served off the same route.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import concurrent.futures
 import contextlib
 import datetime
@@ -63,6 +65,7 @@ import hashlib
 import hmac
 import html
 import http.client
+import inspect
 import io
 import json
 import logging
@@ -76,6 +79,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 from collections.abc import Mapping
@@ -98,6 +102,32 @@ import karta_next  # noqa: E402
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 _SCRIPT_PATH = Path(__file__).resolve()
+
+# --- the vendored typefaces -------------------------------------------------
+# The design asks for three families; karta forbids a CDN reference, so they are
+# subset and served same-origin from /assets/fonts/ like every other asset.
+#
+# VENDORED_FACES is the ENUMERATION — the eight (family, weight) pairs this page
+# ships. Nothing counts faces by hand: the manifest beside the fonts, the files
+# on disk and the page's @font-face rules are each checked against this tuple, so
+# "eight" is a length, never a number typed twice.
+#
+# Glyph coverage is NOT read back out of the woff2 files. Parsing a cmap needs a
+# font library, and this script is stdlib-only with zero dependencies — an
+# assertion that a face "covers Basic Latin" would be either faked or silently
+# skipped. Coverage is a guarantee of the (build-time) subsetting step, recorded
+# in the manifest; what the gate checks is that the manifest, the bytes on disk
+# and the declarations agree with each other, which is the honest part.
+FONTS_DIR = ASSETS_DIR / "fonts"
+FONT_MANIFEST = FONTS_DIR / "manifest.json"
+FONT_ROUTE = "/assets/fonts/"
+VENDORED_FACES: tuple[tuple[str, int], ...] = (
+    ("Newsreader", 400), ("Newsreader", 500),
+    ("IBM Plex Sans", 400), ("IBM Plex Sans", 500), ("IBM Plex Sans", 600),
+    ("IBM Plex Mono", 400), ("IBM Plex Mono", 500), ("IBM Plex Mono", 600),
+)
+# A subset with no stated bound is how a plugin quietly gains megabytes.
+FONT_BUDGET_BYTES = 400 * 1024
 
 # The hub's version label, served by /identity next to a sha256 digest of this
 # script's bytes. The DIGEST is what skew comparison uses; the constant is the
@@ -366,8 +396,13 @@ def upsert_repo(repo_root: str | os.PathLike, opted_in: bool | None = None,
 
 def _enrich(state: dict, binders: list[dict]) -> dict:
     """Join each derived item (status only) back to its binder `work_item` so the
-    renderers get title/summary/oracle/assert/cmd/deps, and carry the binder's own
-    human title/summary/motivation onto each derived binder. `derive_state` stays
+    renderers get title/summary/oracle/assert/cmd/deps — plus contract, touches,
+    estimate, serialize, shared_resources, the full assertions array, and an
+    opt-out's oracle_reason — and carry the binder's own human title/summary/
+    motivation and sme list onto each derived binder. Every value here is a
+    pass-through of already-loaded binder JSON: no new git call. A field the
+    work item doesn't declare comes out as None (never "" or []), so the page
+    can tell "not declared" from "declared empty". `derive_state` stays
     untouched."""
     wi_by_slug: dict[str, dict] = {}
     for b in binders:
@@ -380,6 +415,7 @@ def _enrich(state: dict, binders: list[dict]) -> dict:
         ob["title"] = src.get("title")
         ob["summary"] = src.get("summary")
         ob["motivation"] = src.get("motivation")
+        ob["sme"] = src.get("sme")
         items = wi_by_slug.get(ob["slug"], {})
         for d in ob["items"]["detail"]:
             wi = items.get(d["id"], {})
@@ -393,6 +429,15 @@ def _enrich(state: dict, binders: list[dict]) -> dict:
             d["assert"] = assertions[0] if assertions else None
             d["cmd"] = oracle.get("command")
             d["deps"] = wi.get("depends_on", []) or []
+            # widened fields — straight .get() passthrough, no defaulting, so an
+            # undeclared field reads None rather than a coerced empty/false value
+            d["contract"] = wi.get("contract")
+            d["touches"] = wi.get("touches")
+            d["estimate"] = wi.get("estimate")
+            d["serialize"] = wi.get("serialize")
+            d["shared_resources"] = wi.get("shared_resources")
+            d["assertions"] = oracle.get("assertions")
+            d["oracle_reason"] = oracle.get("reason")
     return state
 
 
@@ -617,11 +662,42 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
              ("path", {"d": "M12 12v3"})],
     "arrowdown": [("path", {"d": "M12 5v14"}),
                   ("path", {"d": "m19 12-7 7-7-7"})],
+    # The disclosure chevron. Kept distinct from `arrowdown`: a full arrow reads
+    # as "go there", and the item row's expander is saying "there is more under
+    # here". It turns a half-turn while the detail is open.
+    "chevron": [("path", {"d": "m6 9 6 6 6-6"})],
+    # The two lane glyphs the wave step headers wear. NOT ported — the design
+    # marks a step with a numeral alone, which cannot say whether the step's
+    # runs go at once or one after another. Drawn as lanes rather than borrowed
+    # from `fork`/`arrowdown` so the two read as a pair at 12px: parallel is
+    # three flush strands starting together, serial is three stepped strands
+    # each starting where the one above ended.
+    "lane-parallel": [("path", {"d": "M4 6h16"}),
+                      ("path", {"d": "M4 12h16"}),
+                      ("path", {"d": "M4 18h16"})],
+    "lane-serial": [("path", {"d": "M3 6h6"}),
+                    ("path", {"d": "M9 12h6"}),
+                    ("path", {"d": "M15 18h6"})],
     "sun": [("circle", {"cx": 12, "cy": 12, "r": 4}), ("path", {"d": "M12 2v2"}), ("path", {"d": "M12 20v2"}), ("path", {"d": "m4.93 4.93 1.41 1.41"}), ("path", {"d": "m17.66 17.66 1.41 1.41"}), ("path", {"d": "M2 12h2"}), ("path", {"d": "M20 12h2"}), ("path", {"d": "m6.34 17.66-1.41 1.41"}), ("path", {"d": "m19.07 4.93-1.41 1.41"})],
     "moon": [("path", {"d": "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"})],
     "square": [("rect", {"x": 3, "y": 3, "width": 18, "height": 18, "rx": 2})],
     "checksquare": [("rect", {"x": 3, "y": 3, "width": 18, "height": 18, "rx": 2}),
                     ("path", {"d": "m9 12 2 2 4-4"})],
+    "refresh": [("path", {"d": "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"}),
+                ("path", {"d": "M21 3v5h-5"}),
+                ("path", {"d": "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"}),
+                ("path", {"d": "M8 16H3v5"})],
+    "copy": [("rect", {"x": 8, "y": 8, "width": 14, "height": 14, "rx": 2}),
+             ("path", {"d": "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"})],
+    # NOT ported — the design has no icon for the built state because it has no
+    # card for it. Two strands joining: a trunk, a side strand curving into it,
+    # and a node at the join. It has to read as "ready to land" at a glance and
+    # as NEITHER the passed check nor the running spinner, so it is drawn as a
+    # merge rather than borrowed from either.
+    "built": [("path", {"d": "M12 3v18"}),
+              ("circle", {"cx": 19, "cy": 5, "r": 2}),
+              ("path", {"d": "M19 7v2a6 6 0 0 1-6 6"}),
+              ("circle", {"cx": 12, "cy": 15, "r": 2})],
 }
 
 
@@ -629,20 +705,66 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
 # Item-state metadata — color + soft + badge icon + state word per engine state.
 # Ported from the design's `sm` (done/building/ready/blocked) and EXTENDED to cover
 # the engine's full set (built/failed) so every state surfaces instead of breaking
-# the page. `building` carries the spin/shimmer. Shipped to JS verbatim.
+# the page. `building` carries the spinner and the breathing footer strip.
+# Shipped to JS verbatim.
 # ---------------------------------------------------------------------------
 
+# `fill` splits the two green treatments: a MERGED item is filled, an item that
+# is built and awaiting merge is outlined. That is the sixth state, and it costs
+# no new colour — the same --green at a different weight.
+#
+# The CARD treatment is three further named fields, and they are named rather
+# than written into the stylesheet as six selectors so the self-test can read a
+# ROLE instead of matching a CSS declaration:
+#
+#   border  — the token the card's edge takes.
+#   tint    — the token that fills the card, or the literal "none" for a card
+#             that keeps the plain surface. BUILT is "none" on purpose: green
+#             border with no green tint is what keeps it from reading as PASSED.
+#   weight  — how much attention the card asks for, as a word: `calm` (passed,
+#             built, ready, waiting) or `urgent` (running, halted). A pixel
+#             value here would put the assertion back on a CSS string.
+#
+# `edge` carries the one shape the three roles cannot: waiting is calm, but its
+# edge is dashed — an item queued behind another is drawn as not-yet-solid.
+#
+# `color`/`soft` are the CHIP's colours and stay exactly as they were; the card
+# fields are additive, so no state loses the treatment it already had.
 _STATE_META = {
-    "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED"},
-    "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "BUILT"},
-    "building": {"color": "var(--amber)", "soft": "var(--amber-soft)", "badge": "building", "word": "RUNNING"},
+    "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED", "fill": "solid",
+                 "border": "var(--line)",  "tint": "var(--green-soft)", "weight": "calm",   "edge": "solid"},
+    # the state the design forgot. Same hue as passed, inverted weight: the green
+    # moves from the fill to the border, and the badge becomes a merge glyph.
+    "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "built",    "word": "BUILT",  "fill": "outline",
+                 "border": "var(--green)", "tint": "none",             "weight": "calm",   "edge": "solid"},
+    "building": {"color": "var(--now)",   "soft": "var(--now-soft)",   "badge": "building", "word": "RUNNING", "fill": "solid",
+                 "border": "var(--now)",   "tint": "none",             "weight": "urgent", "edge": "solid"},
     # ready renders NEXT — the same word the phase rail and the hub landing use.
-    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT"},
-    # dep-waiting is calm, not alarming: the engine's `blocked` status renders
-    # as a soft steel WAITING chip (an item waiting its turn is normal flow).
-    "blocked":  {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "hourglass", "word": "WAITING"},
-    "failed":   {"color": "var(--block)", "soft": "var(--block-soft)", "badge": "blocked",  "word": "FAILED"},
+    "ready":    {"color": "var(--steel)", "soft": "var(--steel-soft)", "badge": "play",     "word": "NEXT",   "fill": "solid",
+                 "border": "var(--steel)", "tint": "var(--steel-soft)", "weight": "calm",   "edge": "solid"},
+    # dep-waiting is calm, not alarming, and it is no longer steel: steel means
+    # READY now, and an item waiting its turn gets its own --wait so the two
+    # states are told apart by colour rather than by badge alone.
+    "blocked":  {"color": "var(--wait)",  "soft": "var(--wait-soft)",  "badge": "hourglass", "word": "WAITING", "fill": "outline",
+                 "border": "var(--wait)",  "tint": "var(--wait-soft)",  "weight": "calm",   "edge": "dashed"},
+    # the only state with a solid header bar, so the only one carrying a
+    # foreground token to sit on top of that fill.
+    "failed":   {"color": "var(--halt)",  "soft": "var(--halt-soft)",  "badge": "blocked",  "word": "FAILED", "fill": "solid",
+                 "on": "var(--on-halt)",
+                 "border": "var(--halt)",  "tint": "none",             "weight": "urgent", "edge": "solid"},
 }
+
+# The engine's item states, written down once. The metadata table must carry an
+# entry for EVERY one: a state with no entry falls through to the ready fallback
+# and renders as a lie, which is exactly what happened to `built` while the
+# design had no card for it. The self-test compares the two sets, so adding a
+# state to the engine and forgetting its treatment fails here.
+_ENGINE_ITEM_STATES = ("done", "built", "building", "ready", "blocked", "failed")
+
+# The two token names the built state is NOT allowed to invent. It is expressed
+# with the palette the design already defines — a seventh hue beside six related
+# warm tones plus one steel would read as foreign.
+_BUILT_FORBIDDEN_TOKENS = ("--built", "--built-soft")
 
 # ---------------------------------------------------------------------------
 # Phase metadata — one per timeline phase. Ported from the design's `bm`. `now`
@@ -653,9 +775,11 @@ _STATE_META = {
 
 _PHASE_META = {
     "past":  {"color": "var(--green)", "mark": "check",     "phrase": "delivered", "pulse": False},
-    "now":   {"color": "var(--amber)", "mark": "send",      "phrase": "in flight", "pulse": True},
+    "now":   {"color": "var(--now)",   "mark": "send",      "phrase": "in flight", "pulse": True},
     "next":  {"color": "var(--steel)", "mark": "clock",     "phrase": "up next",   "pulse": False},
-    "later": {"color": "var(--block)", "mark": "hourglass", "phrase": "waiting",   "pulse": False},
+    # "waiting" is --wait, not the halted colour: a phase queued behind another
+    # is normal flow, and nothing on this page should read halted unless it is.
+    "later": {"color": "var(--wait)",  "mark": "hourglass", "phrase": "waiting",   "pulse": False},
 }
 
 # phase key -> the row label + meaning shown in the timeline header
@@ -666,38 +790,296 @@ _PHASE_DEFS = [
     {"key": "later", "label": "Later",     "meaning": "waiting its turn in the sequence"},
 ]
 
-# oracle.type -> icon name (the design carries these; fall back to unit)
+# oracle.type -> icon name. The design carries a glyph for each type a binder
+# can declare — the flask for a unit or smoke check, the two-node graph for an
+# integration one, the chain for end to end, the eye for a visual one — and an
+# opted-out item borrows the flask, because what it names is still the check
+# that is NOT being run. A type nobody anticipated falls back to the flask
+# rather than rendering a blank square where an icon should be.
 _ORACLE_ICON = {"unit": "unit", "integration": "integration", "e2e": "e2e",
                 "smoke": "unit", "visual": "visual", "opt-out": "unit"}
+ORACLE_ICON_FALLBACK = "unit"
+# the oracle type an opted-out item reports (set by _enrich, not by the binder)
+OPT_OUT_TYPE = "opt-out"
 
 
 # ---------------------------------------------------------------------------
-# The two design palettes, ported verbatim from the design's vars().
+# The palette. ONE table, each name carrying both its light and its dark value,
+# so a token can never exist in one theme and not the other — the shape is what
+# guarantees it, and the self-test checks the shape survived into the CSS.
+#
+# The page ships a FOUR-selector cascade over this table: a bare `:root` default,
+# a `prefers-color-scheme` override, and both `data-theme` selectors. The design
+# switches on `data-theme` alone; keeping the wider cascade is what makes the
+# system default AND the `?theme=light|dark` forced override both work.
+#
+# Some names here land ahead of the rule that will read them — --band/--band-kick
+# for the next-action band, --halt-line and --mut-2 for the item cards and the
+# detail grid, --accent-deep/--accent-line and --now-deep for the header. The
+# palette is defined as ONE set on purpose: half a palette shipped per component
+# is how a page ends up with two greens that nearly match.
 # ---------------------------------------------------------------------------
 
-_DARK_VARS = (
-    "--bg:#14161e;--panel:#1c2230;--line:rgba(255,255,255,0.08);"
-    "--tree:rgba(255,255,255,0.16);--ink:#e8e5dd;--mut:#8b8f9a;--on-accent:#171a22;"
-    "--amber:#e0b257;--amber-soft:rgba(224,178,87,0.17);--green:#79ad88;"
-    "--green-soft:rgba(121,173,136,0.17);--steel:#93a0bc;--steel-soft:rgba(147,160,188,0.18);"
-    "--block:#d4926f;--block-soft:rgba(212,146,111,0.17);--star:#e2bd58;"
-    "--chip:rgba(255,255,255,0.07);--live:#79ad88;"
-)
-_LIGHT_VARS = (
-    "--bg:#efece4;--panel:#ffffff;--line:rgba(40,30,10,0.12);"
-    "--tree:rgba(40,30,10,0.18);--ink:#2a2d36;--mut:#797d88;--on-accent:#ffffff;"
-    "--amber:#bc8a2b;--amber-soft:rgba(188,138,43,0.15);--green:#4e8a58;"
-    "--green-soft:rgba(78,138,88,0.15);--steel:#5c6986;--steel-soft:rgba(92,105,134,0.15);"
-    "--block:#aa6238;--block-soft:rgba(170,98,56,0.15);--star:#b8902c;"
-    "--chip:rgba(40,30,10,0.06);--live:#4e8a58;"
-)
+_PALETTE: dict[str, dict[str, str]] = {
+    # grounds and ink
+    "--bg":          {"light": "#F6EFEE", "dark": "#2B0F14"},
+    "--surface":     {"light": "#FFFFFF", "dark": "#3B141B"},
+    "--surface-2":   {"light": "#FBF6F4", "dark": "#451A22"},
+    "--ink":         {"light": "#2E0B12", "dark": "#F6EAEA"},
+    "--mut":         {"light": "#5C3742", "dark": "#CDB4B7"},
+    "--mut-2":       {"light": "#734F58", "dark": "#C0A5AB"},
+    "--line":        {"light": "#DFCBC6", "dark": "rgba(240,214,214,.17)"},
+    "--line-2":      {"light": "#C7A2A6", "dark": "rgba(240,214,214,.31)"},
+    # the accent: wordmark, hand-drawn underline, links
+    "--accent":      {"light": "#B7364A", "dark": "#EE7185"},
+    "--accent-deep": {"light": "#8E2436", "dark": "#F5A3AF"},
+    "--accent-line": {"light": "#D9AEB6", "dark": "rgba(240,175,186,.40)"},
+    # in flight
+    "--now":         {"light": "#330D15", "dark": "#F0B7A0"},
+    "--now-deep":    {"light": "#330D15", "dark": "#F5C9B6"},
+    "--now-soft":    {"light": "rgba(51,13,21,.065)", "dark": "rgba(240,183,160,.15)"},
+    # halted — the only state with a solid header bar, hence its own foreground
+    "--halt":        {"light": "#D2400E", "dark": "#FF7A45"},
+    "--halt-deep":   {"light": "#A83309", "dark": "#FF9C74"},
+    "--on-halt":     {"light": "#FFFFFF", "dark": "#2B0F14"},
+    "--halt-soft":   {"light": "rgba(210,64,14,.10)", "dark": "rgba(255,122,69,.17)"},
+    "--halt-line":   {"light": "#E9B49C", "dark": "rgba(255,122,69,.45)"},
+    # delivered — ONE colour, two treatments (filled = merged, outlined = built)
+    "--green":       {"light": "#4A7544", "dark": "#7FC49A"},
+    "--green-soft":  {"light": "rgba(74,117,68,.13)", "dark": "rgba(127,196,154,.15)"},
+    # ready — steel means READY ONLY now; waiting moved onto --wait
+    "--steel":       {"light": "#3F5878", "dark": "#8FA6C7"},
+    "--steel-soft":  {"light": "rgba(63,88,120,.085)", "dark": "rgba(143,166,199,.14)"},
+    "--wait":        {"light": "#74581F", "dark": "#C3A16D"},
+    "--wait-soft":   {"light": "rgba(116,88,31,.10)", "dark": "rgba(195,161,109,.13)"},
+    # the dark next-action band
+    "--band":        {"light": "#330D15", "dark": "#1C070C"},
+    "--band-kick":   {"light": "#E88A98", "dark": "#F5A3AF"},
+}
+
+
+def _palette_vars(theme: str) -> str:
+    """The palette as one `--name:value;` run for `theme` ("light" or "dark")."""
+    return "".join(f"{name}:{v[theme]};" for name, v in _PALETTE.items())
+
+
+_DARK_VARS = _palette_vars("dark")
+_LIGHT_VARS = _palette_vars("light")
+
+# Where each retired name went. Recorded, not merely deleted: a forward-only
+# "every referenced variable is defined" check cannot catch a metadata entry
+# still naming a retired token, so the mapping is asserted in both directions.
+_RETIRED_TOKENS: dict[str, str] = {
+    "--panel":     "--surface",     # the card ground, renamed
+    # --amber carried two jobs and the new palette splits them: the in-flight
+    # STATUS colour is --now (recorded here as its destination), and the brand
+    # uses it was doing double duty for — k-mark, repo name, links, eyebrows —
+    # moved onto the palette's own --accent.
+    "--amber":     "--now",
+    "--amber-soft": "--now-soft",
+    "--block":     "--halt",        # halted colour, renamed
+    "--block-soft": "--halt-soft",
+    "--tree":      "--line-2",      # the timeline gutter rule
+    "--star":      "--accent",      # highlight; it had no CSS consumer
+    "--chip":      "--surface-2",   # the id/slug chip ground
+    "--on-accent": "--on-halt",     # foreground on any filled colour
+    "--live":      "--green",       # the feed's "this is live" dot
+}
+
+# The five motions of the page, each with the behaviour it settles to when the
+# reader asks for reduced motion. Every one is a deliberate choice, and the
+# self-test asserts each: a spinner that ignores the preference is as much a
+# defect as an alarm that keeps blinking.
+_KEYFRAMES: dict[str, str] = {
+    "karta-breathe": "keeps breathing — a status page that stops signalling "
+                     "life reads as broken, and an opacity fade carries no motion",
+    "karta-spin":    "resolves to a static in-progress mark",
+    "karta-draw":    "renders in its finished state, with no draw",
+    "karta-ring":    "holds its resting ring instead of pulsing outward",
+    "karta-alarm":   "holds its alerting state at full strength, so a halted "
+                     "item still reads urgent through colour and icon",
+}
+
+# ---------------------------------------------------------------------------
+# The human browser checklist.
+#
+# The self-test has no browser. It renders documents and reads them as text, so
+# every claim about what a BROWSER does — a font falling back, a colour painting,
+# a header sticking, a caret turning, an aria-live region announcing, a network
+# panel staying silent — is verified at the SOURCE level or not at all. That is a
+# real limit, and the honest response to a limit is to name what it leaves out
+# rather than to let the passing count imply coverage it does not have.
+#
+# So the redesign's unverifiable set is enumerated here, in the file the checks
+# live in, instead of in a build report that scrolls away. Each entry names the
+# check, what a person actually does to run it, and WHY no assertion can make
+# the claim. The self-test holds the shape (`_c_browser_checklist_is_walkable`);
+# `--browser-checklist` prints it for whoever is walking it.
+#
+# This is a listing, in the same class as --list-behaviours: it adds nothing to
+# the page and no control a reader of the page can reach.
+# ---------------------------------------------------------------------------
+
+BROWSER_CHECKLIST: list[dict[str, str]] = [
+    {"key": "fonts-render-and-fall-back",
+     "walk": "Load a repo page. The headings are Newsreader, the body IBM Plex "
+             "Sans, the paths and commands IBM Plex Mono. Then put a binder "
+             "slug with non-Latin characters on screen and confirm those "
+             "glyphs fall through to a system face instead of showing boxes.",
+     "why": "the sheet declares the stacks and the unicode-range; whether the "
+            "browser picked the vendored face, and what it did outside that "
+            "range, is a rendering result no text assertion reaches"},
+    {"key": "both-palettes-paint",
+     "walk": "Open ?theme=light and ?theme=dark, then remove both and switch "
+             "the OS between light and dark. All four paths paint a full "
+             "palette with readable contrast — no unstyled flash, no token "
+             "falling back to black on white.",
+     "why": "the checks prove every token resolves and both blocks define the "
+            "same names; that the composited result is legible is a human call"},
+    {"key": "empty-and-degraded-states-arrived-on-the-new-design",
+     "walk": "Point the page at a repo with no binder planned: the mascot and "
+             "the empty message sit on the new palette and type roles, not on "
+             "the old page's. Then stop the engine and reload: the degraded "
+             "state says the engine is unavailable, in the same treatment. "
+             "Neither one may look like a leftover from the previous design.",
+     "why": "the checks prove both states render, carry their hooks, and name "
+            "only defined tokens — none of which can tell you the state ARRIVED "
+            "on the new design rather than being left behind, which is the one "
+            "thing this whole sweep exists to catch"},
+    {"key": "sticky-header-and-rail-anchors-land-clear",
+     "walk": "Scroll a long binder. The page header stays put, a wave step "
+             "header stacks UNDER it rather than through it, and clicking a "
+             "rail entry lands the binder below the header, not behind it.",
+     "why": "sticky offsets are arithmetic in the sheet; whether the two "
+            "stacked bars actually clear each other is a layout result"},
+    {"key": "name-underline-draws",
+     "walk": "Reload with motion enabled and watch the repo name: the "
+             "underline draws once, left to right, and does not redraw on a "
+             "poll.",
+     "why": "a one-shot stroke-dashoffset animation has no rendered evidence"},
+    {"key": "built-and-passed-separate-at-a-scan",
+     "walk": "Put a built card and a passed card on screen together, in BOTH "
+             "themes, and look at them the way you would glance at the page — "
+             "not by inspecting them. They must read as two states at a "
+             "glance, on glyph and colour together.",
+     "why": "the checks prove the two carry different words, glyphs and "
+            "tokens; 'tells them apart at a glance' is exactly the judgement "
+            "a machine cannot make"},
+    {"key": "halted-reads-urgent-with-motion-off",
+     "walk": "Turn the reduced-motion preference ON. A halted item still reads "
+             "as the loudest thing on screen — full-strength halt colour and "
+             "its octagon — and nothing blinks.",
+     "why": "the settling declarations are asserted; 'still reads as urgent' "
+            "is perceptual"},
+    {"key": "status-dot-breathes-under-reduced-motion",
+     "walk": "With reduced motion still on, confirm the feed dot, the brand "
+             "dot and a running card's footer strip KEEP breathing — this is "
+             "the one motion deliberately left running.",
+     "why": "an opacity animation surviving a media query is a computed style, "
+            "not text"},
+    {"key": "chevron-turns-and-detail-survives-a-poll",
+     "walk": "Expand one item. The chevron turns. Leave it open across at "
+             "least one automatic refresh and confirm it is still open, still "
+             "the same item, and the page did not scroll. Then collapse it: "
+             "the chevron turns back and the detail closes, and the item beside "
+             "it never opened along with it.",
+     "why": "the expansion key and the poll's state merge are asserted by "
+            "direct call; that the DOM survives the re-render is runtime"},
+    {"key": "copied-announces",
+     "walk": "With a screen reader running, press a copy button. 'Copied' is "
+             "announced once, and the label returns to 'Copy' afterwards.",
+     "why": "aria-live is an assistive-technology behaviour; the markup is all "
+            "the gate can see"},
+    {"key": "refresh-off-goes-silent",
+     "walk": "Turn automatic refresh off, open the network panel, and watch "
+             "for longer than several refresh intervals would have taken — "
+             "including a tab switch away and back, and a window focus change. "
+             "It stays silent. Then reload and confirm it is still off.",
+     "why": "THE claim of the refresh model, and the one nothing static "
+            "reaches: a request not issued leaves no trace to assert on"},
+    {"key": "offline-snapshot-opens",
+     "walk": "Save a repo page to disk and open the file:// copy with no "
+             "server running. It renders fully, the fonts fall back, and the "
+             "network panel shows no request at all.",
+     "why": "the protocol guard is read in the source; that the saved file "
+            "opens and stays quiet is end to end"},
+    {"key": "hub-reads-as-the-same-product",
+     "walk": "Open the hub landing beside a repo page. Same palette, same type "
+             "roles, same chip idiom — it reads as one product, not two.",
+     "why": "shared tokens are asserted; visual kinship is a judgement"},
+    {"key": "narrow-reflow",
+     "walk": "Narrow the window past the rail breakpoint. The rail becomes a "
+             "list above the delivery, nothing overflows sideways, and the "
+             "wave grid drops to one column further down.",
+     "why": "the media queries are asserted; that the result reflows without "
+            "clipping needs a viewport"},
+]
+
+
+# The motions that are NOT part of the design's five-motion state vocabulary —
+# interaction transitions rather than things a reader is meant to read a state
+# off. They carry no rail-legend entry (the legend explains state, and a fade
+# says nothing about state), but they owe the same stated reduced-motion
+# behaviour: a motion nobody wrote the legend for is still motion.
+#
+# Keeping them in a second dict rather than in _KEYFRAMES is what lets the
+# legend check stay an EXACT cover of the vocabulary while the reduced-motion
+# audit covers every keyframe the sheet defines. Ship a seventh motion and it
+# belongs in one dict or the other — `_c_every_keyframe_settles` reads the union
+# against what the CSS actually defines, so leaving it out of both fails.
+_KEYFRAMES_OFF_LEGEND: dict[str, str] = {
+    "karta-fade": "drops entirely — the disclosure opens in place, since the "
+                  "fade carries no information the open panel does not already "
+                  "carry by being there",
+}
+
+# ---------------------------------------------------------------------------
+# The rail's "Motion = state" legend. The page encodes state in movement and in
+# shape, and a reader who has not been told that reads a pulsing dot as
+# decoration. So the vocabulary is written down beside the map that uses it.
+#
+# `motion` binds an entry to the keyframe it explains, and the self-test asserts
+# the animated entries cover _KEYFRAMES EXACTLY: ship a sixth motion and the
+# legend goes stale silently otherwise. `motion: None` marks the four entries
+# that explain a static shape rather than a movement — hatched, still, and the
+# two lane figures — which have no keyframe to bind to and never will.
+# `swatch` is the modifier class the little sample in front of the text wears.
+# ---------------------------------------------------------------------------
+
+# The width below which the rail stops being a column and becomes a list. ONE
+# definition: the stylesheet interpolates it, and the self-test reads the same
+# constant to find the media query, so the breakpoint cannot drift out of the
+# check that guards it.
+RAIL_NARROW_PX = 880
+
+_RAIL_LEGEND: list[dict] = [
+    {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
+     "text": "pulsing — in flight"},
+    {"key": "breathing", "motion": "karta-breathe", "swatch": "rail__mot--breathe",
+     "text": "breathing — the feed is live"},
+    {"key": "spinning", "motion": "karta-spin",    "swatch": "rail__mot--spin",
+     "text": "spinning — running right now"},
+    {"key": "drawn",    "motion": "karta-draw",    "swatch": "rail__mot--draw",
+     "text": "drawn once — the repo you are watching"},
+    {"key": "blinking", "motion": "karta-alarm",   "swatch": "rail__mot--alarm",
+     "text": "blinking — halted"},
+    {"key": "hatched",  "motion": None,            "swatch": "rail__mot--hatch",
+     "text": "hatched — not run yet"},
+    {"key": "still",    "motion": None,            "swatch": "rail__mot--still",
+     "text": "still — settled"},
+    {"key": "flush",    "motion": None,            "swatch": "rail__mot--flush",
+     "text": "flush lanes — at once"},
+    {"key": "stepped",  "motion": None,            "swatch": "rail__mot--stepped",
+     "text": "stepped lanes — in turn"},
+]
 
 
 # ---------------------------------------------------------------------------
 # CSS — "Karta Watch". The two design themes as custom properties; dark default,
 # light via ?theme=light. Both via data-theme AND prefers-color-scheme. The
 # design's inline styles are ported here as real classes (the same values), with
-# the five design keyframes. System font stack — NO remote fonts.
+# the five design keyframes. The three typefaces are vendored and served
+# same-origin — NO remote fonts, no CDN, and every stack keeps a system fallback.
 # ---------------------------------------------------------------------------
 
 _CSS = ("""
@@ -706,11 +1088,43 @@ _CSS = ("""
 :root[data-theme="dark"]{__DARK__}
 :root[data-theme="light"]{__LIGHT__}
 
+/* The vendored faces. Same-origin only: __ASSET_QS__ carries the hub's key,
+   because hub assets are token-gated; ephemeral mode substitutes "". Each face
+   swaps rather than blocking paint, and each declares the writing-system range
+   it was cut to — anything outside it falls through to the system fallback. */
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("/assets/fonts/newsreader-400.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("/assets/fonts/newsreader-500.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-sans-400.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-sans-500.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:600; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-sans-600.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-mono-400.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-mono-500.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:600; font-display:swap;
+  src:url("/assets/fonts/ibm-plex-mono-600.woff2__ASSET_QS__") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+
 *{box-sizing:border-box}
 html,body{margin:0}
 :root{
-  --mono:ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Three roles, three vendored families — each followed by a system fallback,
+     so a blocked, 404ing or file:// -unreachable font still reads as text. */
+  --mono:"IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif:"Newsreader", Iowan Old Style, Georgia, "Times New Roman", serif;
 }
 body{
   background:var(--bg); color:var(--ink);
@@ -722,29 +1136,52 @@ body{
 }
 .mono{ font-family:var(--mono); }
 
-@keyframes karta-spin{ to{ transform:rotate(360deg); } }
-@keyframes karta-fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
-@keyframes karta-pulse{ 0%{ box-shadow:0 0 0 0 var(--amber-soft); } 70%,100%{ box-shadow:0 0 0 8px transparent; } }
-@keyframes karta-shimmer{ 0%{ background-position:-140px 0; } 100%{ background-position:240px 0; } }
+/* The page's five motions, and the class each one is applied through. The
+   classes ARE the vocabulary: a component opts into a motion by wearing one,
+   and every motion settles to a stated resting state under a reduced-motion
+   preference (see the reduced-motion block at the foot of this sheet). */
 @keyframes karta-breathe{ 0%,100%{ opacity:.5; } 50%{ opacity:1; } }
+@keyframes karta-spin{ to{ transform:rotate(360deg); } }
+@keyframes karta-draw{ to{ stroke-dashoffset:0; } }
+@keyframes karta-ring{ 0%{ box-shadow:0 0 0 0 var(--now-soft); } 70%,100%{ box-shadow:0 0 0 8px transparent; } }
+@keyframes karta-alarm{ 0%,49%{ opacity:1; } 50%,100%{ opacity:.45; } }
+
+.karta-breathe{ animation:karta-breathe 2s ease-in-out infinite; }
+.karta-spin{ animation:karta-spin 1s linear infinite; }
+.karta-draw{ stroke-dasharray:120; stroke-dashoffset:120; animation:karta-draw .7s ease-out forwards; }
+.karta-ring{ box-shadow:0 0 0 0 var(--now-soft); animation:karta-ring 1.8s ease-out infinite; }
+.karta-alarm{ color:var(--halt); animation:karta-alarm 1.1s steps(1,end) infinite; }
+
+/* One motion that is not part of the design's five: the disclosure fade. It
+   settles under reduced motion too. (The running card's footer strip used to be
+   a sixth — an indeterminate sweep — and is now the breathe above, so the sweep
+   keyframe is gone rather than left defined and applied by nothing.) */
+@keyframes karta-fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
 
 .wrap{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:20px; }
+/* The repo page carries a rail beside its main column, so it — and ONLY it —
+   opens out to the design's maximum width. The hub landing shares .wrap and
+   stays at its own measure. */
+.wrap--repo{ max-width:1440px; }
 
 /* header */
 .top{ display:flex; justify-content:space-between; align-items:center; gap:16px; }
 .brand{ display:flex; align-items:center; gap:13px; min-width:0; }
 .brand__mascot{ width:40px; height:40px; flex:none; display:block; }
 .brand__txt{ min-width:0; }
-.brand__word{ font-family:var(--mono); font-weight:700; font-size:22px; letter-spacing:-0.5px; }
+/* The wordmark is the design's one Newsreader element that already exists here,
+   so --serif is wired to it now; the rest of the serif scale (headlines, item
+   titles, wave numerals) arrives with the typography item. */
+.brand__word{ font-family:var(--serif); font-weight:500; font-size:21px; letter-spacing:-0.5px; }
 .brand__live{
   font-size:12px; color:var(--mut); margin-top:1px;
   display:flex; align-items:center; gap:6px;
 }
 .brand__dot{
-  width:6px; height:6px; border-radius:50%; background:var(--live);
+  width:6px; height:6px; border-radius:50%; background:var(--green);
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
-.hdr-right{ display:flex; align-items:center; gap:2px; flex:none; }
+.hdr-right{ display:flex; align-items:center; gap:8px; flex:none; }
 .hctl{
   display:flex; align-items:center; gap:6px; border:none; cursor:pointer;
   background:transparent; font-family:var(--sans); font-size:12px;
@@ -752,34 +1189,86 @@ body{
 }
 .hctl--on{ color:var(--ink); }
 .hctl__icon{ display:flex; }
-
-/* repo-page header shell: k-mark home anchor, home button, loud repo name */
-.shell{ display:flex; align-items:center; gap:12px; min-width:0; }
-.shell__kmark{
-  width:40px; height:40px; flex:none;
-  display:flex; align-items:center; justify-content:center;
-  background:var(--amber); color:var(--on-accent);
-  font-family:var(--mono); font-weight:700; font-size:20px;
-  text-decoration:none;
+.hctl--icon{
+  justify-content:center; width:32px; height:32px; padding:0;
+  border:1px solid var(--line); border-radius:99px; background:var(--surface);
 }
+.hctl--icon:hover{ border-color:var(--accent-line); }
+
+/* the refresh cluster — countdown (or, when automatic refresh is off, the age
+   of the data), refresh-now, and the automatic-refresh toggle. Same pill
+   treatment as the controls beside it; the reading is mono and tabular so the
+   number does not jitter as it counts down. */
+.hrefresh{ display:flex; align-items:center; gap:6px; flex:none; }
+.hrefresh__meter{
+  font-family:var(--mono); font-size:11px; letter-spacing:.02em;
+  color:var(--mut-2); font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.hrefresh__meter--off{ color:var(--mut); }
+
+/* branch chips — the default branch, and the in-flight binder's integration
+   branch. Quiet mono pills: they say where you are, they are not controls. */
+.branch-chip{
+  display:inline-flex; align-items:center; gap:6px; flex:none;
+  font-family:var(--mono); font-size:11px; color:var(--mut);
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:99px; padding:5px 11px;
+}
+.branch-chip__name{ white-space:nowrap; }
+
+/* The repo page's header stays put while the timeline scrolls under it, so the
+   repo you are looking at and its branches never leave the screen. Scoped to a
+   modifier rather than to `.top`, which the hub landing shares. It bleeds out
+   over the body's own padding so nothing scrolls past it down the sides. */
+.top--shell{
+  position:sticky; top:0; z-index:40; gap:14px;
+  background:var(--bg); border-bottom:1px solid var(--line);
+  margin:0 -34px; padding:12px 34px;
+}
+
+/* repo-page header shell: the mascot + wordmark brand (the hub anchor), the
+   home button, the repo name under its hand-drawn underline, the feed light */
+.shell{ display:flex; align-items:center; gap:12px; min-width:0; }
+.shell__brand{
+  flex:none; display:flex; align-items:center; gap:11px; text-decoration:none;
+}
+.shell__mascot{ width:34px; height:34px; flex:none; display:block; }
+.shell__word{
+  font-family:var(--serif); font-weight:500; font-size:21px;
+  letter-spacing:-0.2px; color:var(--ink);
+}
+.shell__rule{ width:1px; height:26px; background:var(--line-2); flex:none; }
 .shell__home{
-  flex:none; font-family:var(--mono); font-size:12px; color:var(--mut);
-  background:var(--panel); border:1px solid var(--line); padding:6px 10px;
+  flex:none; font-family:var(--mono); font-size:11px; color:var(--mut);
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:99px; padding:5px 11px;
   text-decoration:none; white-space:nowrap;
 }
-.shell__home:hover{ color:var(--amber); border-color:var(--amber); }
-.shell__txt{ min-width:0; }
-.shell__repo-name{
-  display:block; font-family:var(--mono); font-weight:700; font-size:26px;
-  letter-spacing:-0.5px; color:var(--amber);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+.shell__home:hover{ color:var(--accent); border-color:var(--accent-line); }
+.shell__txt{ min-width:0; display:flex; flex-direction:column; gap:2px; }
+.shell__eyebrow{
+  font-family:var(--mono); font-size:10px; font-weight:500;
+  letter-spacing:1.8px; text-transform:uppercase; color:var(--mut);
+  line-height:1;
 }
+.shell__repo-name{
+  position:relative; display:inline-block; max-width:100%;
+  font-family:var(--mono); font-weight:600; font-size:15px;
+  color:var(--accent-deep); line-height:1.15; white-space:nowrap;
+}
+/* The hand-drawn underline. The stroke length is this path's own, so it
+   overrides the shared .karta-draw dash length rather than editing it. */
+.shell__underline{
+  position:absolute; left:0; bottom:-4px; width:100%; height:7px;
+  overflow:visible; pointer-events:none;
+}
+.shell__underline path{ stroke-dasharray:240; stroke-dashoffset:240; }
 .shell__feed{
-  font-size:12px; color:var(--mut); margin-top:1px;
-  display:flex; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:11px; color:var(--mut); flex:none;
+  display:flex; align-items:center; gap:7px;
 }
 .shell__feed-dot{
-  width:6px; height:6px; border-radius:50%; background:var(--live);
+  width:6px; height:6px; border-radius:50%; background:var(--green);
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
 .shell__feed--paused{ color:var(--steel); }
@@ -791,40 +1280,193 @@ body{
   font-family:var(--mono); font-size:11px; color:var(--mut);
 }
 .also__link{ color:var(--mut); text-decoration:none; border-bottom:1px solid var(--line); }
-.also__link:hover{ color:var(--amber); border-color:var(--amber); }
+.also__link:hover{ color:var(--accent); border-color:var(--accent); }
+
+/* ── the map rail and the column beside it ─────────────────────────────────
+   The shell is a two-column grid: the rail, then main. The rail is sticky under
+   the sticky header, so the map stays on screen while the delivery scrolls past
+   it. Below the narrow breakpoint the grid collapses to ONE column and the rail
+   unsticks — the media query and `position:sticky` are the whole mechanism, so
+   the page still registers no scroll or resize listener of any kind. */
+.split{
+  display:grid; grid-template-columns:minmax(248px,296px) 1fr;
+  gap:24px; align-items:start;
+}
+/* nothing to map yet: no rail, so the grid drops its first column rather than
+   leaving the empty state stranded in the rail's narrow measure. */
+.split--solo{ grid-template-columns:1fr; }
+.main{ min-width:0; display:flex; flex-direction:column; gap:20px; }
+
+.rail{
+  position:sticky; top:78px; max-height:calc(100vh - 104px); overflow-y:auto;
+  display:flex; flex-direction:column; gap:14px; padding:4px 6px 14px; min-width:0;
+}
+.rail__head{ display:flex; align-items:baseline; gap:9px; }
+.rail__title{
+  font-family:var(--mono); font-size:11px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--now-deep);
+}
+.rail__hint{ font-family:var(--mono); font-size:11px; color:var(--mut-2); margin-left:auto; }
+.rail__groups{ display:flex; flex-direction:column; }
+
+/* a group header: label, rule, and either the count or — for Delivered — the
+   toggle that reveals the group, which carries the count as its own reading. */
+.rail__ghead{ display:flex; align-items:center; gap:8px; padding:0 0 8px; }
+.rail__glabel{
+  font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:1.8px;
+  text-transform:uppercase;
+}
+.rail__grule{ flex:1; height:1px; background:var(--line); }
+.rail__gcount{ font-family:var(--mono); font-size:10px; color:var(--mut-2); flex:none; }
+.rail__gtoggle{
+  display:inline-flex; align-items:center; gap:6px; cursor:pointer; flex:none;
+  font-family:var(--mono); font-size:10px; color:var(--mut);
+  background:transparent; border:1px solid var(--line-2); border-radius:99px;
+  padding:3px 9px;
+}
+.rail__gtoggle:hover{ border-color:var(--now); color:var(--now-deep); }
+.rail__gtoggle--on{ color:var(--ink); }
+
+/* a rail row: the phase dot in its gutter, then the card. */
+.rail__row{ display:flex; gap:12px; }
+.rail__gutter{
+  flex:none; width:11px; display:flex; flex-direction:column;
+  align-items:center; padding-top:16px;
+}
+.rail__dot{ width:11px; height:11px; border-radius:50%; background:var(--bg); flex:none; }
+.rail__dot--past{ background:var(--green); }
+/* the in-flight dot is the rail's one moving part, and it breathes. */
+.rail__dot--now{ background:var(--now); animation:karta-breathe 2s ease-in-out infinite; }
+.rail__dot--next{ border:2px solid var(--steel); }
+.rail__dot--later{ border:2px dashed var(--wait); }
+.rail__stem{ flex:1; width:2px; background:var(--line-2); margin-top:4px; }
+.rail__body{ flex:1; min-width:0; padding-bottom:14px; }
+/* The card is an ANCHOR to the binder's own card in the main column, not a
+   scripted jump: no listener, no handler, and it still works in a saved copy. */
+.rail__pick{
+  display:flex; flex-direction:column; gap:5px; width:100%; min-width:0;
+  text-align:left; text-decoration:none; color:inherit;
+  border:1px solid var(--line); background:var(--surface); padding:11px 13px;
+}
+.rail__pick:hover{ background:var(--surface-2); border-color:var(--accent-line); }
+.rail__pick--now{ border-color:var(--now); background:var(--now-soft); }
+.rail__line{ display:flex; align-items:center; gap:8px; min-width:0; }
+.rail__name{
+  font-family:var(--serif); font-size:17px; line-height:1.15;
+  color:var(--ink); flex:1; min-width:0;
+}
+.rail__pct{
+  font-family:var(--mono); font-size:11px; color:var(--mut-2); flex:none;
+  font-variant-numeric:tabular-nums;
+}
+.rail__pct--now{ color:var(--now-deep); }
+.rail__slug{
+  font-family:var(--mono); font-size:10px; color:var(--mut-2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.rail__bar{ height:4px; background:var(--line); overflow:hidden; }
+.rail__fill{ height:100%; background:var(--now); }
+
+/* "Motion = state" — the page encodes status in movement and in shape, and a
+   reader who has not been told that reads a pulsing dot as decoration. */
+.rail__legend{
+  border-top:1px solid var(--line); padding-top:12px;
+  display:flex; flex-direction:column; gap:7px;
+}
+.rail__legend-title{
+  font-family:var(--mono); font-size:10px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--mut-2);
+}
+.rail__mot{
+  display:flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:10px; color:var(--mut);
+}
+.rail__swatch{ width:9px; height:9px; flex:none; }
+.rail__mot--pulse{ border-radius:50%; background:var(--now); box-shadow:0 0 0 2px var(--now-soft); }
+.rail__mot--breathe{ border-radius:50%; background:var(--green); animation:karta-breathe 2s ease-in-out infinite; }
+.rail__mot--spin{ border-radius:50%; border:2px solid var(--now); border-top-color:transparent; }
+.rail__mot--draw{ width:14px; height:3px; background:var(--accent); }
+.rail__mot--alarm{ background:var(--halt); }
+.rail__mot--hatch{ background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px); opacity:.55; }
+.rail__mot--still{ border-radius:50%; background:var(--green); }
+.rail__mot--flush{ width:16px; background:repeating-linear-gradient(to bottom,var(--now) 0 2px,transparent 2px 4px); }
+.rail__mot--stepped{
+  width:16px;
+  background-image:linear-gradient(var(--now),var(--now)),linear-gradient(var(--now),var(--now)),linear-gradient(var(--now),var(--now));
+  background-size:33% 2px,33% 2px,33% 2px;
+  background-position:0 0,33% 4px,66% 8px;
+  background-repeat:no-repeat;
+}
+
+/* ── the next action ───────────────────────────────────────────────────────
+   One dark band at the top of the column, above the delivery panel and every
+   binder header in it, carrying the engine's single next action.
+
+   It is the ONE surface on the page that does not flip with the theme: --band
+   is dark in both, because the band's job is to be the darkest thing on screen
+   whichever way round the page is. So its foreground is a literal white rather
+   than a token — every foreground token here flips with the theme, and one that
+   flipped would put dark ink on a dark band in one of the two. --band-kick is
+   the band's own light-on-dark accent, defined for both themes, and carries the
+   eyebrow and the copy button's hover. */
+.band{ background:var(--band); padding:20px 26px 22px; }
+.band__eyebrow{
+  display:block; font-family:var(--mono); font-size:11px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--band-kick); margin-bottom:10px;
+}
+.band__sentence{
+  font-family:var(--serif); font-size:24px; line-height:1.28;
+  color:#FFFFFF; max-width:52ch; text-wrap:pretty; margin:0;
+}
+.band__run{ display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap; }
+.band__cmd{
+  font-family:var(--mono); font-size:13px; color:#FFFFFF;
+  background:rgba(255,255,255,.07); border:1px solid var(--band-kick);
+  padding:9px 13px;
+}
+/* the page's buttons are pills; the band's is one too, inverted so it reads as
+   the thing to press against the darkest surface on the page. */
+.band__copy{
+  display:inline-flex; align-items:center; gap:8px; cursor:pointer; flex:none;
+  font-family:var(--sans); font-size:13px; font-weight:500;
+  color:var(--band); background:#FFFFFF; border:0; border-radius:99px;
+  padding:9px 14px;
+}
+.band__copy:hover{ background:var(--band-kick); }
 
 /* delivery panel */
-.panel{ background:var(--panel); border:1px solid var(--line); padding:24px 30px 16px; }
+.panel{ background:var(--surface); border:1px solid var(--line); padding:24px 30px 16px; }
 .panel__head{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
 .panel__kicker{
-  font-size:10.5px; letter-spacing:2px; font-weight:700;
-  color:var(--amber); text-transform:uppercase;
+  font-size:10.5px; letter-spacing:2px; font-weight:600;
+  color:var(--accent); text-transform:uppercase;
 }
-.panel__name{ font-family:var(--mono); font-weight:700; font-size:17px; }
+.panel__name{ font-family:var(--mono); font-weight:600; font-size:17px; }
 .panel__summary{ margin-left:auto; font-size:12px; color:var(--mut); }
 .panel__note{ font-size:12.5px; color:var(--mut); line-height:1.5; margin-bottom:18px; }
 
 /* a phase row: tree gutter + content */
 .phase{ display:flex; }
 .phase__gutter{ position:relative; flex:none; width:50px; }
-.phase__line{ position:absolute; left:24px; width:2px; background:var(--tree); }
+.phase__line{ position:absolute; left:24px; width:2px; background:var(--line-2); }
 .phase__mark{
   position:absolute; left:25px; top:23px; transform:translate(-50%,-50%);
   display:flex; align-items:center; justify-content:center;
   width:26px; height:26px; border:2px solid; z-index:1;
 }
-.phase__mark--pulse{ animation:karta-pulse 1.8s ease-out infinite; }
+.phase__mark--pulse{ animation:karta-ring 1.8s ease-out infinite; }
 .phase__body{ flex:1; min-width:0; padding:14px 0 22px; }
 .phase__head{ display:flex; align-items:baseline; gap:9px; margin-bottom:14px; }
-.phase__label{ font-size:11.5px; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; }
+.phase__label{ font-size:11.5px; font-weight:600; letter-spacing:2.5px; text-transform:uppercase; }
 .phase__meaning{ font-size:11.5px; color:var(--mut); }
 .phase__count{ margin-left:auto; font-family:var(--mono); font-size:11px; }
 .phase__empty{ font-size:12px; color:var(--mut); opacity:.5; }
 .phase__binders{ display:flex; flex-direction:column; gap:14px; }
 
-/* a binder card */
-.binder{ border:1px solid var(--line); background:var(--bg); }
-.binder--now{ border-color:var(--amber); }
+/* a binder card. `scroll-margin-top` is what makes a rail card's anchor jump
+   land BELOW the sticky header instead of under it — CSS, not a scroll handler. */
+.binder{ border:1px solid var(--line); background:var(--bg); scroll-margin-top:88px; }
+.binder--now{ border-color:var(--now); }
 .binder--done{ border-color:var(--green); }
 /* a real <button> (keyboard-operable expander) styled to the existing look */
 .binder__header{
@@ -833,16 +1475,23 @@ body{
   appearance:none; -webkit-appearance:none;
   font:inherit; color:inherit;
 }
-.binder__header--now{ background:var(--amber-soft); }
+.binder__header--now{ background:var(--now-soft); }
 .binder__header--done{ background:var(--green-soft); }
 .binder__icon{
   display:flex; align-items:center; justify-content:center; width:25px; height:25px;
-  flex:none; color:var(--on-accent);
+  flex:none; color:var(--on-halt);
 }
-.binder__title{ font-weight:600; font-size:15px; }
+.binder__title{ font-family:var(--serif); font-weight:400; font-size:22px; line-height:1.15; }
+/* the header's eyebrow: where this binder stands, in the phase's own wording,
+   above the headline rather than only as a coloured mark in the gutter. */
+.binder__eyebrow{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:2px;
+  text-transform:uppercase; display:block; margin-bottom:3px;
+}
+.binder__head-text{ min-width:0; }
 .binder__slug{
   display:flex; align-items:center; gap:4px; font-family:var(--mono); font-size:10px;
-  color:var(--mut); padding:2px 6px; background:var(--chip);
+  color:var(--mut); padding:2px 6px; background:var(--surface-2);
 }
 .binder__blurb{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; padding:13px 18px 16px; }
 .binder__spacer{ margin-left:auto; flex:none; }
@@ -850,32 +1499,99 @@ body{
 .binder__count{ font-family:var(--mono); font-size:11px; color:var(--mut); flex:none; }
 .binder__caret{ display:flex; flex:none; color:var(--mut); transition:transform .15s; }
 .binder__caret--open{ transform:rotate(180deg); }
-.binder__bar{ height:4px; background:var(--line); }
-.binder__fill{ height:100%; transition:width .55s ease; }
-.binder__waves{ padding:18px; }
+/* The progress bar. The TRACK is hatched, not flat: work not yet run reads as
+   ruled-off ground rather than as empty bar, so a binder at 0% still looks like
+   a plan and not like a broken widget. The FILL stays solid — one flat band of
+   colour against the hatch is what makes the boundary legible. Static geometry,
+   no animation, so there is nothing here for reduced motion to settle. */
+.binder__bar{
+  height:6px; background:var(--line);
+  background-image:repeating-linear-gradient(135deg, var(--line-2) 0 1.5px, transparent 1.5px 6px);
+}
+.binder__fill{ height:100%; background-image:none; transition:width .55s ease; }
+
+/* The counts row. One cell per engine state that HAS runs — a state with none
+   contributes no cell at all. Colours come off the state metadata as inline
+   values (same rule as the item cards), so a state can never be added to the
+   engine and render untinted; what lives here is the shape. */
+.counts{
+  display:flex; flex-wrap:wrap; gap:6px;
+  padding:11px 18px; border-top:1px solid var(--line);
+}
+.counts__cell{
+  display:flex; align-items:baseline; gap:5px;
+  padding:3px 9px; border:1px solid transparent;
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+}
+.counts__n{ font-size:12px; font-variant-numeric:tabular-nums; }
+/* The one cell that has to be found without reading: halted work. It takes the
+   halt palette's deeper ink and its own outline rather than the soft tint the
+   other cells wear, so a halted count is visible at a glance in a wrapped row. */
+.counts__cell--halted{ border-color:var(--halt-line); }
+.counts__cell--halted .counts__n{ color:var(--halt-deep); }
+
+.binder__waves{ padding:0 18px 18px; }
 
 /* the queue summary line */
-.queue{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--mut); margin-bottom:16px; }
+.queue{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--mut); padding:14px 0 4px; }
 .queue__icon{ display:flex; }
 
-/* THEN separator between waves */
-.then{ display:flex; align-items:center; gap:9px; margin:15px 0; color:var(--mut); }
-.then__stub{ width:18px; height:1px; background:var(--line); }
-.then__icon{ display:flex; }
-.then__word{ font-family:var(--mono); font-size:9px; letter-spacing:2px; }
-.then__rule{ flex:1; height:1px; background:var(--line); }
-
-/* the "N runs in parallel" label within a multi-item wave */
-.parallel{
-  display:flex; align-items:center; gap:6px; font-size:9px; color:var(--mut);
-  letter-spacing:1px; text-transform:uppercase; margin-bottom:7px;
+/* A wave's step header. Sticky at the same offset the map rail uses, so it
+   parks directly under the page header instead of behind it; it paints its own
+   ground and rules itself off, because a header stuck over scrolling cards with
+   a transparent background is unreadable. */
+.step{
+  position:sticky; top:78px; z-index:3;
+  display:flex; align-items:center; gap:9px;
+  margin:16px 0 9px; padding:6px 9px;
+  background:var(--surface-2); border-bottom:1px solid var(--line);
 }
-.parallel__icon{ display:flex; }
+.step__numeral{
+  font-family:var(--serif); font-size:25px; line-height:1; font-weight:400;
+  font-variant-numeric:tabular-nums; color:var(--mut-2); flex:none;
+}
+.step__lane{ display:flex; flex:none; color:var(--mut); }
+.step__label{ font-size:11px; color:var(--mut); }
+.step__count{ font-family:var(--mono); font-size:10px; color:var(--mut); }
+.step__pos{
+  margin-left:auto; flex:none;
+  font-family:var(--mono); font-size:9px; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2);
+}
 .wave{ display:grid; gap:11px; margin-bottom:2px; }
 
-/* a work item */
-.item{ border:1px solid var(--line); background:var(--panel); }
-.item--building{ border-color:var(--amber); }
+/* The footer meta bar: which branches this binder runs on, and which stack
+   packs its builds are written against. An entry with nothing to say is absent
+   rather than empty. */
+.bmeta{
+  display:flex; flex-wrap:wrap; gap:5px 16px;
+  padding:9px 18px; border-top:1px solid var(--line); background:var(--surface-2);
+}
+.bmeta__entry{ display:flex; align-items:baseline; gap:6px; min-width:0; }
+.bmeta__label{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2); flex:none;
+}
+.bmeta__value{ font-family:var(--mono); font-size:10.5px; color:var(--mut); overflow-wrap:anywhere; }
+
+/* A work item. Six engine states, six treatments, and the colours come off the
+   state metadata as inline custom values rather than living here as six more
+   selectors — so a state can never be added to the engine and render untreated.
+   What DOES live here is the part that is a shape and not a colour: the border
+   weight the metadata names as a role, and the dashed edge waiting wears. */
+.item{ border:1px solid var(--line); background:var(--surface); }
+/* calm is the 1px default above; urgent is the card that wants to be looked at
+   now — running and halted, and nothing else. */
+.item--urgent{ border-width:2px; }
+/* waiting: calm weight, unsettled edge. */
+.item--dashed{ border-style:dashed; }
+.item--building{ border-color:var(--now); }
+/* the halted card's solid header bar — the one state the design fills solid,
+   which is why it is the one state carrying a foreground token to sit on it. */
+.item__bar{
+  display:flex; align-items:center; gap:6px; padding:4px 11px;
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+}
 /* the row is a real <button> (keyboard-operable expander), existing look kept */
 .item__row{
   display:flex; align-items:flex-start; gap:10px; padding:12px 14px; min-width:0;
@@ -885,7 +1601,7 @@ body{
 }
 .item__badge{
   display:flex; align-items:center; justify-content:center; width:22px; height:22px;
-  flex:none; color:var(--on-accent);
+  flex:none; color:var(--on-halt);
 }
 /* the title owns its own line and wraps cleanly; id/oracle/status drop to a meta
    row so a wordy title in a narrow parallel column never gets starved to one word
@@ -896,7 +1612,7 @@ body{
 .item__id{
   flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   display:flex; align-items:center; font-family:var(--mono); font-size:9.5px;
-  color:var(--mut); padding:1px 5px; background:var(--chip);
+  color:var(--mut); padding:1px 5px; background:var(--surface-2);
 }
 .item__oracle{ display:flex; align-items:center; gap:3px; flex:none; font-size:9px; color:var(--mut); }
 .item__desc{
@@ -904,25 +1620,46 @@ body{
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
 .item__chip{ display:flex; align-items:center; gap:4px; flex:none; margin-left:auto; padding:2px 7px; }
-.item__word{ font-family:var(--mono); font-size:8.5px; font-weight:700; letter-spacing:0.5px; white-space:nowrap; }
+/* the disclosure chevron: it turns a half-turn while the detail is open, so the
+   row says "there is more here" and then "you are looking at it". */
+.item__caret{ display:flex; flex:none; align-self:center; color:var(--mut); transition:transform .15s; }
+.item__caret--open{ transform:rotate(180deg); }
+.item__word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; white-space:nowrap; }
 
-/* the indeterminate shimmer for a RUNNING item */
+/* The RUNNING card's breathing footer strip. It breathes rather than sweeps:
+   breathe is the page's one motion that means "alive", it is the one motion
+   that keeps running when the reader asks for reduced motion, and a card that
+   is mid-build has to keep saying so under that preference too. */
 .item__shim{ height:3px; background:var(--line); margin:0 11px 8px 42px; overflow:hidden; }
-.item__shim-fill{
-  height:100%;
-  background:linear-gradient(90deg,var(--amber) 0 60%,rgba(255,255,255,.45) 80%,var(--amber));
-  background-size:160px 100%; animation:karta-shimmer 1.1s linear infinite;
-}
+.item__shim-fill{ height:100%; background:var(--now); animation:karta-breathe 2s ease-in-out infinite; }
 
 /* the expanded oracle detail */
 .item__detail{
   margin:0 11px 10px 42px; padding:9px 11px; background:var(--bg);
   border:1px solid var(--line); animation:karta-fade .2s ease;
 }
-.item__detail-head{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--mut); }
-.item__assert{ font-size:11.5px; color:var(--ink); margin-top:6px; }
-.item__cmd{ font-family:var(--mono); font-size:11px; color:var(--mut); margin-top:7px; }
-.item__dep{ display:flex; align-items:center; gap:5px; font-size:11px; color:var(--block); margin-top:7px; }
+/* the detail itself: a two-column grid, mono uppercase labels down the left in
+   --mut-2 (the muted step below body copy, which is what keeps eight labels from
+   competing with the eight values beside them) and the value column free to
+   wrap. Paths, commands and refs take the mono column treatment; prose does not. */
+.detail{ display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 12px; margin:0; }
+.detail__label{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2); margin:0; padding-top:2px;
+}
+.detail__value{
+  margin:0; min-width:0; font-size:11.5px; line-height:1.5; color:var(--ink);
+  display:flex; align-items:center; flex-wrap:wrap; gap:5px; overflow-wrap:anywhere;
+}
+.detail__value--mono{ font-family:var(--mono); font-size:10.5px; color:var(--mut); }
+.detail__list{ list-style:none; margin:0; padding:0; width:100%; display:flex; flex-direction:column; gap:3px; }
+.detail__entry{ display:block; }
+.detail__name{ font-family:var(--mono); font-size:9.5px; color:var(--mut-2); margin-right:6px; }
+.detail__empty{ font-family:var(--mono); font-size:10px; color:var(--mut-2); }
+.detail__chips{ display:flex; flex-wrap:wrap; gap:5px; }
+.detail__chip{ display:flex; align-items:center; gap:4px; padding:2px 7px; }
+.detail__chip-id{ font-family:var(--mono); font-size:9.5px; }
+.detail__chip-word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; }
 
 /* empty state (no binders) */
 .empty{ text-align:center; padding:28px 0 34px; }
@@ -934,16 +1671,49 @@ body{
 .foot{ text-align:center; font-size:12.5px; color:var(--mut); padding-top:2px; }
 
 @media (prefers-reduced-motion: reduce){
-  /* Remove genuine motion — the rotating badge spinner and the expanding-ring
-     pulse. But "a run is live" is essential status, so the live signals must not
-     just freeze: degrade them to a gentle opacity breathe (a fade, not movement,
-     which is reduced-motion-safe). The status line keeps reading as alive. */
-  .phase__mark--pulse, .karta-spin{ animation:none !important; }
-  .item__shim-fill{
-    background:var(--amber) !important; background-size:auto !important;
-    animation:karta-breathe 2s ease-in-out infinite !important;
-  }
-  .brand__dot{ animation:karta-breathe 2s ease-in-out infinite; }
+  /* Every keyframe the sheet defines settles here — the design's five motions
+     below, then the ones outside that vocabulary. None is left running
+     unconditionally, and none is simply frozen where freezing would delete the
+     signal: the page still has to say "this is alive", "this is running",
+     "this is halted". The audit is `_c_every_keyframe_settles`, and it reads
+     THIS sheet rather than a list kept beside it, so a seventh motion added
+     without a settling fails instead of being settled by convention. Every
+     SELECTOR that applies a motion is answered, not only the motion's own
+     class — a settled `.karta-breathe` with a second element still breathing
+     would be a rule that reads as enforced and is not. */
+
+  /* BREATHE keeps breathing. A status page that stops signalling life reads as
+     broken, and an opacity fade is not movement. */
+  .karta-breathe{ animation:karta-breathe 2s ease-in-out infinite; }
+  /* SPIN resolves to a static in-progress mark — still shown, no rotation. */
+  .karta-spin{ animation:none !important; transform:none !important; opacity:1 !important; }
+  /* DRAW renders in its finished state, with no draw. */
+  .karta-draw{ animation:none !important; stroke-dashoffset:0 !important; }
+  /* RING holds its resting ring instead of pulsing outward. */
+  .karta-ring{ animation:none !important; box-shadow:0 0 0 2px var(--now-soft) !important; }
+  /* ALARM holds its alerting state at FULL strength: a halted item keeps
+     reading as urgent through colour and icon rather than through blinking. */
+  .karta-alarm{ animation:none !important; opacity:1 !important; color:var(--halt) !important; }
+
+  /* The motions outside the design's five settle as well: the disclosure fade
+     drops, and the two carets arrive already turned instead of turning. The
+     rotation itself is KEPT — it is the state, not the motion — so an open
+     disclosure still points down with the transition taken away. */
+  .item__detail{ animation:none !important; }
+  .binder__caret, .item__caret{ transition:none !important; }
+  .phase__mark--pulse{ animation:none !important; }
+  /* The RUNNING card's footer strip is breathe, and breathe keeps going: with
+     motion off, "this item is building right now" still has to be visible on
+     the card itself, not only in the chip word. */
+  .item__shim-fill{ animation:karta-breathe 2s ease-in-out infinite !important; }
+  .brand__dot, .shell__feed-dot, .rail__dot--now, .rail__mot--breathe{ animation:karta-breathe 2s ease-in-out infinite; }
+}
+/* The narrow breakpoint: the two columns become one and the rail stops sticking,
+   so on a phone the map reads as a list above the delivery rather than as a
+   pinned column stealing half the screen. */
+@media (max-width:__NARROW__px){
+  .split{ grid-template-columns:1fr !important; }
+  .rail{ position:static !important; max-height:none !important; overflow-y:visible; }
 }
 @media (max-width:560px){
   .wave{ grid-template-columns:1fr !important; }
@@ -951,7 +1721,17 @@ body{
 """
         .replace("__DARK__", _DARK_VARS)
         .replace("__LIGHT__", _LIGHT_VARS)
+        .replace("__NARROW__", str(RAIL_NARROW_PX))
         .strip())
+
+
+def _page_css(asset_qs: str = "") -> str:
+    """The stylesheet with its font URLs pointed at this mode's asset route.
+
+    Hub mode gates /assets/ behind the token, so a font URL that skipped the key
+    would 403 and the page would silently fall back to system fonts; ephemeral
+    mode passes "" and the bytes are unchanged."""
+    return _CSS.replace("__ASSET_QS__", asset_qs)
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +1751,9 @@ body{
 # feed is live, it just had nothing new to say — and reading it as a dead feed
 # would light the paused dot on a perfectly healthy page.
 # ---------------------------------------------------------------------------
+
+# The tab/page title suffix both modes render (the repo name heads it).
+_TITLE_SUFFIX = "Karta Watch"
 
 FEED_LIVE_LABEL = "live from git — read-only"
 FEED_PAUSED_LABEL = "snapshot — feed paused"
@@ -992,38 +1775,632 @@ def _feed_transition(state: dict, status: int | None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The poll decision — should this moment ask the server anything at all?
+# The refresh decision — should this moment ask the server anything at all?
 #
-# A hidden tab is the cheapest poll to skip: nobody is reading it, and the
-# answer it would download is thrown away. So the page stops polling while the
-# document is hidden and catches up the moment it comes back. The branching is
-# THIS pure function, not an `if` buried in a Vue lifecycle hook, because a
-# Python self-test can call a function directly and can never fire a lifecycle
-# hook — the page's pollDecision() below is the same function in JS, and both
-# the interval tick and the visibilitychange listener route through it, so
-# "hidden means no request" is decided in exactly one place.
+# Every poll is real git work (up to 613 ms on a twenty-binder repo, see
+# docs/specs/2026-08-15-watch-performance-baseline.md), so the page asks far
+# less often than it used to and lets the reader stop it asking altogether:
 #
-# `has_etag` — whether a fingerprint from an earlier poll is held — is an input
-# on purpose and never changes the answer. A held tag makes a poll CHEAPER (a
-# 304 with no body), never unnecessary, and the self-test pins that
-# independence so a later edit cannot quietly turn "I already have a tag" into
-# "I need not ask", which would freeze the page on stale state.
+#   auto         — refresh on a REFRESH_INTERVAL_MS schedule, and show a
+#                  countdown to the next one.
+#   manual-only  — refresh not at all until the reader clicks. The AGE of the
+#                  data replaces the countdown, so staleness stays visible.
+#
+# This is a reader's CHOICE, and it is not the feed-paused state above, which
+# means the feed failed twice in a row. The page must never word or style one
+# as the other.
+#
+# The branching is THIS pure function, not an `if` buried in a Vue lifecycle
+# hook, because a Python self-test can call a function directly and can never
+# fire a lifecycle hook — the page's refreshDecision() below is the same
+# function in JS, and EVERY request initiator routes through it: the poll
+# timer, the visibilitychange listener, and the manual button. That is what
+# makes "off means off" enforceable rather than cosmetic — hiding the countdown
+# while continuing to poll would be a defect, not a shortcut.
+#
+# `visible` is gated INSIDE the function on purpose. Checked by the caller
+# instead, the parameter would be dead and the visibility backoff would be a
+# second, separate, untested path; inside, the same direct-call assertions
+# cover it. This subsumes the predecessor binder's poll_decision entirely — no
+# parallel visibility check survives anywhere else.
+#
+# `manual` wins over both mode and visibility: someone who clicks refresh has
+# asked for it, and honouring one deliberate action is not background polling.
+#
+# The function returns a WORD, so it cannot reset anything. The elapsed
+# baseline is caller state, and the caller restarts it when the decision says
+# to fetch — checked at the source level, since a pure function cannot.
 # ---------------------------------------------------------------------------
 
+REFRESH_INTERVAL_MS = 30000     # the automatic-refresh cadence (was 2600)
+REFRESH_TICK_MS = 1000          # the countdown ticker — local clock, no request
+REFRESH_MODE_KEY = "karta-auto-refresh"        # the reader's choice, persisted
+REFRESH_ON_LABEL = "automatic refresh on"
+REFRESH_OFF_LABEL = "automatic refresh off"    # never the feed-paused wording
 
-def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:
+# The shared decision table: input vectors and the outcome each must produce.
+# The self-test drives the Python twin against it directly, and the page is
+# handed the identical table so the two runtimes can be compared rather than
+# assumed equal. Honest limit: because Python generates the copy the page
+# carries, the table itself cannot drift — what the gate catches is the
+# FUNCTION drifting from the table (direct call) and the JS body drifting from
+# the Python body (branch-for-branch source comparison). Neither catches a
+# rewrite that keeps the shape and changes the behaviour; that residue is on
+# the human checklist.
+REFRESH_VECTORS: list[list] = [
+    # mode, visible, elapsed_ms, manual, expected
+    ["auto", True, 0, False, "skip"],
+    ["auto", True, REFRESH_INTERVAL_MS - 1, False, "skip"],
+    ["auto", True, REFRESH_INTERVAL_MS, False, "poll"],
+    ["auto", True, REFRESH_INTERVAL_MS * 20, False, "poll"],
+    ["auto", False, 0, False, "skip"],
+    ["auto", False, REFRESH_INTERVAL_MS * 20, False, "skip"],
+    ["auto", True, 0, True, "poll-now"],
+    ["auto", False, 0, True, "poll-now"],
+    ["manual-only", True, 0, False, "skip"],
+    ["manual-only", True, REFRESH_INTERVAL_MS, False, "skip"],
+    ["manual-only", True, REFRESH_INTERVAL_MS * 2880, False, "skip"],
+    ["manual-only", False, REFRESH_INTERVAL_MS * 2880, False, "skip"],
+    ["manual-only", True, 0, True, "poll-now"],
+    ["manual-only", False, 0, True, "poll-now"],
+]
+
+
+def refresh_decision(mode: str, visible: bool, elapsed_ms: int,
+                     interval_ms: int, manual: bool) -> str:
     """What this moment should do: 'skip', 'poll', or 'poll-now'.
 
-    'skip'      — the document is hidden: make no request, run no timer.
-    'poll-now'  — it just became visible: catch up at once, then resume the
-                  normal schedule.
-    'poll'      — it was visible and still is: the ordinary scheduled poll."""
-    # MIRROR: change together with pollDecision() in _APP_JS and the poll self-test.
+    'poll-now'  — the reader asked for it: fetch once, whatever the mode and
+                  whether or not the tab is showing.
+    'skip'      — make no request: automatic refresh is off, the document is
+                  hidden, or the interval has not elapsed yet.
+    'poll'      — the ordinary scheduled refresh."""
+    # MIRROR: change together with refreshDecision() in _REFRESH_SHARED_JS — the one
+    # JS source spliced into BOTH render paths — and the refresh self-test.
+    if manual:
+        return "poll-now"
+    if mode != "auto":
+        return "skip"
     if not visible:
         return "skip"
-    if not was_visible:
-        return "poll-now"
+    if elapsed_ms < interval_ms:
+        return "skip"
     return "poll"
+
+
+# ---------------------------------------------------------------------------
+# The refresh model as JavaScript — ONE source, spliced into BOTH render paths.
+#
+# The repo page and the hub landing are separate documents built by separate
+# functions, and both have to answer the same question before asking git for
+# anything. Carrying the answer twice is how the expensive page ends up still
+# refreshing after the reader switched refreshing off: someone fixes the copy
+# they happen to be looking at. So the decision and the preference reader live
+# here, once, and each render path embeds these exact bytes.
+#
+# REFRESH_KEY is left free: whichever path embeds this declares it, from the
+# same Python constant (_build_app_js for the repo page, _HUB_JS for the
+# landing), so the two cannot drift into two spellings of the reader's choice.
+# ---------------------------------------------------------------------------
+
+_REFRESH_SHARED_JS = """
+// The refresh decision — should this moment ask the server anything at all?
+// Every poll is real git work, so automatic refresh runs on a slow schedule the
+// reader can switch off entirely. Kept out of the lifecycle hooks as a pure
+// function so the Python self-test can call it directly (it can never fire a
+// Vue hook), and routed through by EVERY request initiator on EITHER page — the
+// repo page's poll timer, visibilitychange listener and manual button, and the
+// landing's one reload timer — so "off means off" and "hidden means no request"
+// are decided in exactly one place. A manual click wins over both: a deliberate
+// action is not background polling. The function returns a word and so resets
+// nothing; the elapsed baseline is caller state, restarted by the caller.
+// Mirrored by refresh_decision() in serve_status.py, which the self-test drives —
+// keep the two in lockstep.
+// MIRROR: change together with refresh_decision() in serve_status.py and the refresh self-test.
+function refreshDecision(mode, visible, elapsedMs, intervalMs, manual) {
+  if (manual) return 'poll-now';
+  if (mode !== 'auto') return 'skip';
+  if (!visible) return 'skip';
+  if (elapsedMs < intervalMs) return 'skip';
+  return 'poll';
+}
+
+// The reader's automatic-refresh choice. A browser with storage unavailable
+// (private mode, a blocked origin) falls back to the default — automatic
+// refresh ON — rather than throwing on the way up.
+function storedRefreshMode() {
+  try {
+    return localStorage.getItem(REFRESH_KEY) === '0' ? 'manual-only' : 'auto';
+  } catch (e) { return 'auto'; }
+}
+""".strip()
+
+
+# ---------------------------------------------------------------------------
+# The header's branch chips. The design mocks two pills — "main" and an
+# invented "integration/<something>" — and the second one is a mock: karta's
+# real integration branch is `karta/<slug>/integration`, so the shipped chip has
+# to name the branch a reader could actually check out. One format string, here,
+# handed to the page verbatim, so the Python mirror and the JS the browser runs
+# can never drift into two spellings of the same branch.
+#
+# Both chips are pure functions of state already on the page: the default branch
+# the engine derived, and the slug of the binder that is in flight. No git call
+# is added — this is string formatting over facts the feed already carries.
+# ---------------------------------------------------------------------------
+
+INTEGRATION_BRANCH_FMT = "karta/{slug}/integration"
+
+
+def branch_chips(state: dict) -> list[dict]:
+    """Python mirror of the page's branchChips(): state in, chips out.
+
+    The first chip is the repository's default branch. The second names the real
+    integration branch of the binder that is in flight — there is at most one, so
+    the first `in_flight` binder in the engine's derived order wins, and a repo
+    with nothing in flight shows the default branch alone rather than a chip
+    pointing at a branch that does not exist.
+
+    BOTH chips wear the branch glyph, and neither carries an `icon` field to say
+    so. The glyph is a type marker, not decoration: it says "this pill is a git
+    ref you could check out". Carried by one chip and withheld from the other, it
+    would imply a distinction that does not exist — both chips are branches, and
+    the header already tells them apart by name and by key. The design mock draws
+    it once, but its second pill was an invented `integration/<something>`; the
+    shipped chip names a real branch, so it earns the same marker.
+
+    The template draws the glyph for every chip rather than reading a per-chip
+    field, which is what makes the decision structural: with no field there is
+    nothing to set differently on one chip, so the two cannot drift apart
+    again."""
+    # MIRROR: change together with branchChips() in _APP_JS and the chip self-test.
+    chips = []
+    default = (state.get("repo") or {}).get("default_branch") or ""
+    if default:
+        chips.append({"key": "default", "name": default})
+    for binder in state.get("binders") or []:
+        if binder.get("status") == "in_flight" and binder.get("slug"):
+            chips.append({"key": "integration",
+                          "name": INTEGRATION_BRANCH_FMT.format(slug=binder["slug"])})
+            break
+    return chips
+
+
+# ---------------------------------------------------------------------------
+# The map rail. One card per binder, grouped Delivered / Now / Next / Later —
+# the SAME four phases the timeline uses, off the same _PHASE_DEFS, so the rail
+# and the panel can never disagree about where a binder stands.
+#
+# Kept out of the template as a pure function for the same reason branch_chips
+# and join_archived are: the gate has no browser, so the grouping rule is driven
+# here by direct call and the page's railGroups() is held to the same shape.
+# ---------------------------------------------------------------------------
+
+RAIL_TITLE = "Karta's Map"
+RAIL_DELIVERED_KEY = "past"      # the one collapsible group (the show-delivered toggle)
+
+
+def _title_case(slug: str) -> str:
+    """A kebab slug as a headline: "note-tags-edit" -> "Note Tags Edit".
+
+    The fallback for a binder authored before binders carried a human `title`;
+    the rail never shows a nameless card."""
+    # MIRROR: change together with titleCase() in _APP_JS and the rail self-test.
+    return " ".join(w[:1].upper() + w[1:]
+                    for w in str(slug or "").split("-") if w)
+
+
+def _rail_done(binder: dict) -> int:
+    """How many of a binder's runs are through — counted off the per-item detail
+    when it is there, and off the carried count when it is not (a thin archived
+    row has counts but no detail, and reporting 0/N for it would be a lie)."""
+    # MIRROR: change together with doneCountOf() in _APP_JS.
+    items = binder.get("items") or {}
+    detail = items.get("detail") or []
+    if not detail:
+        return items.get("done") or 0
+    return sum(1 for it in detail if it.get("status") in ("done", "built"))
+
+
+def _rail_card(binder: dict, key: str) -> dict:
+    """One rail card: the dot's phase, the headline, the slug, the progress."""
+    total = (binder.get("items") or {}).get("total") or 0
+    done = _rail_done(binder)
+    return {
+        "slug": binder.get("slug") or "",
+        "title": binder.get("title") or _title_case(binder.get("slug")),
+        "progress": "%d/%d" % (done, total),
+        "pctW": "%d%%" % (round(done / total * 100) if total else 0),
+        "now": key == "now",
+    }
+
+
+def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
+    """Python mirror of the page's railGroups(): binders in, rail groups out.
+
+    Every binder lands in exactly one group, and the groups come back in
+    _PHASE_DEFS order — delivered, now, next, later. The Delivered group keeps
+    its header and its count whatever the reader has chosen, so the toggle that
+    reveals it is never itself hidden; only its CARDS are withheld."""
+    # MIRROR: change together with railGroups() in _APP_JS and the rail self-test.
+    tagged, next_seen = [], False
+    for binder in binders or []:
+        status = binder.get("status")
+        if status == "merged":
+            key = "past"
+        elif status == "in_flight":
+            key = "now"
+        elif not next_seen:
+            next_seen, key = True, "next"
+        else:
+            key = "later"
+        tagged.append((key, binder))
+    groups = []
+    for defn in _PHASE_DEFS:
+        key = defn["key"]
+        rows = [b for k, b in tagged if k == key]
+        collapsible = key == RAIL_DELIVERED_KEY
+        hidden = collapsible and not show_delivered
+        groups.append({
+            "key": key, "label": defn["label"],
+            "color": _PHASE_META[key]["color"],
+            "count": len(rows), "collapsible": collapsible,
+            "cards": [] if hidden else [_rail_card(b, key) for b in rows],
+        })
+    return groups
+
+
+# ---------------------------------------------------------------------------
+# The per-binder panel: the header's progress, the counts row, the wave step
+# headers and the footer meta bar.
+#
+# All four are pure functions of state the feed ALREADY carries — the per-item
+# statuses, each item's depends_on, the repo's default branch and the binder's
+# own `sme` list. Nothing here costs a git call: the integration branch is the
+# same INTEGRATION_BRANCH_FMT string formatting the header chip uses, and the
+# wave grouping is the dependency-depth rule the page already computed inline.
+#
+# They live here rather than in the template for the reason branch_chips,
+# rail_groups and join_archived do: the gate has no browser, so the rules are
+# driven by direct call over fixtures and the page's binderPanel() is held to
+# the same shape by a MIRROR note on each side.
+# ---------------------------------------------------------------------------
+
+# The counts row's reading order — most urgent first, then the two greens, then
+# the two queued states. It must name EVERY engine state: a state missing here
+# would be counted nowhere while its cards still render, so the row would total
+# less than the cards below it. The self-test compares the two sets.
+_COUNT_ORDER = ("building", "failed", "done", "built", "ready", "blocked")
+
+# The lane a wave runs in. A step holding more than one run goes at once; a step
+# holding a single run goes in turn behind the step above it. The label is the
+# glyph's ACCESSIBLE name — the glyph is decorative on its own, and a numeral
+# beside it says nothing about how the step executes.
+_LANE_PARALLEL = {"key": "parallel", "icon": "lane-parallel",
+                  "label": "this step runs at once"}
+_LANE_SERIAL = {"key": "serial", "icon": "lane-serial",
+                "label": "this step runs in turn"}
+
+# The footer meta bar's entry labels. Owned here so the page and the self-test
+# read one string rather than two copies of it.
+META_DEFAULT_LABEL = "default"
+META_INTEGRATION_LABEL = "integration"
+META_PACKS_LABEL = "packs"
+
+
+def _panel_progress(binder: dict) -> dict:
+    """How far a binder's runs have got: the finished share of its total.
+
+    "Finished" is the same count the rail reads (merged or built-awaiting-merge),
+    so the panel's percentage and the rail card's N/M can never disagree. A
+    binder with no runs reads 0% rather than dividing by zero."""
+    # MIRROR: change together with panelProgress() in _APP_JS.
+    total = (binder.get("items") or {}).get("total") or 0
+    done = _rail_done(binder)
+    pct = round(done / total * 100) if total else 0
+    return {"done": done, "total": total, "pct": pct,
+            "pct_label": "%d%%" % pct, "fill_w": "%d%%" % pct,
+            "count_label": "%d/%d %s" % (done, total,
+                                         "run" if total == 1 else "runs")}
+
+
+def _panel_counts(binder: dict) -> list[dict]:
+    """The counts row: one entry per engine state that actually has runs.
+
+    Counted off the per-item detail when the row carries it — so the row totals
+    exactly the cards drawn below it — and off the carried per-state counts when
+    it does not (a thin archived row has counts but no detail). A state with no
+    runs contributes NO entry: a row of zeroes is noise, and "no halted runs" is
+    said by the halted entry being absent, not by a 0 beside it."""
+    # MIRROR: change together with panelCounts() in _APP_JS.
+    items = binder.get("items") or {}
+    detail = items.get("detail") or []
+    if detail:
+        tally = {state: 0 for state in _COUNT_ORDER}
+        for row in detail:
+            status = row.get("status")
+            if status in tally:
+                tally[status] += 1
+    else:
+        tally = {state: (items.get(state) or 0) for state in _COUNT_ORDER}
+    out = []
+    for state in _COUNT_ORDER:
+        n = tally[state]
+        if not n:
+            continue
+        meta = _STATE_META[state]
+        out.append({"key": state, "n": n, "word": meta["word"],
+                    "color": meta["color"], "soft": meta["soft"],
+                    "halted": state == "failed"})
+    return out
+
+
+def _waves_of(items: list[dict]) -> list[list[dict]]:
+    """Group work items into dependency-depth waves: depth is the longest chain
+    of declared dependencies, everything at one depth is one wave, waves run in
+    turn and a wave's own runs go at once. A dependency naming an item outside
+    this binder contributes no depth, and a cycle stops at the item it re-enters
+    rather than recursing forever."""
+    # MIRROR: change together with wavesOf() in _APP_JS.
+    by_id = {it["id"]: it for it in items if isinstance(it.get("id"), str)}
+    depth: dict[str, int] = {}
+    seen: set[str] = set()
+
+    def calc(item: dict) -> int:
+        key = item["id"]
+        if key in depth:
+            return depth[key]
+        if key in seen:
+            return 0
+        seen.add(key)
+        d = 0
+        for dep in item.get("deps") or []:
+            if dep in by_id:
+                d = max(d, 1 + calc(by_id[dep]))
+        depth[key] = d
+        return d
+
+    for item in by_id.values():
+        calc(item)
+    out = []
+    for d in range(max(depth.values(), default=-1) + 1):
+        wave = [it for it in items
+                if isinstance(it.get("id"), str) and depth[it["id"]] == d]
+        if wave:
+            out.append(wave)
+    return out
+
+
+def _panel_steps(waves: list[list[dict]]) -> list[dict]:
+    """One sticky step header per wave: its numeral, its lane, how many runs it
+    holds, and where it sits in the sequence. `position`/`total` are what makes a
+    header readable once it is stuck to the top of the viewport and its
+    neighbours have scrolled away."""
+    # MIRROR: change together with panelSteps() in _APP_JS.
+    total = len(waves)
+    steps = []
+    for i, wave in enumerate(waves):
+        lane = _LANE_PARALLEL if len(wave) > 1 else _LANE_SERIAL
+        steps.append({
+            "numeral": str(i + 1), "lane": lane["key"],
+            "icon": lane["icon"], "lane_label": lane["label"],
+            "n": len(wave),
+            "count_label": "%d %s" % (len(wave),
+                                      "run" if len(wave) == 1 else "runs"),
+            "position": "step %d of %d" % (i + 1, total),
+        })
+    return steps
+
+
+def _panel_meta(binder: dict, state: dict) -> list[dict]:
+    """The footer meta bar: the repository's default branch, this binder's real
+    integration branch, and the stack packs it pins.
+
+    The integration branch is spelled with INTEGRATION_BRANCH_FMT — the same
+    constant the header chip uses — so the footer names a branch a reader could
+    actually check out rather than the design's placeholder. A binder pinning no
+    packs contributes NO packs entry: an empty list is not a fact worth a slot."""
+    # MIRROR: change together with panelMeta() in _APP_JS.
+    out = []
+    default = (state.get("repo") or {}).get("default_branch") or ""
+    if default:
+        out.append({"key": "default", "label": META_DEFAULT_LABEL,
+                    "value": default})
+    slug = binder.get("slug") or ""
+    if slug:
+        out.append({"key": "integration", "label": META_INTEGRATION_LABEL,
+                    "value": INTEGRATION_BRANCH_FMT.format(slug=slug)})
+    packs = binder.get("sme") or []
+    if packs:
+        out.append({"key": "packs", "label": META_PACKS_LABEL,
+                    "value": ", ".join(str(p) for p in packs)})
+    return out
+
+
+def binder_panel(binder: dict, state: dict) -> dict:
+    """The whole panel model for one binder: progress, counts, waves, step
+    headers and the footer meta bar. Python twin of the page's binderPanel()."""
+    # MIRROR: change together with binderPanel() in _APP_JS and the panel self-test.
+    waves = _waves_of((binder.get("items") or {}).get("detail") or [])
+    return {"progress": _panel_progress(binder),
+            "counts": _panel_counts(binder),
+            "waves": waves,
+            "steps": _panel_steps(waves),
+            "meta": _panel_meta(binder, state)}
+
+
+# ---------------------------------------------------------------------------
+# The per-item detail grid — what one work item is actually contracted to do.
+#
+# The feed was widened for exactly this: every item already carries its contract,
+# its touches, its estimate, the FULL assertions array (not only the first) and
+# an opted-out oracle's recorded reason. None of it costs a git call and none of
+# it is derived twice — the rows below are that JSON, labelled, plus string
+# formatting over a slug, an id and a status.
+#
+# Two absences that are NOT the same thing, and the reason this file distinguishes
+# them at all: a field the binder never declared arrives as None, and a field the
+# binder declared with nothing in it arrives as "" / [] / {}. "This item has no
+# contract" and "this item's contract is blank" are different facts about the
+# PLAN, so an undeclared field renders no row at all, while a declared-empty one
+# renders its row and says so. Collapsing the two would let a blank contract read
+# as a missing one and hide a planning mistake behind a tidy page.
+# ---------------------------------------------------------------------------
+
+# The grid's labels. Python-owned like the panel's meta labels and the rail's
+# title, so the self-test reads the wording the page ships rather than a second
+# copy typed beside it. `check` names the oracle type; `unchecked` is the row an
+# opted-out item gets INSTEAD of a command, because the page's job there is to
+# state what is going unchecked and why.
+DETAIL_LABELS = {
+    "check": "check",
+    "asserts": "passes when",
+    "unchecked": "unchecked",
+    "command": "run",
+    "contract": "contract",
+    "touches": "touches",
+    "estimate": "size",
+    "ref": "git ref",
+    "waiting": "waiting on",
+}
+# What a row says when the binder declared the field and left it empty.
+DETAIL_EMPTY_LABEL = "declared, but empty"
+
+# The item's own git artifacts, spelled the way karta writes them. Formatting,
+# not derivation: the status the feed already carries says which one exists.
+ITEM_BRANCH_FMT = "karta/{slug}/item-{id}"
+ITEM_MARKER_FMT = "refs/karta/{slug}/item-{id}/{marker}"
+# The three states that leave a marker ref behind. `building` has a branch and
+# no marker yet; ready and blocked have not touched git at all, so they get no row —
+# naming a ref that does not exist would be a page inventing a fact.
+ITEM_REF_MARKERS = ("done", "built", "failed")
+
+
+def _detail_declared(value) -> tuple[bool, bool]:
+    """(declared, empty) for one widened feed field. None is UNDECLARED — the
+    binder never carried it. A string, list or mapping carrying nothing is
+    declared-and-empty, which is a different statement and renders differently."""
+    if value is None:
+        return (False, False)
+    if isinstance(value, str):
+        return (True, not value.strip())
+    if isinstance(value, (list, dict)):
+        return (True, len(value) == 0)
+    return (True, False)
+
+
+def _detail_text(value) -> str:
+    """One value as the page's text. Binder prose is already a string; anything
+    else is shown as its JSON rather than as a language's idea of str()."""
+    return value if isinstance(value, str) else json.dumps(value, separators=(",", ":"))
+
+
+def _detail_pairs(value) -> list[dict]:
+    """A declared value as name/value lines: a mapping keeps its keys as names
+    (a contract's `exposes`, `consumes`, …), a sequence renders unnamed lines
+    (assertions, touched paths), a scalar renders one unnamed line."""
+    if isinstance(value, dict):
+        return [{"name": str(k), "value": _detail_text(v)} for k, v in value.items()]
+    if isinstance(value, list):
+        return [{"name": "", "value": _detail_text(v)} for v in value]
+    return [{"name": "", "value": _detail_text(value)}]
+
+
+def _detail_row(key: str, kind: str, *, text: str = "", pairs=(), chips=(),
+                mono: bool = False, icon: str = "", empty: bool = False) -> dict:
+    """One row of the grid, in the one shape the template binds: a label, a kind
+    that says how to draw it, and exactly the payload that kind reads."""
+    return {"key": key, "label": DETAIL_LABELS[key], "kind": kind,
+            "empty": empty, "text": text, "pairs": list(pairs),
+            "chips": list(chips), "mono": mono, "icon": icon}
+
+
+def item_ref(slug: str, item_id: str, status: str) -> str | None:
+    """The git ref this item's status implies, or None when git holds nothing
+    for it yet. String formatting over facts the feed already carries — this
+    makes no git call and asks nothing about the repository."""
+    if status in ITEM_REF_MARKERS:
+        return ITEM_MARKER_FMT.format(slug=slug, id=item_id, marker=status)
+    if status == "building":
+        return ITEM_BRANCH_FMT.format(slug=slug, id=item_id)
+    return None
+
+
+def item_detail(it: dict, slug: str, status_by_id: dict | None = None) -> list[dict]:
+    """The detail rows for one work item. Python twin of the page's itemDetail().
+
+    `status_by_id` is the binder's own item -> status map, the SAME metadata the
+    cards are drawn from, so a blocked-by chip cannot disagree with the card of
+    the item it names."""
+    # MIRROR: change together with itemDetail() in _APP_JS and the detail self-test.
+    status_by_id = status_by_id or {}
+    otype = it.get("oracle") or "unit"
+    rows = [_detail_row("check", "text", text=otype,
+                        icon=_ORACLE_ICON.get(otype, ORACLE_ICON_FALLBACK))]
+
+    def add(key, value, kind, mono=False):
+        declared, empty = _detail_declared(value)
+        if not declared:
+            return                      # undeclared: no row at all
+        if empty:
+            rows.append(_detail_row(key, kind, empty=True,
+                                    text=DETAIL_EMPTY_LABEL, mono=mono))
+        elif kind == "list":
+            rows.append(_detail_row(key, kind, pairs=_detail_pairs(value), mono=mono))
+        else:
+            rows.append(_detail_row(key, kind, text=_detail_text(value), mono=mono))
+
+    add("asserts", it.get("assertions"), "list")
+    # an opted-out item states its reason INSTEAD of a command: it has no check
+    # to run, and offering one would claim a check that is not happening.
+    if otype == OPT_OUT_TYPE:
+        add("unchecked", it.get("oracle_reason"), "text")
+    else:
+        add("command", it.get("cmd"), "text", mono=True)
+    add("contract", it.get("contract"), "list")
+    add("touches", it.get("touches"), "list", mono=True)
+    add("estimate", it.get("estimate"), "text")
+    add("ref", item_ref(slug, it.get("id"), it.get("status")), "text", mono=True)
+
+    # blocked_by is DERIVED, not declared — the engine sets it only while
+    # something is genuinely unmet — so an absent or empty one means "waiting on
+    # nothing" and gets no row rather than a declared-empty marker.
+    blockers = it.get("blocked_by") or []
+    if blockers:
+        chips = []
+        for dep in blockers:
+            meta = _STATE_META.get(status_by_id.get(dep), _STATE_META["blocked"])
+            chips.append({"id": dep, "word": meta["word"], "color": meta["color"],
+                          "soft": meta["soft"], "badge": meta["badge"]})
+        rows.append(_detail_row("waiting", "chips", chips=chips))
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# The next action. The engine derives exactly ONE of these per repo — the
+# `next_action` karta_next.py already hands the karta-status skill, its terminal
+# map and its footer — and the band at the top of the column states it.
+#
+# The page therefore holds NO derivation of its own. It renders the sentence and
+# the command the feed already carries, verbatim, so the page and the terminal
+# can never answer "what's next" differently, and nothing here costs a git call.
+# A next action with no command (everything merged, or nothing runnable) is the
+# calm end state: the sentence stands alone and no copy button is offered.
+#
+# The three strings and the hold are Python-owned, like the rail's title and the
+# refresh labels, so the self-test asserts what the page actually ships rather
+# than a copy of it typed twice.
+# ---------------------------------------------------------------------------
+
+BAND_EYEBROW = "The next action"
+COPY_LABEL = "Copy"
+COPIED_LABEL = "Copied"
+COPIED_HOLD_MS = 1400   # how long the button reads "Copied" before it resets
+# The band's copy control identifies itself by this key. The confirmation is
+# held per control, not per page, so every copy affordance needs a name of its
+# own; defining the band's here means the template and the self-test read ONE
+# string rather than two copies of the same literal.
+COPY_KEY_BAND = "band"
 
 
 # ---------------------------------------------------------------------------
@@ -1046,7 +2423,30 @@ const STATE_META = __STATE_META__;
 const PHASE_META = __PHASE_META__;
 const PHASE_DEFS = __PHASE_DEFS__;
 const ORACLE_ICON = __ORACLE_ICON__;
-const POLL_MS = 2600;
+
+// The refresh model, from the same Python constants the self-test asserts.
+// REFRESH_MS is the automatic cadence; TICK_MS drives the countdown, which is a
+// local clock and never a request. REFRESH_KEY persists the reader's choice;
+// REFRESH labels word it. REFRESH_VECTORS is the shared decision table the
+// Python twin is driven against — the page never reads it, it is carried so the
+// gate compares two runtimes instead of assuming they agree.
+const REFRESH_MS = __REFRESH_MS__;
+const TICK_MS = __TICK_MS__;
+const REFRESH_KEY = __REFRESH_KEY__;
+const REFRESH = __REFRESH_LABELS__;
+const REFRESH_VECTORS = __REFRESH_VECTORS__;
+
+// The map rail's own constants, handed over from the server: its title, which
+// group is the collapsible one, and the "Motion = state" legend table. The
+// legend is Python-owned so the entry set can be asserted against the page's
+// keyframes rather than kept in step by hand.
+const RAIL = __RAIL__;
+
+// The next-action band's own strings and the hold on its "Copied" label, from
+// the same Python constants the self-test asserts. The band's SENTENCE and
+// COMMAND are not here — those come from the feed's next_action, which is the
+// engine's single derivation, so the page never phrases what to do next itself.
+const BAND = __BAND__;
 
 // The header shell, handed over from the server: the repo display name, the
 // hub-landing href (null in ephemeral mode — no hub to go home to), and the
@@ -1058,6 +2458,23 @@ const SHELL = __SHELL__;
 const FEED = __FEED_LABELS__;
 const FEED_PAUSE_AFTER = __FEED_PAUSE_AFTER__;
 const FEED_OK_STATUSES = __FEED_OK_STATUSES__;
+
+// The integration-branch spelling, from the same Python constant the self-test
+// asserts against — the header chip must name a branch you could check out.
+const BRANCH_FMT = __BRANCH_FMT__;
+
+// The binder panel's own tables, handed over from the server: the counts row's
+// reading order, the two lanes a wave step can run in (glyph + accessible
+// label), and the footer meta bar's entry labels. Python-owned for the same
+// reason the rail's legend is — the order and the wording are asserted against
+// what the page ships, not against a second copy typed here.
+const PANEL = __PANEL__;
+
+// The per-item detail grid's own table, handed over from the server: the row
+// labels, the wording a declared-but-empty field gets, the oracle-icon fallback
+// and the two spellings of an item's git refs. Python-owned for the same reason
+// the panel's labels are — the page states what the server defines, once.
+const DETAIL = __DETAIL__;
 
 // Pure feed transition — state in, state out, no I/O. `status` is the HTTP
 // status the poll answered with, or null when the request never completed.
@@ -1073,20 +2490,30 @@ function feedTransition(state, status) {
   return { failures: failures, paused: failures >= FEED_PAUSE_AFTER };
 }
 
-// The poll decision — should this moment ask the server anything at all? A
-// hidden tab downloads an answer nobody reads, so it polls not at all and
-// catches up the moment it comes back. Kept out of the lifecycle hooks as a
-// pure function so the Python self-test can call it directly (it can never
-// fire a Vue hook), and routed through by BOTH the interval tick and the
-// visibilitychange listener, so "hidden means no request" lives in one place.
-// `hasEtag` never changes the answer: a held tag makes a poll cheaper, never
-// unnecessary. Mirrored by poll_decision() in serve_status.py, which the
-// self-test drives — keep the two in lockstep.
-// MIRROR: change together with poll_decision() in serve_status.py and the poll self-test.
-function pollDecision(visible, wasVisible, hasEtag) {
-  if (!visible) return 'skip';
-  if (!wasVisible) return 'poll-now';
-  return 'poll';
+__REFRESH_SHARED__
+
+// The header's branch chips: the repository's default branch, then the real
+// integration branch of the binder in flight (at most one). Recomputed from the
+// polled state rather than baked in at first paint, so the chip follows the
+// delivery as it moves. The branch spelling comes from Python as BRANCH_FMT —
+// one definition, two runtimes. Mirrored by branch_chips() in serve_status.py,
+// which the self-test drives — keep the two in lockstep. Neither chip carries an
+// icon field: the template draws the branch glyph for every chip, because both
+// chips ARE branches and a marker withheld from one would read as a difference.
+// MIRROR: change together with branch_chips() in serve_status.py and the chip self-test.
+function branchChips(state) {
+  const chips = [];
+  const def = ((state && state.repo) || {}).default_branch || '';
+  if (def) chips.push({ key: 'default', name: def });
+  const binders = (state && state.binders) || [];
+  for (let i = 0; i < binders.length; i++) {
+    const b = binders[i];
+    if (b && b.status === 'in_flight' && b.slug) {
+      chips.push({ key: 'integration', name: BRANCH_FMT.replace('{slug}', b.slug) });
+      break;
+    }
+  }
+  return chips;
 }
 
 // The archived join — the whole shed-archived-payload mechanism, kept out of
@@ -1163,6 +2590,50 @@ function titleCase(slug) {
     .map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
+// One rail card: the headline (slug-derived when the binder carries no title),
+// the slug, and how far its runs have got.
+function railCard(b, key) {
+  const total = (b.items && b.items.total) || 0;
+  const done = doneCountOf(b);
+  return {
+    slug: b.slug || '',
+    title: b.title || titleCase(b.slug),
+    progress: done + '/' + total,
+    pctW: (total ? Math.round(done / total * 100) : 0) + '%',
+    now: key === 'now',
+  };
+}
+
+// The rail's four groups, in PHASE_DEFS order, every binder in exactly one of
+// them — the SAME classification the timeline uses, so the map and the panel can
+// never disagree. The Delivered group keeps its header and its count whatever
+// the reader has chosen (the toggle that reveals it must not hide itself); only
+// its CARDS are withheld. Mirrored by rail_groups() in serve_status.py, which
+// the self-test drives — keep the two in lockstep.
+// MIRROR: change together with rail_groups() in serve_status.py and the rail self-test.
+function railGroupsOf(binders, showDelivered) {
+  const tagged = []; let nextSeen = false;
+  (binders || []).forEach(b => {
+    let key;
+    if (b.status === 'merged') key = 'past';
+    else if (b.status === 'in_flight') key = 'now';
+    else if (!nextSeen) { nextSeen = true; key = 'next'; }
+    else key = 'later';
+    tagged.push({ key: key, b: b });
+  });
+  return PHASE_DEFS.map(d => {
+    const rows = tagged.filter(t => t.key === d.key);
+    const collapsible = (d.key === RAIL.delivered_key);
+    const hidden = collapsible && !showDelivered;
+    return {
+      key: d.key, label: d.label, color: PHASE_META[d.key].color,
+      count: rows.length, collapsible: collapsible,
+      dotClass: 'rail__dot--' + d.key,
+      cards: hidden ? [] : rows.map(t => railCard(t.b, d.key)),
+    };
+  });
+}
+
 // Group a binder's items into dependency-depth waves — ported verbatim from the
 // design's wavesOf(). depth = longest dep chain; items at one depth = one wave;
 // waves serial between, parallel within. Each item's `deps` is _enrich's depends_on.
@@ -1180,6 +2651,185 @@ function wavesOf(items) {
   const out = [];
   for (let d = 0; d <= maxD; d++) { const w = items.filter(i => depth[i.id] === d); if (w.length) out.push(w); }
   return out;
+}
+
+// --- the per-binder panel: progress, counts, step headers, footer meta -------
+// Four pure functions over state the feed already carries, each mirrored by its
+// twin in serve_status.py, which the self-test drives — keep the two in
+// lockstep. Nothing here fetches, derives from git, or reads the DOM.
+
+// MIRROR: change together with _panel_progress() in serve_status.py.
+function panelProgress(b) {
+  const total = (b.items && b.items.total) || 0;
+  const done = doneCountOf(b);
+  const pct = total ? Math.round(done / total * 100) : 0;
+  return {
+    done: done, total: total, pct: pct,
+    pct_label: pct + '%', fill_w: pct + '%',
+    count_label: done + '/' + total + (total === 1 ? ' run' : ' runs'),
+  };
+}
+
+// One cell per engine state that HAS runs — counted off the cards actually
+// drawn when the row carries detail, off its carried counts when it does not.
+// A zero contributes no cell: absence is the statement.
+// MIRROR: change together with _panel_counts() in serve_status.py.
+function panelCounts(b) {
+  const items = b.items || {};
+  const detail = items.detail || [];
+  const tally = {};
+  PANEL.count_order.forEach(s => { tally[s] = 0; });
+  if (detail.length) {
+    detail.forEach(r => { if (tally[r.status] !== undefined) tally[r.status] += 1; });
+  } else {
+    PANEL.count_order.forEach(s => { tally[s] = items[s] || 0; });
+  }
+  const out = [];
+  PANEL.count_order.forEach(s => {
+    const n = tally[s];
+    if (!n) return;
+    const m = STATE_META[s];
+    out.push({ key: s, n: n, word: m.word, color: m.color, soft: m.soft,
+               halted: s === 'failed' });
+  });
+  return out;
+}
+
+// MIRROR: change together with _panel_steps() in serve_status.py.
+function panelSteps(waves) {
+  const total = waves.length;
+  return waves.map((w, i) => {
+    const lane = w.length > 1 ? PANEL.lanes.parallel : PANEL.lanes.serial;
+    return {
+      numeral: String(i + 1), lane: lane.key, icon: lane.icon,
+      lane_label: lane.label, n: w.length,
+      count_label: w.length + (w.length === 1 ? ' run' : ' runs'),
+      position: 'step ' + (i + 1) + ' of ' + total,
+    };
+  });
+}
+
+// The real integration branch, spelled with the server's own BRANCH_FMT — the
+// design's placeholder branch text is mock content. An entry with nothing to
+// say (no default branch, no packs pinned) is omitted, never rendered empty.
+// MIRROR: change together with _panel_meta() in serve_status.py.
+function panelMeta(b, state) {
+  const out = [];
+  const def = ((state && state.repo) || {}).default_branch || '';
+  if (def) out.push({ key: 'default', label: PANEL.meta.default, value: def });
+  if (b.slug) {
+    out.push({ key: 'integration', label: PANEL.meta.integration,
+               value: BRANCH_FMT.replace('{slug}', b.slug) });
+  }
+  const packs = b.sme || [];
+  if (packs.length) {
+    out.push({ key: 'packs', label: PANEL.meta.packs, value: packs.join(', ') });
+  }
+  return out;
+}
+
+// --- the per-item detail grid: what one work item is contracted to do -------
+// Every value below is already on the page — the widened feed carries each
+// item's contract, touches, estimate, full assertions array and opt-out reason —
+// so this is labelling and string formatting, never a second derivation and
+// never a request. Mirrored by item_detail() in serve_status.py, which the
+// self-test drives — keep the two in lockstep.
+
+// undeclared (null/undefined) is NOT the same as declared-and-empty: the first
+// means the binder never carried the field, the second that it carried nothing.
+// Returns [declared, empty].
+// MIRROR: change together with _detail_declared() in serve_status.py.
+function detailDeclared(v) {
+  if (v === null || v === undefined) return [false, false];
+  if (typeof v === 'string') return [true, v.trim() === ''];
+  if (Array.isArray(v)) return [true, v.length === 0];
+  if (typeof v === 'object') return [true, Object.keys(v).length === 0];
+  return [true, false];
+}
+
+// MIRROR: change together with _detail_text() in serve_status.py.
+function detailText(v) { return (typeof v === 'string') ? v : JSON.stringify(v); }
+
+// MIRROR: change together with _detail_pairs() in serve_status.py.
+function detailPairs(v) {
+  if (Array.isArray(v)) return v.map(x => ({ name: '', value: detailText(x) }));
+  if (v && typeof v === 'object') {
+    return Object.keys(v).map(k => ({ name: String(k), value: detailText(v[k]) }));
+  }
+  return [{ name: '', value: detailText(v) }];
+}
+
+// MIRROR: change together with _detail_row() in serve_status.py.
+function detailRow(key, kind, o) {
+  o = o || {};
+  return { key: key, label: DETAIL.labels[key], kind: kind, empty: !!o.empty,
+           text: o.text || '', pairs: o.pairs || [], chips: o.chips || [],
+           mono: !!o.mono, icon: o.icon || '' };
+}
+
+// The git ref the item's status implies — or null when git holds nothing for it
+// yet, in which case no row is drawn rather than a ref that does not exist.
+// MIRROR: change together with item_ref() in serve_status.py.
+function itemRef(slug, id, status) {
+  if (DETAIL.markers.indexOf(status) !== -1) {
+    return DETAIL.marker_fmt.replace('{slug}', slug).replace('{id}', id)
+      .replace('{marker}', status);
+  }
+  if (status === 'building') {
+    return DETAIL.branch_fmt.replace('{slug}', slug).replace('{id}', id);
+  }
+  return null;
+}
+
+// MIRROR: change together with item_detail() in serve_status.py and the detail self-test.
+function itemDetail(it, slug, byId) {
+  byId = byId || {};
+  const otype = it.oracle || 'unit';
+  const rows = [detailRow('check', 'text',
+    { text: otype, icon: ORACLE_ICON[otype] || DETAIL.icon_fallback })];
+
+  const add = (key, value, kind, mono) => {
+    const d = detailDeclared(value);
+    if (!d[0]) return;                    // undeclared: no row at all
+    if (d[1]) rows.push(detailRow(key, kind, { empty: true, text: DETAIL.empty, mono: mono }));
+    else if (kind === 'list') rows.push(detailRow(key, kind, { pairs: detailPairs(value), mono: mono }));
+    else rows.push(detailRow(key, kind, { text: detailText(value), mono: mono }));
+  };
+
+  add('asserts', it.assertions, 'list');
+  // an opted-out item states its reason INSTEAD of a command: there is no check
+  // to run, and offering one would claim a check that is not happening.
+  if (otype === DETAIL.opt_out) add('unchecked', it.oracle_reason, 'text');
+  else add('command', it.cmd, 'text', true);
+  add('contract', it.contract, 'list');
+  add('touches', it.touches, 'list', true);
+  add('estimate', it.estimate, 'text');
+  add('ref', itemRef(slug, it.id, it.status), 'text', true);
+
+  // blocked_by is DERIVED, not declared — set only while something is genuinely
+  // unmet — so nothing to wait on means no row, not a declared-empty marker.
+  const blockers = it.blocked_by || [];
+  if (blockers.length) {
+    rows.push(detailRow('waiting', 'chips', {
+      chips: blockers.map(dep => {
+        // the blocker's OWN live state, off the same metadata its card is drawn
+        // from. A blocker the map somehow does not name reads as waiting, never
+        // as NEXT — a chip must not promise a run that is not ready.
+        const m = STATE_META[byId[dep]] || STATE_META.blocked;
+        return { id: dep, word: m.word, color: m.color, soft: m.soft, badge: m.badge };
+      }),
+    }));
+  }
+  return rows;
+}
+
+// MIRROR: change together with binder_panel() in serve_status.py and the panel self-test.
+function binderPanel(b, state) {
+  const waves = wavesOf((b.items && b.items.detail) || []);
+  return {
+    progress: panelProgress(b), counts: panelCounts(b), waves: waves,
+    steps: panelSteps(waves), meta: panelMeta(b, state),
+  };
 }
 
 const app = createApp({
@@ -1203,11 +2853,25 @@ const app = createApp({
       // so an unchanged state comes back as a 304 with no body. Null until the
       // first poll has been answered — the first request has nothing to hold.
       etag: null,
-      wasVisible: document.visibilityState !== 'hidden',
+      // The refresh model: the reader's choice, the baseline the countdown
+      // measures from, and the local clock that moves it. `now` is advanced by
+      // the countdown ticker alone — no request is ever made to read a clock.
+      refreshMode: storedRefreshMode(),
+      lastPollAt: Date.now(),
+      now: Date.now(),
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
+      // WHICH copy control is currently confirming, not WHETHER one is. A
+      // single page-level boolean was a defect in waiting: the moment a second
+      // copy affordance exists, both labels read "Copied" together because both
+      // read the same flag. Holding the key of the control that fired means one
+      // control confirms and every other stays put. Null between copies.
+      copiedKey: null,
       _pollTimer: null,
+      _tickTimer: null,
+      _copyTimer: null,
+      _inflight: false,
       _onVisibility: null,
     };
   },
@@ -1215,6 +2879,31 @@ const app = createApp({
     binders() { return this.state.binders || []; },
     hasBinders() { return this.binders.length > 0; },
     feedLabel() { return this.feed.paused ? FEED.paused : FEED.live; },
+    branches() { return branchChips(this.state); },
+
+    // The single next action, straight off the feed. The engine derived it; the
+    // band reads it. No fallback sentence is invented here — a feed that somehow
+    // carried none renders an empty band rather than a second opinion.
+    nextAction() { return this.state.next_action || {}; },
+    bandEyebrow() { return BAND.eyebrow; },
+    // the band's copy control names itself with the server's key, so template
+    // and handler agree on the affordance without a literal typed twice.
+    bandCopyKey() { return BAND.key; },
+
+    // The refresh cluster's three readings, all computed from local state:
+    // whether automatic refresh is on, the seconds left until the next one, and
+    // — when it is off — how old the data on screen is. Nothing here fetches.
+    autoRefresh() { return this.refreshMode === 'auto'; },
+    countdownLabel() {
+      const left = Math.max(0, REFRESH_MS - (this.now - this.lastPollAt));
+      return 'next in ' + Math.ceil(left / 1000) + 's';
+    },
+    ageLabel() {
+      const secs = Math.max(0, Math.round((this.now - this.lastPollAt) / 1000));
+      const age = secs < 60 ? secs + 's'
+        : (secs < 3600 ? Math.floor(secs / 60) + 'm' : Math.floor(secs / 3600) + 'h');
+      return REFRESH.off + ' · ' + age + ' old';
+    },
 
     // common `-`-split slug prefix across binders (fallback to the first slug).
     deliveryName() {
@@ -1232,6 +2921,17 @@ const app = createApp({
       const shipped = seq.filter(b => b.status === 'merged').length;
       return seq.length + (seq.length === 1 ? ' binder · ' : ' binders · ') + shipped + ' delivered';
     },
+
+    // The map rail: its title, its one-line reading, its groups and its legend.
+    // All four are derived from state already on the page — the rail adds no
+    // request, no timer and no listener of its own.
+    railTitle() { return RAIL.title; },
+    railHint() {
+      const n = this.binders.length;
+      return n + (n === 1 ? ' binder' : ' binders') + ' · jump to one';
+    },
+    railGroups() { return railGroupsOf(this.binders, this.showDelivered); },
+    legend() { return RAIL.legend; },
 
     // classify each binder into a phase over the engine's derived order:
     //   merged -> past, in_flight -> now, first not_started -> next, rest -> later.
@@ -1270,7 +2970,9 @@ const app = createApp({
   methods: {
     metaFor,
     doneCountOf,
-    oracleIconName(it) { return ORACLE_ICON[it.oracle] || 'unit'; },
+    // an oracle type nobody anticipated still gets a glyph — the server names
+    // the fallback, so the card and the detail grid resolve it identically.
+    oracleIconName(it) { return ORACLE_ICON[it.oracle] || DETAIL.icon_fallback; },
     isOpen(slug, key) {
       return (this.open[slug] !== undefined) ? this.open[slug] : (key === 'now');
     },
@@ -1288,25 +2990,38 @@ const app = createApp({
     // design's mkBinder(). Items come from the enriched engine detail.
     mkBinder(b, key) {
       const meta = PHASE_META[key];
-      const items = b.items.detail || [];   // a thin archived row has none
-      const waveArr = wavesOf(items);
-      const dc = doneCountOf(b), tot = b.items.total;
+      const panel = binderPanel(b, this.state);
+      const waveArr = panel.waves;   // a thin archived row groups into none
+      const tot = b.items.total;
+      // the binder's own item -> status map, so a blocked-by chip reads the
+      // blocker's live state off the same metadata that draws the blocker's card
+      const byId = {};
+      ((b.items && b.items.detail) || []).forEach(r => { byId[r.id] = r.status; });
       const waves = waveArr.map((w, wi) => ({
-        serial: wi > 0,
-        showParallel: w.length > 1,
-        parallelLabel: w.length + ' runs in parallel',
+        step: panel.steps[wi],
         multi: w.length > 1,
         items: w.map(it => {
           const im = metaFor(it.status);
-          const dep = (it.deps && it.deps[it.deps.length - 1]) || '';
           return {
             id: it.id,
             title: it.title || it.id,
             summary: it.summary || it.title || '',
             color: im.color, soft: im.soft,
             badge: im.badge, word: im.word, building: it.status === 'building',
+            // The card's own treatment, straight off the state metadata. `tint`
+            // of 'none' becomes an empty style so the card keeps the plain
+            // surface — that is what makes BUILT an outline and not a fill.
+            border: im.border, tint: im.tint === 'none' ? '' : im.tint,
+            weight: im.weight, urgent: im.weight === 'urgent',
+            dashed: im.edge === 'dashed',
+            // only the state carrying a foreground token gets the solid bar,
+            // because that token is exactly what sits on top of the fill.
+            bar: !!im.on, on: im.on || '',
             oracle: it.oracle || 'unit', oracleIcon: this.oracleIconName(it),
-            assert: it.assert, cmd: it.cmd, hasDep: !!dep, depName: dep,
+            // the disclosure's rows: the whole widened feed for this item,
+            // labelled. Built here rather than in the template so the shape the
+            // page binds is the shape the Python twin is driven against.
+            detail: itemDetail(it, b.slug, byId),
           };
         }),
       }));
@@ -1314,15 +3029,16 @@ const app = createApp({
       let queueLabel = tot + (tot === 1 ? ' run' : ' runs');
       if (waveArr.length === 1 && tot > 1) queueLabel += ' · all run in parallel';
       else if (waveArr.length > 1) queueLabel += ' · ' + shape + ' — parallel within a step, serial between';
-      const pct = tot ? Math.round(dc / tot * 100) : 0;
       return {
         slug: b.slug, key, color: meta.color, mark: meta.mark,
         title: b.title || titleCase(b.slug),
+        eyebrow: meta.phrase,
         blurb: b.summary || b.motivation || '',
         now: key === 'now',
         done: key === 'past',
-        pctLabel: pct + '%', fillW: pct + '%',
-        countLabel: dc + '/' + tot + (tot === 1 ? ' run' : ' runs'),
+        pctLabel: panel.progress.pct_label, fillW: panel.progress.fill_w,
+        countLabel: panel.progress.count_label,
+        counts: panel.counts, meta: panel.meta,
         open: this.isOpen(b.slug, key),
         queueLabel, waves,
       };
@@ -1337,6 +3053,36 @@ const app = createApp({
       document.documentElement.dataset.theme = this.theme;
       try { localStorage.setItem('karta-theme', this.theme); } catch (e) {}
     },
+    // Put the next action's command on the clipboard. An ordinary method on
+    // this root — no clipboard library, and the command arrives as an argument
+    // so the halted card's re-run button can call the same one later.
+    //
+    // The clipboard API is OPTIONAL: an old browser, or a page reached over
+    // plain http from another machine, exposes no navigator.clipboard, and a
+    // write can be refused. Both cases return quietly — nothing throws, and the
+    // label never claims a copy that did not happen.
+    //
+    // The confirmation is keyed BY CONTROL. `key` names the affordance that
+    // fired, and copyLabelFor answers "Copied" for that one only — so a second
+    // copy control on a card cannot light up the band's label alongside its
+    // own. The hold is still ONE timer: a fresh copy re-arms it, which cancels
+    // the previous control's confirmation rather than running two of them.
+    copyCommand(key, cmd) {
+      const clip = navigator.clipboard;
+      if (!cmd || !clip || !clip.writeText) return;
+      clip.writeText(cmd).then(() => {
+        this.copiedKey = key;
+        if (this._copyTimer !== null) clearTimeout(this._copyTimer);
+        this._copyTimer = setTimeout(() => {
+          this.copiedKey = null; this._copyTimer = null;
+        }, BAND.hold_ms);
+      }).catch(() => {});
+    },
+    // Asked FOR a control, never read as a page-wide flag: only the control
+    // whose key is held reads back as confirmed.
+    copyLabelFor(key) {
+      return this.copiedKey === key ? BAND.copied : BAND.copy;
+    },
     // A poll carries archived binders as compact entries, not as rows. Rejoin
     // them with the detail held since page load, into a NEW object — Vue
     // re-renders off the assignment, and the cached rows stay untouched.
@@ -1346,20 +3092,44 @@ const app = createApp({
       merged.binders = (s.binders || []).concat(joinArchived(this.archivedDetail, s.archived));
       return merged;
     },
+    // The reader's choice: automatic refresh on or off. Off genuinely STOPS the
+    // requests — the timer is cleared, and refreshDecision answers 'skip' for
+    // every elapsed time — because each poll is real git work. This is a choice,
+    // never the feed-paused state, which means the feed failed twice in a row.
+    toggleAutoRefresh() {
+      this.refreshMode = this.autoRefresh ? 'manual-only' : 'auto';
+      try { localStorage.setItem(REFRESH_KEY, this.autoRefresh ? '1' : '0'); } catch (e) {}
+      if (this.autoRefresh) { this.lastPollAt = Date.now(); this.startPolling(); }
+      else this.stopPolling();
+    },
+    // The manual button: one refresh, now, in either mode — and on a hidden tab
+    // too, since someone who clicked has asked for it.
+    refreshNow() { this.step(true); },
+
     // One moment of the loop: ask the pure decision what to do, then do it.
-    // The interval tick and the visibilitychange listener both land here, so a
-    // hidden tab stops the timer instead of ticking into a no-op, and coming
-    // back polls once immediately before the schedule resumes.
-    step() {
+    // The interval tick, the visibilitychange listener and the manual button all
+    // land here, so no request is issued anywhere else and "off means off" is
+    // decided once. The visible flag is read here and PASSED IN — the gating on
+    // it lives inside refreshDecision, never as a second check out here.
+    step(manual) {
       const visible = (document.visibilityState !== 'hidden');
-      const decision = pollDecision(visible, this.wasVisible, this.etag !== null);
-      this.wasVisible = visible;
-      if (decision === 'skip') { this.stopPolling(); return; }
-      if (decision === 'poll-now') this.startPolling();
+      const decision = refreshDecision(this.refreshMode, visible,
+                                       Date.now() - this.lastPollAt, REFRESH_MS,
+                                       manual === true);
+      if (decision === 'skip') return;
+      // The elapsed baseline is CALLER state: refreshDecision returns a word and
+      // cannot reset anything. Both outcomes start a request, so both restart
+      // the countdown — 'poll-now' is the manual click resetting it early, and
+      // the running schedule resyncs to it rather than firing early and skipping.
+      if (decision === 'poll-now' || decision === 'poll') this.lastPollAt = Date.now();
+      if (decision === 'poll-now' && this._pollTimer !== null) { this.stopPolling(); this.startPolling(); }
       this.poll();
     },
     startPolling() {
-      if (this._pollTimer === null) this._pollTimer = setInterval(() => this.step(), POLL_MS);
+      // A saved file:// snapshot never polls, in either mode — the toggle can
+      // reach here after mount, so the guard belongs on the timer itself too.
+      if (location.protocol === 'file:') return;
+      if (this._pollTimer === null) this._pollTimer = setInterval(() => this.step(false), REFRESH_MS);
     },
     stopPolling() {
       if (this._pollTimer !== null) { clearInterval(this._pollTimer); this._pollTimer = null; }
@@ -1371,6 +3141,10 @@ const app = createApp({
       // with no body; the first poll holds none and asks unconditionally. The
       // server sends Cache-Control: no-store, so nothing revalidates on its own
       // — this header is the whole saving.
+      // A refresh already in flight answers the same question, so a second
+      // click rides it out rather than starting a second request.
+      if (this._inflight) return;
+      this._inflight = true;
       const headers = {};
       if (this.etag !== null) headers['If-None-Match'] = this.etag;
       fetch('state.json' + location.search, { cache: 'no-store', headers: headers })
@@ -1387,7 +3161,8 @@ const app = createApp({
             this.polls += 1;
           });
         })
-        .catch(() => { this.feed = feedTransition(this.feed, null); });
+        .catch(() => { this.feed = feedTransition(this.feed, null); })
+        .finally(() => { this._inflight = false; });
     },
   },
   mounted() {
@@ -1398,40 +3173,67 @@ const app = createApp({
     // snapshot keeps the inlined first-paint state and registers neither a
     // timer nor a listener — it never tries to fetch.
     if (location.protocol !== 'file:') {
-      this._onVisibility = () => this.step();
+      this._onVisibility = () => this.step(false);
       document.addEventListener('visibilitychange', this._onVisibility);
-      if (this.wasVisible) this.startPolling();
+      // The countdown ticker: a local clock, distinct from the one poll timer,
+      // that issues no request. It runs in both modes — off-mode needs it to
+      // keep the data's age honest on screen.
+      this._tickTimer = setInterval(() => { this.now = Date.now(); }, TICK_MS);
+      if (this.autoRefresh) this.startPolling();
     }
   },
   beforeUnmount() {
     this.stopPolling();
+    if (this._tickTimer !== null) { clearInterval(this._tickTimer); this._tickTimer = null; }
+    if (this._copyTimer !== null) { clearTimeout(this._copyTimer); this._copyTimer = null; }
     if (this._onVisibility !== null) {
       document.removeEventListener('visibilitychange', this._onVisibility);
       this._onVisibility = null;
     }
   },
   template: `
-<div class="wrap">
-  <header class="top">
-    <div class="shell">
-      <a v-if="shell.home" class="shell__kmark" :href="shell.home" aria-label="karta watch hub">k</a>
-      <span v-else class="shell__kmark" aria-hidden="true">k</span>
-      <a v-if="shell.home" class="shell__home" :href="shell.home">← home</a>
+<div class="wrap wrap--repo">
+  <header class="top top--shell" data-kw-top>
+    <div class="shell" data-kw-shell>
+      <a v-if="shell.home" class="shell__brand" data-kw-shell-kmark :href="shell.home" aria-label="karta watch hub">
+        <img class="shell__mascot" data-kw-shell-mascot src="/assets/mascot.png__ASSET_QS__" alt="" width="34" height="34">
+        <span class="shell__word">karta</span>
+      </a>
+      <span v-else class="shell__brand" data-kw-shell-kmark>
+        <img class="shell__mascot" data-kw-shell-mascot src="/assets/mascot.png__ASSET_QS__" alt="" width="34" height="34">
+        <span class="shell__word">karta</span>
+      </span>
+      <span class="shell__rule" aria-hidden="true"></span>
+      <a v-if="shell.home" class="shell__home" data-kw-shell-home :href="shell.home">← home</a>
       <div class="shell__txt">
-        <span class="shell__repo-name">{{ shell.name }}</span>
-        <div class="shell__feed" :class="{ 'shell__feed--paused': feed.paused }">
-          <span class="shell__feed-dot" aria-hidden="true"></span>{{ feedLabel }}
-        </div>
+        <span class="shell__eyebrow">Repo</span>
+        <span class="shell__repo-name" data-kw-shell-repo>{{ shell.name }}<svg class="shell__underline" data-kw-shell-underline viewBox="0 0 220 14" preserveAspectRatio="none" aria-hidden="true"><path class="karta-draw" d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"></path></svg></span>
+      </div>
+      <div class="shell__feed" data-kw-feed :class="{ 'shell__feed--paused': feed.paused }" :data-kw-feed-paused="feed.paused ? 'true' : 'false'">
+        <span class="shell__feed-dot" data-kw-feed-dot aria-hidden="true"></span>{{ feedLabel }}
       </div>
     </div>
     <div class="hdr-right">
-      <button type="button" class="hctl" :class="{ 'hctl--on': showDelivered }"
-        @click="toggleShowDelivered"
-        title="show delivered binders"
-        :aria-pressed="showDelivered ? 'true' : 'false'">
-        <span class="hctl__icon"><icon :name="showDelivered ? 'checksquare' : 'square'" :size="15" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" /></span>show delivered
-      </button>
-      <button type="button" class="hctl hctl--icon"
+      <span class="branch-chip" data-kw-branch-chip :data-kw-branch-chip-key="b.key" v-for="b in branches" :key="b.key">
+        <icon name="branch" :size="11" color="var(--mut-2)" data-kw-branch-chip-glyph /><span class="branch-chip__name">{{ b.name }}</span>
+      </span>
+      <div class="hrefresh" data-kw-refresh-cluster>
+        <span v-if="autoRefresh" class="hrefresh__meter" data-kw-refresh-countdown>{{ countdownLabel }}</span>
+        <span v-else class="hrefresh__meter hrefresh__meter--off" data-kw-refresh-age>{{ ageLabel }}</span>
+        <button type="button" class="hctl hctl--icon" data-kw-refresh-now
+          @click="refreshNow"
+          title="refresh now"
+          aria-label="refresh now">
+          <icon name="refresh" :size="15" color="var(--mut)" />
+        </button>
+        <button type="button" class="hctl" data-kw-auto-refresh :class="{ 'hctl--on': autoRefresh }"
+          @click="toggleAutoRefresh"
+          :title="autoRefresh ? 'automatic refresh on' : 'automatic refresh off'"
+          :aria-pressed="autoRefresh ? 'true' : 'false'">
+          <span class="hctl__icon"><icon :name="autoRefresh ? 'checksquare' : 'square'" :size="15" :color="autoRefresh ? 'var(--ink)' : 'var(--mut)'" /></span>auto refresh
+        </button>
+      </div>
+      <button type="button" class="hctl hctl--icon" data-kw-theme-toggle
         @click="toggleTheme"
         title="toggle light / dark"
         aria-label="toggle theme">
@@ -1440,10 +3242,73 @@ const app = createApp({
     </div>
   </header>
 
-  <nav class="also" v-if="shell.others.length" aria-label="also watching">
+  <nav class="also" data-kw-switcher v-if="shell.others.length" aria-label="also watching">
     <span>also watching:</span>
-    <a class="also__link" v-for="o in shell.others" :key="o.slug" :href="o.href">{{ o.name }}</a>
+    <a class="also__link" data-kw-switcher-link v-for="o in shell.others" :key="o.slug" :href="o.href">{{ o.name }}</a>
   </nav>
+
+  <div class="split" data-kw-split :class="{ 'split--solo': !hasBinders }">
+
+    <aside class="rail" data-kw-rail v-if="hasBinders" aria-label="karta's map">
+      <div class="rail__head">
+        <span class="rail__title" data-kw-rail-title>{{ railTitle }}</span>
+        <span class="rail__hint">{{ railHint }}</span>
+      </div>
+
+      <div class="rail__groups">
+        <div class="rail__group" data-kw-rail-group :data-kw-rail-group-key="g.key" v-for="g in railGroups" :key="g.key">
+          <div class="rail__ghead">
+            <span class="rail__glabel" :style="{ color: g.color }">{{ g.label }}</span>
+            <span class="rail__grule"></span>
+            <button v-if="g.collapsible" type="button" class="rail__gtoggle" data-kw-show-delivered
+              :class="{ 'rail__gtoggle--on': showDelivered }"
+              @click="toggleShowDelivered"
+              title="show delivered binders"
+              :aria-pressed="showDelivered ? 'true' : 'false'">
+              <icon :name="showDelivered ? 'checksquare' : 'square'" :size="11" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" />{{ g.count }}
+            </button>
+            <span v-else class="rail__gcount">{{ g.count }}</span>
+          </div>
+
+          <div class="rail__row" data-kw-rail-card :data-kw-rail-card-slug="c.slug" v-for="c in g.cards" :key="c.slug">
+            <span class="rail__gutter">
+              <span class="rail__dot" data-kw-rail-dot :data-kw-rail-dot-key="g.key" :class="g.dotClass"></span>
+              <span class="rail__stem"></span>
+            </span>
+            <div class="rail__body">
+              <a class="rail__pick" :class="{ 'rail__pick--now': c.now }" :href="'#binder-' + c.slug">
+                <span class="rail__line">
+                  <span class="rail__name">{{ c.title }}</span>
+                  <span class="rail__pct" data-kw-rail-progress :class="{ 'rail__pct--now': c.now }">{{ c.progress }}</span>
+                </span>
+                <span class="rail__slug">{{ c.slug }}</span>
+                <span class="rail__bar"><span class="rail__fill" :style="{ width: c.pctW, background: g.color }"></span></span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail__legend" data-kw-rail-legend>
+        <span class="rail__legend-title">Motion = state</span>
+        <span class="rail__mot" data-kw-rail-legend-entry :data-kw-rail-legend-key="l.key" v-for="l in legend" :key="l.key">
+          <span class="rail__swatch" :class="l.swatch"></span>{{ l.text }}
+        </span>
+      </div>
+    </aside>
+
+    <main class="main" data-kw-main>
+  <section class="band" data-kw-band aria-label="the next action">
+    <span class="band__eyebrow" data-kw-band-eyebrow>{{ bandEyebrow }}</span>
+    <p class="band__sentence" data-kw-band-sentence>{{ nextAction.human }}</p>
+    <div class="band__run" data-kw-band-run v-if="nextAction.command">
+      <code class="band__cmd" data-kw-band-cmd>{{ nextAction.command }}</code>
+      <button type="button" class="band__copy" data-kw-band-copy :data-kw-band-copy-cmd="nextAction.command"
+        @click="copyCommand(bandCopyKey, nextAction.command)">
+        <icon name="copy" :size="14" color="currentColor" /><span data-kw-band-copy-label aria-live="polite">{{ copyLabelFor(bandCopyKey) }}</span>
+      </button>
+    </div>
+  </section>
 
   <template v-if="hasBinders">
     <section class="panel" aria-label="delivery">
@@ -1455,12 +3320,12 @@ const app = createApp({
       <div class="panel__note">Each binder ships to main on its own. Phases track where each binder
         stands; inside one, the runs are its parallel + serial queue.</div>
 
-      <div class="phase" v-for="p in phases" :key="p.key">
+      <div class="phase" data-kw-phase :data-kw-phase-key="p.key" v-for="p in phases" :key="p.key">
         <div class="phase__gutter">
           <div class="phase__line" :style="p.lineStyle"></div>
           <div class="phase__mark" :class="{ 'phase__mark--pulse': p.pulse }"
-            :style="{ borderColor: p.color, background: p.pulse ? p.color : 'var(--panel)', color: p.pulse ? 'var(--on-accent)' : p.color }">
-            <icon :name="p.mark" :size="13" :color="p.pulse ? 'var(--on-accent)' : p.color" />
+            :style="{ borderColor: p.color, background: p.pulse ? p.color : 'var(--surface)', color: p.pulse ? 'var(--on-halt)' : p.color }">
+            <icon :name="p.mark" :size="13" :color="p.pulse ? 'var(--on-halt)' : p.color" />
           </div>
         </div>
         <div class="phase__body">
@@ -1473,12 +3338,15 @@ const app = createApp({
           <div class="phase__empty" v-if="p.empty">— no binders</div>
 
           <div class="phase__binders">
-            <div class="binder" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
-              <button type="button" class="binder__header" :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
+            <div class="binder" data-kw-binder :id="'binder-' + b.slug" :data-kw-delivered="b.done ? 'true' : 'false'" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
+              <button type="button" class="binder__header" data-kw-binder-header :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
                 @click="toggleBinder(b.slug, b.key)"
                 :aria-expanded="b.open ? 'true' : 'false'">
-                <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-accent)" /></span>
-                <span class="binder__title">{{ b.title }}</span>
+                <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-halt)" /></span>
+                <span class="binder__head-text">
+                  <span class="binder__eyebrow" data-kw-binder-eyebrow :style="{ color: b.color }">{{ b.eyebrow }}</span>
+                  <span class="binder__title">{{ b.title }}</span>
+                </span>
                 <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
                 <span class="binder__spacer"></span>
                 <span class="binder__pct">{{ b.pctLabel }}</span>
@@ -1486,48 +3354,87 @@ const app = createApp({
                 <span class="binder__caret" :class="{ 'binder__caret--open': b.open }"><icon name="arrowdown" :size="13" color="var(--mut)" /></span>
               </button>
               <div class="binder__blurb" v-if="b.blurb">{{ b.blurb }}</div>
-              <div class="binder__bar"><div class="binder__fill" :style="{ width: b.fillW, background: b.color }"></div></div>
+              <div class="binder__bar" data-kw-binder-progress role="img" :aria-label="b.countLabel"><div class="binder__fill" data-kw-binder-fill :style="{ width: b.fillW, background: b.color }"></div></div>
 
-              <div class="binder__waves" v-if="b.open">
+              <div class="counts" data-kw-binder-counts v-if="b.counts.length">
+                <span class="counts__cell" data-kw-count :data-kw-count-state="c.key"
+                  :class="{ 'counts__cell--halted': c.halted }"
+                  :style="{ background: c.soft, color: c.color }" v-for="c in b.counts" :key="c.key">
+                  <span class="counts__n">{{ c.n }}</span>{{ c.word }}
+                </span>
+              </div>
+
+              <div class="binder__waves" data-kw-binder-waves v-if="b.open">
                 <div class="queue"><span class="queue__icon"><icon name="fork" :size="12" color="var(--mut)" /></span><span>{{ b.queueLabel }}</span></div>
 
                 <template v-for="(w, wi) in b.waves" :key="wi">
-                  <div class="then" v-if="w.serial">
-                    <span class="then__stub"></span>
-                    <span class="then__icon"><icon name="arrowdown" :size="11" color="var(--mut)" /></span>
-                    <span class="then__word">THEN</span>
-                    <span class="then__rule"></span>
-                  </div>
-                  <div class="parallel" v-if="w.showParallel">
-                    <span class="parallel__icon"><icon name="fork" :size="11" color="var(--mut)" /></span>{{ w.parallelLabel }}
+                  <div class="step" data-kw-wave-step :data-kw-wave-lane="w.step.lane">
+                    <span class="step__numeral" data-kw-wave-step-numeral>{{ w.step.numeral }}</span>
+                    <span class="step__lane" data-kw-wave-lane-glyph role="img" :aria-label="w.step.lane_label"><icon :name="w.step.icon" :size="13" color="var(--mut)" /></span>
+                    <!-- the same wording the glyph already announces, so it is
+                         hidden from assistive tech rather than read out twice -->
+                    <span class="step__label" data-kw-wave-step-label aria-hidden="true">{{ w.step.lane_label }}</span>
+                    <span class="step__count" data-kw-wave-step-count>{{ w.step.count_label }}</span>
+                    <span class="step__pos" data-kw-wave-step-position>{{ w.step.position }}</span>
                   </div>
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
-                    <div class="item" :class="{ 'item--building': it.building }" v-for="it in w.items" :key="it.id">
-                      <button type="button" class="item__row" @click="toggleItem(b.slug, it.id)"
+                    <div class="item" data-kw-item :data-kw-item-status="it.word" :data-kw-item-weight="it.weight"
+                      :class="{ 'item--building': it.building, 'item--urgent': it.urgent, 'item--dashed': it.dashed }"
+                      :style="{ borderColor: it.border, background: it.tint }" v-for="it in w.items" :key="it.id">
+                      <div class="item__bar" data-kw-item-bar v-if="it.bar" :style="{ background: it.color, color: it.on }">
+                        <icon :name="it.badge" :size="11" :color="it.on" /><span>{{ it.word }}</span>
+                      </div>
+                      <button type="button" class="item__row" data-kw-item-row @click="toggleItem(b.slug, it.id)"
                         :aria-expanded="isExpanded(b.slug, it.id) ? 'true' : 'false'">
-                        <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-accent)" :spin="it.building" /></span>
+                        <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-halt)" :spin="it.building" /></span>
                         <div class="item__main">
                           <div class="item__title">{{ it.title }}</div>
                           <div class="item__meta">
                             <span class="item__id" :title="it.id">{{ it.id }}</span>
                             <span class="item__oracle"><icon :name="it.oracleIcon" :size="10" color="var(--mut)" />{{ it.oracle }}</span>
-                            <span class="item__chip" :style="{ background: it.soft }">
-                              <icon :name="it.badge" :size="10" :color="it.color" :spin="it.building" /><span class="item__word" :style="{ color: it.color }">{{ it.word }}</span>
+                            <span class="item__chip" data-kw-item-chip :style="{ background: it.soft }">
+                              <icon :name="it.badge" :size="10" :color="it.color" :spin="it.building" /><span class="item__word" data-kw-item-word :style="{ color: it.color }">{{ it.word }}</span>
                             </span>
                           </div>
                           <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
                         </div>
+                        <span class="item__caret" data-kw-item-caret :class="{ 'item__caret--open': isExpanded(b.slug, it.id) }" aria-hidden="true"><icon name="chevron" :size="13" color="var(--mut)" /></span>
                       </button>
-                      <div class="item__shim" v-if="it.building"><div class="item__shim-fill"></div></div>
-                      <div class="item__detail" v-if="isExpanded(b.slug, it.id)">
-                        <div class="item__detail-head"><icon :name="it.oracleIcon" :size="12" color="var(--mut)" /><span>passes its {{ it.oracle }} check when:</span></div>
-                        <div class="item__assert" v-if="it.assert">{{ it.assert }}</div>
-                        <div class="item__cmd" v-if="it.cmd">$ {{ it.cmd }}</div>
-                        <div class="item__dep" v-if="it.hasDep"><icon name="arrowdown" :size="12" color="var(--block)" />runs after {{ it.depName }} passes</div>
+                      <div class="item__shim" data-kw-item-strip v-if="it.building"><div class="item__shim-fill"></div></div>
+                      <div class="item__detail" data-kw-item-detail v-if="isExpanded(b.slug, it.id)">
+                        <dl class="detail" data-kw-item-detail-grid>
+                          <template v-for="r in it.detail" :key="r.key">
+                            <dt class="detail__label" :data-kw-detail-key="r.key">{{ r.label }}</dt>
+                            <dd class="detail__value" :class="{ 'detail__value--mono': r.mono }">
+                              <span class="detail__empty" data-kw-detail-empty v-if="r.empty">{{ r.text }}</span>
+                              <template v-else-if="r.kind === 'text'">
+                                <icon v-if="r.icon" :name="r.icon" :size="11" color="var(--mut)" /><span>{{ r.text }}</span>
+                              </template>
+                              <ul class="detail__list" v-else-if="r.kind === 'list'">
+                                <li class="detail__entry" data-kw-detail-entry v-for="(p, pi) in r.pairs" :key="pi">
+                                  <span class="detail__name" v-if="p.name">{{ p.name }}</span>{{ p.value }}
+                                </li>
+                              </ul>
+                              <span class="detail__chips" v-else>
+                                <span class="detail__chip" data-kw-blocked-chip :data-kw-blocked-state="c.word"
+                                  :style="{ background: c.soft, color: c.color }" v-for="c in r.chips" :key="c.id">
+                                  <icon :name="c.badge" :size="10" :color="c.color" /><span class="detail__chip-id">{{ c.id }}</span><span class="detail__chip-word">{{ c.word }}</span>
+                                </span>
+                              </span>
+                            </dd>
+                          </template>
+                        </dl>
                       </div>
                     </div>
                   </div>
                 </template>
+              </div>
+
+              <div class="bmeta" data-kw-binder-meta v-if="b.meta.length">
+                <span class="bmeta__entry" data-kw-meta-entry :data-kw-meta-key="m.key" v-for="m in b.meta" :key="m.key">
+                  <span class="bmeta__label">{{ m.label }}</span>
+                  <span class="bmeta__value">{{ m.value }}</span>
+                </span>
               </div>
             </div>
           </div>
@@ -1537,12 +3444,14 @@ const app = createApp({
   </template>
 
   <!-- empty state -->
-  <section class="panel empty" aria-label="no binders" v-else>
-    <img class="empty__mascot" src="/assets/mascot.png__ASSET_QS__" alt="" width="64" height="64">
+  <section class="panel empty" data-kw-empty aria-label="no binders" v-else>
+    <img class="empty__mascot" data-kw-empty-mascot src="/assets/mascot.png__ASSET_QS__" alt="" width="64" height="64">
     <div class="empty__title">no binders planned yet</div>
     <p class="empty__hint">add a binder under <span class="mono">.karta/binders/</span>
       (try <span class="mono">karta-plan</span>) and the delivery will chart itself here.</p>
   </section>
+    </main>
+  </div>
 
   <footer class="foot">karta · mirrors git · read-only</footer>
 </div>
@@ -1550,7 +3459,7 @@ const app = createApp({
 });
 
 app.mount('#app');
-""".strip()
+""".strip().replace("__REFRESH_SHARED__", _REFRESH_SHARED_JS)
 
 
 def _theme_attr(theme: str | None) -> str:
@@ -1578,11 +3487,42 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__PHASE_DEFS__", json.dumps(_PHASE_DEFS, separators=(",", ":")))
         .replace("__ORACLE_ICON__", json.dumps(_ORACLE_ICON, separators=(",", ":")))
         .replace("__SHELL__", _inert_json(shell))
+        .replace("__RAIL__", _inert_json({"title": RAIL_TITLE,
+                                          "delivered_key": RAIL_DELIVERED_KEY,
+                                          "legend": _RAIL_LEGEND}))
+        .replace("__BAND__", _inert_json({"eyebrow": BAND_EYEBROW,
+                                          "copy": COPY_LABEL,
+                                          "copied": COPIED_LABEL,
+                                          "hold_ms": COPIED_HOLD_MS,
+                                          "key": COPY_KEY_BAND}))
         .replace("__FEED_LABELS__", _inert_json({"live": FEED_LIVE_LABEL,
                                                  "paused": FEED_PAUSED_LABEL}))
+        .replace("__BRANCH_FMT__", _inert_json(INTEGRATION_BRANCH_FMT))
+        .replace("__PANEL__", _inert_json({
+            "count_order": list(_COUNT_ORDER),
+            "lanes": {"parallel": _LANE_PARALLEL, "serial": _LANE_SERIAL},
+            "meta": {"default": META_DEFAULT_LABEL,
+                     "integration": META_INTEGRATION_LABEL,
+                     "packs": META_PACKS_LABEL},
+        }))
+        .replace("__DETAIL__", _inert_json({
+            "labels": DETAIL_LABELS,
+            "empty": DETAIL_EMPTY_LABEL,
+            "opt_out": OPT_OUT_TYPE,
+            "icon_fallback": ORACLE_ICON_FALLBACK,
+            "branch_fmt": ITEM_BRANCH_FMT,
+            "marker_fmt": ITEM_MARKER_FMT,
+            "markers": list(ITEM_REF_MARKERS),
+        }))
         .replace("__FEED_PAUSE_AFTER__", str(FEED_PAUSE_AFTER))
         .replace("__FEED_OK_STATUSES__", json.dumps(FEED_OK_STATUSES,
                                                     separators=(",", ":")))
+        .replace("__REFRESH_MS__", str(REFRESH_INTERVAL_MS))
+        .replace("__TICK_MS__", str(REFRESH_TICK_MS))
+        .replace("__REFRESH_KEY__", _inert_json(REFRESH_MODE_KEY))
+        .replace("__REFRESH_LABELS__", _inert_json({"on": REFRESH_ON_LABEL,
+                                                    "off": REFRESH_OFF_LABEL}))
+        .replace("__REFRESH_VECTORS__", _inert_json(REFRESH_VECTORS))
         .replace("__ASSET_QS__", asset_qs)
     )
 
@@ -1654,8 +3594,8 @@ def render_app_html(state: dict, theme: str | None = None, key_qs: str = "",
         "others": [{"slug": e["slug"], "name": e["name"],
                     "href": f"/r/{e['slug']}/{key_qs}"} for e in (roster or [])],
     }
-    title = (f"{html.escape(repo_name)} — Karta Watch" if repo_name
-             else "Karta Watch")
+    title = (f"{html.escape(repo_name)} — {_TITLE_SUFFIX}" if repo_name
+             else _TITLE_SUFFIX)
     # _inert_json keeps raw markup bytes (and any `</script>` breakout) out of
     # the inline block; the JS engine decodes the escapes to identical strings.
     state_json = _inert_json(state)
@@ -1666,9 +3606,9 @@ def render_app_html(state: dict, theme: str | None = None, key_qs: str = "",
         "<head>"
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title}</title>"
+        f'<title data-kw-title data-kw-repo-name="{html.escape(repo_name, quote=True)}">{title}</title>'
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{key_qs}">'
-        f"<style>{_CSS}</style>"
+        f"<style>{_page_css(key_qs)}</style>"
         "</head>"
         "<body>"
         '<div id="app"></div>'
@@ -1693,6 +3633,8 @@ def _content_type(path: Path) -> str:
         return "image/png"
     if suffix == ".js":
         return "text/javascript"
+    if suffix == ".woff2":
+        return "font/woff2"
     return "application/octet-stream"
 
 
@@ -1922,29 +3864,53 @@ def switcher_entries(repos: dict, current_slug: str) -> list[dict]:
 
 # chip colors per card word — the same CSS variables the repo page uses
 _HUB_CHIP = {
-    "NOW":         ("var(--amber)", "var(--amber-soft)"),
+    "NOW":         ("var(--now)", "var(--now-soft)"),
     "NEXT":        ("var(--steel)", "var(--steel-soft)"),
     "CLEAR":       ("var(--green)", "var(--green-soft)"),
-    "WEDGED":      ("var(--block)", "var(--block-soft)"),
-    "UNAVAILABLE": ("var(--block)", "var(--block-soft)"),
+    "WEDGED":      ("var(--halt)", "var(--halt-soft)"),
+    "UNAVAILABLE": ("var(--halt)", "var(--halt-soft)"),
 }
 
+# The rest of each word's treatment, declared beside its colours rather than
+# decided inline while rendering: which of the page's five motions the chip
+# opts into, and whether the card greys. The motions are the SAME classes the
+# repo page wears — a running repo breathes its ring the way a running item
+# does, a broken one alarms — so both pages settle the same way under a
+# reduced-motion preference, from one stylesheet block.
+_HUB_TREATMENT = {
+    "NOW":         {"motion": "karta-ring", "dim": False},
+    "NEXT":        {"motion": "", "dim": False},
+    "CLEAR":       {"motion": "", "dim": False},
+    "WEDGED":      {"motion": "karta-alarm", "dim": True},
+    "UNAVAILABLE": {"motion": "karta-alarm", "dim": True},
+}
+
+# The landing's own rules. Everything else — the palette cascade, the three
+# vendored families, the five keyframes, the header brand, the empty state and
+# the footer — comes from _page_css(), which is why the two pages agree on
+# colour and type by construction rather than by copying values across.
+# What is left here is the card, and it follows the repo page's own treatments:
+# a repository name is set the way the repo page sets the repo it is showing
+# (mono 600, --accent-deep), the meta line reads like the page's other mono
+# meters, the next-action line reads like a binder blurb, and hover picks up
+# the accent outline every other control on the page uses.
 _HUB_CSS = """
 .hub{ width:100%; max-width:1040px; display:flex; flex-direction:column; gap:14px; }
-a.repo{ border:1px solid var(--line); background:var(--panel); padding:16px 20px;
+a.repo{ border:1px solid var(--line); background:var(--surface); padding:16px 20px;
   display:flex; flex-direction:column; gap:7px; color:inherit;
   text-decoration:none; }
-a.repo:hover{ border-color:var(--steel); }
+a.repo:hover{ border-color:var(--accent-line); }
 .repo--dim{ opacity:.55; }
 .repo__head{ display:flex; align-items:center; gap:10px; }
-.repo__name{ font-family:var(--mono); font-weight:700; font-size:16px;
-  color:var(--ink); }
-.repo__chip{ font-family:var(--mono); font-size:9px; font-weight:700;
+.repo__name{ font-family:var(--mono); font-weight:600; font-size:15px;
+  color:var(--accent-deep); line-height:1.15; }
+.repo__chip{ font-family:var(--mono); font-size:9px; font-weight:600;
   letter-spacing:.5px; padding:2px 7px; margin-left:auto; flex:none; }
-.repo__counts{ font-size:12px; color:var(--mut); font-family:var(--mono); }
-.repo__next{ font-size:12.5px; color:var(--ink); opacity:.8; }
-.repo__arrow{ color:var(--amber); }
-.repo__note{ font-size:12px; color:var(--block); }
+.repo__counts{ font-family:var(--mono); font-size:11px; color:var(--mut-2);
+  font-variant-numeric:tabular-nums; }
+.repo__next{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; }
+.repo__arrow{ color:var(--accent); }
+.repo__note{ font-family:var(--mono); font-size:11px; color:var(--halt); }
 .repo__root{ font-size:11px; color:var(--mut); font-family:var(--mono);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .top__theme{ appearance:none; -webkit-appearance:none; background:transparent;
@@ -1953,29 +3919,85 @@ a.repo:hover{ border-color:var(--steel); }
 :root[data-theme="light"] .top__sun{ display:none; }
 """.strip()
 
+# ---------------------------------------------------------------------------
+# The landing's refresh. It used to be `<meta http-equiv="refresh" content=10>`:
+# every ten seconds the browser navigated the page again, and the server
+# re-derived EVERY watched repository from git to answer. That is the most
+# expensive page in the system on the shortest interval — and a meta refresh
+# cannot read the reader's stored choice, so switching automatic refresh off on
+# a repo page left the landing hammering git anyway.
+#
+# It is REPLACED here, not supplemented: the meta tag is gone, and the landing
+# runs the same model the repo page runs — one timer, and every tick asks the
+# SHARED refreshDecision above (the identical source, spliced into both
+# documents) whether this moment may ask for anything at all.
+#
+# The landing holds no client state worth patching in place — it is server
+# rendered, with no feed to fetch — so the action a 'poll' authorises is a full
+# reload. It is reached only through the decision, never unconditionally, and
+# nothing else on the page starts a request. The stored preference is read on
+# every tick rather than once at load, so turning automatic refresh off in a
+# repo tab stops the landing within one interval instead of at its next reload.
+# ---------------------------------------------------------------------------
+
+_HUB_JS = ("""
+const REFRESH_KEY = __REFRESH_KEY__;
+const REFRESH_MS = __REFRESH_MS__;
+
+__REFRESH_SHARED__
+
+// KARTA-SME-OVERRIDE(vue.6): this timer gets no teardown. It is not inside a Vue
+// component — the landing runs no Vue at all — so there is no unmount to hang one
+// on, and the only thing the timer ever does is replace the document, which ends
+// it. The repo page's Vue timers keep their beforeUnmount pairing untouched.
+(function () {
+  let lastAt = Date.now();
+  function step() {
+    const visible = (document.visibilityState !== 'hidden');
+    const decision = refreshDecision(storedRefreshMode(), visible,
+                                     Date.now() - lastAt, REFRESH_MS, false);
+    if (decision === 'skip') return;
+    lastAt = Date.now();
+    location.reload();
+  }
+  setInterval(step, REFRESH_MS);
+})();
+"""
+           .replace("__REFRESH_SHARED__", _REFRESH_SHARED_JS)
+           .replace("__REFRESH_KEY__", _inert_json(REFRESH_MODE_KEY))
+           .replace("__REFRESH_MS__", str(REFRESH_INTERVAL_MS))
+           .strip())
+
 
 def render_hub_html(cards: list[dict], key_qs: str = "",
                     theme: str | None = None) -> str:
-    """The hub landing page: server-rendered, no JS beyond a periodic refresh.
-    Each card is exactly one <a> wrapping the head row, the next-action line
-    (the engine's human copy verbatim behind an amber arrow), and the foot.
-    Every dynamic string is html-escaped — repo names, paths, and engine errors
-    are untrusted bytes. Styling reuses the Karta Watch CSS; links carry the
-    key so drill-down just works."""
+    """The hub landing page: server-rendered, with one script — the shared
+    refresh decision and the single timer that acts on it. Each card is exactly
+    one <a> wrapping the head row, the next-action line (the engine's human copy
+    verbatim behind an amber arrow), and the foot. Every dynamic string is
+    html-escaped — repo names, paths, and engine errors are untrusted bytes.
+    Styling reuses the Karta Watch CSS; links carry the key so drill-down just
+    works."""
     theme_attr = _theme_attr(theme)
     esc = html.escape
     if cards:
         rows = []
         for c in cards:
             color, soft = _HUB_CHIP.get(c["word"], _HUB_CHIP["NEXT"])
-            dim = " repo--dim" if c["word"] in ("WEDGED", "UNAVAILABLE") else ""
+            treat = _HUB_TREATMENT.get(c["word"], _HUB_TREATMENT["NEXT"])
+            dim = " repo--dim" if treat["dim"] else ""
+            motion = (" " + treat["motion"]) if treat["motion"] else ""
             meta = " · ".join(x for x in (c["counts"], c["activity"]) if x)
             bits = [
-                f'<a class="repo{dim}" href="/r/{esc(c["slug"], quote=True)}/'
+                f'<a class="repo{dim}" data-kw-hub-card '
+                f'data-kw-hub-slug="{esc(c["slug"], quote=True)}" '
+                f'href="/r/{esc(c["slug"], quote=True)}/'
                 f'{esc(key_qs, quote=True)}">',
                 '<div class="repo__head">',
                 f'<span class="repo__name">{esc(c["name"])}</span>',
-                f'<span class="repo__chip" style="color:{color};background:{soft}">'
+                f'<span class="repo__chip{motion}" '
+                f'data-kw-hub-verdict="{esc(c["word"], quote=True)}" '
+                f'style="color:{color};background:{soft}">'
                 f'{esc(c["word"])}</span>',
                 "</div>",
             ]
@@ -1992,7 +4014,7 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
             rows.append("".join(bits))
         body = f'<div class="hub">{"".join(rows)}</div>'
     else:
-        body = ('<section class="panel empty" aria-label="no repos">'
+        body = ('<section class="panel empty" data-kw-hub-empty aria-label="no repos">'
                 '<div class="empty__title">no repos opted in</div>'
                 '<p class="empty__hint">opt a repo into the persistent watch '
                 "and its live card appears here.</p></section>")
@@ -2003,7 +4025,6 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         "<head>"
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<meta http-equiv="refresh" content="10">'
         "<title>Karta Watch</title>"
         # Apply the stored preference before first paint — same key, same
         # precedence as the repo page: localStorage overrides the baked default.
@@ -2011,7 +4032,7 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         'if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}'
         "catch(e){}</script>"
         f'<link rel="icon" type="image/png" href="/assets/mascot.png{esc(key_qs, quote=True)}">'
-        f"<style>{_CSS}\n{_HUB_CSS}</style>"
+        f"<style>{_page_css(key_qs)}\n{_HUB_CSS}</style>"
         "</head>"
         "<body>"
         '<div class="wrap">'
@@ -2033,6 +4054,7 @@ def render_hub_html(cards: list[dict], key_qs: str = "",
         '<footer class="foot">karta · every card derives fresh from its '
         "repo&#39;s git · read-only</footer>"
         "</div>"
+        f"<script>{_HUB_JS}</script>"
         "</body></html>"
     )
 
@@ -3332,7 +5354,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          " treatment — green chip, no blocked/error styling, no dimming",
          clear_card is not None and clear_card["word"] == "CLEAR"
          and "color:var(--green)" in clear_chunk
-         and "var(--block)" not in clear_chunk
+         and "var(--halt)" not in clear_chunk
          and "repo--dim" not in clear_chunk),
         ("landing: the all-merged copy flows verbatim from the engine —"
          " next_action.human rendered, never hardcoded by the landing",
@@ -3347,9 +5369,11 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and clear_chunk.count("<a ") == 1
          and '<div class="repo__next">' in clear_chunk
          and 'class="repo__root"' in clear_chunk),
-        ("landing: the next-action line is prefixed with the amber '▸ '",
+        ("landing: the next-action line is prefixed with an accent-coloured"
+         " '▸ ' marker the stylesheet actually gives a colour",
          '<span class="repo__arrow" aria-hidden="true">▸ </span>' in sorted_html
-         and ".repo__arrow{ color:var(--amber); }" in sorted_html),
+         and any("var(--accent)" in d.get("color", "")
+                 for d in _decls_for(_HUB_CSS, ".repo__arrow"))),
     ]
 
     # an empty repo — no live binders, no archive — derives blocked in the
@@ -3527,7 +5551,7 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          and rec_plain["slug"] not in landing),
         ("hub: the served repo page carries the shell — its own name in the"
          " title, the other opted-in repos in the switcher, never itself",
-         "<title>repo-live — Karta Watch</title>" in page
+         _title_text(page) == "repo-live — " + _TITLE_SUFFIX
          and ('"href":"\\/r\\/%s\\/?key=' % rec_wedged["slug"]) in page
          and ('"href":"\\/r\\/%s\\/?key=' % rec_gone["slug"]) in page
          and ('"\\/r\\/%s\\/' % slug_live) not in page
@@ -4975,9 +6999,10 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
     network. So it verifies exactly TWO things.
 
       (1) The pure decision functions, CALLED DIRECTLY with arguments —
-          poll_decision() and _feed_transition(). That is where the real logic
-          lives, which is why the logic is factored out of the template rather
-          than left inline in a lifecycle hook this suite could never fire.
+          refresh_decision() and _feed_transition(). That is where the real
+          logic lives, which is why the logic is factored out of the template
+          rather than left inline in a lifecycle hook this suite could never
+          fire.
       (2) STATIC properties of the rendered JS source — that a visibilitychange
           listener is registered and a matching removal appears in
           beforeUnmount, that the If-None-Match header is set, that the
@@ -4986,37 +7011,57 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
 
     What it does NOT verify, and no check below is phrased as though it did:
     the end-to-end browser behaviour. That a real browser issues no request
-    while the tab is hidden, sends the header it was told to send, and skips
-    the re-render on a 304 is asserted at the source level only — running it
-    would take a browser this suite deliberately does not have."""
+    while the tab is hidden or while automatic refresh is off, sends the header
+    it was told to send, and skips the re-render on a 304 is asserted at the
+    source level only — running it would take a browser this suite deliberately
+    does not have."""
     import inspect
 
     checks: list[tuple[str, bool]] = []
 
-    # -- poll_decision, called directly ---------------------------------------
-    both = (True, False)
-    decisions = {(v, w, e): poll_decision(v, w, e)
-                 for v in both for w in both for e in both}
+    # -- refresh_decision, called directly ------------------------------------
+    ms = REFRESH_INTERVAL_MS
+    elapsed = (0, 1, ms - 1, ms, ms + 1, ms * 7, ms * 100000)
     checks += [
-        ("poll: a hidden document skips — poll_decision(visible=False, "
-         "was_visible=True, has_etag=True) is 'skip', and so is every other "
-         "hidden case",
-         poll_decision(False, True, True) == "skip"
-         and all(d == "skip" for (v, _w, _e), d in decisions.items() if not v)),
-        ("poll: a document that was visible and still is polls on schedule — "
-         "poll_decision(visible=True, was_visible=True, ...) is 'poll'",
-         all(decisions[(True, True, e)] == "poll" for e in both)),
-        ("poll: a document that just became visible catches up at once — "
-         "poll_decision(visible=True, was_visible=False, ...) is 'poll-now'",
-         all(decisions[(True, False, e)] == "poll-now" for e in both)),
-        ("poll: the held fingerprint never changes the decision — for every "
-         "visibility pair both has_etag values agree, so a held tag can never "
-         "become a reason to stop asking",
-         all(decisions[(v, w, True)] == decisions[(v, w, False)]
-             for v in both for w in both)),
-        ("poll: the decision is one of exactly three words, so the page's "
+        ("refresh: automatic refresh runs on the thirty-second cadence, not the "
+         "old 2.6 seconds — refresh_decision(mode='auto') is 'skip' below the "
+         "interval and 'poll' at or beyond it",
+         ms == 30000
+         and all(refresh_decision("auto", True, e, ms, False) == "skip"
+                 for e in elapsed if e < ms)
+         and all(refresh_decision("auto", True, e, ms, False) == "poll"
+                 for e in elapsed if e >= ms)),
+        ("refresh: off means off — refresh_decision(mode='manual-only') is "
+         "'skip' for EVERY elapsed time, however large, which is the "
+         "enforceable form of the control rather than a hidden countdown",
+         all(refresh_decision("manual-only", v, e, ms, False) == "skip"
+             for e in elapsed for v in (True, False))),
+        ("refresh: a manual trigger answers 'poll-now' once in both modes, and "
+         "the next call without it does not repeat that answer",
+         all(refresh_decision(m, True, 0, ms, True) == "poll-now"
+             for m in ("auto", "manual-only"))
+         and refresh_decision("auto", True, 0, ms, False) == "skip"
+         and refresh_decision("manual-only", True, 0, ms, False) == "skip"),
+        ("refresh: the visibility backoff is gated INSIDE the decision — a "
+         "hidden tab on automatic refresh skips at every elapsed time, so a "
+         "broken check fails here rather than passing the whole suite",
+         all(refresh_decision("auto", False, e, ms, False) == "skip"
+             for e in elapsed)),
+        ("refresh: a deliberate click is honoured on a hidden tab, in either "
+         "mode — asking for a refresh is not background polling",
+         refresh_decision("auto", False, ms * 9, ms, True) == "poll-now"
+         and refresh_decision("manual-only", False, ms * 9, ms, True) == "poll-now"),
+        ("refresh: the shared vector table and the Python twin agree row for "
+         "row, and the page is handed that same table",
+         bool(REFRESH_VECTORS)
+         and all(refresh_decision(mode, vis, el, ms, man) == want
+                 for mode, vis, el, man, want in REFRESH_VECTORS)),
+        ("refresh: the decision is one of exactly three words, so the page's "
          "branch on it can never fall through",
-         set(decisions.values()) == {"skip", "poll", "poll-now"}),
+         {refresh_decision(m, v, e, ms, man)
+          for m in ("auto", "manual-only") for v in (True, False)
+          for e in elapsed for man in (True, False)}
+         == {"skip", "poll", "poll-now"}),
     ]
 
     # -- _feed_transition with a 304, called directly --------------------------
@@ -5040,27 +7085,34 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          and FEED_OK_STATUSES == [200, 304]),
     ]
 
-    # -- the JS mirror of poll_decision ---------------------------------------
+    # -- the JS mirror of refresh_decision ------------------------------------
     # from the mirror marker through the function's closing brace — the same
     # span the Python twin's own source covers, so the two are compared like
     # for like rather than one of them silently missing its marker
-    start = _APP_JS.index("// MIRROR: change together with poll_decision()")
+    start = _APP_JS.index("// MIRROR: change together with refresh_decision()")
     js_body = _APP_JS[start:_APP_JS.index("\n}\n", start)]
-    py_body = inspect.getsource(poll_decision)
+    py_body = inspect.getsource(refresh_decision)
     checks.append((
-        "poll: the mirrored JavaScript pollDecision matches its Python twin "
-        "branch for branch — the same two guards, in the same order, returning "
-        "the same three words, and each body carries the marker naming the other",
-        "function pollDecision(visible, wasVisible, hasEtag)" in js_body
+        "refresh: the mirrored JavaScript refreshDecision matches its Python "
+        "twin branch for branch — the same four guards, in the same order, "
+        "returning the same three words, and each body carries the marker "
+        "naming the other. The limit is stated rather than papered over: this "
+        "compares shape and cannot execute JavaScript, so a rewrite that keeps "
+        "the shape and changes the behaviour would survive it",
+        "function refreshDecision(mode, visible, elapsedMs, intervalMs, manual)" in js_body
+        and "if (manual) return 'poll-now';" in js_body
+        and "if (mode !== 'auto') return 'skip';" in js_body
         and "if (!visible) return 'skip';" in js_body
-        and "if (!wasVisible) return 'poll-now';" in js_body
+        and "if (elapsedMs < intervalMs) return 'skip';" in js_body
         and "return 'poll';" in js_body
-        and "def poll_decision(visible: bool, was_visible: bool, has_etag: bool) -> str:" in py_body
+        and "def refresh_decision(mode: str, visible: bool, elapsed_ms: int," in py_body
+        and "if manual:" in py_body and 'return "poll-now"' in py_body
+        and 'if mode != "auto":' in py_body
         and 'if not visible:' in py_body and 'return "skip"' in py_body
-        and 'if not was_visible:' in py_body and 'return "poll-now"' in py_body
+        and "if elapsed_ms < interval_ms:" in py_body
         and 'return "poll"' in py_body
-        and "MIRROR: change together with poll_decision()" in js_body
-        and "MIRROR: change together with pollDecision()" in py_body))
+        and "MIRROR: change together with refresh_decision()" in js_body
+        and "MIRROR: change together with refreshDecision()" in py_body))
 
     # -- static properties of the rendered JS source --------------------------
     state = {
@@ -5086,10 +7138,11 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          and page.count("removeEventListener('visibilitychange'") == 1
          and page.count("addEventListener(") == 1
          and page.count("removeEventListener(") == 1
-         and page.count("setInterval(") == page.count("clearInterval(") == 1
+         and page.count("setInterval(") == page.count("clearInterval(") == 2
          and "document.addEventListener('visibilitychange', this._onVisibility)" in guarded
          and "document.removeEventListener('visibilitychange', this._onVisibility)" in unmount
          and "this.stopPolling()" in unmount
+         and "clearInterval(this._tickTimer)" in unmount
          and "clearInterval(this._pollTimer)" in page),
         ("poll (source-level): the poll sends If-None-Match with the held tag, "
          "and the path that omits the header when no tag is held is present",
@@ -5104,15 +7157,22 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          "this.polls += 1; return; }" in page
          and page.index("if (r.status === 304)") < page.index("return r.json()")
          and "if (tag) this.etag = tag;" in page),
-        ("poll (source-level): both the interval tick and the visibility "
-         "listener route through pollDecision, so 'hidden means no request' is "
-         "decided in one place and the timer is stopped rather than left "
-         "ticking into a no-op",
-         page.count("pollDecision(visible, this.wasVisible, this.etag !== null)") == 1
-         and "setInterval(() => this.step(), POLL_MS)" in page
-         and "this._onVisibility = () => this.step();" in guarded
-         and "if (decision === 'skip') { this.stopPolling(); return; }" in page
-         and "if (decision === 'poll-now') this.startPolling();" in page),
+        ("poll (source-level): the poll timer, the visibility listener and the "
+         "manual button all route through refreshDecision, so 'off means off' "
+         "and 'hidden means no request' are decided in one place — and the "
+         "visible flag is read once and passed IN, never re-checked outside",
+         page.count("refreshDecision(this.refreshMode, visible,") == 1
+         and "setInterval(() => this.step(false), REFRESH_MS)" in page
+         and "this._onVisibility = () => this.step(false);" in guarded
+         and "refreshNow() { this.step(true); }" in page
+         and "if (decision === 'skip') return;" in page
+         and page.count("document.visibilityState") == 1),
+        ("poll (source-level): the predecessor's separate visibility backoff is "
+         "subsumed rather than left running in parallel — no pollDecision "
+         "survives, and no second visibility gate exists outside refreshDecision",
+         "pollDecision" not in page and "wasVisible" not in page
+         and page.count("visibilityState") == 1
+         and "if (!visible) return 'skip';" in page),
         ("poll (source-level): the file:// snapshot path registers no timer and "
          "no listener — every registration sits inside the protocol guard, and "
          "nothing outside it starts either",
@@ -5124,7 +7184,4239 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
          "URL — the vendored Vue is still the only script the page loads",
          page.count("<script src=") == 1
          and "/assets/vendor/vue.global.prod.js" in page
-         and "http://" not in page and "https://" not in page),
+         and not _remote_urls(page)),
+    ]
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# Coverage registry — the page's own tests, keyed by BEHAVIOUR
+# ---------------------------------------------------------------------------
+# The rendered-output checks below used to compare against exact CSS text and
+# literal markup, so any restyle broke them and the cheapest repair was to
+# delete the assertion — coverage disappearing silently, the one failure no
+# other check would notice. House rule hvue.4 is the prose form of that rule;
+# this registry is its enforced form.
+#
+# The guard binds a behaviour NAME to the CALLABLE that checks it — never a
+# count, never a list of names. A count or a name list is defeatable three ways,
+# and the registry closes all three:
+#   PADDING   — a new trivial entry cannot stand in for a missing one, because
+#               the floor is keyed on the behaviour's name.
+#   WEAKENING — every entry must FAIL against a deliberately broken artifact, so
+#               a substring check that matches everything cannot survive.
+#   RENAMING  — an entry binds to a callable, so renaming a hook makes that
+#               callable fail rather than silently matching a stale name.
+#
+# Entries carry a KIND, and the split is structural. A RENDERED entry guards
+# something visible and names the data-kw-* hook it binds to. A BEHAVIOUR entry
+# guards something with no markup at all — token gating, the Host pin, asset
+# confinement, inert-JSON escaping, the poll interval — and names the check that
+# exercises it instead. Roughly a third of the inventory has no hook and never
+# will, so without the split an "every entry resolves to a hook" audit would be
+# permanently red or quietly weakened.
+#
+# Every check reads its inputs from the context dict, never from a module
+# global. That is what makes a negative control meaningful: the harness swaps
+# one artifact for a deliberately broken one and the check has to notice.
+#
+# The behaviours that must never disappear are anchored OUTSIDE this file, in
+# selftest_behaviours.txt, which validate_plugin.py compares against as a FLOOR
+# (every anchored behaviour present in the registry; extras are fine, so a later
+# item can add its own). Deleting an entry together with its expectation in one
+# edit still fails, because the anchor is not in the file being edited.
+# ---------------------------------------------------------------------------
+
+KW_PREFIX = "data-kw-"          # the test-hook attribute prefix (cross-item term)
+BREATHE_KEYFRAME = "karta-breathe"   # the reduced-motion keyframe (cross-item term)
+BEHAVIOUR_ANCHOR = _SCRIPT_PATH.parent / "selftest_behaviours.txt"
+
+_COVERAGE_REGISTRY: dict[str, dict] = {}
+# The rendered documents a hook may legitimately live in.
+_DOC_KEYS = ("page", "eph", "empty_page", "degraded_page", "hub", "hub_empty",
+             "hub_all")
+
+
+def _covers(name: str, *, kind: str, hook: str | None = None,
+            check: str | None = None, breaks=()):
+    """Register `fn` as THE check for behaviour `name`.
+
+    kind="rendered" names the data-kw-* hook the check binds to; kind="behaviour"
+    names the check that exercises it (its own callable). `breaks` are the
+    negative controls: each takes the true context and returns the artifact
+    overrides that deliberately break this behaviour."""
+    def deco(fn):
+        _COVERAGE_REGISTRY[name] = {"kind": kind, "hook": hook,
+                                    "check": check or fn.__name__,
+                                    "fn": fn, "breaks": list(breaks)}
+        return fn
+    return deco
+
+
+# --- structural readers: attributes, element relationships, resolved tokens ---
+
+def _tags_with(doc: str, hook: str) -> list[str]:
+    """Every start tag in `doc` carrying `hook` as an attribute name, static
+    (`data-kw-x`) or bound (`:data-kw-x`). Never matches a longer hook."""
+    pat = re.compile(r"(?<![\w-]):?" + re.escape(hook) + r"(?![\w-])")
+    return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
+            if pat.search(m.group(0))]
+
+
+def _tag_name(tag: str) -> str:
+    m = re.match(r"<([a-zA-Z][\w-]*)", tag)
+    return m.group(1) if m else ""
+
+
+def _tag_after(doc: str, tag: str) -> str:
+    """The next start tag following `tag` — the child a wrapper element opens
+    with. Kept here rather than inline in a check so the checks stay free of
+    markup-shaped string literals."""
+    i = doc.index(tag) + len(tag)
+    m = re.search(r"<[a-zA-Z][^<>]*>", doc[i:])
+    return m.group(0) if m else ""
+
+
+def _tags_named(doc: str, name: str) -> list[str]:
+    """Every start tag in `doc` whose element name is `name`. Same reason as
+    _tag_after: the checks navigate structure, they do not match markup."""
+    return [m.group(0) for m in re.finditer(r"<[a-zA-Z][^<>]*>", doc)
+            if _tag_name(m.group(0)) == name]
+
+
+def _style_text(doc: str) -> str:
+    """The stylesheet a rendered document actually carries: every <style> body,
+    concatenated and comment-stripped. Read off the document rather than off the
+    constant it was built from, so "this page ships these rules" is checked and
+    not assumed."""
+    return _strip_css_comments("\n".join(
+        re.findall(r"<style[^>]*>(.*?)</style>", doc, flags=re.S)))
+
+
+def _rendered_hooks(ctx: dict) -> set[str]:
+    """Every data-kw hook that actually reaches a rendered document, static or
+    bound. The population the coverage rule is measured against."""
+    out: set[str] = set()
+    pat = re.compile(r"[:@]?(" + re.escape(KW_PREFIX) + r"[\w-]+)")
+    for key in _DOC_KEYS:
+        for tag in re.finditer(r"<[a-zA-Z][^<>]*>", ctx[key]):
+            out.update(pat.findall(tag.group(0)))
+    return out
+
+
+def _check_body(fn) -> str:
+    """`fn`'s own body source, decorators excluded. Naming a hook in a
+    registration is not reading it — only the code inside the check is."""
+    try:
+        src = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return ""
+    tree = ast.parse(src)
+    return "\n".join(ast.unparse(s) for s in tree.body[0].body) if tree.body else ""
+
+
+def _hook_is_read(hook: str) -> bool:
+    """Whether some registered check actually reads `hook` — as the element it
+    binds to, or as an attribute it takes off that element."""
+    word = re.compile(r"(?<![\w-])" + re.escape(hook) + r"(?![\w-])")
+    return any(word.search(_check_body(e["fn"]))
+               for e in _COVERAGE_REGISTRY.values())
+
+
+_ATTR_RE = re.compile(r'([@:]?[A-Za-z_][\w:.\-]*)(?:\s*=\s*"([^"]*)")?')
+
+
+def _attrs(tag: str) -> dict[str, str]:
+    """A start tag's attributes as {name: value}; a valueless attribute maps to ""."""
+    body = tag[1:-1].rstrip("/")
+    body = body[len(_tag_name(tag)):]
+    return {m.group(1): (m.group(2) or "") for m in _ATTR_RE.finditer(body)}
+
+
+def _url_attr_exprs(doc: str) -> list[str]:
+    """Every URL-bearing attribute value in `doc` — href/src/action/formaction,
+    static or Vue-bound. The population a "no untrusted field reaches a URL"
+    rule is measured against, so consuming a feed field as inert TEXT stays
+    allowed while binding it into a navigable URL does not.
+
+    Both of Vue's binding spellings are normalized, not just the shorthand. This
+    page writes `:href` everywhere today, so a population built on `:` alone
+    would have let a `v-bind:href` through — a gap that costs one regex to close
+    now and would be invisible the day someone writes the long form."""
+    urlish = ("href", "src", "action", "formaction", "xlink:href")
+    out = []
+    for tag in re.finditer(r"<[a-zA-Z][^<>]*>", doc):
+        for name, value in _attrs(tag.group(0)).items():
+            bare = re.sub(r"^(?::|@|v-bind:|v-on:)", "", name.strip()).lower()
+            if bare in urlish:
+                out.append(value)
+    return out
+
+
+def _class_binding(attrs: dict[str, str]) -> dict[str, str]:
+    """Vue's `:class` object binding as {class name: the expression gating it}."""
+    return {c: e.strip() for c, e in
+            re.findall(r"'([^']+)'\s*:\s*([^,}]+)", attrs.get(":class", ""))}
+
+
+def _first_index(doc: str, hook: str) -> int:
+    tags = _tags_with(doc, hook)
+    return doc.index(tags[0]) if tags else -1
+
+
+def _inlined_state(doc: str) -> dict:
+    """The state the document inlines for first paint (also what a file:// copy renders)."""
+    m = re.search(r"window\.__KARTA_STATE__ = (.*?);window\.__KARTA_THEME__", doc, re.S)
+    return json.loads(m.group(1)) if m else {}
+
+
+def _inlined_const(doc: str, name: str):
+    """A `const <name> = <json>;` the server hands the app (SHELL, FEED, …)."""
+    m = re.search(r"const " + name + r" = (.*?);\n", doc)
+    return json.loads(m.group(1)) if m else None
+
+
+def _title_text(doc: str) -> str:
+    tags = _tags_with(doc, "data-kw-title")
+    if not tags:
+        return ""
+    start = doc.index(tags[0]) + len(tags[0])
+    return doc[start:doc.index("<", start)]
+
+
+def _text_in(doc: str, hook: str) -> str:
+    """The text node the hook's element opens with — the interpolation, for a
+    check that has to read WHICH field an element renders without quoting the
+    surrounding markup back at itself."""
+    tags = _tags_with(doc, hook)
+    if not tags:
+        return ""
+    start = doc.index(tags[0]) + len(tags[0])
+    return doc[start:doc.index("<", start)].strip()
+
+
+def _js_block(src: str, opener: str) -> str:
+    """The `opener` line plus its brace-matched body."""
+    i = src.find(opener)
+    if i == -1:
+        return ""
+    j, depth = i + len(opener), 1
+    while j < len(src) and depth:
+        depth += 1 if src[j] == "{" else -1 if src[j] == "}" else 0
+        j += 1
+    return src[i:j]
+
+
+def _css_sections(css: str) -> list[tuple[str, str]]:
+    """Every top-level `<prelude>{<body>}` in `css`, brace-aware (at-rules nest)."""
+    out, i, n = [], 0, len(css)
+    while i < n:
+        j = css.find("{", i)
+        if j == -1:
+            break
+        depth, k = 1, j + 1
+        while k < n and depth:
+            depth += 1 if css[k] == "{" else -1 if css[k] == "}" else 0
+            k += 1
+        out.append((css[i:j].strip(), css[j + 1:k - 1]))
+        i = k
+    return out
+
+
+def _css_rules(css: str) -> list[tuple[str, dict[str, str]]]:
+    """Top-level style rules as (selector list, {property: value}); at-rules skipped."""
+    rules = []
+    for prelude, body in _css_sections(css):
+        if prelude.startswith("@"):
+            continue
+        decls = {}
+        for decl in body.split(";"):
+            prop, sep, value = decl.partition(":")
+            if sep:
+                decls[prop.strip()] = value.strip()
+        rules.append((prelude, decls))
+    return rules
+
+
+def _at_rule_body(css: str, needle: str) -> str:
+    for prelude, body in _css_sections(css):
+        if prelude.startswith("@") and needle in prelude:
+            return body
+    return ""
+
+
+def _decls_for(css: str, selector: str) -> list[dict[str, str]]:
+    """Declarations of every rule naming `selector` exactly in its selector list."""
+    return [decls for sel, decls in _css_rules(css)
+            if selector in [s.strip() for s in sel.split(",")]]
+
+
+def _norm(value: str) -> str:
+    return value.replace("!important", "").strip()
+
+
+def _animates_with(decls: dict[str, str], keyframe: str) -> bool:
+    return keyframe in _norm(decls.get("animation", "")).split()
+
+
+def _strip_css_comments(css: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+def _palette_decls(css: str, selector: str) -> dict[str, str]:
+    """The palette declarations of `selector`, keyed on the rule that defines
+    --bg. The sheet carries more than one `:root` rule — the palette, and the
+    theme-independent type roles — so "the palette one" needs a marker, and the
+    page ground is the one token a palette cannot be missing."""
+    for decls in _decls_for(css, selector):
+        if "--bg" in decls:
+            return {k: v for k, v in decls.items() if k.startswith("--")}
+    return {}
+
+
+def _reduced_block(css: str) -> str:
+    return _at_rule_body(css, "prefers-reduced-motion")
+
+
+def _drop_reduced_rule(css: str, selector: str) -> str:
+    """The stylesheet with `selector`'s reduced-motion rule removed — the control
+    for "this motion was left with no stated reduced-motion behaviour"."""
+    body = _reduced_block(css)
+    kept = "".join("%s{%s}" % (prelude, inner)
+                   for prelude, inner in _css_sections(body)
+                   if selector not in [s.strip() for s in prelude.split(",")])
+    return css.replace(body, kept)
+
+
+# var(--x) as it appears in a stylesheet, an inline style, or a metadata value.
+_VAR_REF_RE = re.compile(r"var\(\s*(--[a-z0-9-]+)")
+_VAR_DEF_RE = re.compile(r"(--[a-z0-9-]+)\s*:")
+
+
+def _vendored_weights() -> dict[str, set[int]]:
+    """family -> the weights this plugin actually ships a file for."""
+    out: dict[str, set[int]] = {}
+    for family, weight in VENDORED_FACES:
+        out.setdefault(family, set()).add(weight)
+    return out
+
+
+_ROLE_FAMILY = {"--mono": "IBM Plex Mono", "--sans": "IBM Plex Sans",
+                "--serif": "Newsreader"}
+
+
+class _Ns:
+    """A stand-in for the handler collaborators a direct method call needs."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _renamed(ctx: dict, hook: str, *doc_keys: str) -> dict:
+    """A context whose `hook` is renamed in `doc_keys` — the RENAMING control."""
+    return {k: ctx[k].replace(hook, hook + "renamed") for k in doc_keys}
+
+
+# --- the registry: one entry per behaviour that must never disappear ---------
+
+@_covers("page-title-repo-name", kind="rendered", hook="data-kw-title",
+         breaks=[lambda c: _renamed(c, "data-kw-title", "page"),
+                 lambda c: {"page": c["page"].replace(c["repo_name"], "other")}])
+def _c_page_title(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-title")
+    if len(tags) != 1 or _tag_name(tags[0]) != "title":
+        return False
+    name = _attrs(tags[0]).get("data-kw-repo-name", "")
+    return (name == ctx["repo_name"]
+            and _title_text(ctx["page"]) == name + " — " + ctx["title_suffix"]
+            and _title_text(ctx["eph"]) == "karta — " + ctx["title_suffix"])
+
+
+@_covers("shell-region", kind="rendered", hook="data-kw-shell",
+         breaks=[lambda c: _renamed(c, "data-kw-shell", "page"),
+                 lambda c: _renamed(c, "data-kw-feed", "page")])
+def _c_shell_region(ctx):
+    page = ctx["page"]
+    shell = _first_index(page, "data-kw-shell")
+    if shell < 0:
+        return False
+    inner = [_first_index(page, h) for h in
+             ("data-kw-shell-kmark", "data-kw-shell-home",
+              "data-kw-shell-repo", "data-kw-feed")]
+    return all(i > shell for i in inner)
+
+
+@_covers("shell-kmark-home-anchor", kind="rendered", hook="data-kw-shell-kmark",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-kmark", "page")])
+def _c_shell_kmark(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-shell-kmark")
+    if len(tags) != 2:
+        return False
+    linked = [t for t in tags if _tag_name(t) == "a"]
+    plain = [t for t in tags if _tag_name(t) != "a"]
+    if len(linked) != 1 or len(plain) != 1:
+        return False
+    return (_attrs(linked[0]).get(":href") == "shell.home"
+            and _attrs(linked[0]).get("v-if") == "shell.home"
+            and "v-else" in _attrs(plain[0]))
+
+
+@_covers("shell-home-link", kind="rendered", hook="data-kw-shell-home",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-home", "page"),
+                 lambda c: {"shell_hub": dict(c["shell_hub"], home=None)}])
+def _c_shell_home_link(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-shell-home")
+    if len(tags) != 1 or _tag_name(tags[0]) != "a":
+        return False
+    attrs = _attrs(tags[0])
+    home = ctx["shell_hub"].get("home") or ""
+    return (attrs.get(":href") == "shell.home"
+            and attrs.get("v-if") == "shell.home"
+            and home.startswith("/") and ctx["key_token"] in home)
+
+
+@_covers("shell-repo-name", kind="rendered", hook="data-kw-shell-repo",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-repo", "page"),
+                 lambda c: {"shell_hub": dict(c["shell_hub"], name="a/path/name")}])
+def _c_shell_repo_name(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-shell-repo")
+    if len(tags) != 1:
+        return False
+    cls = _attrs(tags[0]).get("class", "")
+    name = ctx["shell_hub"].get("name") or ""
+    return (bool(_decls_for(ctx["css"], "." + cls))
+            and name == ctx["repo_name"] and "/" not in name)
+
+
+@_covers("shell-ephemeral-no-hub", kind="behaviour",
+         breaks=[lambda c: {"shell_eph": dict(c["shell_eph"], home="/")},
+                 lambda c: {"shell_hub": dict(c["shell_hub"], others=[])}])
+def _c_shell_ephemeral_no_hub(ctx):
+    hub, eph = ctx["shell_hub"], ctx["shell_eph"]
+    return (hub.get("home") is not None and bool(hub.get("others"))
+            and eph.get("home") is None and eph.get("others") == [])
+
+
+@_covers("shell-feed-indicator", kind="rendered", hook="data-kw-feed",
+         breaks=[lambda c: _renamed(c, "data-kw-feed", "page"),
+                 lambda c: {"feed_labels": {"live": "x", "paused": "y"}},
+                 lambda c: {"feed_inlined": {"live": "x", "paused": "y"}}])
+def _c_shell_feed_indicator(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-feed")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    paused = attrs.get(":data-kw-feed-paused", "")
+    gated = _class_binding(attrs)
+    return (bool(gated) and any(expr and expr in paused for expr in gated.values())
+            and ctx["feed_inlined"] == ctx["feed_labels"])
+
+
+@_covers("header-sticky-bar", kind="rendered", hook="data-kw-top",
+         breaks=[lambda c: _renamed(c, "data-kw-top", "page"),
+                 lambda c: {"css": c["css"].replace("position:sticky",
+                                                    "position:static")},
+                 lambda c: {"css": c["css"].replace(
+                     "background:var(--bg); border-bottom", "border-bottom")}])
+def _c_header_sticky_bar(ctx):
+    """The repo page's header holds its place while the timeline scrolls under
+    it, and paints its own ground — a sticky bar with no background is a bar the
+    page shows through."""
+    tags = _tags_with(ctx["page"], "data-kw-top")
+    if len(tags) != 1 or _tag_name(tags[0]) != "header":
+        return False
+    for cls in _attrs(tags[0]).get("class", "").split():
+        for decls in _decls_for(ctx["css"], "." + cls):
+            if (decls.get("position") == "sticky" and "top" in decls
+                    and "background" in decls):
+                return True
+    return False
+
+
+@_covers("shell-brand-mascot", kind="rendered", hook="data-kw-shell-mascot",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-mascot", "page"),
+                 lambda c: {"page": c["page"].replace("mascot.png",
+                                                      "mascot-cut.png")},
+                 lambda c: {"eph": c["eph"].replace("/assets/", "//cdn/")}])
+def _c_shell_brand_mascot(ctx):
+    """The header brand is the mascot this plugin actually ships, from its own
+    asset route — both branches of the hub/ephemeral split carry it, hub mode
+    carries the key that route demands, and ephemeral mode carries none."""
+    hub = _tags_with(ctx["page"], "data-kw-shell-mascot")
+    eph = _tags_with(ctx["eph"], "data-kw-shell-mascot")
+    if len(hub) != 2 or len(eph) != 2:
+        return False
+    keyed = {_attrs(t).get("src", "") for t in hub}
+    plain = {_attrs(t).get("src", "") for t in eph}
+    if len(keyed) != 1 or len(plain) != 1:
+        return False
+    keyed, plain = keyed.pop(), plain.pop()
+    return (plain.rsplit("/", 1)[-1] in ctx["asset_files"]
+            and plain.startswith("/assets/")
+            and keyed == plain + ctx["key_qs"]
+            and all(_attrs(t).get("alt") == "" for t in hub + eph))
+
+
+@_covers("shell-name-underline", kind="rendered", hook="data-kw-shell-underline",
+         breaks=[lambda c: _renamed(c, "data-kw-shell-underline", "page"),
+                 lambda c: {"page": c["page"].replace("karta-draw", "karta-still")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-draw")}])
+def _c_shell_name_underline(ctx):
+    """The hand-drawn underline sits under the repo name, is drawn by the page's
+    own draw motion, and settles to its finished stroke — not to a blank line —
+    when the reader asks for reduced motion."""
+    page, css, drawn = ctx["page"], ctx["css"], "karta-draw"
+    tags = _tags_with(page, "data-kw-shell-underline")
+    if len(tags) != 1 or _tag_name(tags[0]) != "svg":
+        return False
+    if _first_index(page, "data-kw-shell-underline") < _first_index(
+            page, "data-kw-shell-repo"):
+        return False
+    if not _decls_for(css, "." + _attrs(tags[0]).get("class", "")):
+        return False
+    stroke = _tag_after(page, tags[0])
+    if _tag_name(stroke) != "path" or drawn not in _attrs(stroke).get("class", "").split():
+        return False
+    base = _decls_for(css, "." + drawn)
+    if not _at_rule_body(css, "keyframes " + drawn):
+        return False
+    if not base or not any(_animates_with(d, drawn) for d in base):
+        return False
+    for sel, decls in _css_rules(_reduced_block(css)):
+        if "." + drawn in [s.strip() for s in sel.split(",")]:
+            return (_norm(decls.get("animation", "")) == "none"
+                    and _norm(decls.get("stroke-dashoffset", "")) == "0")
+    return False
+
+
+@_covers("shell-branch-chips", kind="rendered", hook="data-kw-branch-chip",
+         breaks=[lambda c: _renamed(c, "data-kw-branch-chip", "page"),
+                 lambda c: {"state": dict(c["state"], repo={})}])
+def _c_shell_branch_chips(ctx):
+    """One chip per branch the header derives, each keyed and marked by which
+    branch it is — so the two chips are told apart by an attribute rather than
+    by their position in the bar."""
+    tags = _tags_with(ctx["page"], "data-kw-branch-chip")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    chips = ctx["branch_chips"](ctx["state"])
+    return (attrs.get("v-for", "").endswith("branches")
+            and attrs.get(":key") == "b.key"
+            and attrs.get(":data-kw-branch-chip-key") == "b.key"
+            and [c["key"] for c in chips] == ["default", "integration"])
+
+
+@_covers("shell-branch-chip-glyph-on-every-chip", kind="rendered",
+         hook="data-kw-branch-chip-glyph",
+         breaks=[lambda c: _renamed(c, "data-kw-branch-chip-glyph", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     '<icon name="branch" :size="11" color="var(--mut-2)"'
+                     ' data-kw-branch-chip-glyph',
+                     '<icon v-if="b.icon" :name="b.icon" :size="11"'
+                     ' color="var(--mut-2)" data-kw-branch-chip-glyph')},
+                 lambda c: {"branch_chips": lambda s: [
+                     dict(ch, icon="branch" if ch["key"] == "default" else "")
+                     for ch in c["branch_chips"](s)]}])
+def _c_branch_chip_glyph(ctx):
+    """The branch glyph is drawn for EVERY branch chip, unconditionally, and no
+    chip carries a field that could turn it off.
+
+    The glyph is a type marker — "this pill is a git ref" — so giving it to the
+    default branch and withholding it from the integration branch would encode a
+    difference that is not there. Drawing it from the template rather than from a
+    per-chip `icon` field is what keeps that true: there is no field left to set
+    differently, so the check reads BOTH facts — one unconditional glyph inside
+    the chip, and no icon key in the chips the deriver returns."""
+    tags = _tags_with(ctx["page"], "data-kw-branch-chip-glyph")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    if "v-if" in attrs or attrs.get("name") != "branch":
+        return False
+    # the glyph sits INSIDE the chip it marks, not beside the chip row
+    chip = _tags_with(ctx["page"], "data-kw-branch-chip")
+    if not chip or _tag_after(ctx["page"], chip[0]) != tags[0]:
+        return False
+    chips = ctx["branch_chips"](ctx["state"])
+    return bool(chips) and not any("icon" in ch for ch in chips)
+
+
+@_covers("shell-branch-chip-names", kind="behaviour",
+         breaks=[lambda c: {"integration_fmt": "integration/{slug}"},
+                 lambda c: {"branch_inlined": "somewhere/else"},
+                 lambda c: {"state": dict(c["state"], binders=[
+                     dict(b, status="merged") for b in c["state"]["binders"]])}])
+def _c_branch_chip_names(ctx):
+    """The chips name branches a reader could check out: the engine's own
+    default branch, and the in-flight binder's REAL integration branch — never
+    the design's mocked `integration/<something>`. With nothing in flight the
+    second chip is absent rather than pointing at a branch that does not exist.
+    The page computes the same names from the same format string, so the
+    constant the document inlines has to match the one asserted here."""
+    state, chips = ctx["state"], ctx["branch_chips"](ctx["state"])
+    live = [b for b in state["binders"] if b["status"] == "in_flight"]
+    if len(chips) != 2 or len(live) != 1:
+        return False
+    default, integration = chips
+    if default["name"] != state["repo"]["default_branch"]:
+        return False
+    if integration["name"] != ctx["integration_fmt"].format(slug=live[0]["slug"]):
+        return False
+    if ctx["branch_inlined"] != ctx["integration_fmt"]:
+        return False
+    idle = dict(state, binders=[dict(b, status="merged") for b in state["binders"]])
+    return [c["key"] for c in ctx["branch_chips"](idle)] == ["default"]
+
+
+@_covers("every-rendered-hook-is-covered", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "data-kw-shell-repo", "data-kw-shell-repo data-kw-unread-probe", 1)}])
+def _c_every_hook_covered(ctx):
+    """Every data-kw hook the page actually renders is read by some registered
+    check. A hook nobody reads is a test seam that looks like coverage and is
+    not — and this fails in the item that added it, naming the hook, instead of
+    surfacing much later as an unexplained sweep finding."""
+    hooks = _rendered_hooks(ctx)
+    return bool(hooks) and not [h for h in hooks if not _hook_is_read(h)]
+
+
+# --- the palette, the cascade, and the tokens the page may name --------------
+
+@_covers("palette-light-and-dark-agree", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             "--wait-soft:" + _PALETTE["--wait-soft"]["light"] + ";", "", 1)},
+                 lambda c: {"palette": dict(c["palette"],
+                                            **{"--ghost": {"light": "#000",
+                                                           "dark": "#fff"}})}])
+def _c_palette_light_and_dark_agree(ctx):
+    """Every token exists in BOTH themes. Not "the table has two values" — the
+    two payloads that actually ship must carry the same NAMES, or a rule reading
+    a token that only one theme defines renders unstyled in the other."""
+    css, palette = ctx["css"], ctx["palette"]
+    dark = _palette_decls(css, ":root")
+    light = _palette_decls(_at_rule_body(css, "prefers-color-scheme"), ":root")
+    if not dark or not light:
+        return False
+    return (set(dark) == set(light) == set(palette)
+            and all(dark[n] == palette[n]["dark"] and light[n] == palette[n]["light"]
+                    for n in palette))
+
+
+@_covers("palette-four-selector-cascade", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             ':root[data-theme="light"]{', ':root[data-theme="sepia"]{')},
+                 lambda c: {"css": c["css"].replace(
+                     "@media (prefers-color-scheme: light)",
+                     "@media (min-width: 1px)")},
+                 lambda c: {"theme_attr": lambda t: "dark"}])
+def _c_palette_cascade(ctx):
+    """The design switches on data-theme alone; the shipped page must reach both
+    palettes FOUR ways — the bare root default, the system-preference override,
+    and both explicit theme attributes — or the system default and the
+    ?theme=light|dark forced override break."""
+    css, palette, attr = ctx["css"], ctx["palette"], ctx["theme_attr"]
+    dark = {n: v["dark"] for n, v in palette.items()}
+    light = {n: v["light"] for n, v in palette.items()}
+    bare = _palette_decls(css, ":root")
+    system = _palette_decls(_at_rule_body(css, "prefers-color-scheme"), ":root")
+    forced_dark = _palette_decls(css, ':root[data-theme="dark"]')
+    forced_light = _palette_decls(css, ':root[data-theme="light"]')
+    return (bare == dark and system == light
+            and forced_dark == dark and forced_light == light
+            # and the query string still resolves to those two attributes
+            and attr("light") == "light" and attr("dark") == "dark")
+
+
+@_covers("no-undefined-css-variables", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"] + "\n.ghost{ color:var(--nope); }"},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     ready=dict(c["state_meta"]["ready"], color="var(--nope)"))},
+                 lambda c: {"hub_css": c["hub_css"] + "\n.g{ color:var(--nope); }"}])
+def _c_no_undefined_variables(ctx):
+    """Forward direction: nothing names a variable the sheet never defines. The
+    Python metadata tables and the inlined Vue template count — they hand colour
+    names straight to inline styles, where an undefined one paints nothing."""
+    defined = set(_VAR_DEF_RE.findall(ctx["css"] + ctx["hub_css"]))
+    refs = set(_VAR_REF_RE.findall(
+        ctx["css"] + ctx["hub_css"] + ctx["app_src"]
+        + json.dumps(ctx["state_meta"]) + json.dumps(ctx["phase_meta"])
+        + json.dumps(ctx["hub_chip"])))
+    return bool(refs) and not (refs - defined)
+
+
+@_covers("retired-tokens-unreferenced", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             blocked=dict(c["state_meta"]["blocked"], color="var(--live)"))},
+                 lambda c: {"css": c["css"].replace("var(--surface-2)",
+                                                    "var(--chip)")},
+                 lambda c: {"retired": dict(c["retired"], **{"--tree": "--gone"})}])
+def _c_retired_tokens_unreferenced(ctx):
+    """Reverse direction, and it is the one that matters. A forward-only "every
+    referenced variable is defined" check passes happily while a metadata entry
+    still names --tree, because --tree is simply gone from both sides. So: each
+    retired name is referenced nowhere, and each has a destination that IS
+    defined — a rename with a recorded landing place, not a deletion."""
+    defined = set(_VAR_DEF_RE.findall(ctx["css"] + ctx["hub_css"]))
+    surfaces = (ctx["css"] + ctx["hub_css"] + ctx["app_src"]
+                + json.dumps(ctx["state_meta"]) + json.dumps(ctx["phase_meta"])
+                + json.dumps(ctx["hub_chip"]))
+    for old, new in ctx["retired"].items():
+        if re.search(r"(?<![\w-])" + re.escape(old) + r"(?![\w-])", surfaces):
+            return False
+        if new not in defined:
+            return False
+    return bool(ctx["retired"])
+
+
+@_covers("waiting-state-distinct-from-ready", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             blocked=dict(c["state_meta"]["blocked"], color="var(--steel)",
+                          soft="var(--steel-soft)"))},
+                 lambda c: {"phase_meta": dict(
+                     c["phase_meta"],
+                     later=dict(c["phase_meta"]["later"], color="var(--steel)"))}])
+def _c_waiting_distinct_from_ready(ctx):
+    """--steel means READY only. An item waiting its turn gets --wait, so the
+    two are told apart by colour and not by badge shape alone."""
+    sm, pm = ctx["state_meta"], ctx["phase_meta"]
+    return (sm["blocked"]["color"] == "var(--wait)"
+            and sm["blocked"]["soft"] == "var(--wait-soft)"
+            and sm["ready"]["color"] == "var(--steel)"
+            and sm["ready"]["soft"] == "var(--steel-soft)"
+            and pm["later"]["color"] == "var(--wait)"
+            and pm["next"]["color"] == "var(--steel)"
+            and sm["blocked"]["color"] != sm["ready"]["color"])
+
+
+@_covers("halted-state-carries-a-foreground", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             failed={k: v for k, v in c["state_meta"]["failed"].items()
+                     if k != "on"})},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     failed=dict(c["state_meta"]["failed"], color="var(--wait)"))}])
+def _c_halted_state_foreground(ctx):
+    """Halted is the one state the design fills solid, so it is the one state
+    that needs a foreground token to sit on top of that fill."""
+    failed, palette = ctx["state_meta"]["failed"], ctx["palette"]
+    return (failed["color"] == "var(--halt)"
+            and failed["soft"] == "var(--halt-soft)"
+            and failed.get("on") == "var(--on-halt)"
+            and "--halt" in palette and "--on-halt" in palette)
+
+
+@_covers("delivered-and-built-share-one-green", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], fill="solid"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], color="var(--accent)"))}])
+def _c_delivered_and_built_share_green(ctx):
+    """The sixth state costs no sixth colour: merged is filled, built-awaiting-
+    merge is outlined, and both are the same --green."""
+    sm = ctx["state_meta"]
+    return (sm["done"]["color"] == sm["built"]["color"] == "var(--green)"
+            and sm["done"]["fill"] == "solid" and sm["built"]["fill"] == "outline"
+            and {m.get("fill") for m in sm.values()} <= {"solid", "outline"}
+            and all("fill" in m for m in sm.values()))
+
+
+# --- one card treatment per engine state, including the forgotten one --------
+
+@_covers("every-engine-state-has-a-card", kind="behaviour",
+         breaks=[lambda c: {"state_meta": {k: v for k, v in c["state_meta"].items()
+                                           if k != "built"}},
+                 lambda c: {"engine_states": c["engine_states"] + ("skipped",)},
+                 lambda c: {"render": lambda s: c["render"](s).replace(
+                     ':key="it.id"', ':key="wi"')}])
+def _c_every_engine_state_has_a_card(ctx):
+    """Six states in, six cards out. A binder carrying one item in each engine
+    state puts six rows on the page, every one of them resolving its own
+    metadata entry rather than falling through to the ready fallback — which is
+    how `built` used to vanish. The loop that draws them filters nothing.
+
+    Source-level for the drawing: this reads the six rows off the state the page
+    inlines and reads the loop off the template. Nothing here runs Vue, so "six
+    cards are painted" is argued from the row count and an unfiltered keyed loop,
+    not observed."""
+    meta, states = ctx["state_meta"], ctx["engine_states"]
+    if set(meta) != set(states) or len(states) != 6:
+        return False
+    detail = [{"id": "i-" + s, "status": s, "title": "Item " + s,
+               "summary": "what " + s + " means"} for s in states]
+    seed = ctx["state"]["binders"][0]
+    binder = dict(seed, slug="s-every-state",
+                  items=dict(seed["items"], total=len(states), detail=detail))
+    page = ctx["render"](dict(ctx["state"], binders=[binder]))
+    rows = ((_inlined_state(page).get("binders") or [{}])[0]
+            .get("items", {}).get("detail", []))
+    if len(rows) != len(states) or {r.get("status") for r in rows} != set(states):
+        return False
+    cards = _tags_with(page, "data-kw-item")
+    if len(cards) != 1:
+        return False
+    attrs = _attrs(cards[0])
+    return ("w.items" in attrs.get("v-for", "") and attrs.get(":key") == "it.id"
+            and "v-if" not in attrs
+            and all(m.get("badge") in ctx["icons"] for m in meta.values()))
+
+
+@_covers("built-is-outlined-green-passed-is-filled", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], tint="var(--green-soft)"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     done=dict(c["state_meta"]["done"], border="var(--green)"))}])
+def _c_built_outlined_passed_filled(ctx):
+    """The two green treatments, read as ROLES off the metadata rather than off
+    a stylesheet: built takes the green on its BORDER and takes no fill; passed
+    takes the green as its FILL and leaves its border neutral. Same hue, weight
+    inverted — which is why the sixth state needed no sixth colour."""
+    sm = ctx["state_meta"]
+    done, built = sm["done"], sm["built"]
+    return (built["border"] == "var(--green)" and built["tint"] == "none"
+            and done["border"] == "var(--line)"
+            and done["tint"].startswith("var(--green")
+            and done["color"] == built["color"])
+
+
+@_covers("built-card-carries-no-green-fill", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], tint="var(--green-soft)"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], tint="var(--surface-2)"))}])
+def _c_built_card_no_green_fill(ctx):
+    """The single slip that would undo the whole distinction: give built BOTH a
+    green border and a green tint and it becomes passed with a heavier edge. So
+    green may appear in the built entry as the chip colour, the chip's soft
+    background and the card border — and nowhere as the card's fill, which
+    carries the literal no-fill value instead of a token."""
+    built = ctx["state_meta"]["built"]
+    green = {k for k, v in built.items()
+             if isinstance(v, str) and v.startswith("var(--green")}
+    return (built["tint"] == "none" and green == {"color", "soft", "border"}
+            and not _VAR_REF_RE.search(built["tint"]))
+
+
+@_covers("no-token-invented-for-the-built-state", kind="behaviour",
+         breaks=[lambda c: {"palette": dict(
+             c["palette"], **{"--built": {"light": "#000", "dark": "#fff"}})},
+                 lambda c: {"css": c["css"].replace("--green-soft:",
+                                                    "--built-soft:")}])
+def _c_no_token_for_built(ctx):
+    """The state the design forgot got a treatment, not a colour. Neither name
+    the palette would have had to grow exists anywhere — not in the token table,
+    not in either stylesheet — and every token the built card names is one the
+    palette already defined."""
+    palette, sheets = ctx["palette"], ctx["css"] + ctx["hub_css"]
+    for banned in ctx["built_forbidden"]:
+        if banned in palette or banned in sheets:
+            return False
+    built = ctx["state_meta"]["built"]
+    named = {m.group(1) for f in ("color", "soft", "border")
+             for m in _VAR_REF_RE.finditer(built[f])}
+    return bool(named) and named <= set(palette)
+
+
+@_covers("built-and-passed-separate-on-three-cues", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             built=dict(c["state_meta"]["built"], badge="check"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], word="PASSED"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"],
+                                border="var(--line)", tint="var(--green-soft)"))}])
+def _c_built_and_passed_three_cues(ctx):
+    """Fill-versus-outline is a weight difference, so it survives greyscale —
+    but it is deliberately not the only cue. The glyph and the state word each
+    tell built from passed on their own, so losing any one of the three still
+    leaves the pair readable.
+
+    Whether the two actually separate at a glance is perceptual and no gate can
+    answer it; this asserts the three cues EXIST and differ."""
+    sm, icons = ctx["state_meta"], ctx["icons"]
+    done, built = sm["done"], sm["built"]
+    roles = (done["border"], done["tint"]) != (built["border"], built["tint"])
+    glyphs = (done["badge"] != built["badge"]
+              and built["badge"] in icons
+              and icons[built["badge"]] != icons[done["badge"]])
+    return roles and glyphs and done["word"] != built["word"]
+
+
+# --- the five motions and how each one settles -------------------------------
+
+@_covers("five-keyframes-each-settle-under-reduced-motion", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace("@keyframes karta-draw{",
+                                                    "@keyframes zz-draw{")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-breathe")},
+                 lambda c: {"keyframes": dict(c["keyframes"],
+                                              **{"karta-nothing": "unstated"})}])
+def _c_five_keyframes_settle(ctx):
+    """Every motion the page ships is defined, is applied through a class of the
+    same name, and states what it does when the reader asks for reduced motion.
+    A spinner that ignores the preference is as much a defect as an alarm that
+    keeps blinking — so "none" is a stated behaviour, and so is "keeps going"."""
+    css, keyframes = ctx["css"], ctx["keyframes"]
+    reduced = _reduced_block(css)
+    if not reduced or not keyframes:
+        return False
+    for name, settling in keyframes.items():
+        if not settling.strip():
+            return False                      # a motion with no stated behaviour
+        if not _at_rule_body(css, "keyframes " + name):
+            return False
+        base = _decls_for(css, "." + name)
+        if not base or not any(_animates_with(d, name) for d in base):
+            return False                      # defined but applied by nothing
+        settled = _decls_for(reduced, "." + name)
+        if not settled:
+            return False                      # left running unconditionally
+        anim = _norm(settled[0].get("animation", ""))
+        if name == ctx["breathe_keyframe"]:
+            # the one motion that CONTINUES: a status page that stops signalling
+            # life reads as broken, and an opacity fade is not movement.
+            if not _animates_with(settled[0], name):
+                return False
+        elif anim != "none":
+            return False
+    return True
+
+
+@_covers("forced-theme-renders-the-whole-page", kind="behaviour",
+         breaks=[lambda c: {"render_themed": lambda s, t: c["render_themed"](s, "dark")},
+                 lambda c: {"render_themed": lambda s, t: _renamed(
+                     {"page": c["render_themed"](s, t)}, "data-kw-rail", "page")["page"]},
+                 lambda c: {"render_themed": lambda s, t: _renamed(
+                     {"page": c["render_themed"](s, t)}, "data-kw-band", "page")["page"]}])
+def _c_forced_theme_renders_whole_page(ctx):
+    """`?theme=light` and `?theme=dark` are how the page gets screenshotted, and
+    a forced render is a document nobody looks at until a screenshot comes back
+    wrong. So each one is checked for the WHOLE page, not just the attribute:
+    the theme actually lands on the root, and the rail, the band and the item
+    cards are all there — a forced theme must not be a thinner document than the
+    default one."""
+    render, state = ctx["render_themed"], ctx["state"]
+    for theme in ("light", "dark"):
+        doc = render(state, theme)
+        root = _tags_named(doc, "html")
+        if not root or _attrs(root[0]).get("data-theme") != theme:
+            return False
+        for hook in ("data-kw-shell", "data-kw-rail", "data-kw-band",
+                     "data-kw-item"):
+            if not _tags_with(doc, hook):
+                return False
+    return render(state, "light") != render(state, "dark")
+
+
+@_covers("not-found-is-plain-text-never-an-untokened-page", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'self._text(404, "not found", "text/plain")',
+             'self._html(404, render_app_html({}, "dark"))')},
+                 # one of the hub's two not-founds answering as markup: enough
+                 # to reopen the untokened-page surface, and easy to miss
+                 lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+                     'self._text(404, "not found", "text/plain")',
+                     'self._text(404, "not found", "text/html")', 1)},
+                 lambda c: {"repo_dispatch": "", "hub_dispatch": ""}])
+def _c_not_found_is_plain_text(ctx):
+    """The sweep's reading of "the 404 renders on the new tokens": there is no
+    404 PAGE, and that is the point.
+
+    Every not-found in both dispatchers answers as `text/plain`. A styled 404
+    would be an HTML surface reachable before authorisation — served to a wrong
+    Host, a bad token, a climbed asset path — and it is the one document nobody
+    would notice going stale through a restyle, because nobody looks at it until
+    something breaks. Holding it to plain text is stronger than holding it to the
+    palette: a document that carries no markup cannot carry stale markup. So the
+    check is that no 404 path ever renders a page, in either mode."""
+    sources = [ctx["repo_dispatch"], ctx["hub_dispatch"]]
+    if not all(src.strip() for src in sources):
+        return False
+    # Read the dispatchers as SYNTAX, not as text. Counting the characters "404"
+    # would make a comment that merely mentions a 404 fail the check — the kind
+    # of guard that gets weakened the first time it cries wolf.
+    for src in sources:
+        try:
+            tree = ast.parse(textwrap.dedent(src))
+        except SyntaxError:
+            return False
+        codes = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Constant) and n.value == 404]
+        plain = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and ast.unparse(n) == "self._text(404, 'not found', 'text/plain')"]
+        if not codes or len(plain) != len(codes):
+            return False
+    return True
+
+
+@_covers("browser-checklist-enumerates-what-no-check-can-prove", kind="behaviour",
+         breaks=[lambda c: {"browser_checklist": []},
+                 lambda c: {"browser_checklist": [dict(e, why="")
+                                                  for e in c["browser_checklist"]]},
+                 lambda c: {"browser_checklist": [dict(e, key="same")
+                                                  for e in c["browser_checklist"]]},
+                 lambda c: {"browser_checklist": [
+                     e for e in c["browser_checklist"]
+                     if "refresh" not in e["key"] and "reduced-motion" not in e["key"]
+                     and "palettes" not in e["key"]]}])
+def _c_browser_checklist_is_walkable(ctx):
+    """The gate has no browser, so the guarantees it cannot make are ENUMERATED
+    rather than left to be inferred from a passing count.
+
+    Every entry has to be walkable — a distinct name, an instruction naming what
+    a person actually does, and a stated reason no assertion can stand in for it.
+    A `why` left blank is the failure mode this guards: an entry with no reason
+    is a claim someone gave up on rather than a limit someone named.
+
+    The topic floor is the other half, and it is what the contract pins: the
+    walks the item was CHARTERED to produce have to be present, so shrinking the
+    list can never quietly drop the ones that matter most. The empty and degraded
+    states are on that floor because they are the pair this whole sweep exists
+    for — a checklist that skips them is the exact omission the item guards
+    against, and the first review of this list caught it missing."""
+    entries = ctx["browser_checklist"]
+    if not entries:
+        return False
+    keys = [e.get("key", "") for e in entries]
+    if len(set(keys)) != len(keys):
+        return False
+    for entry in entries:
+        if not all(entry.get(f, "").strip() for f in ("key", "walk", "why")):
+            return False
+        if len(entry["walk"].split()) < 8:      # a name, not an instruction
+            return False
+    joined = " ".join(keys)
+    return all(topic in joined for topic in
+               ("empty-and-degraded", "offline-snapshot", "palettes",
+                "reduced-motion", "refresh-off", "chevron"))
+
+
+@_covers("every-keyframe-settles-under-reduced-motion", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"] + "\n@keyframes karta-nudge{ to{ left:1px; } }"
+                                              "\n.nudge{ animation:karta-nudge 1s linear; }"},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".item__detail")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".phase__mark--pulse")},
+                 lambda c: {"keyframes_off_legend": {}}])
+def _c_every_keyframe_settles(ctx):
+    """The reduced-motion audit, scoped to what the STYLESHEET defines rather
+    than to a hand-kept list. `_c_five_keyframes_settle` above holds the design's
+    five motions to their vocabulary; this one holds the sheet to itself, and
+    that difference is the whole point — the five-motion check cannot see a sixth
+    keyframe, so a motion added outside the vocabulary would settle by convention
+    alone. Here every `@keyframes karta-*` the page ships must (a) be declared in
+    one of the two registries with a stated behaviour, and (b) have EVERY
+    selector that applies it answered in the reduced-motion block, so a motion
+    cannot be settled on its own class while a second element keeps it running.
+    """
+    css = ctx["css"]
+    stated = dict(ctx["keyframes"], **ctx["keyframes_off_legend"])
+    reduced = _reduced_block(css)
+    if not reduced:
+        return False
+    defined = set(re.findall(r"@keyframes\s+(karta-[\w-]+)", css))
+    if not defined or defined != set(stated):
+        return False                          # a motion in neither registry, or
+                                              # a registry entry with no keyframe
+    outside = css.replace(reduced, "")
+    for name in defined:
+        if not stated[name].strip():
+            return False                      # declared with no stated behaviour
+        applied = [sel for sel, decls in _css_rules(outside)
+                   if _animates_with(decls, name)]
+        if not applied:
+            return False                      # defined and applied by nothing
+        for sel in applied:
+            settled = _decls_for(reduced, sel)
+            if not settled or not settled[0].get("animation", "").strip():
+                return False                  # this element left running
+    return True
+
+
+@_covers("reduced-motion-keeps-halt-and-run-legible", kind="behaviour",
+         breaks=[lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
+                 lambda c: {"css": c["css"].replace(
+                     "opacity:1 !important; color:var(--halt) !important",
+                     "opacity:.45 !important; color:var(--mut) !important")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-spin")}])
+def _c_reduced_motion_urgency(ctx):
+    """Settling must not delete the signal. With motion removed, a halted item
+    still has to read as urgent — full-strength colour plus its icon, not a
+    dimmed ghost — and a running item still has to read as in progress."""
+    reduced = _reduced_block(ctx["css"])
+    alarm = _decls_for(reduced, ".karta-alarm")
+    spin = _decls_for(reduced, ".karta-spin")
+    if not alarm or not spin:
+        return False
+    a, s = alarm[0], spin[0]
+    return (_norm(a.get("animation", "")) == "none"
+            and _norm(a.get("opacity", "")) == "1"
+            and "var(--halt)" in _norm(a.get("color", ""))
+            and _norm(s.get("animation", "")) == "none"
+            and _norm(s.get("transform", "")) == "none"
+            and _norm(s.get("opacity", "")) == "1")
+
+
+@_covers("type-roles-bound-to-vendored-weights", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             "font-family:var(--serif); font-weight:500",
+             "font-family:var(--serif); font-weight:700")},
+                 lambda c: {"css": c["css"].replace(
+                     'font-family:var(--serif)', 'font-family:var(--mono)')},
+                 lambda c: {"css": c["css"].replace(
+                     "font-family:var(--sans); font-size:15px",
+                     "font-family:sans-serif; font-size:15px")}])
+def _c_type_roles_bound(ctx):
+    """Three families, three roles, and no rule asking for a weight the plugin
+    does not ship. A font-weight with no vendored file is a faux-bold the
+    browser synthesises — the page looks subtly wrong and nothing complains."""
+    css = ctx["css"]
+    roles = {}
+    for decls in _decls_for(css, ":root"):
+        for var, family in _ROLE_FAMILY.items():
+            if var in decls and decls[var].startswith('"' + family + '"'):
+                roles[var] = family
+    if set(roles) != set(_ROLE_FAMILY):
+        return False
+    if not any("var(--sans)" in d.get("font-family", "")
+               for d in _decls_for(css, "body")):
+        return False
+    used, vendored = set(), ctx["vendored_weights"]
+    for _sel, decls in _css_rules(css):
+        stack = decls.get("font-family", "")
+        var = next((v for v in _ROLE_FAMILY if "var(" + v + ")" in stack), None)
+        if var:
+            used.add(var)
+        # a rule with no family of its own inherits body's sans role
+        family = _ROLE_FAMILY[var] if var else (
+            _ROLE_FAMILY["--sans"] if not stack else None)
+        weight = decls.get("font-weight", "").strip()
+        if family and weight.isdigit() and int(weight) not in vendored[family]:
+            return False
+    return used == set(_ROLE_FAMILY)
+
+
+@_covers("reduced-motion-breathes", kind="rendered", hook="data-kw-feed-dot",
+         breaks=[lambda c: _renamed(c, "data-kw-feed-dot", "page"),
+                 lambda c: {"css": c["css"].replace(BREATHE_KEYFRAME, "karta-frozen")},
+                 lambda c: {"css": _frozen_reduced_motion(c["css"])}])
+def _c_reduced_motion_breathes(ctx):
+    css, keyframe = ctx["css"], ctx["breathe_keyframe"]
+    tags = _tags_with(ctx["page"], "data-kw-feed-dot")
+    if len(tags) != 1:
+        return False
+    dot = "." + _attrs(tags[0]).get("class", "")
+    base = _decls_for(css, dot)
+    if not base or not any(_animates_with(d, keyframe) for d in base):
+        return False
+    if not _at_rule_body(css, "keyframes " + keyframe):
+        return False
+    reduced = _at_rule_body(css, "prefers-reduced-motion")
+    if not reduced:
+        return False
+    for sel, decls in _css_rules(reduced):
+        anim = _norm(decls.get("animation", ""))
+        named = [s.strip() for s in sel.split(",")]
+        if dot in named and (not anim or anim == "none"):
+            return False        # the live status indicator was frozen outright
+        if anim and anim != "none" and not _animates_with(decls, keyframe):
+            return False        # a status indicator degraded to some other motion
+    return True
+
+
+@_covers("show-delivered-aria-pressed", kind="rendered",
+         hook="data-kw-show-delivered",
+         breaks=[lambda c: _renamed(c, "data-kw-show-delivered", "page")])
+def _c_show_delivered_aria_pressed(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-show-delivered")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return ("showDelivered" in attrs.get(":aria-pressed", "")
+            and ":aria-expanded" not in attrs
+            and attrs.get("@click") == "toggleShowDelivered")
+
+
+@_covers("show-delivered-persistence-key", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("karta-show-delivered", "x")}])
+def _c_show_delivered_key(ctx):
+    app = ctx["app_src"]
+    return ("localStorage.getItem('karta-show-delivered')" in app
+            and "localStorage.setItem('karta-show-delivered'" in app)
+
+
+# --- the per-binder panel: progress, counts, wave steps, footer meta ---------
+#
+# The panel model is a Python twin driven by direct call over fixtures, so
+# "three dependency depths render three step headers" is PROVEN rather than
+# argued from the template. What source inspection still carries is the last
+# hop: that the template binds the twin's fields and does not filter them.
+
+
+def _panel_binder(ctx: dict, detail: list[dict], **over) -> dict:
+    """A binder row carrying `detail` as its work items, counts kept honest."""
+    seed = ctx["state"]["binders"][0]
+    items = dict(seed["items"], total=len(detail), detail=detail)
+    for state in ctx["count_order"]:
+        items[state] = sum(1 for row in detail if row.get("status") == state)
+    items["done"] = sum(1 for row in detail if row.get("status") == "done")
+    return dict(seed, slug="s-panel", items=items, **over)
+
+
+# a,b at depth 0; c behind a; d behind c — three depths, sizes 2 / 1 / 1
+_PANEL_DETAIL = [{"id": "a", "status": "done", "deps": []},
+                 {"id": "b", "status": "done", "deps": []},
+                 {"id": "c", "status": "building", "deps": ["a"]},
+                 {"id": "d", "status": "blocked", "deps": ["c"]}]
+
+
+@_covers("binder-header-states-its-phase", kind="rendered",
+         hook="data-kw-binder-eyebrow",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-eyebrow", "page"),
+                 lambda c: {"app_src": c["app_src"].replace("eyebrow: meta.phrase",
+                                                            "eyebrow: ''")},
+                 lambda c: {"phase_meta": {k: {x: y for x, y in v.items()
+                                               if x != "phrase"}
+                                           for k, v in c["phase_meta"].items()}}])
+def _c_binder_header_eyebrow(ctx):
+    """Where a binder stands, said in words above its headline. The wording is
+    the PHASE's own phrase — the same one the timeline row uses — so the eyebrow
+    and the gutter mark can never disagree, and every phase has one."""
+    tags = _tags_with(ctx["page"], "data-kw-binder-eyebrow")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return ("eyebrow: meta.phrase" in ctx["app_src"]
+            and "b.color" in attrs.get(":style", "")
+            and all(m.get("phrase") for m in ctx["phase_meta"].values()))
+
+
+@_covers("binder-progress-is-the-finished-share", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             progress=dict(c["binder_panel"](b, s)["progress"],
+                           pct=100, fill_w="100%"))},
+                 lambda c: _renamed(c, "data-kw-binder-fill", "page"),
+                 lambda c: _renamed(c, "data-kw-binder-progress", "page")])
+def _c_binder_progress_share(ctx):
+    """The bar's filled proportion IS finished-over-total, driven by direct call
+    over a binder at nothing, part-way and all done — and a binder with no runs
+    at all, which reads 0% instead of dividing by zero. The template's fill then
+    takes its width from that same number, so the picture cannot drift from the
+    count printed beside it."""
+    done_row = {"id": "x", "status": "done", "deps": []}
+    todo_row = {"id": "y", "status": "ready", "deps": []}
+    cases = [([], 0), ([todo_row], 0), ([done_row], 100),
+             ([done_row, todo_row], 50),
+             ([done_row, dict(todo_row, id="z"), dict(todo_row, id="w")], 33)]
+    for detail, want in cases:
+        rows = [dict(r, id=r["id"] + str(i)) for i, r in enumerate(detail)]
+        prog = ctx["binder_panel"](_panel_binder(ctx, rows), ctx["state"])["progress"]
+        if prog["pct"] != want or prog["fill_w"] != str(want) + "%":
+            return False
+        if prog["done"] > prog["total"]:
+            return False
+    fill = _tags_with(ctx["page"], "data-kw-binder-fill")
+    track = _tags_with(ctx["page"], "data-kw-binder-progress")
+    if len(fill) != 1 or len(track) != 1:
+        return False
+    return ("b.fillW" in _attrs(fill[0]).get(":style", "")
+            and "b.countLabel" in _attrs(track[0]).get(":aria-label", ""))
+
+
+@_covers("progress-track-hatches-the-unrun-share", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             "repeating-linear-gradient", "linear-gradient")},
+                 lambda c: {"css": c["css"].replace("background-image:none;", "")}])
+def _c_progress_track_hatched(ctx):
+    """Work not yet run is drawn as hatched ground, not as blank bar — so a
+    binder at 0% still reads as a plan. The hatch belongs to the TRACK; the fill
+    explicitly clears it, because a hatched fill over a hatched track would
+    erase the very boundary the bar exists to show.
+
+    Static geometry with no animation, so reduced motion has nothing to settle
+    here. Whether the two actually separate at a glance is perceptual and no
+    gate can answer it — this asserts the treatments exist and differ."""
+    track = _decls_for(ctx["css"], ".binder__bar")
+    fill = _decls_for(ctx["css"], ".binder__fill")
+    if not track or not fill:
+        return False
+    hatched = [d for d in track
+               if "repeating-linear-gradient" in d.get("background-image", "")]
+    cleared = [d for d in fill if _norm(d.get("background-image", "")) == "none"]
+    animated = [d for d in track + fill if "animation" in d]
+    return bool(hatched) and bool(cleared) and not animated
+
+
+@_covers("counts-row-totals-the-cards-below-it", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s), counts=c["binder_panel"](b, s)["counts"][:1])},
+                 lambda c: {"binder_panel": lambda b, s: dict(
+                     c["binder_panel"](b, s),
+                     counts=[dict(e, n=e["n"] + 1)
+                             for e in c["binder_panel"](b, s)["counts"]])},
+                 lambda c: _renamed(c, "data-kw-binder-counts", "page"),
+                 lambda c: _renamed(c, "data-kw-count", "page")])
+def _c_counts_row_totals(ctx):
+    """The row's numbers add up to the cards drawn under it — including BUILT,
+    the state whose card this binder's predecessor item added. Driven by direct
+    call: the tally per state equals the detail rows in that state, and the sum
+    equals the number of rows the page will draw one card each for.
+
+    Source-level for "one card per row": the cards loop is unfiltered and keyed
+    on the work-item id (its own registered behaviour), so the row count IS the
+    card count. Nothing here runs Vue."""
+    detail = [{"id": "i-" + s, "status": s, "deps": []}
+              for s in ctx["engine_states"]] + [{"id": "extra", "status": "done",
+                                                 "deps": []}]
+    panel = ctx["binder_panel"](_panel_binder(ctx, detail), ctx["state"])
+    counts = panel["counts"]
+    if sum(e["n"] for e in counts) != len(detail):
+        return False
+    for entry in counts:
+        want = sum(1 for row in detail if row["status"] == entry["key"])
+        if entry["n"] != want or entry["word"] != ctx["state_meta"][entry["key"]]["word"]:
+            return False
+    if {e["key"] for e in counts} != set(ctx["engine_states"]):
+        return False
+    row = _tags_with(ctx["page"], "data-kw-binder-counts")
+    cell = _tags_with(ctx["page"], "data-kw-count")
+    if len(row) != 1 or len(cell) != 1:
+        return False
+    return ("b.counts" in _attrs(cell[0]).get("v-for", "")
+            and _attrs(cell[0]).get(":key") == "c.key")
+
+
+@_covers("counts-row-omits-a-zero", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             counts=[{"key": k, "n": 0, "word": "X", "color": "", "soft": "",
+                      "halted": False} for k in c["count_order"]])},
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="b.counts.length"', "")}])
+def _c_counts_row_omits_a_zero(ctx):
+    """A state with no runs contributes NO cell — absence is the statement, and
+    a row of zeroes would bury the one or two numbers that matter. A binder with
+    no runs at all renders no row rather than an empty strip, which is what the
+    row's own v-if is for."""
+    only_done = [{"id": "a", "status": "done", "deps": []}]
+    counts = ctx["binder_panel"](_panel_binder(ctx, only_done),
+                                 ctx["state"])["counts"]
+    if [e["key"] for e in counts] != ["done"] or counts[0]["n"] != 1:
+        return False
+    empty = ctx["binder_panel"](_panel_binder(ctx, []), ctx["state"])["counts"]
+    if empty:
+        return False
+    cell = _tags_with(ctx["page"], "data-kw-count")
+    row = _tags_with(ctx["page"], "data-kw-binder-counts")
+    if len(cell) != 1 or len(row) != 1:
+        return False
+    return (_attrs(cell[0]).get(":data-kw-count-state") == "c.key"
+            and "b.counts" in _attrs(row[0]).get("v-if", ""))
+
+
+@_covers("counts-row-covers-every-engine-state", kind="behaviour",
+         breaks=[lambda c: {"count_order": tuple(s for s in c["count_order"]
+                                                 if s != "built")},
+                 lambda c: {"engine_states": c["engine_states"] + ("skipped",)},
+                 lambda c: {"count_order": c["count_order"] + ("done",)}])
+def _c_counts_row_covers_every_state(ctx):
+    """The row's reading order names every engine state exactly once. A state
+    missing here would be counted nowhere while its cards still rendered, so the
+    row would silently total less than the cards below it — the same failure
+    mode that lost the built state its card."""
+    order = list(ctx["count_order"])
+    return (len(order) == len(set(order)) == len(ctx["engine_states"])
+            and set(order) == set(ctx["engine_states"])
+            and all(s in ctx["state_meta"] for s in order)
+            and list(ctx["panel_inlined"]["count_order"]) == order)
+
+
+@_covers("wave-step-header-per-dependency-depth", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s), steps=c["binder_panel"](b, s)["steps"][:1])},
+                 lambda c: {"binder_panel": lambda b, s: dict(
+                     c["binder_panel"](b, s),
+                     steps=[dict(e, position="step") for e in
+                            c["binder_panel"](b, s)["steps"]])},
+                 lambda c: _renamed(c, "data-kw-wave-step", "page"),
+                 lambda c: _renamed(c, "data-kw-wave-step-position", "page")])
+def _c_wave_step_per_depth(ctx):
+    """One step header per dependency depth, each stating where it sits AND how
+    many steps there are — because once a header is stuck to the top of the
+    viewport its neighbours have scrolled away and "step 2" alone says nothing.
+
+    Driven by direct call over a four-item binder whose depends_on chain is
+    three deep. Grouping stays dependency-depth only; grouping by serialization
+    is a separate, flagged item and nothing here reads `serialize`."""
+    panel = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL), ctx["state"])
+    steps, waves = panel["steps"], panel["waves"]
+    if len(waves) != 3 or len(steps) != 3:
+        return False
+    for i, step in enumerate(steps):
+        if step["numeral"] != str(i + 1):
+            return False
+        if step["position"] != "step %d of %d" % (i + 1, len(steps)):
+            return False
+    if "serialize" in json.dumps(steps):
+        return False
+    head = _tags_with(ctx["page"], "data-kw-wave-step")
+    numeral = _tags_with(ctx["page"], "data-kw-wave-step-numeral")
+    pos = _tags_with(ctx["page"], "data-kw-wave-step-position")
+    if len(head) != 1 or len(numeral) != 1 or len(pos) != 1:
+        return False
+    return ("w.step" in _text_in(ctx["page"], "data-kw-wave-step-position")
+            and "w.step" in _text_in(ctx["page"], "data-kw-wave-step-numeral"))
+
+
+@_covers("wave-step-count-matches-its-depth", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             steps=[dict(e, n=1, count_label="1 run") for e in
+                    c["binder_panel"](b, s)["steps"]])},
+                 lambda c: _renamed(c, "data-kw-wave-step-count", "page")])
+def _c_wave_step_count(ctx):
+    """Each header's run count is the number of items actually at that depth —
+    not the binder's total, and not the wave above it. Singular and plural are
+    both spelled, so a one-run step does not read "1 runs"."""
+    panel = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL), ctx["state"])
+    steps, waves = panel["steps"], panel["waves"]
+    at_depth = [len(w) for w in waves]
+    if at_depth != [2, 1, 1] or [s["n"] for s in steps] != at_depth:
+        return False
+    for step in steps:
+        word = "run" if step["n"] == 1 else "runs"
+        if step["count_label"] != "%d %s" % (step["n"], word):
+            return False
+    count = _tags_with(ctx["page"], "data-kw-wave-step-count")
+    return (len(count) == 1
+            and "w.step" in _text_in(ctx["page"], "data-kw-wave-step-count"))
+
+
+def _waves_unguarded(items: list[dict]) -> list[list[dict]]:
+    """A deliberately unguarded wavesOf: an unresolvable dependency still adds a
+    depth, and a cycle is only stopped by a recursion limit. The known-bad input
+    `_c_wave_guards_are_exercised` is proved against — without it the check would
+    pass on a grouping that never had the guards at all."""
+    depth = {it["id"]: 0 for it in items}
+    for it in items:
+        depth[it["id"]] = len(it.get("deps") or [])
+    out = [[it for it in items if depth[it["id"]] == d]
+           for d in range(max(depth.values(), default=-1) + 1)]
+    return [w for w in out if w]
+
+
+@_covers("wave-grouping-survives-a-cycle-and-a-foreign-dependency",
+         kind="behaviour",
+         breaks=[lambda c: {"waves_of": _waves_unguarded},
+                 # every item in its own wave: a foreign dependency has been let
+                 # add a depth, so two independent items no longer run together
+                 lambda c: {"waves_of": lambda items: [[it] for it in items]},
+                 # a guard that drops the item it stopped at instead of zeroing it
+                 lambda c: {"waves_of": lambda items: [items[:1]]},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (seen[it.id]) return 0; seen[it.id] = true;", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (byId[dep])", "if (true)")}])
+def _c_wave_guards_are_exercised(ctx):
+    """The two guards inside the wave grouping, driven by direct call rather than
+    left to a fixture that happens never to hit them.
+
+    A binder can carry a dependency naming an item that is not in it (an `after:`
+    predecessor, a hand-edited binder), and a malformed binder can carry a cycle.
+    Neither is the page's to diagnose — but neither may cost the reader the map:
+    a foreign dependency adds no depth, and a cycle stops at the item it re-enters
+    instead of recursing until the interpreter gives up. Both fixtures assert the
+    stronger property too: every item still appears exactly once, so a guard can
+    never quietly drop a work item off the panel."""
+    waves_of = ctx["waves_of"]
+
+    foreign = [{"id": "a", "deps": []},
+               {"id": "b", "deps": ["planned-in-another-binder"]}]
+    grouped = waves_of(foreign)
+    if [[it["id"] for it in w] for w in grouped] != [["a", "b"]]:
+        return False                          # a dep off the binder added depth
+
+    cyclic = [{"id": "x", "deps": ["y"]}, {"id": "y", "deps": ["x"]}]
+    grouped = waves_of(cyclic)
+    flat = [it["id"] for w in grouped for it in w]
+    if sorted(flat) != ["x", "y"] or len(grouped) > len(cyclic):
+        return False                          # an item lost, or depth ran away
+
+    # and the browser's twin carries the same two guards, since the panel a
+    # reader actually sees is grouped by wavesOf() and not by this function.
+    js = _js_block(ctx["app_src"], "function wavesOf(items) {")
+    return "if (seen[it.id]) return 0;" in js and "if (byId[dep])" in js
+
+
+@_covers("wave-lane-glyph-has-an-accessible-label", kind="rendered",
+         hook="data-kw-wave-lane-glyph",
+         breaks=[lambda c: _renamed(c, "data-kw-wave-lane-glyph", "page"),
+                 lambda c: _renamed(c, "data-kw-wave-lane", "page"),
+                 lambda c: _renamed(c, "data-kw-wave-step-label", "page"),
+                 lambda c: {"lanes": {k: dict(v, label="a step")
+                                      for k, v in c["lanes"].items()}}])
+def _c_wave_lane_accessible_label(ctx):
+    """A numeral cannot say whether a step's runs go at once or one after
+    another — the lane glyph does, and a glyph is nothing to a screen reader
+    unless it is labelled. So the glyph is an image with an accessible name
+    naming the lane, the two lanes are named differently, and the visible copy
+    beside it repeats that name and is therefore hidden from assistive tech
+    rather than announced twice.
+
+    Source-level: this reads the accessible name off the rendered template, not
+    off an accessibility tree — no browser is involved, so the announcement
+    itself is on the human browser checklist."""
+    glyph = _tags_with(ctx["page"], "data-kw-wave-lane-glyph")
+    head = _tags_with(ctx["page"], "data-kw-wave-lane")
+    label = _tags_with(ctx["page"], "data-kw-wave-step-label")
+    if len(glyph) != 1 or len(head) != 1 or len(label) != 1:
+        return False
+    gattrs, hattrs = _attrs(glyph[0]), _attrs(head[0])
+    if gattrs.get("role") != "img" or "lane_label" not in gattrs.get(":aria-label", ""):
+        return False
+    if hattrs.get(":data-kw-wave-lane") != "w.step.lane":
+        return False
+    if _attrs(label[0]).get("aria-hidden") != "true":
+        return False
+    lanes = ctx["lanes"]
+    labels = {k: v["label"] for k, v in lanes.items()}
+    if len(set(labels.values())) != len(labels):
+        return False
+    if "at once" not in labels["parallel"] or "in turn" not in labels["serial"]:
+        return False
+    return all(v["icon"] in ctx["icons"] and v["key"] == k
+               for k, v in lanes.items())
+
+
+@_covers("wave-step-header-sticks-under-the-page-header", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(".step{", ".step-x{")},
+                 lambda c: {"css": c["css"].replace(
+                     "background:var(--surface-2); border-bottom", "border-bottom")}])
+def _c_wave_step_sticky(ctx):
+    """The step header parks directly under the page header — the same offset
+    the map rail sticks at, so the two agree — and paints its own ground,
+    because a header stuck over scrolling cards with a transparent background is
+    unreadable. The binder's own anchor offset is left alone, so a rail card's
+    jump still lands clear of the header it scrolls beneath."""
+    step = _decls_for(ctx["css"], ".step")
+    rail = _decls_for(ctx["css"], ".rail")
+    binder = _decls_for(ctx["css"], ".binder")
+    if not step or not rail or not binder:
+        return False
+    stuck = [d for d in step if _norm(d.get("position", "")) == "sticky"]
+    if not stuck:
+        return False
+    tops = {_norm(d.get("top", "")) for d in stuck}
+    rail_tops = {_norm(d.get("top", "")) for d in rail
+                 if _norm(d.get("position", "")) == "sticky"}
+    if not tops or tops != rail_tops:
+        return False
+    if not any(d.get("background") for d in stuck):
+        return False
+    return any(d.get("scroll-margin-top") for d in binder)
+
+
+@_covers("binder-meta-names-the-real-integration-branch", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: dict(
+             c["binder_panel"](b, s),
+             meta=[dict(e, value="integration/x") for e in
+                   c["binder_panel"](b, s)["meta"]])},
+                 lambda c: {"binder_panel": lambda b, s: dict(
+                     c["binder_panel"](b, s),
+                     meta=[e for e in c["binder_panel"](b, s)["meta"]
+                           if e["key"] != "default"])},
+                 lambda c: _renamed(c, "data-kw-binder-meta", "page"),
+                 lambda c: _renamed(c, "data-kw-meta-entry", "page")])
+def _c_binder_meta_branches(ctx):
+    """The footer states the two branches this binder actually runs on: the
+    repository's default branch as the engine derived it, and karta's REAL
+    integration branch for this slug — the design's placeholder branch text is
+    mock content, and a chip naming a branch nobody could check out would be
+    worse than no chip. Spelled with the same format string the header chip
+    uses, so the two can never drift apart. No git call: both are string
+    formatting over facts the feed already carries."""
+    binder = _panel_binder(ctx, _PANEL_DETAIL, sme=["alpha-pack"])
+    meta = ctx["binder_panel"](binder, ctx["state"])["meta"]
+    by_key = {e["key"]: e for e in meta}
+    if set(by_key) != {"default", "integration", "packs"}:
+        return False
+    want = ctx["integration_fmt"].format(slug=binder["slug"])
+    if by_key["integration"]["value"] != want or binder["slug"] not in want:
+        return False
+    if by_key["default"]["value"] != ctx["state"]["repo"]["default_branch"]:
+        return False
+    labels = ctx["panel_meta_labels"]
+    if [by_key[k]["label"] for k in ("default", "integration", "packs")] != [
+            labels["default"], labels["integration"], labels["packs"]]:
+        return False
+    bar = _tags_with(ctx["page"], "data-kw-binder-meta")
+    entry = _tags_with(ctx["page"], "data-kw-meta-entry")
+    if len(bar) != 1 or len(entry) != 1:
+        return False
+    return (_attrs(entry[0]).get(":data-kw-meta-key") == "m.key"
+            and "b.meta" in _attrs(entry[0]).get("v-for", ""))
+
+
+@_covers("binder-meta-omits-an-empty-pack-list", kind="behaviour",
+         breaks=[lambda c: {"binder_panel": lambda b, s: (
+             lambda p: dict(p, meta=p["meta"] + [{"key": "packs",
+                                                  "label": "packs",
+                                                  "value": ""}])
+         )(c["binder_panel"](b, s))},
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="b.meta.length"', "")}])
+def _c_binder_meta_omits_empty_packs(ctx):
+    """A binder pinning no stack packs gets no packs entry — not an entry with
+    nothing after its label. The list the feed carries is the whole input: a
+    binder that declares `sme` gets it listed, a binder that does not gets one
+    fewer slot, and the bar itself disappears when it has nothing at all."""
+    bare = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL),
+                               ctx["state"])["meta"]
+    if any(e["key"] == "packs" for e in bare):
+        return False
+    if any(not e["value"] for e in bare):
+        return False
+    packed = ctx["binder_panel"](
+        _panel_binder(ctx, _PANEL_DETAIL, sme=["alpha-pack", "beta-pack"]),
+        ctx["state"])["meta"]
+    packs = [e for e in packed if e["key"] == "packs"]
+    if len(packs) != 1 or "beta-pack" not in packs[0]["value"]:
+        return False
+    nothing = ctx["binder_panel"]({"slug": "", "sme": [], "items": {}},
+                                  {"repo": {}})["meta"]
+    if nothing:
+        return False
+    bar = _tags_with(ctx["page"], "data-kw-binder-meta")
+    return len(bar) == 1 and "b.meta" in _attrs(bar[0]).get("v-if", "")
+
+
+# --- the map rail ------------------------------------------------------------
+
+@_covers("rail-two-column-shell", kind="rendered", hook="data-kw-split",
+         breaks=[lambda c: _renamed(c, "data-kw-split", "page"),
+                 lambda c: _renamed(c, "data-kw-main", "page"),
+                 lambda c: {"css": c["css"].replace(
+                     ".wrap--repo{ max-width:1440px; }", "")}])
+def _c_rail_two_column_shell(ctx):
+    """The shell is a grid of two columns — the rail first, then the main
+    column — capped at the design's maximum width. The cap is a MODIFIER: the
+    hub landing shares the wrapper class and keeps its own narrower measure."""
+    page, css = ctx["page"], ctx["css"]
+    if len(_tags_with(page, "data-kw-split")) != 1:
+        return False
+    grid = _decls_for(css, ".split")
+    if not grid or _norm(grid[0].get("display", "")) != "grid":
+        return False
+    if len(_norm(grid[0].get("grid-template-columns", "")).split()) != 2:
+        return False
+    caps = [_norm(d.get("max-width", "")) for d in _decls_for(css, ".wrap--repo")]
+    return (_first_index(page, "data-kw-split")
+            < _first_index(page, "data-kw-rail")
+            < _first_index(page, "data-kw-main")
+            and len(caps) == 1 and caps[0].endswith("px")
+            and not _decls_for(ctx["hub_css"], ".wrap--repo"))
+
+
+@_covers("rail-region", kind="rendered", hook="data-kw-rail",
+         breaks=[lambda c: _renamed(c, "data-kw-rail", "page"),
+                 lambda c: _renamed(c, "data-kw-rail-legend", "page")])
+def _c_rail_region(ctx):
+    """The map is ONE region, in reading order: its title, then the groups, then
+    the legend that says what the movement in it means. It is a landmark element
+    with a name, so a screen reader can jump to the map and skip it again."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-rail")
+    if len(tags) != 1 or _tag_name(tags[0]) != "aside":
+        return False
+    attrs = _attrs(tags[0])
+    at = _first_index(page, "data-kw-rail")
+    order = [_first_index(page, h) for h in ("data-kw-rail-title",
+                                             "data-kw-rail-group",
+                                             "data-kw-rail-legend")]
+    return (all(i > at for i in order) and order == sorted(order)
+            and attrs.get("v-if") == "hasBinders"
+            and bool(attrs.get("aria-label", "").strip()))
+
+
+@_covers("rail-group-order", kind="rendered", hook="data-kw-rail-group",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-group", "page"),
+                 lambda c: {"phase_defs": list(reversed(c["phase_defs"]))},
+                 lambda c: {"page": c["page"].replace('v-for="g in railGroups"',
+                                                      'v-for="g in phases"')}])
+def _c_rail_group_order(ctx):
+    """Four groups, one order — delivered, now, next, later — driven off the SAME
+    phase definitions the timeline below uses, so the map and the panel can never
+    disagree about where a binder stands."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-rail-group")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    defs = ctx["phase_defs"]
+    grouped = ctx["rail_groups"](ctx["state"]["binders"], True)
+    return (attrs.get("v-for") == "g in railGroups"
+            and attrs.get(":data-kw-rail-group-key") == "g.key"
+            and [d["key"] for d in defs] == ["past", "now", "next", "later"]
+            and [d["label"] for d in defs] == ["Delivered", "Now", "Next", "Later"]
+            and [g["key"] for g in grouped] == [d["key"] for d in defs]
+            and [g["label"] for g in grouped] == [d["label"] for d in defs])
+
+
+@_covers("rail-binder-cards", kind="rendered", hook="data-kw-rail-card",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-card", "page"),
+                 lambda c: _renamed(c, "data-kw-rail-progress", "page"),
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, cards=list(g["cards"]) * 2) for g in rail_groups(b, s)]}])
+def _c_rail_binder_cards(ctx):
+    """Every binder in the feed gets ONE card, under the group its phase maps to
+    and never under two. Each card carries its progress, and each is a plain
+    anchor into that binder's own card below — no click handler, so the map
+    still navigates in a saved file:// copy."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-rail-card")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    if (attrs.get("v-for") != "c in g.cards"
+            or attrs.get(":data-kw-rail-card-slug") != "c.slug"
+            or _first_index(page, "data-kw-rail-progress")
+            < _first_index(page, "data-kw-rail-card")):
+        return False
+    live = ctx["state"]["binders"]
+    binders = live + [dict(live[0], slug="s-old", status="merged", title=None)]
+    placed = [(g["key"], c["slug"])
+              for g in ctx["rail_groups"](binders, True) for c in g["cards"]]
+    by_slug = {slug: key for key, slug in placed}
+    return (len(placed) == len(binders)
+            and sorted(by_slug) == sorted(b["slug"] for b in binders)
+            and by_slug["s-old"] == "past")
+
+
+@_covers("rail-in-flight-dot-breathes", kind="rendered", hook="data-kw-rail-dot",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-dot", "page"),
+                 lambda c: {"css": c["css"].replace(BREATHE_KEYFRAME, "karta-frozen")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "'rail__dot--' + d.key", "''")}])
+def _c_rail_dot_breathes(ctx):
+    """The rail's one moving part is the dot beside the binder in flight, and it
+    breathes on the same keyframe the rest of the page signals life with — one
+    motion for "this is alive", not a second dialect in the margin. Which group
+    that is comes from the phase metadata, not from a name typed here twice."""
+    page, css = ctx["page"], ctx["css"]
+    tags = _tags_with(page, "data-kw-rail-dot")
+    if len(tags) != 1:
+        return False
+    if _attrs(tags[0]).get(":data-kw-rail-dot-key") != "g.key":
+        return False
+    if "rail__dot--" not in ctx["app_src"]:
+        return False
+    pulsing = [d["key"] for d in ctx["phase_defs"]
+               if ctx["phase_meta"][d["key"]]["pulse"]]
+    if len(pulsing) != 1:
+        return False
+    decls = _decls_for(css, ".rail__dot--" + pulsing[0])
+    return bool(decls) and any(_animates_with(d, ctx["breathe_keyframe"])
+                               for d in decls)
+
+
+@_covers("rail-motion-legend", kind="rendered", hook="data-kw-rail-legend",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-legend", "page"),
+                 lambda c: _renamed(c, "data-kw-rail-legend-entry", "page"),
+                 lambda c: {"rail_legend": [e for e in c["rail_legend"]
+                                            if e["motion"] != "karta-spin"]},
+                 lambda c: {"keyframes": dict(c["keyframes"],
+                                              **{"karta-nothing": "unstated"})}])
+def _c_rail_motion_legend(ctx):
+    """The page says things with movement, so it writes down what the movement
+    means — and the legend is held to the keyframes: every motion the page ships
+    has an entry, and no entry claims a motion the page does not ship. The
+    entries explaining a static SHAPE carry no keyframe and are exempt."""
+    page = ctx["page"]
+    if len(_tags_with(page, "data-kw-rail-legend")) != 1:
+        return False
+    entry = _tags_with(page, "data-kw-rail-legend-entry")
+    if len(entry) != 1:
+        return False
+    attrs = _attrs(entry[0])
+    if (attrs.get("v-for") != "l in legend"
+            or attrs.get(":data-kw-rail-legend-key") != "l.key"):
+        return False
+    legend = ctx["rail_legend"]
+    motions = [e["motion"] for e in legend if e["motion"]]
+    keys = [e["key"] for e in legend]
+    return (bool(legend) and set(motions) == set(ctx["keyframes"])
+            and len(motions) == len(set(motions))
+            and len(keys) == len(set(keys))
+            and all(e["text"].strip() and e["swatch"].strip() for e in legend))
+
+
+@_covers("rail-holds-the-delivered-toggle", kind="rendered",
+         hook="data-kw-show-delivered",
+         breaks=[lambda c: _renamed(c, "data-kw-show-delivered", "page"),
+                 lambda c: {"page": c["page"].replace('v-if="g.collapsible"',
+                                                      'v-if="true"')}])
+def _c_rail_delivered_toggle(ctx):
+    """The show-delivered toggle lives in the rail, inside the very group it
+    reveals, and is gated on that group being the collapsible one — so it can
+    never be rendered against a group it does not control. It keeps its pressed
+    state and its handler, and it sits between the map and the legend."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-show-delivered")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    at = _first_index(page, "data-kw-show-delivered")
+    return (attrs.get("v-if") == "g.collapsible"
+            and "showDelivered" in attrs.get(":aria-pressed", "")
+            and attrs.get("@click") == "toggleShowDelivered"
+            and _first_index(page, "data-kw-rail") < at
+            < _first_index(page, "data-kw-rail-legend"))
+
+
+@_covers("rail-delivered-group-hides-its-cards", kind="behaviour",
+         breaks=[lambda c: {"rail_groups": lambda b, s: rail_groups(b, True)},
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, count=0) if g["collapsible"] else g
+                     for g in rail_groups(b, s)]}])
+def _c_rail_delivered_hidden(ctx):
+    """Hidden means no delivered CARD in the rail — but the group header and its
+    count stay, or the toggle that reveals them would be hiding itself. Shown
+    means every archived binder is back, whatever route its bytes took to the
+    page: the rail reads the joined rows, never the payload they arrived in."""
+    live = list(ctx["state"]["binders"])
+    archived = [dict(live[0], slug="s-arch-%d" % i, status="merged",
+                     title=None, archived=True) for i in range(3)]
+    both = live + archived
+    hidden = ctx["rail_groups"](both, False)
+    shown = ctx["rail_groups"](both, True)
+    folded = [g for g in hidden if g["collapsible"]]
+    opened = [g for g in shown if g["collapsible"]]
+    if len(folded) != 1 or len(opened) != 1:
+        return False
+    return (folded[0]["cards"] == []
+            and folded[0]["count"] == len(archived) == opened[0]["count"]
+            and sorted(c["slug"] for c in opened[0]["cards"])
+            == sorted(b["slug"] for b in archived)
+            and [c["slug"] for g in hidden for c in g["cards"]]
+            == [c["slug"] for g in shown for c in g["cards"] if not g["collapsible"]])
+
+
+@_covers("rail-title-falls-back-to-title-case", kind="behaviour",
+         breaks=[lambda c: {"title_case": lambda s: str(s or "")},
+                 lambda c: {"app_src": c["app_src"].replace("titleCase(b.slug)",
+                                                            "b.slug")}])
+def _c_rail_title_fallback(ctx):
+    """A binder with no human title is still named: its kebab slug rendered in
+    title case, by the same rule in both runtimes."""
+    title_case = ctx["title_case"]
+    if title_case("note-tags-edit") != "Note Tags Edit":
+        return False
+    if title_case("") or title_case(None) or title_case("a--b") != "A B":
+        return False
+    row = dict(ctx["state"]["binders"][0], slug="watch-map-rail", title=None)
+    named = [c["title"] for g in ctx["rail_groups"]([row], True) for c in g["cards"]]
+    return named == ["Watch Map Rail"] and "titleCase(b.slug)" in ctx["app_src"]
+
+
+@_covers("rail-unsticks-at-narrow-breakpoint", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(c["narrow_breakpoint"],
+                                                    "max-width:0px")},
+                 lambda c: {"css": c["css"].replace(
+                     ".rail{ position:static !important;",
+                     ".rail{ position:sticky !important;")},
+                 lambda c: {"app_src": c["app_src"] + "\naddEventListener('resize');"},
+                 # the wide grid collapsed to a single track: nothing is left for
+                 # the breakpoint to collapse, so the rail never was a column
+                 lambda c: {"css": re.sub(r"(\.split\{[^}]*grid-template-columns:)"
+                                          r"[^;]+", r"\g<1>1fr", c["css"], count=1)}])
+def _c_rail_narrow_breakpoint(ctx):
+    """Wide, the rail is a sticky column. Below the narrow breakpoint the grid
+    collapses to one column and the rail unsticks, so a phone reads the map as a
+    list above the delivery instead of a pinned column eating half the screen.
+    CSS does all of it — the page still registers exactly one listener, the one
+    the refresh model already owned, and the rail adds none."""
+    css = ctx["css"]
+    wide = _decls_for(css, ".split")
+    if not wide:
+        return False
+    # TWO tracks wide, one track narrow — the structural fact. Deliberately not
+    # "the wide rule says minmax": that spelling is one way to write a two-track
+    # grid, and requiring it would fail a future fixed-width rail that reflows
+    # exactly as well. The invariant is the collapse, not the sizing function.
+    # Parenthesized sizing functions collapse to one token first, so a single
+    # `minmax(0, 1fr)` track cannot be miscounted as two by the whitespace split.
+    wide_cols = re.sub(r"\([^()]*\)", "()",
+                       _norm(wide[0].get("grid-template-columns", "")))
+    if len(wide_cols.split()) < 2:
+        return False
+    if not any(_norm(d.get("position", "")) == "sticky"
+               for d in _decls_for(css, ".rail")):
+        return False
+    narrow = _at_rule_body(css, ctx["narrow_breakpoint"])
+    if not narrow:
+        return False
+    split = _decls_for(narrow, ".split")
+    rail = _decls_for(narrow, ".rail")
+    return (bool(split) and _norm(split[0].get("grid-template-columns", "")) == "1fr"
+            and bool(rail) and _norm(rail[0].get("position", "")) == "static"
+            and ctx["app_src"].count("addEventListener") == 1)
+
+
+# --- the next action -----------------------------------------------------
+
+@_covers("next-action-band", kind="rendered", hook="data-kw-band",
+         breaks=[lambda c: _renamed(c, "data-kw-band", "page"),
+                 lambda c: _renamed(c, "data-kw-band-eyebrow", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     'aria-label="the next action"', "")},
+                 lambda c: {"css": c["css"].replace("var(--band)",
+                                                    "var(--surface)")}])
+def _c_next_action_band(ctx):
+    """The band leads the column: one named region above the delivery panel and
+    every binder header in it, reading eyebrow, then sentence, then the command
+    row. It is the page's darkest surface in BOTH themes — that is what --band
+    is for — and its eyebrow carries the band's own light-on-dark accent."""
+    page, css = ctx["page"], ctx["css"]
+    tags = _tags_with(page, "data-kw-band")
+    if len(tags) != 1 or _tag_name(tags[0]) != "section":
+        return False
+    if not _attrs(tags[0]).get("aria-label", "").strip():
+        return False
+    at = _first_index(page, "data-kw-band")
+    order = [_first_index(page, h) for h in ("data-kw-band-eyebrow",
+                                             "data-kw-band-sentence",
+                                             "data-kw-band-run")]
+    if not (all(i > at for i in order) and order == sorted(order)):
+        return False
+    if not 0 <= _first_index(page, "data-kw-main") < at < _first_index(page, "data-kw-binder"):
+        return False
+    ground = _decls_for(css, ".band")
+    kick = _decls_for(css, ".band__eyebrow")
+    return (bool(ground) and _VAR_REF_RE.findall(ground[0].get("background", "")) == ["--band"]
+            and bool(kick) and _VAR_REF_RE.findall(kick[0].get("color", "")) == ["--band-kick"])
+
+
+@_covers("next-action-is-the-engines", kind="rendered",
+         hook="data-kw-band-sentence",
+         breaks=[lambda c: _renamed(c, "data-kw-band-sentence", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     "nextAction.human", "deliverySummary")},
+                 lambda c: {"page": c["page"].replace("resume s-live",
+                                                      "do something else")},
+                 lambda c: {"next_action_accessor":
+                            "nextAction() { return { human: 'do whatever' }; }"}])
+def _c_next_action_from_engine(ctx):
+    """One derivation, two surfaces. The sentence and the command are the ones
+    karta_next derived — the same next_action the karta-status footer prints —
+    inlined verbatim and interpolated by field name. The page's own accessor
+    hands that object straight back, so the band cannot become a second, quieter
+    opinion about what to do next, and it costs no git call to say it."""
+    page = ctx["page"]
+    if len(_tags_with(page, "data-kw-band-sentence")) != 1:
+        return False
+    if "state.next_action" not in ctx["next_action_accessor"]:
+        return False
+    inlined = _inlined_state(page).get("next_action")
+    return ("nextAction.human" in _text_in(page, "data-kw-band-sentence")
+            and "nextAction.command" in _text_in(page, "data-kw-band-cmd")
+            and inlined == ctx["state"]["next_action"]
+            and inlined == ctx["next_action_of"](ctx["state"]))
+
+
+@_covers("next-action-command-copies-what-it-shows", kind="rendered",
+         hook="data-kw-band-copy",
+         breaks=[lambda c: _renamed(c, "data-kw-band-copy", "page"),
+                 lambda c: _renamed(c, "data-kw-band-copy-label", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     ':data-kw-band-copy-cmd="nextAction.command"',
+                     ':data-kw-band-copy-cmd="nextAction.level"')},
+                 lambda c: {"page": c["page"].replace(
+                     '@click="copyCommand(bandCopyKey, nextAction.command)"',
+                     '@click="copyCommand(bandCopyKey, bandEyebrow)"')}])
+def _c_next_action_copy_button(ctx):
+    """The button copies exactly what the band shows: the displayed command, the
+    string the button carries, and the argument the handler is handed are ONE
+    expression, so the clipboard can never get a different command than the eye
+    does. The label is its own element, so confirming a copy swaps a word rather
+    than rebuilding the control."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-band-copy")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    carried = attrs.get(":data-kw-band-copy-cmd", "")
+    clicked = attrs.get("@click", "")
+    return (attrs.get("type") == "button" and bool(carried)
+            and carried in _text_in(page, "data-kw-band-cmd")
+            and "copyCommand" in clicked and carried in clicked
+            and len(_tags_with(page, "data-kw-band-copy-label")) == 1
+            and "copyLabel" in _text_in(page, "data-kw-band-copy-label"))
+
+
+@_covers("next-action-end-state-offers-no-command", kind="rendered",
+         hook="data-kw-band-run",
+         breaks=[lambda c: _renamed(c, "data-kw-band-run", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="nextAction.command"', 'v-if="true"')},
+                 lambda c: {"degraded_page": c["degraded_page"].replace(
+                     '"command":null', '"command":"karta-plan"')}])
+def _c_next_action_end_state(ctx):
+    """Nothing left to run is a state, not an absence. The command row is gated
+    on the command itself, so an engine answer that carries none — everything
+    merged, or the engine unreachable — leaves the sentence standing alone with
+    no command and no copy button, and needs no second template to do it.
+
+    A source-level check, and the limit is worth stating: there is no Vue
+    runtime here, so it reads the GATE — the v-if and the field it names — and
+    the engine answer feeding it. That a browser then withholds the row follows
+    from those two; it is not observed."""
+    page, calm = ctx["page"], ctx["degraded_page"]
+    run = _tags_with(page, "data-kw-band-run")
+    if len(run) != 1 or _attrs(run[0]).get("v-if") != "nextAction.command":
+        return False
+    quiet = _inlined_state(calm).get("next_action") or {}
+    loud = _inlined_state(page).get("next_action") or {}
+    return (quiet.get("command") is None and bool(quiet.get("human"))
+            and len(_tags_with(calm, "data-kw-band")) == 1
+            and len(_tags_with(calm, "data-kw-band-sentence")) == 1
+            and bool(loud.get("command")))
+
+
+@_covers("next-action-copy-handler", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "const clip = navigator.clipboard;", "const clip = window;")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "}).catch(() => {});", "});")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (this._copyTimer !== null) { clearTimeout(this._copyTimer); "
+                     "this._copyTimer = null; }\n", "")},
+                 lambda c: {"band": dict(c["band"], hold_ms=0)}])
+def _c_next_action_copy_handler(ctx):
+    """The copy is an ordinary method on the existing app root — no clipboard
+    library, no second vendored runtime — and it degrades quietly: a browser
+    exposing no clipboard, or refusing the write, gets a silent return instead
+    of a thrown error, and the label never confirms a copy that did not happen.
+    Its "Copied" hold is a timeout, cleared before it is re-armed and cleared
+    again on teardown, so no stray timer outlives the page. The band's four
+    strings are the server's, inlined, rather than typed into the app twice.
+
+    A source-level check, like the teardown check above it: nothing here calls
+    a clipboard, fires a Vue lifecycle hook, or watches a timer expire. It reads
+    the guard, the catch and the pairing off the source. The quiet degradation
+    and the timer's death are therefore ARGUED from that shape, not observed —
+    a rewrite keeping the shape and changing the behaviour would survive this."""
+    app = ctx["app_src"]
+    copy = _js_block(app, "    copyCommand(key, cmd) {")
+    unmount = _js_block(app, "  beforeUnmount() {")
+    if not copy or not unmount:
+        return False
+    return (ctx["band_inlined"] == ctx["band"] and ctx["band"]["hold_ms"] > 0
+            and len(ctx["asset_scripts"]) == 1
+            and "navigator.clipboard" in copy and ".catch(" in copy
+            and copy.count("setTimeout(") == copy.count("clearTimeout(") == 1
+            and "clearTimeout(this._copyTimer)" in unmount
+            and app.count("setTimeout(") == 1 and app.count("clearTimeout(") == 2
+            and app.count("fetch(") == 1
+            and app.count("setInterval(") == app.count("clearInterval(") == 2
+            and app.count("addEventListener(") == app.count("removeEventListener(") == 1)
+
+
+@_covers("next-action-command-is-inert", kind="behaviour",
+         breaks=[lambda c: {"render": lambda s: json.dumps(s)},
+                 lambda c: {"app_src": c["app_src"] + "\nel.v-html = 1;"}])
+def _c_next_action_command_inert(ctx):
+    """A command is built from a binder slug, and a slug is untrusted text. It
+    reaches the band only inside the inlined state JSON, through _inert_json, so
+    a hostile slug arrives as escapes rather than as markup — no `</script>`
+    break-out, no live handler — and the band interpolates it as a text node.
+    Nothing on this path is bound with v-html."""
+    hostile = "s</script><img src=x onerror=alert(1)>"
+    state = dict(ctx["state"], next_action={
+        "level": "item", "command": "karta-deliver " + hostile,
+        "human": "resume " + hostile})
+    page = ctx["render"](state)
+    inlined = _inlined_state(page).get("next_action") or {}
+    return (hostile not in page and "<img src=x" not in page
+            and page.count("</script>") == ctx["render"](ctx["state"]).count("</script>")
+            and inlined.get("command", "").endswith(hostile)
+            and inlined.get("human", "").endswith(hostile)
+            and "v-html" not in ctx["app_src"])
+
+
+# the vectors the card-text inertness check fires. FOUR shapes, not one: an
+# escaping fix that stops a script tag can leave an event handler, an svg
+# handler, a mixed-case tag or a javascript: URL entirely untouched.
+_INERT_VECTORS = ('</script><img src=x onerror=alert(1)>',
+                  '<svg onload=alert(2)></svg>',
+                  '<ScRiPt>alert(3)</ScRiPt>',
+                  '<a href="javascript:alert(4)">go</a>')
+
+
+@_covers("item-title-and-summary-are-inert", kind="behaviour",
+         breaks=[lambda c: {"render": lambda s: json.dumps(s)},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "{{ it.title }}", '<b v-html="it.title"></b>')},
+                 lambda c: {"inert_vectors": ()}])
+def _c_item_text_inert(ctx):
+    """An item's title and summary are binder-authored text, so they are
+    untrusted, and they reach the card the same way every other engine value
+    does: inside the inlined state JSON through _inert_json, interpolated as a
+    text node. Four different hostile shapes are fired at once — a script
+    break-out, an image error handler, an svg load handler, a mixed-case tag and
+    a javascript: URL — because an escape that stops one of them can miss the
+    others. Nothing on this path is bound with v-html."""
+    vectors = ctx["inert_vectors"]
+    if not vectors:
+        return False
+    seed = ctx["state"]["binders"][0]
+    detail = [{"id": "i-%d" % i, "status": "ready",
+               "title": "title " + v, "summary": "summary " + v}
+              for i, v in enumerate(vectors)]
+    binder = dict(seed, slug="s-hostile",
+                  items=dict(seed["items"], total=len(detail), detail=detail))
+    page = ctx["render"](dict(ctx["state"], binders=[binder]))
+    rows = ((_inlined_state(page).get("binders") or [{}])[0]
+            .get("items", {}).get("detail", []))
+    if len(rows) != len(vectors):
+        return False
+    for i, vector in enumerate(vectors):
+        if vector in page:
+            return False
+        if not rows[i]["title"].endswith(vector):
+            return False
+        if not rows[i]["summary"].endswith(vector):
+            return False
+    clean = ctx["render"](ctx["state"])
+    return (page.count("</script>") == clean.count("</script>")
+            and "v-html" not in ctx["app_src"])
+
+
+@_covers("copy-confirmation-is-per-affordance", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "this.copiedKey === key", "this.copiedKey !== null")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this.copiedKey = key;", "this.copiedKey = true;")},
+                 lambda c: {"band": dict(c["band"], key="")}])
+def _c_copy_confirmation_per_affordance(ctx):
+    """The confirmation is held per CONTROL, not per page. A single shared
+    boolean meant that the moment a second copy affordance existed, pressing
+    either one would light up both labels — the band's and the card's — because
+    both read the same flag. So copyCommand records WHICH control fired and the
+    label is asked for a named control, which is what makes "copying here does
+    not confirm over there" true by construction rather than by luck.
+
+    Source-level, like the handler check beside it: nothing runs Vue or a
+    clipboard here. It reads the keying off the handler, the label accessor and
+    the data block, and off the one key the server names for the band."""
+    app, page = ctx["app_src"], ctx["page"]
+    handler = _js_block(app, "    copyCommand(key, cmd) {")
+    label = _js_block(app, "    copyLabelFor(key) {")
+    data = _js_block(app, "  data() {")
+    buttons = _tags_with(page, "data-kw-band-copy")
+    if not handler or not label or not data or len(buttons) != 1:
+        return False
+    key = ctx["band"]["key"]
+    clicked = _attrs(buttons[0]).get("@click", "")
+    return (bool(key) and ctx["band_inlined"].get("key") == key
+            and "this.copiedKey = key;" in handler
+            and "this.copiedKey === key" in label
+            and "copiedKey: null" in data and "copied: false" not in data
+            and "bandCopyKey" in clicked
+            and "copyLabelFor" in _text_in(page, "data-kw-band-copy-label"))
+
+
+@_covers("refresh-cluster-region", kind="rendered", hook="data-kw-refresh-cluster",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-cluster", "page")])
+def _c_refresh_cluster(ctx):
+    """One cluster in the header holds the whole refresh model — the reading,
+    the manual button and the automatic-refresh toggle — beside the controls it
+    shares its treatment with, not scattered across the bar."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-refresh-cluster")
+    if len(tags) != 1:
+        return False
+    at = _first_index(page, "data-kw-refresh-cluster")
+    inner = [h for h in ("data-kw-refresh-countdown", "data-kw-refresh-age",
+                         "data-kw-refresh-now", "data-kw-auto-refresh")
+             if _first_index(page, h) > at]
+    return (len(inner) == 4
+            and at < _first_index(page, "data-kw-theme-toggle"))
+
+
+@_covers("refresh-countdown-region", kind="rendered",
+         hook="data-kw-refresh-countdown",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-countdown", "page"),
+                 lambda c: {"page": c["page"].replace("v-if=\"autoRefresh\"",
+                                                      "v-if=\"true\"")}])
+def _c_refresh_countdown_region(ctx):
+    """With automatic refresh ON the reader sees a countdown to the next one —
+    and only then: the region is gated on the mode, so the two readings can
+    never both be on screen."""
+    tags = _tags_with(ctx["page"], "data-kw-refresh-countdown")
+    if len(tags) != 1:
+        return False
+    return _attrs(tags[0]).get("v-if") == "autoRefresh"
+
+
+@_covers("refresh-age-when-off", kind="rendered", hook="data-kw-refresh-age",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-age", "page"),
+                 lambda c: {"page": c["page"].replace("ageLabel", "countdownLabel")}])
+def _c_refresh_age_when_off(ctx):
+    """With automatic refresh OFF the countdown is replaced by the AGE of the
+    data, so switching the refresh off never hides how stale the page is. It is
+    the v-else of the countdown — a different hook, so the two states can never
+    be confused in the markup — and it words the reader's choice as a choice."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-refresh-age")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return ("v-else" in attrs
+            and _first_index(page, "data-kw-refresh-age")
+            > _first_index(page, "data-kw-refresh-countdown")
+            and "ageLabel" in _tag_after(page, tags[0]) + page[
+                page.index(tags[0]):page.index(tags[0]) + 200])
+
+
+@_covers("manual-refresh-control", kind="rendered", hook="data-kw-refresh-now",
+         breaks=[lambda c: _renamed(c, "data-kw-refresh-now", "page")])
+def _c_manual_refresh_control(ctx):
+    """A button that refreshes on demand, available in both modes — it carries
+    no mode gate at all — and reachable by name for a screen reader."""
+    tags = _tags_with(ctx["page"], "data-kw-refresh-now")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("@click") == "refreshNow"
+            and bool(attrs.get("aria-label"))
+            and "v-if" not in attrs and "v-else" not in attrs)
+
+
+@_covers("auto-refresh-toggle", kind="rendered", hook="data-kw-auto-refresh",
+         breaks=[lambda c: _renamed(c, "data-kw-auto-refresh", "page")])
+def _c_auto_refresh_toggle(ctx):
+    """The switch itself, in the show-delivered idiom: a pressed-state button
+    the reader can see the current setting on, whose two titles are the page's
+    own on/off wording rather than the feed's."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-auto-refresh")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    title = attrs.get(":title", "")
+    return ("autoRefresh" in attrs.get(":aria-pressed", "")
+            and attrs.get("@click") == "toggleAutoRefresh"
+            and ctx["refresh_labels"]["off"] in title
+            and ctx["refresh_labels"]["on"] in title
+            and ctx["feed_paused_label"] not in title
+            and _first_index(page, "data-kw-auto-refresh")
+            != _first_index(page, "data-kw-feed"))
+
+
+@_covers("theme-toggle-control", kind="rendered", hook="data-kw-theme-toggle",
+         breaks=[lambda c: _renamed(c, "data-kw-theme-toggle", "page")])
+def _c_theme_toggle(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-theme-toggle")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("@click") == "toggleTheme"
+            and bool(attrs.get("aria-label")))
+
+
+@_covers("theme-persistence-key", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("karta-theme", "x")},
+                 lambda c: {"hub": c["hub"].replace("karta-theme", "x")}])
+def _c_theme_persistence_key(ctx):
+    app, hub = ctx["app_src"], ctx["hub"]
+    return ("localStorage.getItem('karta-theme')" in app
+            and "localStorage.setItem('karta-theme'" in app
+            and hub.count("karta-theme") >= 2
+            and hub.index("karta-theme") < hub.index("<body>"))
+
+
+@_covers("theme-query-override", kind="behaviour",
+         breaks=[lambda c: {"theme_attr": lambda t: t or "dark"},
+                 lambda c: {"repo_dispatch": c["repo_dispatch"].replace('qs.get("theme"', "x(")}])
+def _c_theme_query_override(ctx):
+    attr = ctx["theme_attr"]
+    return (attr("light") == "light" and attr("dark") == "dark"
+            and attr("sepia") == "dark" and attr(None) == "dark"
+            and 'qs.get("theme"' in ctx["repo_dispatch"]
+            and 'qs.get("theme"' in ctx["hub_dispatch"])
+
+
+@_covers("switcher-also-watching", kind="rendered", hook="data-kw-switcher",
+         breaks=[lambda c: _renamed(c, "data-kw-switcher", "page"),
+                 lambda c: {"shell_hub": dict(
+                     c["shell_hub"],
+                     others=[{"slug": c["current_slug"], "name": "self",
+                              "href": "/r/" + c["current_slug"] + "/"}])}])
+def _c_switcher(ctx):
+    page = ctx["page"]
+    nav = _tags_with(page, "data-kw-switcher")
+    links = _tags_with(page, "data-kw-switcher-link")
+    if len(nav) != 1 or len(links) != 1 or _tag_name(nav[0]) != "nav":
+        return False
+    attrs = _attrs(links[0])
+    others = ctx["shell_hub"].get("others") or []
+    return (attrs.get("v-for", "").endswith("shell.others")
+            and attrs.get(":key") == "o.slug" and attrs.get(":href") == "o.href"
+            and bool(others)
+            and all(o["slug"] != ctx["current_slug"] for o in others)
+            and all(o["href"].startswith("/r/" + o["slug"] + "/") for o in others)
+            and all(ctx["key_token"] in o["href"] for o in others))
+
+
+@_covers("phase-timeline-groups", kind="rendered", hook="data-kw-phase",
+         breaks=[lambda c: _renamed(c, "data-kw-phase", "page"),
+                 lambda c: {"phase_defs": c["phase_defs"][:2]}])
+def _c_phase_timeline(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-phase")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get(":data-kw-phase-key") == "p.key"
+            and attrs.get(":key") == "p.key"
+            and [d["key"] for d in ctx["phase_defs"]] ==
+            ["past", "now", "next", "later"])
+
+
+@_covers("delivered-binder-treatment", kind="rendered", hook="data-kw-binder",
+         breaks=[lambda c: _renamed(c, "data-kw-binder", "page"),
+                 lambda c: {"css": c["css"].replace("var(--green)", "var(--other)")},
+                 lambda c: {"css": c["css"].replace("var(--green-soft)", "var(--other)")}])
+def _c_delivered_binder_treatment(ctx):
+    page, css = ctx["page"], ctx["css"]
+    binder = _tags_with(page, "data-kw-binder")
+    header = _tags_with(page, "data-kw-binder-header")
+    if len(binder) != 1 or len(header) != 1:
+        return False
+    flag = _attrs(binder[0]).get(":data-kw-delivered", "")
+    if not flag:
+        return False
+    delivered_body = [c for c, e in _class_binding(_attrs(binder[0])).items()
+                      if e and e in flag]
+    delivered_head = [c for c, e in _class_binding(_attrs(header[0])).items()
+                      if e and e in flag]
+    green = ctx["state_meta"]["done"]["color"]
+    green_soft = ctx["state_meta"]["done"]["soft"]
+    edge = any(_norm(d.get("border-color", "")) == green
+               for c in delivered_body for d in _decls_for(css, "." + c))
+    fill = any(_norm(d.get("background", "")) == green_soft
+               for c in delivered_head for d in _decls_for(css, "." + c))
+    return (edge and fill
+            and ctx["phase_meta"]["past"]["color"] == green
+            and ctx["phase_meta"]["past"]["mark"] == "check")
+
+
+@_covers("binder-disclosure-aria-expanded", kind="rendered",
+         hook="data-kw-binder-header",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-header", "page")])
+def _c_binder_disclosure(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-binder-header")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("type") == "button"
+            and "b.open" in attrs.get(":aria-expanded", "")
+            and ":aria-pressed" not in attrs
+            and attrs.get("@click", "").startswith("toggleBinder("))
+
+
+@_covers("item-disclosure-aria-expanded", kind="rendered",
+         hook="data-kw-item-row",
+         breaks=[lambda c: _renamed(c, "data-kw-item-row", "page")])
+def _c_item_disclosure(ctx):
+    tags = _tags_with(ctx["page"], "data-kw-item-row")
+    if len(tags) != 1 or _tag_name(tags[0]) != "button":
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get("type") == "button"
+            and "isExpanded(" in attrs.get(":aria-expanded", "")
+            and ":aria-pressed" not in attrs
+            and attrs.get("@click", "").startswith("toggleItem("))
+
+
+@_covers("expand-collapse-state", kind="rendered", hook="data-kw-binder-waves",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-waves", "page"),
+                 lambda c: {"app_src": c["app_src"].replace("toggleBinder(", "x(")}])
+def _c_expand_collapse_state(ctx):
+    page, app = ctx["page"], ctx["app_src"]
+    waves = _tags_with(page, "data-kw-binder-waves")
+    header = _tags_with(page, "data-kw-binder-header")
+    if len(waves) != 1 or len(header) != 1:
+        return False
+    gate = _attrs(waves[0]).get("v-if", "")
+    return (bool(gate) and gate in _attrs(header[0]).get(":aria-expanded", "")
+            and "toggleBinder(" in app and "isOpen(" in app)
+
+
+@_covers("item-detail-disclosure", kind="rendered", hook="data-kw-item-detail",
+         breaks=[lambda c: _renamed(c, "data-kw-item-detail", "page"),
+                 lambda c: {"app_src": c["app_src"].replace("isExpanded(", "x(")}])
+def _c_item_detail_disclosure(ctx):
+    page, app = ctx["page"], ctx["app_src"]
+    detail = _tags_with(page, "data-kw-item-detail")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(detail) != 1 or len(row) != 1:
+        return False
+    gate = _attrs(detail[0]).get("v-if", "")
+    return (bool(gate) and gate in _attrs(row[0]).get(":aria-expanded", "")
+            and "isExpanded(" in app and "toggleItem(" in app)
+
+
+# --- the per-item detail grid ------------------------------------------------
+# The disclosure's contents: every assertion, the contract, the touched files,
+# the size, the git ref, and a chip per thing the item is still waiting on. The
+# model is a Python twin driven by direct call, so what the grid contains is
+# PROVEN over fixtures rather than argued from the template; each check then
+# reads the one binding the template owes that fixture.
+
+# One work item as the widened feed carries it, with every field declared — so a
+# check can remove exactly the field it is about instead of assembling a row.
+_DETAIL_ITEM = {
+    "id": "detail-item", "status": "done", "oracle": "unit",
+    "cmd": "npm run lint && npm test",
+    "assertions": ["the first thing holds", "the second thing holds",
+                   "the third thing holds"],
+    "contract": {"exposes": "the detail grid", "consumes": "the widened feed"},
+    "touches": ["skills/karta-status/scripts/serve_status.py"],
+    "estimate": "M",
+}
+
+# The hooks this behaviour introduces, named here so a missing registration
+# fails in THIS item and says which hook, rather than surfacing later as an
+# unexplained finding in the whole-page sweep.
+_DETAIL_HOOKS = ("data-kw-item-detail-grid", "data-kw-detail-key",
+                 "data-kw-detail-entry", "data-kw-detail-empty",
+                 "data-kw-blocked-chip", "data-kw-blocked-state",
+                 "data-kw-item-caret")
+
+
+def _rows_by_key(rows: list[dict]) -> dict:
+    return {r["key"]: r for r in rows}
+
+
+@_covers("item-detail-renders-every-assertion", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: [
+             dict(r, pairs=r["pairs"][:1]) for r in c["item_detail"](it, slug, by)]},
+                 lambda c: _renamed(c, "data-kw-detail-entry", "page"),
+                 lambda c: _renamed(c, "data-kw-item-detail-grid", "page")])
+def _c_detail_every_assertion(ctx):
+    """EVERY assertion, in the order the binder wrote them — not the first one
+    standing in for the rest. An oracle's assertions are the whole statement of
+    what the item has to do; showing one of three is the page choosing which
+    two-thirds of the contract the reader does not get to see.
+
+    Driven by direct call over a three-assertion item; the template's job is to
+    loop the pairs the twin returned, which is what the binding here reads."""
+    rows = _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", {}))
+    asserts = rows.get("asserts")
+    if not asserts or asserts["kind"] != "list":
+        return False
+    if [p["value"] for p in asserts["pairs"]] != _DETAIL_ITEM["assertions"]:
+        return False
+    grid = _tags_with(ctx["page"], "data-kw-item-detail-grid")
+    entry = _tags_with(ctx["page"], "data-kw-detail-entry")
+    if len(grid) != 1 or len(entry) != 1:
+        return False
+    loop = _attrs(_tag_after(ctx["page"], grid[0]))
+    eattrs = _attrs(entry[0])
+    return ("it.detail" in loop.get("v-for", "") and loop.get(":key") == "r.key"
+            and "r.pairs" in eattrs.get("v-for", "") and bool(eattrs.get(":key")))
+
+
+@_covers("item-detail-rows-are-labelled", kind="rendered", hook="data-kw-detail-key",
+         breaks=[lambda c: _renamed(c, "data-kw-detail-key", "page"),
+                 lambda c: {"detail_labels": dict(c["detail_labels"],
+                                                  contract="check")}])
+def _c_detail_row_labels(ctx):
+    """Every row says which field it is showing, in the server's wording — one
+    definition, carried to the page, never a second copy typed in the template.
+    The labels are distinct from each other, because two rows reading the same
+    word is a grid that cannot be read at all."""
+    labels = ctx["detail_labels"]
+    if len(set(labels.values())) != len(labels):
+        return False
+    if ctx["detail_inlined"].get("labels") != labels:
+        return False
+    rows = ctx["item_detail"](_DETAIL_ITEM, "s-detail", {})
+    if not rows or any(r["label"] != labels[r["key"]] for r in rows):
+        return False
+    tags = _tags_with(ctx["page"], "data-kw-detail-key")
+    return (len(tags) == 1
+            and _attrs(tags[0]).get(":data-kw-detail-key") == "r.key")
+
+
+@_covers("item-detail-omits-an-undeclared-field", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+             dict(it, contract=it.get("contract") or {}), slug, by)},
+                 lambda c: {"item_detail": lambda it, slug, by:
+                            c["item_detail"](it, slug, by)[:1]}])
+def _c_detail_omits_undeclared(ctx):
+    """A field the binder never declared renders NO ROW — not an empty one. The
+    two are different facts about the plan: "this item has no contract" and
+    "this item's contract is blank" mean different things, and a page that draws
+    both as an empty row hides the second behind the first.
+
+    Driven by direct call: an item declaring nothing keeps only the row that is
+    always true of it (which check it passes), and a fully declared item keeps
+    every row, in one stated order."""
+    bare = {"id": "bare", "status": "ready", "oracle": "unit"}
+    if [r["key"] for r in ctx["item_detail"](bare, "s-detail", {})] != ["check"]:
+        return False
+    full = [r["key"] for r in ctx["item_detail"](_DETAIL_ITEM, "s-detail", {})]
+    return full == ["check", "asserts", "command", "contract", "touches",
+                    "estimate", "ref"]
+
+
+@_covers("item-detail-marks-a-declared-empty-field", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: [
+             dict(r, empty=False) for r in c["item_detail"](it, slug, by)]},
+                 lambda c: {"detail_empty_label": "(none)"},
+                 lambda c: _renamed(c, "data-kw-detail-empty", "page")])
+def _c_detail_marks_declared_empty(ctx):
+    """The other half of the same rule: a field the binder DID declare and left
+    empty keeps its row and says so, in the server's wording. So the reader can
+    tell a plan that never mentioned a contract from one that mentioned it and
+    wrote nothing — the second is a planning mistake worth seeing."""
+    blank = dict(_DETAIL_ITEM, contract={}, touches=[], estimate="   ")
+    rows = _rows_by_key(ctx["item_detail"](blank, "s-detail", {}))
+    for key in ("contract", "touches", "estimate"):
+        row = rows.get(key)
+        if not row or not row["empty"]:
+            return False
+        if row["text"] != ctx["detail_empty_label"] or row["pairs"] or row["chips"]:
+            return False
+    gone = dict(_DETAIL_ITEM, contract=None, touches=None, estimate=None)
+    if any(k in _rows_by_key(ctx["item_detail"](gone, "s-detail", {}))
+           for k in ("contract", "touches", "estimate")):
+        return False
+    marker = _tags_with(ctx["page"], "data-kw-detail-empty")
+    return (len(marker) == 1 and _attrs(marker[0]).get("v-if") == "r.empty"
+            and ctx["detail_inlined"].get("empty") == ctx["detail_empty_label"])
+
+
+@_covers("item-detail-opt-out-states-its-reason", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+             dict(it, oracle="unit"), slug, by)},
+                 lambda c: {"opt_out_type": "skipped"}])
+def _c_detail_opt_out(ctx):
+    """An opted-out item shows the reason it was opted out INSTEAD of a check
+    command. It has no check to run, so offering one would claim a check that is
+    not happening — the page's job here is to state plainly what is going
+    unchecked, which is the only reason an opt-out is allowed to exist."""
+    reason = "no automated check — a human looks at this before release"
+    opted = dict(_DETAIL_ITEM, oracle=ctx["opt_out_type"], oracle_reason=reason)
+    rows = _rows_by_key(ctx["item_detail"](opted, "s-detail", {}))
+    if "command" in rows or "unchecked" not in rows:
+        return False
+    if rows["unchecked"]["text"] != reason:
+        return False
+    if (rows.get("check") or {}).get("text") != ctx["opt_out_type"]:
+        return False
+    checked = _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", {}))
+    return ("unchecked" not in checked and "command" in checked
+            and checked["command"]["text"] == _DETAIL_ITEM["cmd"]
+            and checked["command"]["mono"] is True)
+
+
+@_covers("item-detail-names-the-items-git-ref", kind="behaviour",
+         breaks=[lambda c: {"marker_fmt": "refs/karta/{slug}/{id}/{marker}"},
+                 lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+                     dict(it, status="done"), slug, by)}])
+def _c_detail_item_ref(ctx):
+    """The item's own git artifact, spelled the way karta writes it: the marker
+    ref once a run has finished, the item BRANCH while it is still running, and
+    nothing at all before git holds anything — a ready item gets no ref row,
+    because naming a ref that does not exist is the page inventing a fact.
+
+    All of it is formatting over the slug, the id and the status the feed
+    already carries. Nothing here asks git anything."""
+    slug, iid = "s-detail", _DETAIL_ITEM["id"]
+    for status in ctx["ref_markers"]:
+        row = _rows_by_key(ctx["item_detail"](dict(_DETAIL_ITEM, status=status),
+                                              slug, {})).get("ref")
+        want = ctx["marker_fmt"].format(slug=slug, id=iid, marker=status)
+        if not row or row["text"] != want or not row["mono"]:
+            return False
+    running = _rows_by_key(ctx["item_detail"](dict(_DETAIL_ITEM, status="building"),
+                                              slug, {})).get("ref")
+    if not running or running["text"] != ctx["branch_fmt"].format(slug=slug, id=iid):
+        return False
+    for status in ("ready", "blocked"):
+        if "ref" in _rows_by_key(ctx["item_detail"](dict(_DETAIL_ITEM, status=status),
+                                                    slug, {})):
+            return False
+    inlined = ctx["detail_inlined"]
+    return (inlined.get("marker_fmt") == ctx["marker_fmt"]
+            and inlined.get("branch_fmt") == ctx["branch_fmt"]
+            and list(inlined.get("markers") or []) == list(ctx["ref_markers"]))
+
+
+@_covers("oracle-type-icons-all-resolve", kind="behaviour",
+         breaks=[lambda c: {"oracle_icon": dict(c["oracle_icon"],
+                                                visual="no-such-icon")},
+                 lambda c: {"icon_fallback": "no-such-icon"}])
+def _c_oracle_icons_resolve(ctx):
+    """Every oracle type a binder can declare resolves to a drawn icon, and a
+    type nobody anticipated falls back to one rather than rendering a blank
+    square where a glyph should be. The fallback is the server's, so the card's
+    accessor and the detail grid's row can never disagree about it."""
+    icons, table = ctx["icons"], ctx["oracle_icon"]
+    if not table or any(v not in icons for v in table.values()):
+        return False
+    if ctx["icon_fallback"] not in icons:
+        return False
+    if not {"unit", "integration", "e2e", "smoke", "visual",
+            ctx["opt_out_type"]} <= set(table):
+        return False
+    unknown = ctx["item_detail"](dict(_DETAIL_ITEM, oracle="a-type-from-2030"),
+                                 "s-detail", {})[0]
+    if unknown["icon"] != ctx["icon_fallback"]:
+        return False
+    return ("DETAIL.icon_fallback" in ctx["app_src"]
+            and "ORACLE_ICON[" in ctx["app_src"])
+
+
+@_covers("blocked-by-chips-carry-the-blockers-state", kind="rendered",
+         hook="data-kw-blocked-chip",
+         breaks=[lambda c: _renamed(c, "data-kw-blocked-chip", "page"),
+                 lambda c: _renamed(c, "data-kw-blocked-state", "page"),
+                 lambda c: {"item_detail": lambda it, slug, by: c["item_detail"](
+                     it, slug, {})}])
+def _c_blocked_chips(ctx):
+    """One chip per thing this item is still waiting on, each carrying the
+    BLOCKER's own live state — read off the same metadata that draws the
+    blocker's card, so the chip and the card can never disagree. A blocker that
+    has halted and one that has passed must not read alike; that is the whole
+    point of putting the state on the chip instead of just the name.
+
+    Driven by direct call over two blockers in different states."""
+    by = {"one": "done", "two": "failed"}
+    waiting = dict(_DETAIL_ITEM, status="blocked", blocked_by=["one", "two"])
+    chips = (_rows_by_key(ctx["item_detail"](waiting, "s-detail", by))
+             .get("waiting") or {}).get("chips") or []
+    if len(chips) != 2 or chips[0]["word"] == chips[1]["word"]:
+        return False
+    for chip, dep in zip(chips, waiting["blocked_by"]):
+        meta = ctx["state_meta"][by[dep]]
+        if chip["id"] != dep or chip["badge"] != meta["badge"]:
+            return False
+        if (chip["word"], chip["color"], chip["soft"]) != (meta["word"],
+                                                           meta["color"],
+                                                           meta["soft"]):
+            return False
+    if "waiting" in _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", by)):
+        return False
+    tags = _tags_with(ctx["page"], "data-kw-blocked-chip")
+    if len(tags) != 1:
+        return False
+    attrs = _attrs(tags[0])
+    return (attrs.get(":data-kw-blocked-state") == "c.word"
+            and "r.chips" in attrs.get("v-for", "") and attrs.get(":key") == "c.id")
+
+
+@_covers("item-detail-caret-turns-and-settles", kind="rendered",
+         hook="data-kw-item-caret",
+         breaks=[lambda c: _renamed(c, "data-kw-item-caret", "page"),
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".item__caret")},
+                 lambda c: {"css": c["css"].replace(".item__caret--open{",
+                                                    ".item__caret--shut{")}])
+def _c_item_caret(ctx):
+    """The row's chevron turns while its detail is open, off the SAME predicate
+    that reports the expanded state — one truth, so the glyph cannot point one
+    way while assistive tech is told the other. It is decorative on top of a
+    button that already announces itself, so it is hidden from assistive tech
+    rather than read out twice.
+
+    Under reduced motion the TURN is kept and the turning is dropped: the
+    rotation is the state, the transition is the motion, and only the second is
+    something the reader asked to stop.
+
+    Source-level: this reads the binding and the stylesheet, not a browser."""
+    page, css = ctx["page"], ctx["css"]
+    caret = _tags_with(page, "data-kw-item-caret")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(caret) != 1 or len(row) != 1:
+        return False
+    attrs = _attrs(caret[0])
+    gate = _class_binding(attrs).get("item__caret--open", "")
+    if not gate or gate not in _attrs(row[0]).get(":aria-expanded", ""):
+        return False
+    if attrs.get("aria-hidden") != "true":
+        return False
+    base = _decls_for(css, ".item__caret")
+    turned = _decls_for(css, ".item__caret--open")
+    settled = _decls_for(_reduced_block(css), ".item__caret")
+    if not base or not turned or not settled:
+        return False
+    return (any(d.get("transition") for d in base)
+            and any("rotate" in d.get("transform", "") for d in turned)
+            and all(_norm(d.get("transition", "")).startswith("none")
+                    for d in settled)
+            and not any(d.get("transform") for d in settled))
+
+
+@_covers("item-detail-values-are-inert", kind="behaviour",
+         breaks=[lambda c: {"render": lambda s: json.dumps(s)},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "{{ p.value }}", '<b v-html="p.value"></b>')},
+                 lambda c: {"inert_vectors": ()}])
+def _c_detail_values_inert(ctx):
+    """The widest, most attacker-influenced strings on the page — binder-authored
+    contract prose, file paths, assertion text — reach the grid the same way
+    every other engine value does: inside the inlined state JSON through
+    _inert_json, interpolated as a text node. All four hostile shapes are fired
+    at once, because an escape that stops a script break-out can leave an image
+    error handler, an svg load handler, a mixed-case tag or a javascript: URL
+    entirely untouched. Nothing on this path is bound with v-html."""
+    vectors = ctx["inert_vectors"]
+    if not vectors:
+        return False
+    seed = ctx["state"]["binders"][0]
+    detail = [{"id": "i-%d" % i, "status": "ready",
+               "contract": {"exposes": "exposes " + v},
+               "touches": ["path/to/" + v],
+               "assertions": ["asserts " + v],
+               "oracle_reason": "because " + v}
+              for i, v in enumerate(vectors)]
+    binder = dict(seed, slug="s-detail-hostile",
+                  items=dict(seed["items"], total=len(detail), detail=detail))
+    page = ctx["render"](dict(ctx["state"], binders=[binder]))
+    rows = ((_inlined_state(page).get("binders") or [{}])[0]
+            .get("items", {}).get("detail", []))
+    if len(rows) != len(vectors):
+        return False
+    for i, vector in enumerate(vectors):
+        if vector in page:
+            return False
+        row = rows[i]
+        if not row["contract"]["exposes"].endswith(vector):
+            return False
+        if not row["touches"][0].endswith(vector):
+            return False
+        if not row["assertions"][0].endswith(vector):
+            return False
+        if not row["oracle_reason"].endswith(vector):
+            return False
+    clean = ctx["render"](ctx["state"])
+    return (page.count("</script>") == clean.count("</script>")
+            and "v-html" not in ctx["app_src"])
+
+
+@_covers("item-expansion-is-keyed-per-item", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "return !!this.expanded[slug + '/' + id];", "return !!this.expanded;")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "const k = slug + '/' + id;", "const k = 'open';")}])
+def _c_item_expansion_keyed(ctx):
+    """Opening one item's detail opens THAT item's and no other's. What is open
+    is held as a map keyed by binder slug and work-item id — the same composite
+    the toggle writes and the row reads — never as a page-level flag, which is
+    the shape that would open every card on the page at once. It is the same
+    defect the copy confirmation had, in a different place.
+
+    Source-level: the keying is read off the accessor, off the toggle, and off
+    the arguments the template hands both. Nothing runs Vue here."""
+    app, page = ctx["app_src"], ctx["page"]
+    row = _tags_with(page, "data-kw-item-row")
+    detail = _tags_with(page, "data-kw-item-detail")
+    if len(row) != 1 or len(detail) != 1:
+        return False
+    return ("expanded: {}," in app
+            and "return !!this.expanded[slug + '/' + id];" in app
+            and "const k = slug + '/' + id;" in app
+            and "[k]: !this.expanded[k]" in app
+            and _attrs(row[0]).get("@click") == "toggleItem(b.slug, it.id)"
+            and _attrs(detail[0]).get("v-if") == "isExpanded(b.slug, it.id)")
+
+
+@_covers("item-expansion-survives-a-poll", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "this.state = this.withArchived(s);",
+             "this.state = this.withArchived(s); this.expanded = {};")},
+                 lambda c: {"app_src": c["app_src"].replace("expanded: {},", "")}])
+def _c_item_expansion_survives_poll(ctx):
+    """A poll replaces the whole state object; it must not close what the reader
+    opened. What is expanded is the page's own state, not the feed's — it is
+    never derived from a binder — and the poll's success path assigns the feed
+    and nothing else, so a refresh under an open disclosure leaves it open.
+
+    Source-level: the poll handler is read for what it assigns. That a real
+    browser keeps the panel open across a real refresh is on the human
+    checklist — no browser runs here."""
+    app = ctx["app_src"]
+    poll = _js_block(app, "    poll() {")
+    computed = _js_block(app, "  computed: {")
+    if not poll or not computed:
+        return False
+    return ("expanded: {}," in app
+            and "this.state = this.withArchived(s);" in poll
+            and "expanded" not in poll and "expanded" not in computed)
+
+
+@_covers("item-detail-mirror-matches-its-twin", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "add('touches', it.touches, 'list', true);", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "if (!d[0]) return;", "if (false) return;")}])
+def _c_item_detail_mirror(ctx):
+    """A browser runs the JavaScript, not the Python — so the twin every check
+    above drives is only evidence while the two really are one behaviour.
+    Compared branch for branch: the same rows added under the same keys in the
+    same order, the same undeclared / declared-empty split, the same opt-out
+    fork, the same ref derivation, the same blocker fallback, and each side
+    carrying the marker that names the other."""
+    app = ctx["app_src"]
+    marker = "// MIRROR: change together with item_detail() in serve_status.py"
+    if marker not in app:
+        return False
+    js = app[app.index(marker):]
+    js = js[:js.index("\n}\n")]
+    py = inspect.getsource(item_detail)
+
+    def order(src, quote):
+        seen = [(src.index(token), key) for key, token in
+                ((k, "add(%s%s%s," % (quote, k, quote)) for k in
+                 ("asserts", "unchecked", "command", "contract", "touches",
+                  "estimate", "ref")) if token in src]
+        return [key for _, key in sorted(seen)]
+
+    if order(js, "'") != order(py, '"') or len(order(js, "'")) != 7:
+        return False
+    return ("if (!d[0]) return;" in js and "if (d[1])" in js
+            and "DETAIL.empty" in js
+            and "if (otype === DETAIL.opt_out)" in js
+            and "itemRef(slug, it.id, it.status)" in js
+            and "STATE_META[byId[dep]] || STATE_META.blocked" in js
+            and "if not declared:" in py and "if empty:" in py
+            and "DETAIL_EMPTY_LABEL" in py
+            and "if otype == OPT_OUT_TYPE:" in py
+            and 'item_ref(slug, it.get("id"), it.get("status"))' in py
+            and '_STATE_META.get(status_by_id.get(dep), _STATE_META["blocked"])' in py
+            and "MIRROR: change together with itemDetail()" in py)
+
+
+@_covers("item-detail-hooks-are-registered", kind="behaviour",
+         breaks=[lambda c: {"detail_hooks":
+                            c["detail_hooks"] + (KW_PREFIX + "detail-ghost",)},
+                 lambda c: _renamed(c, "data-kw-detail-entry", "page", "eph",
+                                    "empty_page", "degraded_page")])
+def _c_detail_hooks_registered(ctx):
+    """Every hook this behaviour introduces actually reaches the page AND is
+    read by a registered check. The whole-page rule says the same thing about
+    every hook there is; this one names THIS item's, so a hook added here
+    without its check fails here, saying which hook, instead of surfacing later
+    as an unexplained finding in the sweep."""
+    hooks = _rendered_hooks(ctx)
+    named = ctx["detail_hooks"]
+    return bool(named) and all(h in hooks and _hook_is_read(h) for h in named)
+
+
+@_covers("chip-vocabulary", kind="rendered", hook="data-kw-item-chip",
+         breaks=[lambda c: _renamed(c, "data-kw-item-chip", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     blocked=dict(c["state_meta"]["blocked"], word="BLOCKED"))}])
+def _c_chip_vocabulary(ctx):
+    page, meta = ctx["page"], ctx["state_meta"]
+    chip = _tags_with(page, "data-kw-item-chip")
+    word = _tags_with(page, "data-kw-item-word")
+    item = _tags_with(page, "data-kw-item")
+    if len(chip) != 1 or len(word) != 1 or len(item) != 1:
+        return False
+    return (_attrs(item[0]).get(":data-kw-item-status") == "it.word"
+            and meta["blocked"]["word"] == "WAITING"
+            and meta["blocked"]["color"] == "var(--wait)"
+            and meta["blocked"]["soft"] == "var(--wait-soft)"
+            and all(m["word"] != "BLOCKED" for m in meta.values())
+            and ":style" in _attrs(word[0]))
+
+
+@_covers("chip-icons-resolve", kind="behaviour",
+         breaks=[lambda c: {"icons": {k: v for k, v in list(c["icons"].items())[:1]}}])
+def _c_chip_icons_resolve(ctx):
+    icons = ctx["icons"]
+    return (all(m["badge"] in icons for m in ctx["state_meta"].values())
+            and all(m["mark"] in icons for m in ctx["phase_meta"].values()))
+
+
+@_covers("item-cards-key-on-the-work-item-id", kind="rendered", hook="data-kw-item",
+         breaks=[lambda c: _renamed(c, "data-kw-item", "page"),
+                 lambda c: {"page": c["page"].replace(':key="it.id"',
+                                                      ':key="wi"')}])
+def _c_item_cards_key_on_id(ctx):
+    """One card per item, keyed on the work-item id — the one field that is
+    stable across polls. Keyed on the loop index instead, a poll that reorders a
+    wave would re-use the wrong card's expanded state."""
+    page = ctx["page"]
+    cards = _tags_with(page, "data-kw-item")
+    rows = _tags_with(page, "data-kw-item-row")
+    if len(cards) != 1 or len(rows) != 1:
+        return False
+    attrs = _attrs(cards[0])
+    return ("w.items" in attrs.get("v-for", "") and attrs.get(":key") == "it.id"
+            and "v-if" not in attrs
+            and "it.id" in _attrs(rows[0]).get("@click", ""))
+
+
+@_covers("card-border-weight-is-a-named-role", kind="rendered",
+         hook="data-kw-item-weight",
+         breaks=[lambda c: _renamed(c, "data-kw-item-weight", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     built=dict(c["state_meta"]["built"], weight="urgent"))},
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     blocked=dict(c["state_meta"]["blocked"], edge="solid"))}])
+def _c_card_border_weight_role(ctx):
+    """How loud a card is, as a WORD the metadata carries, not a pixel value in
+    a stylesheet: calm for passed, built, ready and waiting; urgent for the two
+    that want looking at now. Built resolves calm — an item awaiting merge is
+    not an emergency. Waiting is calm with a dashed edge, which is a shape and
+    so lives in the sheet, bound through the same metadata."""
+    page, sm = ctx["page"], ctx["state_meta"]
+    cards = _tags_with(page, "data-kw-item")
+    if len(cards) != 1:
+        return False
+    attrs = _attrs(cards[0])
+    classes = _class_binding(attrs)
+    calm = {k for k, m in sm.items() if m["weight"] == "calm"}
+    urgent = {k for k, m in sm.items() if m["weight"] == "urgent"}
+    dashed = {k for k, m in sm.items() if m["edge"] == "dashed"}
+    return (attrs.get(":data-kw-item-weight") == "it.weight"
+            and calm == {"done", "built", "ready", "blocked"}
+            and urgent == {"building", "failed"}
+            and dashed == {"blocked"}
+            and classes.get("item--urgent") == "it.urgent"
+            and classes.get("item--dashed") == "it.dashed"
+            and "it.border" in attrs.get(":style", ""))
+
+
+@_covers("halted-card-opens-with-a-solid-bar", kind="rendered",
+         hook="data-kw-item-bar",
+         breaks=[lambda c: _renamed(c, "data-kw-item-bar", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     ready=dict(c["state_meta"]["ready"], on="var(--on-halt)"))}])
+def _c_halted_card_solid_bar(ctx):
+    """The halted card is the one card that opens with a solid bar, and that is
+    exactly the one state carrying a foreground token — so the bar is gated on
+    the token being there rather than on the state name being spelled out in the
+    template. It sits above the row, so a halt is read before the title is."""
+    page, sm = ctx["page"], ctx["state_meta"]
+    bar = _tags_with(page, "data-kw-item-bar")
+    card = _tags_with(page, "data-kw-item")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(bar) != 1 or len(card) != 1 or len(row) != 1:
+        return False
+    attrs = _attrs(bar[0])
+    styled = attrs.get(":style", "")
+    return ({k for k, m in sm.items() if m.get("on")} == {"failed"}
+            and attrs.get("v-if") == "it.bar"
+            and "it.color" in styled and "it.on" in styled
+            and page.index(card[0]) < page.index(bar[0]) < page.index(row[0]))
+
+
+@_covers("running-card-breathes-and-keeps-breathing", kind="rendered",
+         hook="data-kw-item-strip",
+         breaks=[lambda c: _renamed(c, "data-kw-item-strip", "page"),
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".item__shim-fill")},
+                 lambda c: {"css": c["css"].replace(
+                     "background:var(--now); animation:karta-breathe",
+                     "background:var(--now); animation:karta-spin")}])
+def _c_running_card_breathes(ctx):
+    """The running card's footer strip breathes, and breathe is the page's one
+    motion that keeps going under reduced motion — so a card that is mid-build
+    still says so with movement off. The strip is drawn only for the running
+    state, read off the same flag the metadata drives."""
+    page, css, keyframe = ctx["page"], ctx["css"], ctx["breathe_keyframe"]
+    strip = _tags_with(page, "data-kw-item-strip")
+    if len(strip) != 1 or _attrs(strip[0]).get("v-if") != "it.building":
+        return False
+    base = _decls_for(css, ".item__shim-fill")
+    settled = _decls_for(_reduced_block(css), ".item__shim-fill")
+    if not base or not settled:
+        return False
+    return (_animates_with(base[0], keyframe)
+            and _animates_with(settled[0], keyframe)
+            and ctx["state_meta"]["building"]["weight"] == "urgent")
+
+
+@_covers("waiting-wording-never-says-blocked", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             blocked=dict(c["state_meta"]["blocked"], word="BLOCKED"))},
+                 lambda c: {"phase_defs": [dict(d, meaning="blocked on the one before")
+                                           for d in c["phase_defs"]]},
+                 lambda c: {"rail_legend": [dict(l, text="blocked — not run yet")
+                                            for l in c["rail_legend"]]}])
+def _c_waiting_never_says_blocked(ctx):
+    """An item waiting its turn is normal flow, not an alarm. So the page's own
+    chrome — every state word, phase label and meaning, rail legend line, band
+    and refresh and feed string, and hub verdict — never uses the word, in any
+    casing. Binder-authored prose is not chrome and is deliberately outside
+    this: a summary may legitimately say an item is blocked on something."""
+    sm = ctx["state_meta"]
+    chrome = [m["word"] for m in sm.values()]
+    chrome += [m["phrase"] for m in ctx["phase_meta"].values()]
+    chrome += [d["label"] for d in ctx["phase_defs"]]
+    chrome += [d["meaning"] for d in ctx["phase_defs"]]
+    chrome += [entry["text"] for entry in ctx["rail_legend"]]
+    chrome += [ctx["rail_title"], ctx["title_suffix"]]
+    chrome += [lane["label"] for lane in ctx["lanes"].values()]
+    chrome += list(ctx["panel_meta_labels"].values())
+    chrome += list(ctx["band"].values()) + list(ctx["refresh_labels"].values())
+    chrome += list(ctx["feed_labels"].values()) + list(ctx["hub_chip"])
+    return (sm["blocked"]["word"] == "WAITING"
+            and not [s for s in chrome
+                     if isinstance(s, str) and "blocked" in s.lower()])
+
+
+@_covers("empty-state-mascot", kind="rendered", hook="data-kw-empty",
+         breaks=[lambda c: _renamed(c, "data-kw-empty", "empty_page"),
+                 lambda c: _renamed(c, "data-kw-empty-mascot", "empty_page")])
+def _c_empty_state_mascot(ctx):
+    page = ctx["empty_page"]
+    section = _tags_with(page, "data-kw-empty")
+    mascot = _tags_with(page, "data-kw-empty-mascot")
+    if len(section) != 1 or len(mascot) != 1:
+        return False
+    return (_tag_name(section[0]) == "section"
+            and "v-else" in _attrs(section[0])
+            and _tag_name(mascot[0]) == "img"
+            and _attrs(mascot[0]).get("src", "").startswith("/assets/")
+            and _inlined_state(page).get("binders") == [])
+
+
+@_covers("degraded-state", kind="behaviour",
+         breaks=[lambda c: {"degraded_page": c["degraded_page"].replace(
+             "engine unavailable", "all good")}])
+def _c_degraded_state(ctx):
+    page = ctx["degraded_page"]
+    state = _inlined_state(page)
+    return (state.get("binders") == [] and bool(state.get("errors"))
+            and state.get("next_action", {}).get("level") == "blocked"
+            and "engine unavailable" in (state["next_action"].get("human") or "")
+            and len(_tags_with(page, "data-kw-empty")) == 1)
+
+
+@_covers("hub-landing-cards", kind="rendered", hook="data-kw-hub-card",
+         breaks=[lambda c: _renamed(c, "data-kw-hub-card", "hub"),
+                 lambda c: {"hub": c["hub"].replace("data-kw-hub-slug", "data-kw-x")}])
+def _c_hub_landing_cards(ctx):
+    cards = _tags_with(ctx["hub"], "data-kw-hub-card")
+    if len(cards) != ctx["hub_card_count"]:
+        return False
+    for tag in cards:
+        attrs = _attrs(tag)
+        slug = attrs.get("data-kw-hub-slug", "")
+        if (_tag_name(tag) != "a" or not slug
+                or not attrs.get("href", "").startswith("/r/" + slug + "/")
+                or ctx["key_token"] not in attrs.get("href", "")):
+            return False
+    return True
+
+
+@_covers("hub-landing-empty", kind="rendered", hook="data-kw-hub-empty",
+         breaks=[lambda c: _renamed(c, "data-kw-hub-empty", "hub_empty")])
+def _c_hub_landing_empty(ctx):
+    return (len(_tags_with(ctx["hub_empty"], "data-kw-hub-empty")) == 1
+            and not _tags_with(ctx["hub_empty"], "data-kw-hub-card")
+            and not _tags_with(ctx["hub"], "data-kw-hub-empty"))
+
+
+@_covers("hub-card-verdict-vocabulary", kind="rendered",
+         hook="data-kw-hub-verdict",
+         breaks=[lambda c: _renamed(c, "data-kw-hub-verdict", "hub_all"),
+                 lambda c: {"hub_all": c["hub_all"].replace("repo--dim", "repo--x")},
+                 lambda c: {"hub_all": c["hub_all"].replace("karta-alarm",
+                                                            "karta-still")},
+                 lambda c: {"hub_treatment": dict(
+                     c["hub_treatment"],
+                     CLEAR={"motion": "karta-alarm", "dim": True})}])
+def _c_hub_verdict_vocabulary(ctx):
+    """Every verdict a repository can report renders its own card. Each chip
+    carries its word, the colour pair declared for that word, and the motion and
+    dimming its treatment declares — so the rendered vocabulary is compared
+    against the table, not against a fixture someone can quietly narrow. WEDGED
+    and UNAVAILABLE deliberately share one colour: they are told apart by the
+    word and by the note under it, and that is why this compares the set of
+    rendered (word, colour, motion, dimmed) tuples against the declared set
+    rather than counting distinct colours."""
+    doc, chip, treat = ctx["hub_all"], ctx["hub_chip"], ctx["hub_treatment"]
+    cards = _tags_with(doc, "data-kw-hub-card")
+    chips = _tags_with(doc, "data-kw-hub-verdict")
+    motions = set(ctx["keyframes"])
+    if set(chip) != set(treat) or len(cards) != len(chips) != len(chip):
+        return False
+    rendered = set()
+    for card_tag, chip_tag in zip(cards, chips):
+        cattrs, chattrs = _attrs(card_tag), _attrs(chip_tag)
+        word = chattrs.get("data-kw-hub-verdict", "")
+        classes = set(cattrs.get("class", "").split())
+        classes |= set(chattrs.get("class", "").split())
+        rendered.add((word,
+                      tuple(_VAR_REF_RE.findall(chattrs.get("style", ""))),
+                      tuple(sorted(classes & motions)),
+                      "repo--dim" in classes))
+    declared = {(word,
+                 tuple(_VAR_REF_RE.findall("".join(chip[word]))),
+                 tuple(m for m in (treat[word]["motion"],) if m),
+                 treat[word]["dim"]) for word in chip}
+    return rendered == declared
+
+
+@_covers("hub-landing-token-parity", kind="behaviour",
+         breaks=[lambda c: {"hub": c["hub"].replace("--wait-soft:",
+                                                    "--wait-gone:")},
+                 lambda c: {"hub": c["hub"].replace(
+                     "@media (prefers-color-scheme: light)",
+                     "@media (min-width: 1px)")},
+                 lambda c: {"hub_chip": dict(c["hub_chip"],
+                                             NOW=("var(--nope)",
+                                                  "var(--nope-soft)"))}])
+def _c_hub_token_parity(ctx):
+    """The landing resolves the same tokens as the page it links to. Read off
+    the two rendered documents: they define the same variable names, the landing
+    ships the same four-selector cascade with the full palette in each arm, and
+    every variable the landing's own rules and chips name is defined there. A
+    token that exists for one page and not the other is precisely how the two
+    drift into looking like different products."""
+    hub_sheet, page_sheet = _style_text(ctx["hub"]), _style_text(ctx["page"])
+    palette = set(ctx["palette"])
+    arms = [_palette_decls(hub_sheet, ":root"),
+            _palette_decls(_at_rule_body(hub_sheet, "prefers-color-scheme"),
+                           ":root"),
+            _palette_decls(hub_sheet, ':root[data-theme="dark"]'),
+            _palette_decls(hub_sheet, ':root[data-theme="light"]')]
+    if any(set(arm) != palette for arm in arms):
+        return False
+    defined = set(_VAR_DEF_RE.findall(hub_sheet))
+    if defined != set(_VAR_DEF_RE.findall(page_sheet)):
+        return False
+    refs = set(_VAR_REF_RE.findall(hub_sheet + json.dumps(ctx["hub_chip"])))
+    return bool(refs) and not (refs - defined)
+
+
+@_covers("hub-refresh-shared-decision", kind="behaviour",
+         breaks=[lambda c: {"hub": c["hub"].replace(
+             "if (!visible) return 'skip';", "")},
+                 lambda c: {"hub_refresh_ms": 10000},
+                 lambda c: {"hub_refresh_key": "karta-theme"}])
+def _c_hub_refresh_shared_decision(ctx):
+    """The landing runs the SAME decision the repo page runs — one source,
+    spliced verbatim into both documents, rather than a second copy that can be
+    fixed on the page someone happened to open and left wrong on the most
+    expensive page in the system. It reads the reader's choice under the same
+    key and measures it against the same interval."""
+    shared = ctx["refresh_shared"]
+    return (bool(shared)
+            and shared in ctx["app_src"] and shared in ctx["hub"]
+            and ctx["hub_refresh_ms"] == ctx["refresh_interval"]
+            and ctx["hub_refresh_key"] == ctx["refresh_key"])
+
+
+@_covers("hub-refresh-off-means-off", kind="behaviour",
+         breaks=[lambda c: {"refresh_decide": lambda *a, **k: "poll"},
+                 lambda c: {"hub": c["hub"].replace(
+                     "refreshDecision(storedRefreshMode()", "always(")},
+                 lambda c: {"hub": c["hub"].replace(
+                     "  setInterval(step, REFRESH_MS);",
+                     "  setInterval(step, REFRESH_MS);\n"
+                     "  setInterval(function () { location.reload(); }, 1000);")}])
+def _c_hub_refresh_off_means_off(ctx):
+    """Off stops the landing too. Two readings, because neither alone is honest:
+    the decision itself, called directly with the landing's own interval, answers
+    'skip' in manual-only mode however long it has been; and the landing's
+    rendered source has exactly one timer, one action, and no other initiator —
+    the action sits after the decision inside the same step, so there is no path
+    to a request that skipped it. What a browser does with that source is not
+    machine-checked here."""
+    decide, ms = ctx["refresh_decide"], ctx["hub_refresh_ms"]
+    off = {decide("manual-only", True, e, ms, False)
+           for e in (0, ms, ms * 2880)}
+    hidden = decide("auto", False, ms * 2880, ms, False)
+    due = decide("auto", True, ms, ms, False)
+    step = _js_block(ctx["hub"], "  function step() {")
+    if not step or "refreshDecision(" not in step:
+        return False
+    return (off == {"skip"} and hidden == "skip" and due == "poll"
+            and step.index("refreshDecision(") < step.index("location.reload(")
+            and step.count("location.reload(") == 1
+            and ctx["hub"].count("location.reload(") == 1
+            and ctx["hub"].count("setInterval(") == 1
+            and ctx["hub"].count("fetch(") == 0
+            and ctx["hub"].count("addEventListener(") == 0)
+
+
+@_covers("hub-no-meta-refresh", kind="behaviour",
+         breaks=[lambda c: {"hub": c["hub"].replace(
+             "<head>", '<head><meta http-equiv="refresh" content="10">')},
+                 lambda c: {"hub_empty": c["hub_empty"].replace(
+                     "<head>", '<head><meta http-equiv="refresh" content="30">')}])
+def _c_hub_no_meta_refresh(ctx):
+    """The ten-second meta refresh is replaced, not supplemented. No rendered
+    document declares a refresh through http-equiv — a mechanism that cannot
+    read the reader's choice and cannot be stopped by it has no second life
+    beside the one that can."""
+    for key in _DOC_KEYS:
+        for tag in _tags_named(ctx[key], "meta"):
+            if "refresh" in _attrs(tag).get("http-equiv", "").lower():
+                return False
+    return True
+
+
+@_covers("route-repo-page", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'path in ("/", "/index.html")', "False")}])
+def _c_route_repo_page(ctx):
+    src = ctx["repo_dispatch"]
+    return ('path in ("/", "/index.html")' in src and "render_app_html(" in src
+            and "current_state()" in src)
+
+
+@_covers("route-state-json", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'path == "/state.json"', "False")}])
+def _c_route_state_json(ctx):
+    src = ctx["repo_dispatch"]
+    return ('path == "/state.json"' in src and "_state_feed(" in src
+            and "split_archived(" in src)
+
+
+@_covers("route-assets", kind="behaviour",
+         breaks=[lambda c: {"repo_dispatch": c["repo_dispatch"].replace(
+             'path.startswith("/assets/")', "False")}])
+def _c_route_assets(ctx):
+    src = ctx["repo_dispatch"]
+    return ('path.startswith("/assets/")' in src and "_serve_asset(" in src)
+
+
+@_covers("hub-route-landing", kind="behaviour",
+         breaks=[lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+             "render_hub_html(", "x(")}])
+def _c_hub_route_landing(ctx):
+    src = ctx["hub_dispatch"]
+    return ('path in ("/", "/index.html")' in src and "render_hub_html(" in src
+            and "hub_cards(" in src)
+
+
+@_covers("hub-route-repo-page", kind="behaviour",
+         breaks=[lambda c: {"repo_route": lambda p: None},
+                 lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+                     "_root_for_slug(", "x(")}])
+def _c_hub_route_repo_page(ctx):
+    match = ctx["repo_route"]
+    hit = match("/r/alpha-bbbbbbbb/")
+    return (hit is not None and hit.group(1) == "alpha-bbbbbbbb"
+            and not hit.group(2)
+            and match("/r/a/b/") is None and match("/nope") is None
+            and "_root_for_slug(" in ctx["hub_dispatch"]
+            and "render_app_html(" in ctx["hub_dispatch"])
+
+
+@_covers("hub-route-repo-state-json", kind="behaviour",
+         breaks=[lambda c: {"repo_route": lambda p: None},
+                 lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+                     "_state_feed(", "x(")}])
+def _c_hub_route_repo_state_json(ctx):
+    hit = ctx["repo_route"]("/r/alpha-bbbbbbbb/state.json")
+    return (hit is not None and hit.group(2) == "state.json"
+            and "_state_feed(" in ctx["hub_dispatch"]
+            and "split_archived(" in ctx["hub_dispatch"])
+
+
+@_covers("hub-route-identity", kind="behaviour",
+         breaks=[lambda c: {"hub_dispatch": c["hub_dispatch"].replace(
+             'path == "/identity"', "False")}])
+def _c_hub_route_identity(ctx):
+    src = ctx["hub_dispatch"]
+    return ('path == "/identity"' in src and "_identity_payload(" in src)
+
+
+@_covers("hub-token-constant-time", kind="behaviour",
+         breaks=[lambda c: {"hub_key_ok": lambda supplied, token: True},
+                 lambda c: {"hub_key_src": c["hub_key_src"].replace(
+                     "compare_digest", "__eq__")}])
+def _c_hub_token_constant_time(ctx):
+    allow = ctx["hub_key_ok"]
+    return (allow("s3cret", "s3cret") and not allow("", "s3cret")
+            and not allow("s3cre", "s3cret") and not allow("S3CRET", "s3cret")
+            and "compare_digest" in ctx["hub_key_src"])
+
+
+@_covers("ephemeral-key-gate-constant-time", kind="behaviour",
+         breaks=[lambda c: {"key_ok": lambda supplied, required: True},
+                 lambda c: {"key_src": c["key_src"].replace("compare_digest", "__eq__")}])
+def _c_ephemeral_key_gate(ctx):
+    allow = ctx["key_ok"]
+    return (allow("", None) and allow("t0ken", "t0ken")
+            and not allow("wrong", "t0ken")
+            and "compare_digest" in ctx["key_src"])
+
+
+@_covers("hub-host-pinning", kind="behaviour",
+         breaks=[lambda c: {"host_ok": lambda host, port: True},
+                 lambda c: {"host_ok": lambda host, port: str(port) in host}])
+def _c_hub_host_pinning(ctx):
+    allow = ctx["host_ok"]
+    return (allow("127.0.0.1:8765", 8765) and allow("localhost:8765", 8765)
+            and not allow("evil.example:8765", 8765)
+            and not allow("127.0.0.1:9999", 8765)
+            and not allow("127.0.0.1", 8765) and not allow("", 8765))
+
+
+@_covers("asset-directory-confinement", kind="behaviour",
+         breaks=[lambda c: {"asset_probe": lambda rel: 200}])
+def _c_asset_confinement(ctx):
+    probe = ctx["asset_probe"]
+    face = ctx["font_manifest"]["faces"][0]["file"]
+    return (probe("/assets/mascot.png") == 200
+            and probe("/assets/vendor/vue.global.prod.js") == 200
+            and probe(FONT_ROUTE + face) == 200
+            and probe("/assets/../../../etc/passwd") == 404
+            and probe("/assets/../serve_status.py") == 404
+            and probe("/assets/nope.png") == 404
+            # the fonts subdirectory is a second nesting level, and depth is not
+            # what bounds the route — the resolve-and-confine is. Climbing out
+            # THROUGH it must land in the same 404 as climbing out of /assets/.
+            and probe(FONT_ROUTE + "../../serve_status.py") == 404
+            and probe(FONT_ROUTE + "../../../../../etc/passwd") == 404
+            and probe(FONT_ROUTE + "nope.woff2") == 404)
+
+
+# --- the vendored typefaces: manifest, declarations and bytes must agree -----
+# Everything below reads the DECLARED record (the manifest), the bytes on disk
+# and the stylesheet, and checks the three against each other and against
+# VENDORED_FACES. None of it opens a woff2 — see the note at VENDORED_FACES.
+
+_FONT_FACE_RE = re.compile(r"@font-face\s*\{([^}]*)\}")
+_CSS_DECL_RE = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;]+)")
+_FONT_ROLE_RE = re.compile(r"--(mono|sans|serif)\s*:\s*([^;}]+)")
+_GENERIC_FAMILIES = {"serif", "sans-serif", "monospace", "system-ui",
+                     "ui-monospace", "ui-sans-serif", "ui-serif", "cursive"}
+
+
+def _declared_faces(doc: str) -> list[dict]:
+    """Every @font-face rule in `doc` as {family, weight, src, display, range}."""
+    faces = []
+    for block in _FONT_FACE_RE.finditer(doc):
+        decl = {k.strip().lower(): v.strip()
+                for k, v in _CSS_DECL_RE.findall(block.group(1))}
+        url = re.search(r"url\(\s*[\"']?([^\"')]+)", decl.get("src", ""))
+        weight = decl.get("font-weight", "")
+        faces.append({
+            "family": decl.get("font-family", "").strip("\"'"),
+            "weight": int(weight) if weight.isdigit() else -1,
+            "src": url.group(1) if url else "",
+            "display": decl.get("font-display", ""),
+            "range": re.sub(r"\s+", "", decl.get("unicode-range", "")).upper(),
+        })
+    return faces
+
+
+def _font_role_stacks(css: str) -> dict[str, list[str]]:
+    """The --mono/--sans/--serif roles as ordered family lists."""
+    return {m.group(1): [p.strip().strip("\"'") for p in m.group(2).split(",")]
+            for m in _FONT_ROLE_RE.finditer(css)}
+
+
+def _fetchable_urls(doc: str) -> list[str]:
+    """Every URL the browser would actually FETCH: src=/href= attributes, CSS
+    url() references and @import targets. Deliberately NOT every http-looking
+    string — an inline SVG's xmlns is a namespace name, never a request, and a
+    blanket substring scan would fail the page for declaring one."""
+    out = []
+    for m in re.finditer(r"""(?:\b(?:src|href)\s*=\s*["']([^"']*)["'])"""
+                         r"""|(?:url\(\s*["']?([^"')]*))"""
+                         r"""|(?:@import\s+["']([^"']*))""", doc, re.I):
+        out.extend(g.strip() for g in m.groups() if g)
+    return out
+
+
+def _remote_urls(doc: str) -> list[str]:
+    """The fetchable URLs that leave this origin — the CDN leak this page forbids."""
+    return [u for u in _fetchable_urls(doc)
+            if u.lower().startswith(("http://", "https://", "//"))]
+
+
+def _without_a_font_face(css: str) -> str:
+    """A stylesheet one @font-face short — the mutation a face-count check must catch."""
+    blocks = list(_FONT_FACE_RE.finditer(css))
+    return css.replace(blocks[-1].group(0), "") if blocks else css
+
+
+def _stack_without_fallback(css: str) -> str:
+    """A stylesheet whose --sans role names the vendored family and nothing else."""
+    m = re.search(r"--sans\s*:\s*([^;}]+)", css)
+    return css.replace(m.group(0), '--sans:"IBM Plex Sans"') if m else css
+
+
+@_covers("vendored-font-faces", kind="behaviour",
+         breaks=[lambda c: {"css": _without_a_font_face(c["css"])},
+                 lambda c: {"font_manifest": {**c["font_manifest"],
+                                              "faces": c["font_manifest"]["faces"][:-1]}},
+                 lambda c: {"asset_serve": lambda path: (404, "text/plain")},
+                 lambda c: {"css": c["css"].replace("font-display:swap",
+                                                    "font-display:block")}])
+def _c_vendored_font_faces(ctx):
+    """The eight faces are declared, listed and actually served — as woff2."""
+    declared = [(f["family"], f["weight"]) for f in _declared_faces(ctx["css"])]
+    listed = [(e["family"], e["weight"]) for e in ctx["font_manifest"]["faces"]]
+    enumerated = list(VENDORED_FACES)
+    served = all(ctx["asset_serve"](FONT_ROUTE + e["file"]) == (200, "font/woff2")
+                 for e in ctx["font_manifest"]["faces"])
+    return (len(enumerated) == 8 and len(set(enumerated)) == 8
+            and sorted(declared) == sorted(listed) == sorted(enumerated)
+            and served
+            and all(f["display"] == "swap" for f in _declared_faces(ctx["css"])))
+
+
+@_covers("font-manifest-agreement", kind="behaviour",
+         breaks=[lambda c: {"font_files": {**c["font_files"],
+                                           c["font_manifest"]["faces"][0]["file"]:
+                                           {"bytes": 1, "sha256": "0" * 64, "head": ""}}},
+                 lambda c: {"font_manifest": {
+                     **c["font_manifest"],
+                     "faces": [{**f, "unicode_range": "U+0000-007F"}
+                               for f in c["font_manifest"]["faces"]]}},
+                 lambda c: {"css": c["css"].replace("U+2000-206F", "U+2000-20FF")}])
+def _c_font_manifest_agreement(ctx):
+    """Manifest, bytes on disk and @font-face rules describe the same eight files."""
+    entries = ctx["font_manifest"]["faces"]
+    disk = ctx["font_files"]
+    faces = {(f["family"], f["weight"]): f for f in _declared_faces(ctx["css"])}
+    if len(entries) != len(faces):
+        return False
+    for e in entries:
+        on_disk = disk.get(e["file"])
+        declared = faces.get((e["family"], e["weight"]))
+        if on_disk is None or declared is None:
+            return False
+        if on_disk["bytes"] != e["bytes"] or on_disk["sha256"] != e["sha256"]:
+            return False
+        if declared["range"] != re.sub(r"\s+", "", e["unicode_range"]).upper():
+            return False
+        if declared["src"] != FONT_ROUTE + e["file"]:
+            return False
+    return ({e["file"] for e in entries}
+            == {n for n in disk if n.endswith(".woff2")})
+
+
+@_covers("font-payload-budget", kind="behaviour",
+         breaks=[lambda c: {"font_files": {**c["font_files"], "bloat.woff2":
+                                           {"bytes": 400 * 1024, "sha256": "", "head": ""}}},
+                 lambda c: {"font_budget": 1024}])
+def _c_font_payload_budget(ctx):
+    """All the woff2 bytes this plugin ships, together, under the stated bound."""
+    total = sum(f["bytes"] for name, f in ctx["font_files"].items()
+                if name.endswith(".woff2"))
+    return 0 < total < ctx["font_budget"]
+
+
+@_covers("font-licences-shipped", kind="behaviour",
+         breaks=[lambda c: {"font_files": {n: f for n, f in c["font_files"].items()
+                                           if not n.endswith("-OFL.txt")}},
+                 lambda c: {"font_manifest": {
+                     **c["font_manifest"],
+                     "families": {f: {**e, "licence": "absent.txt"}
+                                  for f, e in c["font_manifest"]["families"].items()}}}])
+def _c_font_licences_shipped(ctx):
+    """Every vendored family ships its licence beside the fonts. Redistributing an
+    OFL face without its licence is a licensing defect, not an untidiness."""
+    families = ctx["font_manifest"]["families"]
+    disk = ctx["font_files"]
+    if set(families) != {family for family, _ in VENDORED_FACES}:
+        return False
+    for entry in families.values():
+        licence = disk.get(entry.get("licence", ""))
+        if licence is None or "OPEN FONT LICENSE" not in licence["head"].upper():
+            return False
+    return True
+
+
+@_covers("page-fetches-nothing-remote", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "</head>", '<link rel="stylesheet" '
+             'href="https://fonts.googleapis.com/css2?family=Newsreader"></head>')},
+                 lambda c: {"hub": c["hub"].replace(
+                     "@font-face", "@import 'https://fonts.gstatic.com/x.css';@font-face", 1)}])
+def _c_no_remote_fetch(ctx):
+    """No rendered document fetches anything off this origin — checked against
+    fetchable contexts, so declaring an SVG namespace never false-fails."""
+    namespaced = ('<svg xmlns="http://www.w3.org/2000/svg" '
+                  'xmlns:xlink="http://www.w3.org/1999/xlink"><use href="#i"/></svg>')
+    return (not [u for key in _DOC_KEYS for u in _remote_urls(ctx[key])]
+            and not _remote_urls(ctx["page"] + namespaced))
+
+
+@_covers("font-src-same-origin", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             'url("/assets/fonts/', 'url("https://fonts.gstatic.com/s/')},
+                 lambda c: {"page": c["page"].replace(
+                     ".woff2?key=" + c["key_token"], ".woff2")}])
+def _c_font_src_same_origin(ctx):
+    """Every face loads from the same-origin asset route — and carries the hub's
+    key when there is one, or the token gate would 403 every font."""
+    raw = _declared_faces(ctx["css"])
+    keyed = _declared_faces(ctx["page"])
+    plain = _declared_faces(ctx["eph"])
+    if not raw or not (len(raw) == len(keyed) == len(plain)):
+        return False
+    same_origin = all(f["src"].startswith(FONT_ROUTE)
+                      for f in raw + keyed + plain)
+    return (same_origin
+            and all(f["src"].endswith(".woff2") for f in raw + plain)
+            and all(f["src"].endswith(".woff2?key=" + ctx["key_token"])
+                    for f in keyed))
+
+
+@_covers("font-stack-system-fallback", kind="behaviour",
+         breaks=[lambda c: {"css": _stack_without_fallback(c["css"])},
+                 lambda c: {"css": c["css"].replace("--serif:", "--display:")}])
+def _c_font_stack_fallback(ctx):
+    """Each role leads with its vendored family and ends in a system one, so a
+    blocked, 404ing or file://-unreachable font still reads as text."""
+    stacks = _font_role_stacks(ctx["css"])
+    vendored = {family for family, _ in VENDORED_FACES}
+    if len(stacks) != len(vendored):
+        return False
+    led = set()
+    for families in stacks.values():
+        if len(families) < 2 or families[0] not in vendored:
+            return False
+        if families[-1] not in _GENERIC_FAMILIES:
+            return False
+        led.add(families[0])
+    return led == vendored
+
+
+@_covers("single-front-end-runtime", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "</body>", '<script src="/assets/vendor/htmx.min.js"></script></body>')},
+                 lambda c: {"asset_scripts": c["asset_scripts"] + ["vendor/htmx.min.js"]}])
+def _c_single_front_end_runtime(ctx):
+    """Fonts are files, not a framework: Vue stays the only vendored runtime."""
+    fetched = [u.split("?")[0] for u in _fetchable_urls(ctx["page"])
+               if u.split("?")[0].endswith(".js")]
+    return (fetched == ["/assets/vendor/vue.global.prod.js"]
+            and ctx["asset_scripts"] == ["vendor/vue.global.prod.js"])
+
+
+@_covers("inert-json-escaping", kind="behaviour",
+         breaks=[lambda c: {"inert": lambda obj, pinned=False:
+                            json.dumps(obj, separators=(",", ":"))}])
+def _c_inert_json_escaping(ctx):
+    inert = ctx["inert"]
+    hostile = "<img src=x onerror=alert(1)>"
+    out = inert({"t": hostile})
+    return (hostile not in out and "<" not in out and ">" not in out
+            and json.loads(out)["t"] == hostile
+            and inert("&") == '"\\u0026"' and inert("/") == '"\\/"')
+
+
+@_covers("poll-loop-interval", kind="behaviour",
+         breaks=[lambda c: {"poll_ms": 0},
+                 lambda c: {"refresh_interval": 2600},
+                 lambda c: {"app_src": c["app_src"].replace("setInterval(", "x(")}])
+def _c_poll_loop_interval(ctx):
+    """One poll timer, on the slow automatic cadence the reader is shown — and
+    it is the ONLY thing that starts a scheduled request. The countdown ticker
+    beside it is a separate, faster timer that never fetches, so the two are
+    counted apart rather than lumped into one setInterval tally."""
+    app = ctx["app_src"]
+    return (ctx["poll_ms"] == ctx["refresh_interval"] == REFRESH_INTERVAL_MS
+            and ctx["poll_ms"] >= 30000
+            and "setInterval(() => this.step(false), REFRESH_MS)" in app
+            and app.count("setInterval(") == app.count("clearInterval(") == 2
+            and app.count("this._pollTimer = setInterval(") == 1
+            and "visibilitychange" in app)
+
+
+@_covers("refresh-single-poll-timer", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "if (decision === 'skip') return;", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this.poll();", "this.poll(); this.poll();")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this._onVisibility = () => this.step(false);",
+                     "window.addEventListener('online', () => this.poll());")}])
+def _c_refresh_single_poll_timer(ctx):
+    """Every request initiator routes through refreshDecision. There is exactly
+    one fetch call site, it sits inside poll(), poll() is reached only from
+    step() after a non-skip decision, and step() is the only thing any timer or
+    listener calls — so a focus/online handler or a second revalidation path
+    cannot keep touching git while the page says refresh is off."""
+    app = ctx["app_src"]
+    step = _js_block(app, "    step(manual) {")
+    poll = _js_block(app, "    poll() {")
+    if not step or not poll:
+        return False
+    outside = app.replace(step, "").replace(poll, "")
+    return (app.count("fetch(") == 1 and "fetch(" in poll
+            and app.count("this.poll();") == 1 and "this.poll();" in step
+            and "refreshDecision(" in step
+            and step.index("refreshDecision(") < step.index("this.poll();")
+            and "if (decision === 'skip') return;" in step
+            and "this.poll()" not in outside
+            and "addEventListener('online'" not in app
+            and "addEventListener('focus'" not in app
+            and app.count("addEventListener(") == 1)
+
+
+@_covers("feed-live-paused-debounce", kind="behaviour",
+         breaks=[lambda c: {"feed_step": lambda state, status:
+                            {"failures": 0, "paused": False}},
+                 lambda c: {"pause_after": 1}])
+def _c_feed_debounce(ctx):
+    step, live = ctx["feed_step"], {"failures": 0, "paused": False}
+    one = step(live, 500)
+    two = step(one, 500)
+    return (step(live, 200) == live and step(live, 304) == live
+            and one["paused"] is False and two["paused"] is True
+            and step(two, 500)["paused"] is True and step(two, 200) == live
+            and ctx["pause_after"] == 2)
+
+
+@_covers("file-snapshot-no-polling", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "location.protocol !== 'file:'", "true")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "      if (location.protocol === 'file:') return;\n", "")}])
+def _c_file_snapshot_no_polling(ctx):
+    """A saved copy opened from disk registers NO timer in either mode — not the
+    poll timer, not the countdown ticker, and no listener. The toggle can reach
+    startPolling long after mount, so the protocol guard sits on the timer as
+    well as on the mount block."""
+    app = ctx["app_src"]
+    mounted = _js_block(app, "mounted() {")
+    guarded = _js_block(mounted, "if (location.protocol !== 'file:') {")
+    starter = _js_block(app, "    startPolling() {")
+    if not mounted or not guarded or not starter:
+        return False
+    outside = mounted.replace(guarded, "")
+    return ("addEventListener" not in outside and "startPolling" not in outside
+            and "setInterval" not in outside
+            and "addEventListener" in guarded and "startPolling" in guarded
+            and "setInterval" in guarded
+            and "if (location.protocol === 'file:') return;" in starter
+            and starter.index("file:") < starter.index("setInterval("))
+
+
+@_covers("poll-decision-hidden-tab", kind="behaviour",
+         breaks=[lambda c: {"refresh_decide":
+                            lambda m, v, e, i, man: "poll"},
+                 lambda c: {"refresh_decide":
+                            lambda m, v, e, i, man: "skip"}])
+def _c_poll_decision(ctx):
+    """The visibility backoff, gated INSIDE the decision function rather than by
+    its caller — so a hidden tab makes no scheduled request however far past the
+    interval it drifts, while a deliberate click is still honoured on that same
+    hidden tab. The predecessor's separate poll_decision is subsumed here."""
+    decide, ms = ctx["refresh_decide"], ctx["refresh_interval"]
+    return (decide("auto", False, 0, ms, False) == "skip"
+            and decide("auto", False, ms * 1000, ms, False) == "skip"
+            and decide("manual-only", False, ms * 1000, ms, False) == "skip"
+            and decide("auto", False, 0, ms, True) == "poll-now"
+            and decide("manual-only", False, ms * 1000, ms, True) == "poll-now"
+            and decide("auto", True, ms, ms, False) == "poll")
+
+
+@_covers("refresh-off-means-off", kind="behaviour",
+         breaks=[lambda c: {"refresh_decide":
+                            lambda m, v, e, i, man: "poll" if e >= i else "skip"},
+                 lambda c: {"refresh_vectors": [["auto", True, 0, False, "skip"]]}])
+def _c_refresh_off_means_off(ctx):
+    """Off means off, asserted on the function that decides rather than on a
+    countdown being hidden: in manual-only mode the decision is 'skip' at every
+    elapsed time, however large. In auto mode it skips below the interval and
+    polls at or beyond it, and a manual trigger answers 'poll-now' exactly once
+    — the following call without the trigger does not repeat it.
+
+    The shared vector table is driven through the Python twin here; the page is
+    handed the identical table so the two runtimes are compared rather than
+    assumed equal. What this catches is the function drifting from the table.
+    It cannot execute JavaScript, so a rewrite that keeps the shape and changes
+    the behaviour would survive — a residue named, not papered over."""
+    decide, ms = ctx["refresh_decide"], ctx["refresh_interval"]
+    vectors = ctx["refresh_vectors"]
+    if len(vectors) < 10 or ctx["refresh_vectors_inlined"] != vectors:
+        return False
+    for mode, visible, elapsed, manual, expected in vectors:
+        if decide(mode, visible, elapsed, ms, manual) != expected:
+            return False
+    off = [decide("manual-only", True, e, ms, False)
+           for e in (0, ms - 1, ms, ms * 10, ms * 100000)]
+    below = [decide("auto", True, e, ms, False) for e in (0, 1, ms - 1)]
+    at_or_past = [decide("auto", True, e, ms, False) for e in (ms, ms + 1, ms * 9)]
+    once = [decide(m, True, 0, ms, True) for m in ("auto", "manual-only")]
+    after = [decide(m, True, 0, ms, False) for m in ("auto", "manual-only")]
+    return (set(off) == {"skip"} and set(below) == {"skip"}
+            and set(at_or_past) == {"poll"} and set(once) == {"poll-now"}
+            and "poll-now" not in after)
+
+
+@_covers("refresh-decision-mirror", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "if (mode !== 'auto') return 'skip';", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "MIRROR: change together with refresh_decision()", "x")}])
+def _c_refresh_decision_mirror(ctx):
+    """The mirrored JavaScript matches its Python twin branch for branch — the
+    same four guards in the same order, returning the same three words, each
+    body carrying the marker that names the other."""
+    app = ctx["app_src"]
+    marker = "// MIRROR: change together with refresh_decision()"
+    if marker not in app:
+        return False
+    js = app[app.index(marker):]
+    js = js[:js.index("\n}\n")]
+    py = inspect.getsource(refresh_decision)
+    return ("function refreshDecision(mode, visible, elapsedMs, intervalMs, manual)" in js
+            and "if (manual) return 'poll-now';" in js
+            and "if (mode !== 'auto') return 'skip';" in js
+            and "if (!visible) return 'skip';" in js
+            and "if (elapsedMs < intervalMs) return 'skip';" in js
+            and "return 'poll';" in js
+            and "def refresh_decision(mode: str, visible: bool, elapsed_ms: int," in py
+            and "if manual:" in py and 'return "poll-now"' in py
+            and 'if mode != "auto":' in py
+            and "if not visible:" in py
+            and "if elapsed_ms < interval_ms:" in py
+            and 'return "skip"' in py and 'return "poll"' in py
+            and "MIRROR: change together with refreshDecision()" in py)
+
+
+@_covers("auto-refresh-persistence-key", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("REFRESH_KEY", "x")},
+                 lambda c: {"refresh_key_inlined": "karta-theme"},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "  } catch (e) { return 'auto'; }", "  } finally { }")}])
+def _c_auto_refresh_key(ctx):
+    """The choice persists under its OWN key — one spelling, named in Python and
+    handed to the page, so the two cannot drift into two keys and silently stop
+    persisting. A first visit with nothing stored defaults to automatic refresh
+    ON, and a browser where storage throws falls back to that same default
+    rather than failing on the way up."""
+    app, key = ctx["app_src"], ctx["refresh_key"]
+    reader = _js_block(app, "function storedRefreshMode() {")
+    if not reader or ctx["refresh_key_inlined"] != key:
+        return False
+    return (key == REFRESH_MODE_KEY
+            and key not in ("karta-theme", "karta-show-delivered")
+            and "localStorage.getItem(REFRESH_KEY)" in reader
+            and "try {" in reader and "catch (e) { return 'auto'; }" in reader
+            and reader.count("'auto'") == 2
+            and "localStorage.setItem(REFRESH_KEY," in app
+            and "refreshMode: storedRefreshMode()," in app)
+
+
+@_covers("refresh-off-wording-is-not-feed-paused", kind="behaviour",
+         breaks=[lambda c: {"refresh_labels": dict(c["refresh_labels"],
+                                                   off=c["feed_paused_label"])},
+                 lambda c: {"refresh_inlined": {"on": "x", "off": "y"}}])
+def _c_refresh_off_wording(ctx):
+    """The reader's choice is worded as a choice. 'automatic refresh off' is
+    never the feed-paused wording, which means the feed FAILED twice in a row —
+    the page must not dress a deliberate setting as a fault."""
+    labels, paused = ctx["refresh_labels"], ctx["feed_paused_label"]
+    return (labels["off"] == REFRESH_OFF_LABEL
+            and labels["on"] == REFRESH_ON_LABEL
+            and ctx["refresh_inlined"] == labels
+            and "paused" not in labels["off"] and "paused" not in labels["on"]
+            and labels["off"] != paused and labels["on"] != paused
+            and labels["off"] in ctx["page"]
+            and _first_index(ctx["page"], "data-kw-refresh-age")
+            != _first_index(ctx["page"], "data-kw-feed"))
+
+
+@_covers("refresh-timers-torn-down", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "    if (this._tickTimer !== null) { clearInterval(this._tickTimer); "
+             "this._tickTimer = null; }\n", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "    this.stopPolling();\n    if (this._tickTimer",
+                     "    if (this._tickTimer")}])
+def _c_refresh_timers_torn_down(ctx):
+    """Every timer and listener this page adds has a matching teardown inside
+    beforeUnmount. A source-level check: the gate cannot fire a Vue lifecycle
+    hook, so the pairing is read off the source rather than observed."""
+    app = ctx["app_src"]
+    unmount = _js_block(app, "  beforeUnmount() {")
+    if not unmount:
+        return False
+    return (app.count("setInterval(") == app.count("clearInterval(") == 2
+            and "this.stopPolling()" in unmount
+            and "clearInterval(this._tickTimer)" in unmount
+            and "this._tickTimer = null" in unmount
+            and "removeEventListener('visibilitychange'" in unmount
+            and app.count("addEventListener(") == app.count("removeEventListener(") == 1)
+
+
+@_covers("refresh-countdown-is-local", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "setInterval(() => { this.now = Date.now(); }, TICK_MS)",
+             "setInterval(() => { this.poll(); }, TICK_MS)")},
+                 lambda c: {"tick_ms": 0}])
+def _c_refresh_countdown_is_local(ctx):
+    """The countdown is a local timer over a known interval: it reads the
+    clock, not the network. Its ticker is distinct from the one poll timer, it
+    ticks faster than the refresh interval, and no fetch sits on its code path."""
+    app = ctx["app_src"]
+    ticker = "setInterval(() => { this.now = Date.now(); }, TICK_MS)"
+    countdown = _js_block(app, "    countdownLabel() {")
+    age = _js_block(app, "    ageLabel() {")
+    if not countdown or not age:
+        return False
+    both = countdown + age
+    return (ticker in app and 0 < ctx["tick_ms"] < ctx["refresh_interval"]
+            and "this._tickTimer = " + ticker in app
+            and "fetch" not in both and "poll" not in both
+            and "this.now" in countdown and "this.lastPollAt" in countdown)
+
+
+@_covers("refresh-baseline-reset-in-caller", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "if (decision === 'poll-now' || decision === 'poll') this.lastPollAt = Date.now();",
+             "")}])
+def _c_refresh_baseline_reset(ctx):
+    """A pure function returning a word cannot reset anything, so the elapsed
+    baseline is caller state — restarted in step() on the decisions that fetch,
+    which is the wiring a source-level check can see and the function cannot."""
+    step = _js_block(ctx["app_src"], "    step(manual) {")
+    if not step:
+        return False
+    reset = "if (decision === 'poll-now' || decision === 'poll') this.lastPollAt = Date.now();"
+    return (reset in step and "refreshDecision(" in step
+            and step.index("refreshDecision(") < step.index(reset)
+            and step.index(reset) < step.index("this.poll();"))
+
+
+@_covers("manual-refresh-not-reentrant", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "      if (this._inflight) return;\n", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     ".finally(() => { this._inflight = false; })", "")}])
+def _c_manual_refresh_not_reentrant(ctx):
+    """A second click while a refresh is already in flight rides the first out
+    instead of starting a second request — the guard is set before the fetch and
+    cleared however the request ends, success or failure."""
+    poll = _js_block(ctx["app_src"], "    poll() {")
+    if not poll:
+        return False
+    return ("if (this._inflight) return;" in poll
+            and "this._inflight = true;" in poll
+            and poll.index("this._inflight = true;") < poll.index("fetch(")
+            and ".finally(() => { this._inflight = false; })" in poll)
+
+
+@_covers("no-visual-change-hooks-are-attribute-only", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace(
+             "</style>", KW_PREFIX + "leak</style>")},
+                 lambda c: {"css": c["css"] + "\n." + KW_PREFIX + "x{ color:red; }"}])
+def _c_hooks_attribute_only(ctx):
+    if KW_PREFIX in ctx["css"]:
+        return False        # a hook that reached the stylesheet is a style change
+    for key in _DOC_KEYS:
+        doc = ctx[key]
+        for hit in re.finditer(re.escape(KW_PREFIX), doc):
+            opened = doc.rfind("<", 0, hit.start())
+            closed = doc.rfind(">", 0, hit.start())
+            if opened < 0 or closed > opened:
+                return False    # not inside a start tag: text or a style rule
+    return True
+
+
+def _frozen_reduced_motion(css: str) -> str:
+    """A stylesheet whose reduced-motion block freezes the live status dot —
+    the mutation the reduced-motion check must catch."""
+    body = _at_rule_body(css, "prefers-reduced-motion")
+    return css.replace(body, body + "\n  .shell__feed-dot{ animation:none !important; }")
+
+
+# --- the anchor floor, the entry-shape rule, and the negative-control harness -
+
+def _anchored_behaviours(anchor: Path | None = None) -> list[str]:
+    """The committed anchor's behaviour names (blank lines and # comments skipped)."""
+    path = anchor or BEHAVIOUR_ANCHOR
+    if not path.exists():
+        return []
+    return [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _behaviour_floor(anchored, registered) -> list[str]:
+    """Anchored behaviours missing from the registry. A FLOOR: extras are fine."""
+    known = set(registered)
+    return [name for name in anchored if name not in known]
+
+
+def _registry_faults(registry: dict, ctx: dict) -> list[str]:
+    """Entries that fail the kind rule: no kind, a rendered entry whose hook is
+    absent from every rendered document, a behaviour entry naming no check, or
+    an entry with no callable at all."""
+    faults = []
+    for name, entry in registry.items():
+        kind, hook, check = entry.get("kind"), entry.get("hook"), entry.get("check")
+        if not callable(entry.get("fn")):
+            faults.append(name)
+        elif kind == "rendered":
+            if not hook or not hook.startswith(KW_PREFIX):
+                faults.append(name)
+            elif not any(_tags_with(ctx[k], hook) for k in _DOC_KEYS):
+                faults.append(name)
+        elif kind == "behaviour":
+            if not check or not callable(globals().get(check)):
+                faults.append(name)
+        else:
+            faults.append(name)
+    return faults
+
+
+def _markup_literals(fn) -> list[str]:
+    """String literals in `fn`'s own body carrying markup or CSS-declaration
+    syntax. Decorators and the docstring are excluded — only the assertions."""
+    try:
+        src = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return []
+    tree = ast.parse(src)
+    body = tree.body[0].body if tree.body else []
+    docstrings = {id(n.value) for n in body
+                  if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
+    out = []
+    for node in body:
+        for sub in ast.walk(node):
+            if (isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+                    and id(sub) not in docstrings
+                    and any(t in sub.value for t in ("<", ">", "{", "}", ";", '="'))):
+                out.append(sub.value)
+    return out
+
+
+def _coverage_context() -> dict:
+    """Every artifact the registered checks read. A negative control swaps one
+    of these for a deliberately broken version — so a check that reads a module
+    global instead of the context cannot be proven to fail, and is caught."""
+    key_token = "T"
+    key_qs = "?key=" + key_token
+    current_slug = "gringotts-aaaaaaaa"
+    repo_name = "gringotts"
+
+    def next_action_of(s):
+        """The engine's own next action for a state's binders — the SAME
+        derivation karta-status and its footer read. The fixture takes its
+        next_action from here rather than from a sentence typed beside it, so
+        "the band states what the engine derived" is checkable at all."""
+        return karta_next._next_action(s["binders"],
+                                       [b["slug"] for b in s["binders"]],
+                                       s["warnings"], s["errors"])
+
+    live_binders = [{"slug": "s-live", "title": "A live binder", "after": [],
+                     "status": "in_flight", "is_next": True,
+                     "items": {"total": 2, "done": 1, "built": 0, "failed": 0,
+                               "building": 1, "ready": 0, "blocked": 0,
+                               "detail": [{"id": "one", "status": "done"},
+                                          {"id": "two", "status": "building"}]}}]
+    state = {
+        "repo": {"default_branch": "main"}, "order": None,
+        "binders": live_binders,
+        "next_action": next_action_of({"binders": live_binders,
+                                       "warnings": [], "errors": []}),
+        "warnings": [], "errors": [],
+    }
+    empty_state = {"repo": {"default_branch": "main"}, "order": None,
+                   "binders": [], "next_action": {"level": "binder",
+                                                  "command": "karta-plan",
+                                                  "human": "plan a binder"},
+                   "warnings": [], "errors": []}
+    roster = [{"slug": "alpha-bbbbbbbb", "name": "alpha"},
+              {"slug": "beta-cccccccc", "name": "beta"}]
+    page = render_app_html(state, "dark", key_qs=key_qs, repo_name=repo_name,
+                           roster=roster)
+    eph = render_app_html(state, "dark", repo_name="karta")
+    empty_page = render_app_html(empty_state, "dark", repo_name=repo_name)
+    degraded_page = render_app_html(_degraded_state("git exploded"), "dark",
+                                    repo_name=repo_name)
+    cards = [{"slug": "alpha-bbbbbbbb", "name": "alpha", "word": "NEXT",
+              "counts": "2 binders · 1 delivered", "activity": "2h ago",
+              "next": "run karta-deliver", "note": "", "root": "/x/alpha"},
+             {"slug": "beta-cccccccc", "name": "beta", "word": "CLEAR",
+              "counts": "1 binder · 1 delivered", "activity": None,
+              "next": "", "note": "", "root": "/x/beta"}]
+    hub = render_hub_html(cards, key_qs)
+    # One landing carrying EVERY verdict at once, so "each word gets its own
+    # treatment" is read off a render that actually contains all five rather
+    # than off the table that produced them.
+    all_cards = [{"slug": "w%d-dddddddd" % i, "name": "repo-%d" % i, "word": word,
+                  "counts": "1 binder · 0 delivered", "activity": "active today",
+                  "next": "run karta-deliver", "note": "", "root": "/x/w%d" % i}
+                 for i, word in enumerate(_HUB_CHIP)]
+    hub_all = render_hub_html(all_cards, key_qs)
+
+    def key_ok(supplied, required):
+        return _Handler._key_ok(_Ns(required_key=required),
+                                {"key": [supplied]})
+
+    def hub_key_ok(supplied, token):
+        return _HubHandler._hub_key_ok(_Ns(server=_Ns(hub_token=token)),
+                                       {"key": [supplied]})
+
+    def host_ok(host, port):
+        return _HubHandler._host_ok(_Ns(headers={"Host": host},
+                                        server=_Ns(server_port=port)))
+
+    def asset_serve(path):
+        """(status, content type) the real asset route answers `path` with."""
+        seen = []
+        handler = _Handler.__new__(_Handler)
+        handler._text = lambda code, text, ctype, etag=None: seen.append((code, ctype))
+        handler._send = lambda code, body, ctype, cache=False, etag=None: seen.append((code, ctype))
+        _Handler._serve_asset(handler, path)
+        return seen[0] if seen else (0, "")
+
+    def asset_probe(path):
+        return asset_serve(path)[0]
+
+    # The vendored typefaces as three independent readings: the bytes on disk,
+    # the declared manifest, and the stylesheet (already in "css" below).
+    font_files = {}
+    for f in sorted(FONTS_DIR.iterdir()) if FONTS_DIR.is_dir() else []:
+        if f.is_file():
+            data = f.read_bytes()
+            font_files[f.name] = {
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "head": data[:400].decode("utf-8", "replace") if f.suffix == ".txt" else "",
+            }
+    font_manifest = (json.loads(FONT_MANIFEST.read_text(encoding="utf-8"))
+                     if FONT_MANIFEST.is_file() else {"faces": [], "families": {}})
+    asset_scripts = sorted(str(p.relative_to(ASSETS_DIR))
+                           for p in ASSETS_DIR.rglob("*.js"))
+
+    poll_ms = int(re.search(r"const REFRESH_MS = (\d+);", _build_app_js(state)).group(1))
+    tick_ms = int(re.search(r"const TICK_MS = (\d+);", _build_app_js(state)).group(1))
+    return {
+        "page": page, "eph": eph, "empty_page": empty_page,
+        "degraded_page": degraded_page, "hub": hub,
+        "hub_empty": render_hub_html([], key_qs),
+        "hub_all": hub_all,
+        "hub_card_count": len(cards),
+        "hub_treatment": _HUB_TREATMENT,
+        "hub_refresh_key": _inlined_const(hub, "REFRESH_KEY"),
+        "hub_refresh_ms": _inlined_const(hub, "REFRESH_MS"),
+        "refresh_shared": _REFRESH_SHARED_JS,
+        "css": _strip_css_comments(_page_css()),
+        "hub_css": _strip_css_comments(_HUB_CSS),
+        "palette": _PALETTE, "retired": _RETIRED_TOKENS,
+        "keyframes": _KEYFRAMES,
+        "keyframes_off_legend": _KEYFRAMES_OFF_LEGEND,
+        "waves_of": _waves_of, "browser_checklist": BROWSER_CHECKLIST,
+        "hub_chip": _HUB_CHIP,
+        "vendored_weights": _vendored_weights(),
+        "app_src": _APP_JS,
+        "repo_dispatch": inspect.getsource(_Handler.do_GET),
+        "hub_dispatch": inspect.getsource(_HubHandler.do_GET),
+        "key_src": inspect.getsource(_Handler._key_ok),
+        "hub_key_src": inspect.getsource(_HubHandler._hub_key_ok),
+        "shell_hub": _inlined_const(page, "SHELL"),
+        "shell_eph": _inlined_const(eph, "SHELL"),
+        "feed_labels": {"live": FEED_LIVE_LABEL, "paused": FEED_PAUSED_LABEL},
+        "feed_inlined": _inlined_const(page, "FEED"),
+        "pause_after": FEED_PAUSE_AFTER,
+        "state": state, "branch_chips": branch_chips,
+        "integration_fmt": INTEGRATION_BRANCH_FMT,
+        "branch_inlined": _inlined_const(page, "BRANCH_FMT"),
+        "asset_files": sorted(p.name for p in ASSETS_DIR.iterdir() if p.is_file()),
+        "key_qs": key_qs,
+        "state_meta": _STATE_META, "phase_meta": _PHASE_META,
+        "engine_states": _ENGINE_ITEM_STATES,
+        "built_forbidden": _BUILT_FORBIDDEN_TOKENS,
+        "inert_vectors": _INERT_VECTORS,
+        "phase_defs": _PHASE_DEFS, "icons": _ICONS,
+        "next_action_of": next_action_of,
+        "next_action_accessor": _js_block(_APP_JS, "    nextAction() {"),
+        "render": lambda s: render_app_html(s, "dark", repo_name=repo_name),
+        "render_themed": lambda s, t: render_app_html(s, t, repo_name=repo_name),
+        "band": {"eyebrow": BAND_EYEBROW, "copy": COPY_LABEL,
+                 "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS,
+                 "key": COPY_KEY_BAND},
+        "band_inlined": _inlined_const(page, "BAND"),
+        "item_detail": item_detail, "detail_labels": DETAIL_LABELS,
+        "detail_empty_label": DETAIL_EMPTY_LABEL,
+        "detail_inlined": _inlined_const(page, "DETAIL") or {},
+        "detail_hooks": _DETAIL_HOOKS,
+        "marker_fmt": ITEM_MARKER_FMT, "branch_fmt": ITEM_BRANCH_FMT,
+        "ref_markers": ITEM_REF_MARKERS,
+        "oracle_icon": _ORACLE_ICON, "icon_fallback": ORACLE_ICON_FALLBACK,
+        "opt_out_type": OPT_OUT_TYPE,
+        "binder_panel": binder_panel, "count_order": _COUNT_ORDER,
+        "lanes": {"parallel": _LANE_PARALLEL, "serial": _LANE_SERIAL},
+        "panel_meta_labels": {"default": META_DEFAULT_LABEL,
+                              "integration": META_INTEGRATION_LABEL,
+                              "packs": META_PACKS_LABEL},
+        "panel_inlined": _inlined_const(page, "PANEL"),
+        "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
+        "title_case": _title_case, "rail_title": RAIL_TITLE,
+        "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
+        "breathe_keyframe": BREATHE_KEYFRAME,
+        "repo_name": repo_name, "title_suffix": _TITLE_SUFFIX,
+        "key_token": key_token, "current_slug": current_slug,
+        "poll_ms": poll_ms, "tick_ms": tick_ms,
+        "refresh_decide": refresh_decision,
+        "refresh_interval": REFRESH_INTERVAL_MS,
+        "refresh_vectors": REFRESH_VECTORS,
+        "refresh_vectors_inlined": _inlined_const(page, "REFRESH_VECTORS"),
+        "refresh_key": REFRESH_MODE_KEY,
+        "refresh_key_inlined": _inlined_const(page, "REFRESH_KEY"),
+        "refresh_labels": {"on": REFRESH_ON_LABEL, "off": REFRESH_OFF_LABEL},
+        "refresh_inlined": _inlined_const(page, "REFRESH"),
+        "feed_paused_label": FEED_PAUSED_LABEL,
+        "theme_attr": _theme_attr, "inert": _inert_json,
+        "feed_step": _feed_transition,
+        "repo_route": _REPO_ROUTE.fullmatch,
+        "key_ok": key_ok, "hub_key_ok": hub_key_ok, "host_ok": host_ok,
+        "asset_probe": asset_probe, "asset_serve": asset_serve,
+        "font_files": font_files, "font_manifest": font_manifest,
+        "font_budget": FONT_BUDGET_BYTES, "asset_scripts": asset_scripts,
+    }
+
+
+def _coverage_self_test_checks() -> list[tuple[str, bool]]:
+    """The migrated suite: the registry's own integrity, the anchor floor, and
+    the negative control proving every registered check can actually fail."""
+    ctx = _coverage_context()
+    registry = _COVERAGE_REGISTRY
+    anchored = _anchored_behaviours()
+    checks: list[tuple[str, bool]] = []
+
+    # --- entry shape: a kind, plus a real hook or a real check ---------------
+    def _fake(kind, hook=None, check=None):
+        return {"kind": kind, "hook": hook, "check": check,
+                "fn": lambda c: True, "breaks": []}
+
+    malformed = {
+        "no-kind": _fake(""),
+        "rendered-without-hook": _fake("rendered"),
+        "rendered-with-absent-hook": _fake("rendered", hook=KW_PREFIX + "ghost"),
+        "behaviour-without-check": _fake("behaviour"),
+        "behaviour-naming-nothing": _fake("behaviour", check="_no_such_check"),
+    }
+    checks += [
+        ("coverage: every registry entry declares its kind — a rendered entry "
+         "names an existing data-kw hook, a behaviour entry names the check "
+         "that exercises it",
+         not _registry_faults(registry, ctx)),
+        ("coverage: an entry with neither an existing hook nor a named check "
+         "fails, so the kind rule is enforced rather than described",
+         len(_registry_faults(malformed, ctx)) == len(malformed)),
+        ("coverage: every registered behaviour maps to a callable",
+         bool(registry) and all(callable(e["fn"]) for e in registry.values())),
+    ]
+
+    # --- the anchor floor: outside this file, compared as a floor ------------
+    padded = [n for n in registry if n != (anchored[0] if anchored else "")]
+    padded.append("a-trivial-extra-check")
+    checks += [
+        ("coverage: the committed anchor outside this file is non-empty and "
+         "every behaviour it names is registered",
+         bool(anchored) and not _behaviour_floor(anchored, registry)),
+        ("coverage: the floor counts behaviours, not checks — dropping one "
+         "registration and padding with an unrelated trivial check still fails",
+         bool(anchored) and _behaviour_floor(anchored, padded) == [anchored[0]]),
+        ("coverage: an extra registered behaviour the anchor does not name "
+         "passes the floor, so a later item can add its own",
+         not _behaviour_floor(anchored, list(registry) + ["a-later-behaviour"])),
+    ]
+
+    # --- negative controls: every check must FAIL on a broken artifact -------
+    never_passed, never_failed, vacuous = [], [], []
+    for name, entry in registry.items():
+        try:
+            truthy = bool(entry["fn"](ctx))
+        except Exception:
+            truthy = False
+        if not truthy:
+            never_passed.append(name)
+        if not entry["breaks"]:
+            never_failed.append(name)
+        for i, mutate in enumerate(entry["breaks"]):
+            overrides = mutate(ctx)
+            # the harness proves the mutation actually changed the artifact
+            # BEFORE running the check — a control that silently stopped
+            # mutating would otherwise let every check pass vacuously.
+            if not overrides or any(k not in ctx or ctx[k] == v
+                                    for k, v in overrides.items()):
+                vacuous.append(name + "#" + str(i))
+                continue
+            broken = dict(ctx)
+            broken.update(overrides)
+            try:
+                survived = bool(entry["fn"](broken))
+            except Exception:
+                survived = False
+            if survived:
+                never_failed.append(name + "#" + str(i))
+    checks += [
+        ("coverage: every registered check passes against the true render",
+         not never_passed),
+        ("coverage: every registered check FAILS against a deliberately broken "
+         "render of the behaviour it guards", not never_failed),
+        ("coverage: each negative control proves its mutation changed the "
+         "rendered bytes before the check runs, so a control that stopped "
+         "mutating cannot pass vacuously", not vacuous),
+    ]
+
+    # --- renaming a hook must break its check, never silently match ----------
+    rendered = [n for n, e in registry.items() if e["kind"] == "rendered"]
+    renamed_fails = []
+    for name in rendered:
+        hook = registry[name]["hook"]
+        broken = {k: (v.replace(hook, hook + "renamed") if isinstance(v, str) else v)
+                  for k, v in ctx.items()}
+        if broken == ctx:
+            continue
+        try:
+            survived = bool(registry[name]["fn"](broken))
+        except Exception:
+            survived = False
+        if not survived:
+            renamed_fails.append(name)
+    checks.append(
+        ("coverage: renaming a hook a registered check depends on makes that "
+         "check fail rather than silently matching a stale name",
+         renamed_fails == rendered))
+
+    # --- no rendered check asserts against markup or a CSS declaration -------
+    def _a_check_written_against_markup(ctx):
+        return '<div class="binder">' in ctx["page"]
+
+    offenders = {n: _markup_literals(registry[n]["fn"]) for n in rendered}
+    checks += [
+        ("coverage: no rendered-output check compares against a literal markup "
+         "fragment or an exact CSS declaration — each asserts an attribute, an "
+         "element relationship, or a resolved token name",
+         not any(offenders.values())),
+        ("coverage: the literal-markup ban can actually fail (a check written "
+         "against a markup fragment is flagged)",
+         bool(_markup_literals(_a_check_written_against_markup))),
     ]
     return checks
 
@@ -5205,7 +11497,9 @@ def _run_self_test() -> int:
         h = render_app_html(state, theme)
         checks += [
             (f"{theme}: renders a real document", len(h) > 8000),
-            (f"{theme}: NO external URLs (self-contained)", "http://" not in h and "https://" not in h),
+            (f"{theme}: NO external URLs (self-contained) — checked against the "
+             "contexts a browser actually fetches, not every http-looking string",
+             not _remote_urls(h)),
             (f"{theme}: inlines first-paint state", "window.__KARTA_STATE__" in h),
             (f"{theme}: vendors Vue same-origin", "/assets/vendor/vue.global.prod.js" in h),
             (f"{theme}: carries the binder + next action", "s-edit" in h and "karta-deliver" in h),
@@ -5213,9 +11507,6 @@ def _run_self_test() -> int:
             (f"{theme}: persists the toggle keys", "karta-show-delivered" in h and "karta-theme" in h),
             (f"{theme}: new-design timeline markers", "showDelivered" in h and "Delivered" in h
                 and "Now" in h and "RUNNING" in h),
-            (f"{theme}: reduced-motion keeps the status line live (breathes, not frozen)",
-                "prefers-reduced-motion" in h
-                and "animation:karta-breathe 2s ease-in-out infinite !important" in h),
             (f"{theme}: leads with the human binder title", "Edit the thing" in h and "binder__title" in h),
             (f"{theme}: keeps the slug as a chip, not the headline", "binder__slug" in h and "s-edit" in h),
             (f"{theme}: renders the plain-language binder summary", "Rewire callers onto the new thing." in h),
@@ -5227,111 +11518,14 @@ def _run_self_test() -> int:
                 "titleCase(b.slug)" in h),
         ]
 
-    # --- the repo-page header shell, feed indicator, and chip vocabulary ----
-    others = switcher_entries({
-        "/x/gringotts": {"slug": "gringotts-aaaaaaaa", "opted_in": True},
-        "/x/alpha": {"slug": "alpha-bbbbbbbb", "opted_in": True},
-        "/x/beta": {"slug": "beta-cccccccc", "opted_in": True},
-        "/x/plain": {"slug": "plain-dddddddd", "opted_in": False},
-    }, "gringotts-aaaaaaaa")
-    hub_page = render_app_html(state, "dark", key_qs="?key=T",
-                               repo_name="gringotts", roster=others)
-    eph_page = render_app_html(state, "dark", repo_name="karta")
-    live0 = {"failures": 0, "paused": False}
-    fail1 = _feed_transition(live0, 500)
-    fail2 = _feed_transition(fail1, 500)
-    checks += [
-        ("shell: the page <title> is '<repo> — Karta Watch' with the actual repo name",
-         "<title>gringotts — Karta Watch</title>" in hub_page
-         and "<title>karta — Karta Watch</title>" in eph_page),
-        ("shell: the k-mark square and the bordered '← home' button are both"
-         " anchors to the hub landing carrying the key",
-         '<a v-if="shell.home" class="shell__kmark" :href="shell.home"' in hub_page
-         and '<a v-if="shell.home" class="shell__home" :href="shell.home">← home</a>' in hub_page
-         and '"home":"\\/?key=T"' in hub_page),
-        ("shell: the repo name renders inside the shell repo-name class — no"
-         " breadcrumb path text",
-         'class="shell__repo-name">{{ shell.name }}</span>' in hub_page
-         and '"name":"gringotts"' in hub_page
-         and "crumb" not in hub_page and "gringotts\\/" not in hub_page),
-        ("shell: ephemeral mode has no hub, so no hub links and no switcher render",
-         '"home":null' in eph_page and '"others":[]' in eph_page),
-        ("switcher: a three-repo roster links exactly the other two — keys"
-         " carried, never self, non-opted hidden",
-         others == [{"slug": "alpha-bbbbbbbb", "name": "alpha"},
-                    {"slug": "beta-cccccccc", "name": "beta"}]
-         and '"href":"\\/r\\/alpha-bbbbbbbb\\/?key=T"' in hub_page
-         and '"href":"\\/r\\/beta-cccccccc\\/?key=T"' in hub_page
-         and "gringotts-aaaaaaaa" not in hub_page
-         and "plain-dddddddd" not in hub_page
-         and 'class="also"' in hub_page and "also watching:" in hub_page),
-        ("feed: the transition is pure — success live; one failure stays live;"
-         " two consecutive failures pause; the first success recovers",
-         _feed_transition(live0, 200) == live0
-         and fail1 == {"failures": 1, "paused": False}
-         and fail2 == {"failures": 2, "paused": True}
-         and _feed_transition(fail2, 500)["paused"] is True
-         and _feed_transition(fail2, 200) == live0),
-        ("feed: the paused label constant is present and wired to the"
-         " poll-failure path",
-         FEED_PAUSED_LABEL == "snapshot — feed paused"
-         and _inert_json({"live": FEED_LIVE_LABEL,
-                          "paused": FEED_PAUSED_LABEL}) in hub_page
-         and "function feedTransition" in hub_page
-         and "feedTransition(this.feed, null)" in hub_page
-         and "feedTransition(this.feed, 200)" in hub_page
-         and "{{ feedLabel }}" in hub_page
-         and "FEED.paused : FEED.live" in hub_page),
-    ]
-
-    wait_state = {
-        "repo": {"default_branch": "main"}, "order": None,
-        "binders": [{"slug": "w-binder", "after": [], "status": "in_flight",
-                     "is_next": True,
-                     "items": {"total": 2, "done": 0, "built": 0, "failed": 0,
-                               "building": 1, "ready": 0, "blocked": 1,
-                               "detail": [{"id": "w1", "status": "building"},
-                                          {"id": "w2", "status": "blocked",
-                                           "deps": ["w1"]}]}}],
-        "next_action": {"level": "item", "command": "karta-deliver w-binder",
-                        "human": "w1 is building"},
-        "warnings": [], "errors": [],
-    }
-    wait_page = render_app_html(wait_state, "dark", repo_name="karta")
-    checks += [
-        ("chips: a dependency-waiting item renders the soft steel WAITING chip",
-         _STATE_META["blocked"]["word"] == "WAITING"
-         and _STATE_META["blocked"]["color"] == "var(--steel)"
-         and _STATE_META["blocked"]["soft"] == "var(--steel-soft)"
-         and '"status":"blocked"' in wait_page
-         and '"word":"WAITING"' in wait_page),
-        ("chips: the word BLOCKED appears nowhere in the rendered repo page"
-         " (delivered history included, chip vocabulary scoped)",
-         "BLOCKED" not in wait_page and '"word":"BLOCKED"' not in hub_page),
-        ("chips: every badge in _STATE_META and every mark in _PHASE_META"
-         " resolves to an _ICONS entry (a WAITING chip never renders blank)",
-         all(m["badge"] in _ICONS for m in _STATE_META.values())
-         and all(m["mark"] in _ICONS for m in _PHASE_META.values())),
-        ("delivered: the green check treatment — gutter mark, green binder"
-         " border and header",
-         _PHASE_META["past"]["color"] == "var(--green)"
-         and _PHASE_META["past"]["mark"] == "check"
-         and ".binder--done{ border-color:var(--green); }" in hub_page
-         and ".binder__header--done{ background:var(--green-soft); }" in hub_page
-         and "'binder--done': b.done" in hub_page
-         and "'binder__header--done': b.done" in hub_page
-         and "done: key === 'past'" in hub_page),
-        ("expanders: binder + work-item toggles are real <button>s carrying"
-         " aria-expanded disclosure semantics; the show-delivered toggle (a"
-         " genuine toggle, not a disclosure) keeps aria-pressed",
-         '<button type="button" class="binder__header"' in hub_page
-         and ':aria-expanded="b.open ? \'true\' : \'false\'"' in hub_page
-         and '<button type="button" class="item__row"' in hub_page
-         and ':aria-expanded="isExpanded(b.slug, it.id) ? \'true\' : \'false\'"' in hub_page
-         and ':aria-pressed="showDelivered ? \'true\' : \'false\'"' in hub_page
-         and ':aria-pressed="b.open' not in hub_page
-         and ':aria-pressed="isExpanded' not in hub_page),
-    ]
+    # --- the migrated suite: rendered-output checks keyed by BEHAVIOUR ------
+    # The shell, switcher, feed indicator, chip vocabulary, delivered-binder
+    # treatment, reduced-motion rule and disclosure semantics that used to be
+    # asserted here as exact CSS text and literal markup now live in the
+    # coverage registry: each behaviour bound to a callable, every one proven
+    # to fail against a broken render, floored against an anchor outside this
+    # file so a restyle can never delete coverage by deleting an assertion.
+    checks += _coverage_self_test_checks()
 
     # Untrusted-text neutralization (see _inert_json): hostile binder-derived
     # strings must never reach a response as raw bytes, on either path.
@@ -5403,6 +11597,166 @@ def _run_self_test() -> int:
          "<" not in nested_out and ">" not in nested_out
          and json.loads(nested_out) == nested),
     ]
+
+    # --- widen-state-feed: contract/touches/estimate/serialize/shared_resources,
+    # the full assertions array, an opt-out's reason, and the binder's sme list
+    # all reach /state.json — null when the binder doesn't carry them, and only
+    # ever through _inert_json (never v-html) --------------------------------
+    wide_hostile = {
+        "img-onerror": "<img src=x onerror=alert('karta-xss')>",
+        "svg-onload": "<svg onload=alert('karta-xss')>",
+        "mixed-case-script": "<ScRiPt>alert('karta-xss')</sCrIpT>",
+        "javascript-url": "javascript:alert('karta-xss')",
+    }
+    wide_binders = [
+        {"slug": "s-wide", "title": "Widen the feed", "summary": "Carry more fields through.",
+         "motivation": "x", "scope": {"included": ["x"]},
+         "sme": ["alpha-pack", "beta-pack"],
+         "work_items": [
+             {"id": "full", "title": "Full-field item", "summary": "Declares everything.",
+              "estimate": "M", "serialize": True,
+              "shared_resources": ["skills/karta-status/scripts/serve_status.py"],
+              "touches": ["skills/karta-status/scripts/serve_status.py",
+                          wide_hostile["img-onerror"]],
+              "contract": {"exposes": "the widened feed",
+                           "note": wide_hostile["svg-onload"],
+                           "script": wide_hostile["mixed-case-script"],
+                           "href": wide_hostile["javascript-url"]},
+              "oracle": {"type": "unit",
+                         "assertions": ["first assertion", "second assertion", "third assertion"],
+                         "command": "npm run lint && npm test"}},
+             {"id": "skipped", "title": "Opted out", "summary": "No behavioral check for this one.",
+              "oracle": {"opt_out": True, "reason": "covered by the full-field item's oracle"}},
+             {"id": "bare", "title": "Bare item", "summary": "Declares none of the widened fields.",
+              "oracle": {"type": "unit", "assertions": ["bare passes"], "command": "true"}},
+         ]},
+    ]
+    wide_facts = {"default_branch": "main", "binders": {
+        "s-wide": {"items": {"full": {}, "skipped": {}, "bare": {}}}}}
+
+    # count subprocess.run calls made while deriving+enriching the widened
+    # binder, to prove the widening is a pure pass-through with no new git call
+    wide_git_calls: list = []
+    _real_subprocess_run = subprocess.run
+
+    def _counting_run(*a, **kw):
+        wide_git_calls.append(a)
+        return _real_subprocess_run(*a, **kw)
+
+    subprocess.run = _counting_run
+    try:
+        wide_state = karta_next.derive_state(wide_binders, wide_facts, frozenset())
+        wide_state = _enrich(wide_state, wide_binders)
+    finally:
+        subprocess.run = _real_subprocess_run
+
+    # negative control: prove the counting wrapper actually detects a call —
+    # otherwise the zero-calls assertion below would be vacuously true
+    _counter_probe: list = []
+    subprocess.run = lambda *a, **kw: _counter_probe.append(a)
+    try:
+        subprocess.run(["true"])
+    finally:
+        subprocess.run = _real_subprocess_run
+
+    wide_row = next(ob for ob in wide_state["binders"] if ob["slug"] == "s-wide")
+    wide_by_id = {d["id"]: d for d in wide_row["items"]["detail"]}
+    full, skipped, bare = wide_by_id["full"], wide_by_id["skipped"], wide_by_id["bare"]
+    wide_html = render_app_html(wide_state, "dark")
+    # the template alone, without the functions above it: the widened fields are
+    # allowed to be READ by the detail twin and nowhere else, so the bar that a
+    # field never appears in a binding is asserted over this region, not over the
+    # whole app source the twin lives in.
+    wide_template = _APP_JS[_APP_JS.index("  template: `"):]
+    wide_wire = split_archived(wide_state)
+    wide_json = _inert_json(wide_wire)
+    parsed_wide = json.loads(wide_json)
+    parsed_row = next(b for b in parsed_wide["binders"] if b["slug"] == "s-wide")
+    parsed_full = next(d for d in parsed_row["items"]["detail"] if d["id"] == "full")
+
+    checks += [
+        ("widen: the git-call counter itself can detect a call, so the "
+         "zero-calls assertion below is not vacuous (negative control)",
+         _counter_probe == [(["true"],)]),
+        ("widen: an item declaring contract, touches, estimate, serialize and "
+         "shared_resources carries all five into the feed with the binder's own values",
+         full["contract"]["exposes"] == "the widened feed"
+         and full["touches"][0] == "skills/karta-status/scripts/serve_status.py"
+         and full["estimate"] == "M" and full["serialize"] is True
+         and full["shared_resources"] == ["skills/karta-status/scripts/serve_status.py"]),
+        ("widen: an oracle with three assertions carries all three, in order, "
+         "not just the first — and the legacy single-value key still survives",
+         full["assertions"] == ["first assertion", "second assertion", "third assertion"]
+         and full["assert"] == "first assertion"),
+        ("widen: an opt-out oracle carries both its type and its recorded reason",
+         skipped["oracle"] == "opt-out"
+         and skipped["oracle_reason"] == "covered by the full-field item's oracle"),
+        ("widen: the binder row carries its sme list",
+         wide_row.get("sme") == ["alpha-pack", "beta-pack"]),
+        ("widen: an item declaring none of the widened fields renders each as "
+         "null (not '' or []), and the page still renders",
+         bare["contract"] is None and bare["touches"] is None
+         and bare["estimate"] is None and bare["serialize"] is None
+         and bare["shared_resources"] is None and bare["oracle_reason"] is None
+         and len(wide_html) > 8000),
+        ("widen: the derivation issues no additional git call over a widened "
+         "binder — pure pass-through of already-loaded JSON",
+         wide_git_calls == []),
+        ("widen: contract and touches reach both the inline page and /state.json "
+         "only through _inert_json — the three markup-bearing hostile vectors "
+         "(img onerror, svg onload, mixed-case script tag) never survive raw, "
+         "regardless of tag shape or case",
+         all(v not in wide_html for v in (wide_hostile["img-onerror"],
+                                           wide_hostile["svg-onload"],
+                                           wide_hostile["mixed-case-script"]))
+         and all(v not in wide_json for v in (wide_hostile["img-onerror"],
+                                               wide_hostile["svg-onload"],
+                                               wide_hostile["mixed-case-script"]))
+         and parsed_full["contract"]["note"] == wide_hostile["svg-onload"]),
+        ("widen: without _inert_json the same payload WOULD leak raw markup — "
+         "proving the escaping check above is not vacuous (negative control)",
+         any(v in json.dumps(full) for v in (wide_hostile["img-onerror"],
+                                              wide_hostile["svg-onload"],
+                                              wide_hostile["mixed-case-script"]))),
+        ("widen: a javascript: URL carries no markup-significant byte, so "
+         "_inert_json leaves it as inert text — the fourth vector's real "
+         "defense is that none of the widened fields (contract, touches, "
+         "estimate, serialize, shared_resources, assertions, oracle_reason, "
+         "sme) reaches a URL-bearing attribute, and the page feeds nothing to "
+         "v-html at all. That is the whole claim, and the detail grid is what "
+         "makes it bite: the grid CONSUMES contract, touches, estimate, the "
+         "assertions array and the opt-out reason — but ONLY through the "
+         "twinned detail model, never bound in the template itself, so every "
+         "one of them crosses exactly one audited path and stays barred from "
+         "the one attribute class that would navigate. That they then render "
+         "as inert text interpolation is read off the template, not proven here",
+         wide_hostile["javascript-url"] in wide_html  # present as inert JSON text
+         and "v-html" not in wide_html
+         and "itemDetail(" in wide_html   # consumed through the twinned model
+         and all(("it." + f) not in wide_template for f in
+                 ("contract", "touches", "estimate", "serialize",
+                  "shared_resources", "assertions", "oracle_reason"))
+         and not [expr for expr in _url_attr_exprs(wide_html)
+                  if any(f in expr for f in
+                         ("contract", "touches", "estimate", "serialize",
+                          "shared_resources", "assertions", "oracle_reason",
+                          "sme"))]),
+        ("widen: the URL-attribute rule can actually fail — an href bound to a "
+         "widened field is caught (negative control)",
+         bool([expr for expr in _url_attr_exprs('<a :href="b.sme[0]">x</a>')
+               if "sme" in expr])),
+        ("sweep: the URL-attribute population covers Vue's LONG binding form "
+         "too — a v-bind:href is caught the same as a :href, so the rule cannot "
+         "be sidestepped by spelling the binding out (negative control)",
+         bool([e for e in _url_attr_exprs('<a v-bind:href="b.sme[0]">x</a>')
+               if "sme" in e])
+         and bool([e for e in _url_attr_exprs('<img v-bind:src="it.touches">')
+                   if "touches" in e])
+         # and a NON-url long-form binding is still not swept in, so widening
+         # the population did not turn every bound attribute into a URL
+         and not _url_attr_exprs('<a v-bind:title="b.sme[0]">x</a>')),
+    ]
+
     # Ephemeral mode never touches the store: everything above rendered pages
     # and serialized state without ever creating the (overridden) state dir.
     checks += [
@@ -5456,8 +11810,26 @@ def main() -> int:
                     help="opt a repo out; accepts a path or slug so a moved or "
                          "deleted repo's entry can be cleared from anywhere")
     ap.add_argument("--self-test", action="store_true", help="render fixtures, check invariants, exit 0/1")
+    ap.add_argument("--list-behaviours", action="store_true",
+                    help="print the coverage registry as JSON (the anchor floor reads this)")
+    ap.add_argument("--browser-checklist", action="store_true",
+                    help="print the checks only a human with a browser can make")
     args = ap.parse_args()
 
+    if args.browser_checklist:
+        # What the self-test cannot prove, named. Printed rather than left in a
+        # build report so it is still here the next time someone needs to walk it.
+        for i, entry in enumerate(BROWSER_CHECKLIST, 1):
+            print("%2d. %s\n    %s\n    (no check can prove this: %s)\n"
+                  % (i, entry["key"], entry["walk"], entry["why"]))
+        return 0
+    if args.list_behaviours:
+        # The floor in validate_plugin.py compares the committed anchor against
+        # this, from outside the file every binder item edits.
+        print(json.dumps({name: {"kind": e["kind"], "hook": e["hook"],
+                                 "check": e["check"]}
+                          for name, e in _COVERAGE_REGISTRY.items()}, indent=1))
+        return 0
     if args.self_test:
         return _run_self_test()
 

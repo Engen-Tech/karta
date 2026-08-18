@@ -7,10 +7,16 @@ Everything needed to restart is here. Do not re-run the investigation; read
 
 ## What was proposed
 
-`skills/karta-status/scripts/serve_status.py` is 5,504 lines, of which 2,523 (46%) are
-its own self-test suite. The proposal was six items splitting it into flat sibling
-modules: a no-op step widening the hub identity digest, then the six test suites out,
-then the store module, then the page module, then a prose sweep.
+`skills/karta-status/scripts/serve_status.py` was 5,504 lines when this was
+investigated, of which 2,523 (46%) were its own self-test suite. The proposal was six
+items splitting it into flat sibling modules: a no-op step widening the hub identity
+digest, then the six test suites out, then the store module, then the page module, then
+a prose sweep.
+
+**Every size figure below is as of the 2026-08-16 investigation.** The watch-redesign
+delivery has since taken the file past 11,800 lines — more than double — so the ratios
+in the arguments still hold as reasoning, but none of the absolute numbers describe the
+file you would be splitting today. Re-measure before restarting.
 
 ## Why it was shelved
 
@@ -55,16 +61,16 @@ independent of the split.
 
 | Fact | Consequence |
 |-|-|
-| `validate_plugin.py:447` globs `skills/*/scripts/*.py` **non-recursively** | Every flat sibling must expose `--self-test`; anything one directory deeper is exempt from the floor. Verified: moving a file into `scripts/watch/` flipped a hard FAIL to PASS with no other change. |
+| `validate_plugin.py:694` globs `skills/*/scripts/*.py` **non-recursively** | Every flat sibling must expose `--self-test`; anything one directory deeper is exempt from the floor. Verified: moving a file into `scripts/watch/` flipped a hard FAIL to PASS with no other change. |
 | `_script_digest()` hashes only `_SCRIPT_PATH`'s bytes, and a running hub compares it to retire itself on plugin update (read externally at `hooks/scripts/inject_karta_status.py:500`) | Move code to a sibling without widening the digest and a stale hub silently serves old code across an upgrade. The self-exit mtime baseline has the same shape. |
 | "Newest mtime across the files" is **not** a change detector | A change to a non-newest member leaves the maximum unmoved. An ordered `(name, mtime_ns)` snapshot is required, with deletion treated as change. |
 | Hashing concatenated bytes without framing is forgeable | Moving a line between two files preserves the digest. Frame each member's basename and byte length. |
-| `globals()["_script_digest"] = …` at `:3476` is the file's only `globals()` assignment | In a separate module `globals()` is that module's namespace, so the "identity is a startup snapshot" check would pass vacuously. Any split must convert it to `setattr` on the imported module **plus** a positive assertion the tamper took effect. |
+| `globals()["_script_digest"] = …` at `:5500` is the file's only `globals()` assignment | In a separate module `globals()` is that module's namespace, so the "identity is a startup snapshot" check would pass vacuously. Any split must convert it to `setattr` on the imported module **plus** a positive assertion the tamper took effect. |
 | A true symbol cycle exists between hub bootstrap and daemon lifecycle | `_run_hub` calls `lost_bind_race` / `_probe_hub` / `_self_exit_watch`, which call back to `_hub_port`. Carving hub/http/lifecycle apart is not a clean cut. |
 | Exactly 13 names form the external ABI | `ensure_state_dir`, `_hub_port`, `get_token`, `_probe_hub`, `ENSURE_FAILURE_FILENAME`, `_SCRIPT_PATH`, `PORT_BASE`, `PORT_SPAN`, `upsert_repo`, `record_port`, `_record_ensure_failure`, `_script_digest`, `_STATE_META` — reached by `karta_next.py`, `inject_karta_status.py`, and `benchmarks/probes/dark-status-surface-probes.py`. `import *` would drop 6 of the 13. |
-| Sibling imports are safe on every invocation path | `sys.path.insert(0, Path(__file__).resolve().parent)` at `:95-97` makes them cwd-independent under `uv run --script`, both projections, the hub's bare-interpreter children, and the `spec_from_file_location` probe. |
+| Sibling imports are safe on every invocation path | `sys.path.insert(0, str(Path(__file__).resolve().parent))` at `:100` makes them cwd-independent under `uv run --script`, both projections, the hub's bare-interpreter children, and the `spec_from_file_location` probe. |
 | The self-test isolates the real store only in the driver | `KARTA_WATCH_STATE_DIR` is redirected once for the whole run and checked by `no self-test touched the real per-user state dir`. Any new standalone entry point must carry its own redirect, or a pre-commit run writes the developer's `~/.local/state/karta`. |
-| Six MIRROR markers exist, in three pairs | `join_archived`/`joinArchived`, `poll_decision`/`pollDecision`, `_feed_transition`/`feedTransition`. Only the first two are compared by checks; the feed pair is comment-only. |
+| MIRROR markers pair Python and JS implementations of the same behavior | This count grew with the watch-redesign delivery (rail, panel, and item-detail rendering each added a pair) — re-grep `MIRROR:` in `serve_status.py` for the current set rather than trusting a fixed count here. Not every pair is compared by a check; some are comment-only. |
 
 ## If someone restarts this
 
