@@ -1052,6 +1052,15 @@ _KEYFRAMES_OFF_LEGEND: dict[str, str] = {
 # check that guards it.
 RAIL_NARROW_PX = 880
 
+# The display step a binder headline is set at, in px. The design gives every
+# binder title its own full-width line at Newsreader 400 / 40px / 1.06
+# (docs/designs/karta-watch-1440x900-light.html, the h1 above each panel), and
+# this is that step's ONE definition: the stylesheet interpolates it and the
+# self-test reads the same constant, so the headline cannot drift off the step
+# without the check that guards it moving too. The FAMILY is not duplicated
+# here — it comes from the existing --serif role token.
+HEADLINE_PX = 40
+
 _RAIL_LEGEND: list[dict] = [
     {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
      "text": "pulsing — in flight"},
@@ -1169,9 +1178,10 @@ body{
 .brand{ display:flex; align-items:center; gap:13px; min-width:0; }
 .brand__mascot{ width:40px; height:40px; flex:none; display:block; }
 .brand__txt{ min-width:0; }
-/* The wordmark is the design's one Newsreader element that already exists here,
-   so --serif is wired to it now; the rest of the serif scale (headlines, item
-   titles, wave numerals) arrives with the typography item. */
+/* The wordmark was the design's first Newsreader element here, so --serif was
+   wired to it first; the binder headline now takes the same role token at the
+   design's display step, and the rest of the serif scale (item titles, wave
+   numerals) arrives with the typography item. */
 .brand__word{ font-family:var(--serif); font-weight:500; font-size:21px; letter-spacing:-0.5px; }
 .brand__live{
   font-size:12px; color:var(--mut); margin-top:1px;
@@ -1481,17 +1491,30 @@ body{
   display:flex; align-items:center; justify-content:center; width:25px; height:25px;
   flex:none; color:var(--on-halt);
 }
-.binder__title{ font-family:var(--serif); font-weight:400; font-size:22px; line-height:1.15; }
-/* the header's eyebrow: where this binder stands, in the phase's own wording,
+/* The masthead — the panel's own first block, the way the design opens a panel:
+   the eyebrow and the slug share one row with the slug pushed to the far right,
+   and the headline sits alone on the full-width line beneath them. It lives
+   OUTSIDE the collapse control, so collapsing a panel never takes the binder's
+   name away with it. */
+.binder__masthead{ padding:14px 18px 12px; }
+.binder__mast-top{ display:flex; align-items:center; gap:10px; }
+/* The headline, at the design's display step for a binder title. Its own
+   element, so it can carry a heading level; `margin` is stated because a
+   heading arrives with a browser default this layout does not want. */
+.binder__title{
+  font-family:var(--serif); font-weight:400; font-size:__HEADLINE__px;
+  line-height:1.06; letter-spacing:-.02em; margin:7px 0 0; min-width:0;
+}
+/* the masthead's eyebrow: where this binder stands, in the phase's own wording,
    above the headline rather than only as a coloured mark in the gutter. */
 .binder__eyebrow{
   font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:2px;
-  text-transform:uppercase; display:block; margin-bottom:3px;
+  text-transform:uppercase; min-width:0;
 }
-.binder__head-text{ min-width:0; }
 .binder__slug{
   display:flex; align-items:center; gap:4px; font-family:var(--mono); font-size:10px;
   color:var(--mut); padding:2px 6px; background:var(--surface-2);
+  margin-left:auto; flex:none;
 }
 .binder__blurb{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; padding:13px 18px 16px; }
 .binder__spacer{ margin-left:auto; flex:none; }
@@ -1722,6 +1745,7 @@ body{
         .replace("__DARK__", _DARK_VARS)
         .replace("__LIGHT__", _LIGHT_VARS)
         .replace("__NARROW__", str(RAIL_NARROW_PX))
+        .replace("__HEADLINE__", str(HEADLINE_PX))
         .strip())
 
 
@@ -2065,6 +2089,13 @@ def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
 # driven by direct call over fixtures and the page's binderPanel() is held to
 # the same shape by a MIRROR note on each side.
 # ---------------------------------------------------------------------------
+
+# The panel toggle's ACCESSIBLE name. The headline used to sit inside that
+# button, so the control borrowed the binder's name from its own text; the
+# design puts the headline on its own line outside it, which would have left the
+# button named by the chips that remain — a percentage and a caret. So the name
+# is given outright, and `{title}` is the binder's headline substituted in.
+BINDER_TOGGLE_LABEL_FMT = "wave detail for {title}"
 
 # The counts row's reading order — most urgent first, then the two greens, then
 # the two queued states. It must name EVERY engine state: a state missing here
@@ -3029,9 +3060,13 @@ const app = createApp({
       let queueLabel = tot + (tot === 1 ? ' run' : ' runs');
       if (waveArr.length === 1 && tot > 1) queueLabel += ' · all run in parallel';
       else if (waveArr.length > 1) queueLabel += ' · ' + shape + ' — parallel within a step, serial between';
+      const title = b.title || titleCase(b.slug);
       return {
         slug: b.slug, key, color: meta.color, mark: meta.mark,
-        title: b.title || titleCase(b.slug),
+        title,
+        // the toggle's own accessible name. The headline is no longer inside
+        // that button, so the control is named here rather than by its content.
+        toggleLabel: PANEL.toggle_label.replace('{title}', title),
         eyebrow: meta.phrase,
         blurb: b.summary || b.motivation || '',
         now: key === 'now',
@@ -3339,15 +3374,18 @@ const app = createApp({
 
           <div class="phase__binders">
             <div class="binder" data-kw-binder :id="'binder-' + b.slug" :data-kw-delivered="b.done ? 'true' : 'false'" :class="{ 'binder--now': b.now, 'binder--done': b.done }" v-for="b in p.binders" :key="b.slug">
+              <div class="binder__masthead" data-kw-binder-masthead>
+                <div class="binder__mast-top">
+                  <span class="binder__eyebrow" data-kw-binder-eyebrow :style="{ color: b.color }">{{ b.eyebrow }}</span>
+                  <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
+                </div>
+                <h2 class="binder__title" data-kw-binder-heading>{{ b.title }}</h2>
+              </div>
               <button type="button" class="binder__header" data-kw-binder-header :class="{ 'binder__header--now': b.now, 'binder__header--done': b.done }"
                 @click="toggleBinder(b.slug, b.key)"
+                :aria-label="b.toggleLabel"
                 :aria-expanded="b.open ? 'true' : 'false'">
                 <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-halt)" /></span>
-                <span class="binder__head-text">
-                  <span class="binder__eyebrow" data-kw-binder-eyebrow :style="{ color: b.color }">{{ b.eyebrow }}</span>
-                  <span class="binder__title">{{ b.title }}</span>
-                </span>
-                <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ b.slug }}</span>
                 <span class="binder__spacer"></span>
                 <span class="binder__pct">{{ b.pctLabel }}</span>
                 <span class="binder__count">{{ b.countLabel }}</span>
@@ -3504,6 +3542,7 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
             "meta": {"default": META_DEFAULT_LABEL,
                      "integration": META_INTEGRATION_LABEL,
                      "packs": META_PACKS_LABEL},
+            "toggle_label": BINDER_TOGGLE_LABEL_FMT,
         }))
         .replace("__DETAIL__", _inert_json({
             "labels": DETAIL_LABELS,
@@ -7277,6 +7316,26 @@ def _tag_after(doc: str, tag: str) -> str:
     return m.group(0) if m else ""
 
 
+def _subtree(doc: str, start_tag: str) -> str:
+    """The element `start_tag` opens, from its own start tag through its matching
+    end tag. Depth-counted over same-named tags, so a nested element of the same
+    name cannot close it early. Kept here rather than inline in a check for the
+    same reason as _tag_after: the checks navigate structure, they never carry
+    markup-shaped literals. An unclosed element yields the rest of the document,
+    which is the conservative answer for an "is X inside this?" question."""
+    name = _tag_name(start_tag)
+    start = doc.index(start_tag)
+    at, depth = start + len(start_tag), 1
+    edge = re.compile(r"<(/?)" + re.escape(name) + r"(?![\w-])[^<>]*>")
+    while depth:
+        m = edge.search(doc, at)
+        if not m:
+            return doc[start:]
+        depth += -1 if m.group(1) else 1
+        at = m.end()
+    return doc[start:at]
+
+
 def _tags_named(doc: str, name: str) -> list[str]:
     """Every start tag in `doc` whose element name is `name`. Same reason as
     _tag_after: the checks navigate structure, they do not match markup."""
@@ -7515,6 +7574,24 @@ class _Ns:
 def _renamed(ctx: dict, hook: str, *doc_keys: str) -> dict:
     """A context whose `hook` is renamed in `doc_keys` — the RENAMING control."""
     return {k: ctx[k].replace(hook, hook + "renamed") for k in doc_keys}
+
+
+def _moved_inside(ctx: dict, hook: str, into: str) -> dict:
+    """A page whose `hook` element has been moved bodily inside the element
+    carrying `into` — the control for "this block was left inside the control the
+    design took it out of"."""
+    page = ctx["page"]
+    block = _subtree(page, _tags_with(page, hook)[0])
+    host = _tags_with(page, into)[0]
+    return {"page": page.replace(block, "", 1).replace(host, host + block, 1)}
+
+
+def _gated_by(ctx: dict, hook: str, expr: str) -> dict:
+    """A page whose `hook` element is conditioned on `expr` — the control for a
+    block that was supposed to survive a state flip and did not."""
+    page = ctx["page"]
+    tag = _tags_with(page, hook)[0]
+    return {"page": page.replace(tag, tag[:-1] + ' v-if="' + expr + '">', 1)}
 
 
 # --- the registry: one entry per behaviour that must never disappear ---------
@@ -8402,6 +8479,123 @@ def _c_binder_header_eyebrow(ctx):
     return ("eyebrow: meta.phrase" in ctx["app_src"]
             and "b.color" in attrs.get(":style", "")
             and all(m.get("phrase") for m in ctx["phase_meta"].values()))
+
+
+# --- the masthead: the binder's own headline, lifted out of the toggle -------
+#
+# The design opens a panel with a masthead block — eyebrow and slug on one row,
+# the title alone on the full-width line below — and its panel has no collapse
+# control at all. This page's panel IS collapsible and stays so, which is why
+# the masthead is LIFTED OUT of the toggle rather than deleted along with it.
+# Four things follow, and each is read off the rendered source: the headline is
+# a heading element outside the button's subtree, the button is named outright
+# now that it no longer contains the name, collapsing takes the wave list and
+# not the masthead, and the headline is set in the existing serif role at the
+# design's display step. What no check here can settle is COMPOSITION — that the
+# three parts sit where the design puts them — and that waits for the rendered
+# comparison at the end of this binder.
+
+
+@_covers("binder-headline-outside-its-toggle", kind="rendered",
+         hook="data-kw-binder-heading",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-heading", "page"),
+                 lambda c: _moved_inside(c, "data-kw-binder-masthead",
+                                         "data-kw-binder-header"),
+                 lambda c: {"page": c["page"].replace("<h2 ", "<span ", 1)}])
+def _c_binder_headline_outside_toggle(ctx):
+    """The binder's name is a HEADING of its own, and it renders outside the
+    control that collapses the panel — so the name is no longer a label the
+    button borrows. Which level that heading sits at is deliberately not
+    asserted: the outline is set one item later, and a level named here would be
+    reversed by it."""
+    page = ctx["page"]
+    heads = _tags_with(page, "data-kw-binder-heading")
+    toggles = _tags_with(page, "data-kw-binder-header")
+    if len(heads) != 1 or len(toggles) != 1:
+        return False
+    name = _tag_name(heads[0])
+    return (name[:1] == "h" and name[1:].isdigit()
+            and "b.title" in _text_in(page, "data-kw-binder-heading")
+            and heads[0] not in _subtree(page, toggles[0]))
+
+
+@_covers("binder-toggle-names-its-binder", kind="rendered",
+         hook="data-kw-binder-header",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-header", "page"),
+                 lambda c: {"panel_inlined": dict(c["panel_inlined"],
+                                                  toggle_label="wave detail")},
+                 lambda c: {"app_src": c["app_src"].replace("PANEL.toggle_label",
+                                                            "''")}])
+def _c_binder_toggle_names_its_binder(ctx):
+    """The toggle still reports whether it is expanded, and it says WHICH binder
+    it opens under its own name rather than under text it contains — the page
+    inlines a format the binder's headline is substituted into, and no title
+    interpolation is left inside the button for the name to fall back on."""
+    page, app = ctx["page"], ctx["app_src"]
+    toggles = _tags_with(page, "data-kw-binder-header")
+    if len(toggles) != 1:
+        return False
+    attrs = _attrs(toggles[0])
+    fmt = (ctx["panel_inlined"] or {}).get("toggle_label", "")
+    named = fmt.format(title=ctx["state"]["binders"][0]["title"])
+    return (fmt == ctx["toggle_label_fmt"] and named != fmt
+            and "b.toggleLabel" in attrs.get(":aria-label", "")
+            and "b.open" in attrs.get(":aria-expanded", "")
+            and "PANEL.toggle_label" in app
+            and "b.title" not in _subtree(page, toggles[0]))
+
+
+@_covers("collapsed-binder-keeps-its-masthead", kind="rendered",
+         hook="data-kw-binder-masthead",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-masthead", "page"),
+                 lambda c: _renamed(c, "data-kw-binder-waves", "page"),
+                 lambda c: _gated_by(c, "data-kw-binder-masthead", "b.open")])
+def _c_masthead_survives_collapse(ctx):
+    """Collapsing a panel takes the wave list away and leaves the masthead. The
+    wave list is gated on the same state the toggle reports; the masthead — and
+    the headline inside it — carries no condition at all, so no value of that
+    state can remove it."""
+    page = ctx["page"]
+    mast = _tags_with(page, "data-kw-binder-masthead")
+    waves = _tags_with(page, "data-kw-binder-waves")
+    heads = _tags_with(page, "data-kw-binder-heading")
+    toggles = _tags_with(page, "data-kw-binder-header")
+    if len(mast) != 1 or len(waves) != 1 or len(heads) != 1 or len(toggles) != 1:
+        return False
+    gate = _attrs(waves[0]).get("v-if", "")
+    conditions = ("v-if", "v-show")
+    return (bool(gate)
+            and gate in _attrs(toggles[0]).get(":aria-expanded", "")
+            and heads[0] in _subtree(page, mast[0])
+            and not any(c in _attrs(t) for t in (mast[0], heads[0])
+                        for c in conditions))
+
+
+@_covers("binder-headline-at-the-serif-display-step", kind="rendered",
+         hook="data-kw-binder-heading",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-heading", "page"),
+                 lambda c: {"css": c["css"].replace(
+                     "font-size:%dpx" % HEADLINE_PX, "font-size:22px")},
+                 lambda c: {"css": c["css"].replace("var(--serif)",
+                                                    "var(--sans)")}])
+def _c_binder_headline_type_step(ctx):
+    """The headline resolves to the SERIF role at the design's display step. The
+    family arrives through the role token the sheet already defines — the check
+    reads which var the rule points at and that it is one of the three existing
+    type roles, so a headline styled with a new custom property fails here."""
+    page, css = ctx["page"], ctx["css"]
+    heads = _tags_with(page, "data-kw-binder-heading")
+    if len(heads) != 1:
+        return False
+    decls = [d for cls in _attrs(heads[0]).get("class", "").split()
+             for d in _decls_for(css, "." + cls)]
+    families = {v for d in decls for v in _VAR_REF_RE.findall(d.get("font-family", ""))}
+    sizes = {_norm(d.get("font-size", "")) for d in decls if d.get("font-size")}
+    roles = ctx["type_roles"]
+    return (families == {"--serif"} and "--serif" in roles
+            and set(roles) <= set(_VAR_DEF_RE.findall(css))
+            and roles["--serif"] in ctx["vendored_weights"]
+            and sizes == {str(ctx["headline_px"]) + "px"})
 
 
 @_covers("binder-progress-is-the-finished-share", kind="behaviour",
@@ -11273,6 +11467,8 @@ def _coverage_context() -> dict:
                               "integration": META_INTEGRATION_LABEL,
                               "packs": META_PACKS_LABEL},
         "panel_inlined": _inlined_const(page, "PANEL"),
+        "toggle_label_fmt": BINDER_TOGGLE_LABEL_FMT,
+        "headline_px": HEADLINE_PX, "type_roles": _ROLE_FAMILY,
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
