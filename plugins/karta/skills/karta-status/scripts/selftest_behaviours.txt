@@ -278,3 +278,16 @@ shell-branch-chip-glyph-on-every-chip
 forced-theme-renders-the-whole-page
 not-found-is-plain-text-never-an-untokened-page
 browser-checklist-enumerates-what-no-check-can-prove
+
+# Type fidelity: the card title's face and step, and the header controls' type.
+# The two card entries are one behaviour split in two directions — the title
+# takes the serif at the card's own display step, and the body copy beside it
+# stays on the sans, so a later restyle cannot spread the display face down the
+# card without failing. The header entry holds four readings to ONE step, three
+# of which were already on it, so a drift fails whichever rule moved. The rail
+# entry guards a region this item deliberately did not touch: its type already
+# matches the design, and the check fails if a size moves either way.
+card-title-on-the-serif-at-the-cards-own-step
+card-body-copy-stays-on-the-sans
+header-controls-sit-on-the-bars-mono-step
+rail-type-steps-do-not-move
