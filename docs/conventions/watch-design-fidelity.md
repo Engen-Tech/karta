@@ -43,6 +43,24 @@ Nothing the design leaves unheaded is headed here. Those regions keep being name
 
 Where a region's name and a heading inside it would ever be the same words, the rule is that the heading text stays and the region takes its name from that heading with `aria-labelledby`, rather than holding a second copy for a reader to hear twice. No region and heading collide today, so the rule is stated and unexercised.
 
+### The halted card opens without a click
+
+On both sides, a work-item card leads with its state as a capitalised label, carries a compact meta line with the item's slug and its size, and keeps the check command, the touched file paths and the git ref behind a per-card disclosure. That much matches, and a comparison should report no difference there.
+
+The difference is the halted card. The design draws the detail of its one halted card inline, bordered with the halt token; every other card it draws keeps its disclosure shut — 24 of its 27. This page had no card open in any state, so it now **defaults** a halted card's disclosure to open: a halt is the one thing here nobody should have to click to read.
+
+It is a default, not a force, and the distinction is the point. The disclosure stays a real button that reports whether it is expanded. A reader who collapses a halted card sees it stay collapsed, including across a refresh that replaces the whole state object, because the default is only consulted for a card the reader has not decided about. Expanding or collapsing one card still leaves every other card where it was.
+
+So a comparison at rest will find one halted card open on the page and one halted card open in the design, and every other card shut on both sides. Nothing to report.
+
+### The sole card in a panel stays shut
+
+The design draws two other detail grids inline: in two of its panels, the panel's only card shows its detail without a click. This page does not copy that, deliberately.
+
+That inline detail is a property of the drawn mock — a panel that happens to hold one card — not a rule the export states anywhere, and every other card outside those two and the halted one keeps its disclosure shut. So the page gains no sole-card rule. A comparison run against a fixture whose panel holds one card will see the design's card open and the page's card shut; that is this decision, weighed and turned down, not an oversight.
+
+The check type is the other thing to read carefully here. It is not in the meta line on either side: the design writes it into the disclosure button's own label, and so does this page, where the button is the whole card row.
+
 ## What's out of scope here
 
 This runbook and the checks built on it cover one view at one viewport in one theme. The design carries two responsive breakpoints (880px and 640px) and a dark theme that are not built or compared by this binder — recorded as a deliberate deferral, the obvious next binder, not an oversight.

@@ -728,8 +728,20 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
 # `edge` carries the one shape the three roles cannot: waiting is calm, but its
 # edge is dashed — an item queued behind another is drawn as not-yet-solid.
 #
-# `color`/`soft` are the CHIP's colours and stay exactly as they were; the card
-# fields are additive, so no state loses the treatment it already had.
+# `open` names the one state whose card starts with its disclosure ALREADY open,
+# so its check command, its touched paths and its git ref read with no click. A
+# halt is the one thing on this page nobody should have to click to read. It is
+# a DEFAULT and not a force: the reader can collapse a halted card and it stays
+# collapsed, because the default is only consulted for a card the reader has not
+# decided about. It lives here rather than as a state name spelled out in the
+# template for the same reason every other card field does — a state added to
+# the engine cannot then default untreated.
+#
+# `color` is the state's own hue — now the colour of the leading state LABEL on
+# a card, and still the colour of that state wherever else it is named. `soft`
+# is its wash, which the counts row and the blocked-by chips still fill with; a
+# card's state label takes no fill of its own. Both stay exactly as they were,
+# and the card fields are additive, so no state lost the treatment it had.
 _STATE_META = {
     "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED", "fill": "solid",
                  "border": "var(--line)",  "tint": "var(--green-soft)", "weight": "calm",   "edge": "solid"},
@@ -750,7 +762,7 @@ _STATE_META = {
     # the only state with a solid header bar, so the only one carrying a
     # foreground token to sit on top of that fill.
     "failed":   {"color": "var(--halt)",  "soft": "var(--halt-soft)",  "badge": "blocked",  "word": "FAILED", "fill": "solid",
-                 "on": "var(--on-halt)",
+                 "on": "var(--on-halt)",   "open": True,
                  "border": "var(--halt)",  "tint": "none",             "weight": "urgent", "edge": "solid"},
 }
 
@@ -1060,6 +1072,19 @@ RAIL_NARROW_PX = 880
 # without the check that guards it moving too. The FAMILY is not duplicated
 # here — it comes from the existing --serif role token.
 HEADLINE_PX = 40
+
+# The collapsed work-item card's LEAD row, as the design sets it: a capitalised
+# mono state label at 10px / 600 / .14em tracking, then a mono 11px meta span
+# carrying the item's slug and its size (docs/designs/karta-watch-1440x900-light
+# .html, the label and the meta span above each card's title). These are those
+# steps' ONE definition — the stylesheet interpolates them and the self-test
+# reads the same constants — so the lead can be re-pitched here instead of by
+# hunting through the sheet, and it cannot drift off the design's step without
+# the check that guards it moving too. The FAMILY is not duplicated here: it
+# comes from the existing --mono role token.
+CARD_STATE_PX = 10
+CARD_STATE_TRACKING = ".14em"
+CARD_META_PX = 11
 
 _RAIL_LEGEND: list[dict] = [
     {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
@@ -1630,28 +1655,49 @@ body{
   display:flex; align-items:center; justify-content:center; width:22px; height:22px;
   flex:none; color:var(--on-halt);
 }
-/* the title owns its own line and wraps cleanly; id/oracle/status drop to a meta
-   row so a wordy title in a narrow parallel column never gets starved to one word
-   per line. */
+/* the title owns its own line and wraps cleanly, under the lead row rather than
+   above it, so a wordy title in a narrow parallel column never gets starved to
+   one word per line and never arrives before the card has said what state it
+   is in. */
 .item__main{ min-width:0; flex:1; display:flex; flex-direction:column; gap:7px; }
 .item__title{ font-weight:600; font-size:13px; line-height:1.35; text-wrap:pretty; }
-.item__meta{ display:flex; align-items:center; gap:7px; min-width:0; }
-.item__id{
-  flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  display:flex; align-items:center; font-family:var(--mono); font-size:9.5px;
-  color:var(--mut); padding:1px 5px; background:var(--surface-2);
+/* The card's LEAD row: what state this item is in, said first and said as a
+   word, with the slug and the size trailing it. Both steps come from the named
+   constants above rather than sitting here as one-off values. */
+.item__lead{ display:flex; align-items:center; gap:8px; min-width:0; }
+/* the state, as a LABEL. It declares no background, no padding, no border and
+   no radius, and it is not pushed to the far edge — it leads the card, which is
+   the whole of what makes it a label and not a chip. The colour is the state's
+   own token, bound inline off the same metadata every other card field reads. */
+.item__state{
+  flex:none; font-family:var(--mono); font-size:__CARDSTATE__px; font-weight:600;
+  letter-spacing:__CARDTRACK__; text-transform:uppercase; white-space:nowrap;
 }
-.item__oracle{ display:flex; align-items:center; gap:3px; flex:none; font-size:9px; color:var(--mut); }
+/* the compact meta line: the item's slug, and its size where the binder gave it
+   one. It trails the state label to the row's far edge. */
+.item__meta{
+  display:flex; align-items:baseline; gap:5px; min-width:0; margin-left:auto;
+  font-family:var(--mono); font-size:__CARDMETA__px; color:var(--mut-2);
+}
+.item__id{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* the size, separated by the design's own middle dot. The dot belongs to the
+   size and not to the row, so a sizeless item shows no orphaned separator. */
+.item__size{ flex:none; white-space:nowrap; }
+.item__size::before{ content:"·"; margin-right:5px; }
+/* the check type, beside the chevron: this row IS the disclosure button, and
+   the design writes the check into that button's own label. */
+.item__oracle{
+  display:flex; align-items:center; gap:3px; flex:none; align-self:center;
+  font-size:9px; color:var(--mut);
+}
 .item__desc{
   font-size:11.5px; line-height:1.5; color:var(--ink); opacity:.66;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
-.item__chip{ display:flex; align-items:center; gap:4px; flex:none; margin-left:auto; padding:2px 7px; }
 /* the disclosure chevron: it turns a half-turn while the detail is open, so the
    row says "there is more here" and then "you are looking at it". */
 .item__caret{ display:flex; flex:none; align-self:center; color:var(--mut); transition:transform .15s; }
 .item__caret--open{ transform:rotate(180deg); }
-.item__word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; white-space:nowrap; }
 
 /* The RUNNING card's breathing footer strip. It breathes rather than sweeps:
    breathe is the page's one motion that means "alive", it is the one motion
@@ -1750,6 +1796,9 @@ body{
         .replace("__LIGHT__", _LIGHT_VARS)
         .replace("__NARROW__", str(RAIL_NARROW_PX))
         .replace("__HEADLINE__", str(HEADLINE_PX))
+        .replace("__CARDSTATE__", str(CARD_STATE_PX))
+        .replace("__CARDTRACK__", CARD_STATE_TRACKING)
+        .replace("__CARDMETA__", str(CARD_META_PX))
         .strip())
 
 
@@ -3015,10 +3064,25 @@ const app = createApp({
       const cur = this.isOpen(slug, key);
       this.open = Object.assign({}, this.open, { [slug]: !cur });
     },
-    isExpanded(slug, id) { return !!this.expanded[slug + '/' + id]; },
-    toggleItem(slug, id) {
+    // What is open is the READER's decision, held per card and keyed on the
+    // binder slug plus the work-item id. A card the reader has not decided
+    // about falls back to `dflt` — the state metadata's own open-at-rest flag,
+    // true for a halt and nothing else — so a halted card reads without a
+    // click. The map still starts empty, which is what makes the fallback a
+    // default and not a force: a reader who collapses a halted card writes
+    // false into it, and false is a decision that wins from then on, including
+    // across a poll that replaces the whole state object.
+    isExpanded(slug, id, dflt) {
       const k = slug + '/' + id;
-      this.expanded = Object.assign({}, this.expanded, { [k]: !this.expanded[k] });
+      return (this.expanded[k] !== undefined) ? this.expanded[k] : !!dflt;
+    },
+    // negating the EFFECTIVE value, not the raw map entry: the first click on a
+    // card that defaulted open has to CLOSE it, and an item that halts on a
+    // later poll has to open even though the reader never touched it.
+    toggleItem(slug, id, dflt) {
+      const k = slug + '/' + id;
+      this.expanded = Object.assign({}, this.expanded,
+                                    { [k]: !this.isExpanded(slug, id, dflt) });
     },
 
     // Build the view-model for one binder card (header + waves), mirroring the
@@ -3041,7 +3105,9 @@ const app = createApp({
             id: it.id,
             title: it.title || it.id,
             summary: it.summary || it.title || '',
-            color: im.color, soft: im.soft,
+            // `soft` is NOT carried here: it was the chip's fill, and the state
+            // now leads the card as a plain label with no fill of its own.
+            color: im.color,
             badge: im.badge, word: im.word, building: it.status === 'building',
             // The card's own treatment, straight off the state metadata. `tint`
             // of 'none' becomes an empty style so the card keeps the plain
@@ -3053,6 +3119,14 @@ const app = createApp({
             // because that token is exactly what sits on top of the fill.
             bar: !!im.on, on: im.on || '',
             oracle: it.oracle || 'unit', oracleIcon: this.oracleIconName(it),
+            // the collapsed card's meta line: the item's slug (its id) and,
+            // where the binder gave it one, its size. Both already ride the
+            // widened feed, so this is a read and never a second derivation.
+            size: it.estimate || '',
+            // whether this card's disclosure is open AT REST, read off the same
+            // state metadata every other card field comes from rather than off
+            // a state name spelled out here.
+            openAtRest: !!im.open,
             // the disclosure's rows: the whole widened feed for this item,
             // labelled. Built here rather than in the template so the shape the
             // page binds is the shape the Python twin is driven against.
@@ -3421,29 +3495,31 @@ const app = createApp({
                   </div>
                   <div class="wave" :style="{ gridTemplateColumns: w.multi ? 'repeat(auto-fit,minmax(260px,1fr))' : '1fr' }">
                     <div class="item" data-kw-item :data-kw-item-status="it.word" :data-kw-item-weight="it.weight"
+                      :data-kw-item-open="it.openAtRest ? 'true' : 'false'"
                       :class="{ 'item--building': it.building, 'item--urgent': it.urgent, 'item--dashed': it.dashed }"
                       :style="{ borderColor: it.border, background: it.tint }" v-for="it in w.items" :key="it.id">
                       <div class="item__bar" data-kw-item-bar v-if="it.bar" :style="{ background: it.color, color: it.on }">
                         <icon :name="it.badge" :size="11" :color="it.on" /><span>{{ it.word }}</span>
                       </div>
-                      <button type="button" class="item__row" data-kw-item-row @click="toggleItem(b.slug, it.id)"
-                        :aria-expanded="isExpanded(b.slug, it.id) ? 'true' : 'false'">
+                      <button type="button" class="item__row" data-kw-item-row @click="toggleItem(b.slug, it.id, it.openAtRest)"
+                        :aria-expanded="isExpanded(b.slug, it.id, it.openAtRest) ? 'true' : 'false'">
                         <span class="item__badge" :style="{ background: it.color }"><icon :name="it.badge" :size="12" color="var(--on-halt)" :spin="it.building" /></span>
                         <div class="item__main">
-                          <div class="item__title">{{ it.title }}</div>
-                          <div class="item__meta">
-                            <span class="item__id" :title="it.id">{{ it.id }}</span>
-                            <span class="item__oracle"><icon :name="it.oracleIcon" :size="10" color="var(--mut)" />{{ it.oracle }}</span>
-                            <span class="item__chip" data-kw-item-chip :style="{ background: it.soft }">
-                              <icon :name="it.badge" :size="10" :color="it.color" :spin="it.building" /><span class="item__word" data-kw-item-word :style="{ color: it.color }">{{ it.word }}</span>
+                          <div class="item__lead" data-kw-item-lead>
+                            <span class="item__state" data-kw-item-state :style="{ color: it.color }">{{ it.word }}</span>
+                            <span class="item__meta" data-kw-item-meta>
+                              <span class="item__id" :title="it.id">{{ it.id }}</span>
+                              <span class="item__size" data-kw-item-size v-if="it.size">{{ it.size }}</span>
                             </span>
                           </div>
+                          <div class="item__title">{{ it.title }}</div>
                           <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
                         </div>
-                        <span class="item__caret" data-kw-item-caret :class="{ 'item__caret--open': isExpanded(b.slug, it.id) }" aria-hidden="true"><icon name="chevron" :size="13" color="var(--mut)" /></span>
+                        <span class="item__oracle" data-kw-item-oracle><icon :name="it.oracleIcon" :size="10" color="var(--mut)" />{{ it.oracle }}</span>
+                        <span class="item__caret" data-kw-item-caret :class="{ 'item__caret--open': isExpanded(b.slug, it.id, it.openAtRest) }" aria-hidden="true"><icon name="chevron" :size="13" color="var(--mut)" /></span>
                       </button>
                       <div class="item__shim" data-kw-item-strip v-if="it.building"><div class="item__shim-fill"></div></div>
-                      <div class="item__detail" data-kw-item-detail v-if="isExpanded(b.slug, it.id)">
+                      <div class="item__detail" data-kw-item-detail v-if="isExpanded(b.slug, it.id, it.openAtRest)">
                         <dl class="detail" data-kw-item-detail-grid>
                           <template v-for="r in it.detail" :key="r.key">
                             <dt class="detail__label" :data-kw-detail-key="r.key">{{ r.label }}</dt>
@@ -10313,15 +10389,20 @@ def _c_detail_values_inert(ctx):
 
 @_covers("item-expansion-is-keyed-per-item", kind="behaviour",
          breaks=[lambda c: {"app_src": c["app_src"].replace(
-             "return !!this.expanded[slug + '/' + id];", "return !!this.expanded;")},
+             "const k = slug + '/' + id;", "const k = 'open';")},
                  lambda c: {"app_src": c["app_src"].replace(
-                     "const k = slug + '/' + id;", "const k = 'open';")}])
+                     "{ [k]: !this.isExpanded(slug, id, dflt) }",
+                     "{ open: !this.isExpanded(slug, id, dflt) }")}])
 def _c_item_expansion_keyed(ctx):
     """Opening one item's detail opens THAT item's and no other's. What is open
     is held as a map keyed by binder slug and work-item id — the same composite
-    the toggle writes and the row reads — never as a page-level flag, which is
-    the shape that would open every card on the page at once. It is the same
+    the toggle writes and the accessor reads — never as a page-level flag, which
+    is the shape that would open every card on the page at once. It is the same
     defect the copy confirmation had, in a different place.
+
+    The open-at-rest default rides through the same composite: it is a third
+    ARGUMENT the template hands both calls, per card, so a defaulted-open halt
+    is still one card's state and not a page-level one.
 
     Source-level: the keying is read off the accessor, off the toggle, and off
     the arguments the template hands both. Nothing runs Vue here."""
@@ -10331,11 +10412,11 @@ def _c_item_expansion_keyed(ctx):
     if len(row) != 1 or len(detail) != 1:
         return False
     return ("expanded: {}," in app
-            and "return !!this.expanded[slug + '/' + id];" in app
-            and "const k = slug + '/' + id;" in app
-            and "[k]: !this.expanded[k]" in app
-            and _attrs(row[0]).get("@click") == "toggleItem(b.slug, it.id)"
-            and _attrs(detail[0]).get("v-if") == "isExpanded(b.slug, it.id)")
+            and app.count("const k = slug + '/' + id;") == 2
+            and "{ [k]: !this.isExpanded(slug, id, dflt) }" in app
+            and _attrs(row[0]).get("@click") == "toggleItem(b.slug, it.id, it.openAtRest)"
+            and _attrs(detail[0]).get("v-if")
+            == "isExpanded(b.slug, it.id, it.openAtRest)")
 
 
 @_covers("item-expansion-survives-a-poll", kind="behaviour",
@@ -10420,24 +10501,28 @@ def _c_detail_hooks_registered(ctx):
     return bool(named) and all(h in hooks and _hook_is_read(h) for h in named)
 
 
-@_covers("chip-vocabulary", kind="rendered", hook="data-kw-item-chip",
-         breaks=[lambda c: _renamed(c, "data-kw-item-chip", "page"),
+@_covers("chip-vocabulary", kind="rendered", hook="data-kw-item-state",
+         breaks=[lambda c: _renamed(c, "data-kw-item-state", "page"),
                  lambda c: {"state_meta": dict(
                      c["state_meta"],
                      blocked=dict(c["state_meta"]["blocked"], word="BLOCKED"))}])
 def _c_chip_vocabulary(ctx):
+    """The words the page calls the six states by, and the one element that
+    prints them. The element is now the card's leading state LABEL rather than
+    the chip it used to be — the vocabulary is the behaviour this guards, and it
+    followed the word to where the word now lives."""
     page, meta = ctx["page"], ctx["state_meta"]
-    chip = _tags_with(page, "data-kw-item-chip")
-    word = _tags_with(page, "data-kw-item-word")
+    state = _tags_with(page, "data-kw-item-state")
     item = _tags_with(page, "data-kw-item")
-    if len(chip) != 1 or len(word) != 1 or len(item) != 1:
+    if len(state) != 1 or len(item) != 1:
         return False
     return (_attrs(item[0]).get(":data-kw-item-status") == "it.word"
+            and "it.word" in _text_in(page, "data-kw-item-state")
             and meta["blocked"]["word"] == "WAITING"
             and meta["blocked"]["color"] == "var(--wait)"
             and meta["blocked"]["soft"] == "var(--wait-soft)"
             and all(m["word"] != "BLOCKED" for m in meta.values())
-            and ":style" in _attrs(word[0]))
+            and ":style" in _attrs(state[0]))
 
 
 @_covers("chip-icons-resolve", kind="behaviour",
@@ -10523,6 +10608,278 @@ def _c_halted_card_solid_bar(ctx):
             and attrs.get("v-if") == "it.bar"
             and "it.color" in styled and "it.on" in styled
             and page.index(card[0]) < page.index(bar[0]) < page.index(row[0]))
+
+
+# --- the collapsed card: what it leads with, and what waits behind a click ---
+#
+# The design's card says its STATE first, as a word: a capitalised mono label in
+# a plain flex row that declares no background, no padding, no border and no
+# radius (docs/designs/karta-watch-1440x900-light.html, the row above each card
+# title). Trailing it, pushed to the row's far edge, is a mono meta span holding
+# the item's slug and — on 7 of its 27 cards — the item's size, and never the
+# check type. The title follows on its own line beneath both.
+#
+# Everything else the card knows waits behind a per-card disclosure that is
+# display:none at rest on 24 of those 27 cards: the check command, the touched
+# paths and the git ref. The check TYPE is written into the disclosure button's
+# own label, which is where this page renders it too — it moves out of the meta
+# row rather than being deleted.
+#
+# The page's one departure is the halted card. The design draws the detail of
+# its one halted card inline, bordered with the halt token; this page opened NO
+# card in any state, because its expansion map started empty and the detail was
+# gated on the reader of that map. So a halted card now DEFAULTS to open. It is
+# a default and not a force, and the three checks below the placement ones are
+# what makes that difference real rather than asserted: the disclosure stays a
+# button reporting its state, a collapse sticks across a poll, and expanding one
+# card leaves every other where it was. A check that only proved a halted card
+# renders open would pass a card forced open just as happily, so the control
+# here is a detail block that REOPENS after a collapse.
+#
+# The sole-card case the design also draws inline — a panel whose only card
+# shows its detail without a click — was weighed and declined; it is a property
+# of the drawn mock, not a rule the export states. Both decisions are written
+# into docs/conventions/watch-design-fidelity.md with their reasons.
+
+# The per-item facts the card carried into this item, as the bindings that
+# render them. Named here so promoting the state and the meta line, and moving
+# the check type, is provably a re-ordering and not a quiet subtraction.
+_CARD_FACTS = ("it.word", "it.id", "it.oracle", "it.title", "it.summary",
+               "it.detail")
+
+
+@_covers("card-leads-with-its-state", kind="rendered", hook="data-kw-item-state",
+         breaks=[lambda c: _renamed(c, "data-kw-item-state", "page"),
+                 lambda c: _moved_inside(c, "data-kw-item-state",
+                                         "data-kw-item-detail"),
+                 lambda c: {"css": c["css"].replace(
+                     ".item__state{", ".item__state{ margin-left:auto;"
+                     " background:var(--surface-2); padding:2px 7px;")}])
+def _c_card_leads_with_state(ctx):
+    """The card says what state it is in FIRST, as a word, and says it as a
+    label: it precedes the title in the rendered source, it sits inside the row
+    the reader clicks rather than behind it, and its own rule declares no fill,
+    no padding, no border, no radius and no auto margin pushing it to the far
+    edge. A filled pill in the top-right corner is the shape this replaced, and
+    the only solid status fill left anywhere is the halted card's own bar."""
+    page, css = ctx["page"], ctx["css"]
+    state = _tags_with(page, "data-kw-item-state")
+    row = _tags_with(page, "data-kw-item-row")
+    detail = _tags_with(page, "data-kw-item-detail")
+    if len(state) != 1 or len(row) != 1 or len(detail) != 1:
+        return False
+    row_sub, detail_sub = _subtree(page, row[0]), _subtree(page, detail[0])
+    if state[0] not in row_sub or state[0] in detail_sub:
+        return False
+    if "it.title" not in row_sub:
+        return False
+    if row_sub.index(state[0]) > row_sub.index("it.title"):
+        return False
+    decls = [d for cls in _attrs(state[0]).get("class", "").split()
+             for d in _decls_for(css, "." + cls)]
+    if not decls:
+        return False
+    banned = ("background", "background-color", "padding", "border",
+              "border-radius", "margin-left")
+    return not any(p in d for d in decls for p in banned)
+
+
+@_covers("card-meta-reads-the-slug-and-the-size", kind="rendered",
+         hook="data-kw-item-meta",
+         breaks=[lambda c: _renamed(c, "data-kw-item-meta", "page"),
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "size: it.estimate || '',", "size: '',")},
+                 lambda c: _moved_inside(c, "data-kw-item-oracle",
+                                         "data-kw-item-meta")])
+def _c_card_meta_slug_and_size(ctx):
+    """The compact meta line reads the item's slug and, where the binder gave it
+    one, its size — the two the design's meta span carries. Both come off the
+    widened feed the page already has, so this is a read and not a second
+    derivation. It renders on the COLLAPSED card, outside the disclosure, and
+    the check type is not in it."""
+    page, app = ctx["page"], ctx["app_src"]
+    meta = _tags_with(page, "data-kw-item-meta")
+    size = _tags_with(page, "data-kw-item-size")
+    oracle = _tags_with(page, "data-kw-item-oracle")
+    detail = _tags_with(page, "data-kw-item-detail")
+    if len(meta) != 1 or len(size) != 1 or len(oracle) != 1 or len(detail) != 1:
+        return False
+    meta_sub = _subtree(page, meta[0])
+    if meta[0] in _subtree(page, detail[0]) or oracle[0] in meta_sub:
+        return False
+    return ("it.id" in meta_sub and "it.size" in meta_sub
+            and _attrs(size[0]).get("v-if") == "it.size"
+            and "size: it.estimate || ''," in app)
+
+
+@_covers("check-type-sits-in-the-disclosure-label", kind="rendered",
+         hook="data-kw-item-oracle",
+         breaks=[lambda c: _renamed(c, "data-kw-item-oracle", "page"),
+                 lambda c: _moved_inside(c, "data-kw-item-oracle",
+                                         "data-kw-item-detail")])
+def _c_check_type_in_the_label(ctx):
+    """Which check the item is gated on stays where the design puts it: in the
+    disclosure button's own label. On this page that button is the whole card
+    row, so the check type sits inside it, beside the chevron — out of the meta
+    line, and not deleted from the page."""
+    page = ctx["page"]
+    oracle = _tags_with(page, "data-kw-item-oracle")
+    row = _tags_with(page, "data-kw-item-row")
+    detail = _tags_with(page, "data-kw-item-detail")
+    if len(oracle) != 1 or len(row) != 1 or len(detail) != 1:
+        return False
+    return (oracle[0] in _subtree(page, row[0])
+            and oracle[0] not in _subtree(page, detail[0])
+            and "it.oracle" in _subtree(page, oracle[0]))
+
+
+@_covers("disclosure-holds-the-command-paths-and-ref", kind="behaviour",
+         breaks=[lambda c: {"item_detail": lambda it, slug, by: [
+             r for r in c["item_detail"](it, slug, by) if r["key"] != "command"]},
+                 lambda c: _moved_inside(c, "data-kw-item-detail-grid",
+                                         "data-kw-item-row")])
+def _c_disclosure_holds_command_paths_ref(ctx):
+    """The check command, the touched file paths and the git ref are the three
+    facts that stay behind the disclosure. This is PLACEMENT and not visibility:
+    on a halted card that subtree is open at rest, and these rows are still
+    inside it.
+
+    Driven by direct call for what the rows are, then read structurally for
+    where they render: the grid that loops them lives inside the detail block,
+    and the row the reader clicks binds none of them itself."""
+    page = ctx["page"]
+    rows = _rows_by_key(ctx["item_detail"](_DETAIL_ITEM, "s-detail", {}))
+    if not all(k in rows for k in ("command", "touches", "ref")):
+        return False
+    grid = _tags_with(page, "data-kw-item-detail-grid")
+    detail = _tags_with(page, "data-kw-item-detail")
+    row = _tags_with(page, "data-kw-item-row")
+    if len(grid) != 1 or len(detail) != 1 or len(row) != 1:
+        return False
+    return (grid[0] in _subtree(page, detail[0])
+            and "it.detail" not in _subtree(page, row[0])
+            and "it.detail" in _subtree(page, detail[0]))
+
+
+@_covers("halted-card-opens-at-rest", kind="rendered", hook="data-kw-item-open",
+         breaks=[lambda c: _renamed(c, "data-kw-item-open", "page"),
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     ready=dict(c["state_meta"]["ready"], open=True))},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "openAtRest: !!im.open,", "openAtRest: false,")}])
+def _c_halted_card_opens_at_rest(ctx):
+    """A halted item's card starts with its disclosure open, so its command, its
+    paths and its ref read with no click — and no other state does. Which state
+    that is comes off the metadata's own flag, never off a state name spelled
+    out in the template, so a state added to the engine cannot default
+    untreated. The default reaches the gate the detail block is drawn on, which
+    is what makes it a rendered fact rather than a field nobody reads."""
+    page, sm, app = ctx["page"], ctx["state_meta"], ctx["app_src"]
+    card = _tags_with(page, "data-kw-item")
+    detail = _tags_with(page, "data-kw-item-detail")
+    if len(card) != 1 or len(detail) != 1:
+        return False
+    flagged = {k for k, m in sm.items() if m.get("open")}
+    return (flagged == {"failed"}
+            and "it.openAtRest" in _attrs(card[0]).get(":data-kw-item-open", "")
+            and "openAtRest: !!im.open," in app
+            and "it.openAtRest" in _attrs(detail[0]).get("v-if", ""))
+
+
+@_covers("a-collapsed-card-stays-collapsed", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "{ [k]: !this.isExpanded(slug, id, dflt) }", "{ [k]: !this.expanded[k] }")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "(this.expanded[k] !== undefined) ? this.expanded[k] : !!dflt",
+                     "!!dflt || !!this.expanded[k]")}])
+def _c_collapsed_card_stays_collapsed(ctx):
+    """The halted card DEFAULTS to open; it is not forced open. The disclosure
+    stays a real control, so a reader who collapses a halted card sees it stay
+    collapsed — including across a poll that replaces the whole state object.
+
+    Two things make that true and both are read here. The map still starts
+    EMPTY, and it holds only decisions the reader made: the accessor consults
+    the default solely for a key with no entry, so a written `false` wins from
+    then on. And the toggle negates the EFFECTIVE value rather than the raw map
+    entry, so the first click on a defaulted-open card closes it.
+
+    That second one is the whole point of this check. A check that only proved a
+    halted card renders open would pass a card forced open just as happily — so
+    the negative control is a toggle written the other way, which re-opens the
+    card the reader just collapsed, and the harness proves this check catches
+    it. The poll path is asserted here too: it assigns the feed and nothing
+    else, so nothing there re-seeds what the reader decided."""
+    app = ctx["app_src"]
+    poll = _js_block(app, "    poll() {")
+    if not poll:
+        return False
+    return ("expanded: {}," in app
+            and "(this.expanded[k] !== undefined) ? this.expanded[k] : !!dflt" in app
+            and "{ [k]: !this.isExpanded(slug, id, dflt) }" in app
+            and "expanded" not in poll)
+
+
+@_covers("card-lead-is-placed-by-named-roles", kind="rendered",
+         hook="data-kw-item-lead",
+         breaks=[lambda c: _renamed(c, "data-kw-item-lead", "page"),
+                 lambda c: {"card_lead": dict(c["card_lead"], state_px=13)},
+                 lambda c: {"css": c["css"].replace(
+                     "letter-spacing:" + CARD_STATE_TRACKING,
+                     "letter-spacing:normal")}])
+def _c_card_lead_named_roles(ctx):
+    """The lead row's two steps are named constants this file states once, not
+    values buried in the stylesheet: the state label's step and its tracking,
+    and the meta line's step. The self-test reads the same constants the sheet
+    interpolates, so re-pitching the lead is one edit here and drifting it off
+    the design's step fails this check. The FAMILY comes through the existing
+    --mono role token rather than a fourth one invented for the card."""
+    page, css, lead = ctx["page"], ctx["css"], ctx["card_lead"]
+    rows = _tags_with(page, "data-kw-item-lead")
+    state = _tags_with(page, "data-kw-item-state")
+    meta = _tags_with(page, "data-kw-item-meta")
+    if len(rows) != 1 or len(state) != 1 or len(meta) != 1:
+        return False
+    sub = _subtree(page, rows[0])
+    if state[0] not in sub or meta[0] not in sub:
+        return False
+
+    def resolved(tag):
+        decls = [d for cls in _attrs(tag).get("class", "").split()
+                 for d in _decls_for(css, "." + cls)]
+        families = {v for d in decls
+                    for v in _VAR_REF_RE.findall(d.get("font-family", ""))}
+        sizes = {_norm(d.get("font-size", "")) for d in decls if d.get("font-size")}
+        tracking = {_norm(d.get("letter-spacing", "")) for d in decls
+                    if d.get("letter-spacing")}
+        return families, sizes, tracking
+
+    sfam, ssize, strack = resolved(state[0])
+    mfam, msize, _ = resolved(meta[0])
+    roles = ctx["type_roles"]
+    return (sfam == mfam == {"--mono"} and "--mono" in roles
+            and roles["--mono"] in ctx["vendored_weights"]
+            and ssize == {str(lead["state_px"]) + "px"}
+            and msize == {str(lead["meta_px"]) + "px"}
+            and strack == {lead["state_tracking"]})
+
+
+@_covers("card-keeps-every-fact-it-rendered", kind="behaviour",
+         breaks=[lambda c: {"page": c["page"].replace("it.summary", "it.blurb")},
+                 lambda c: {"card_facts": c["card_facts"] + ("it.nothing",)}])
+def _c_card_keeps_every_fact(ctx):
+    """Promoting the state and the meta line, and moving the check type into the
+    disclosure label, re-ORDERS the card — it subtracts nothing. Every per-item
+    fact the card rendered before this item is still bound somewhere inside it:
+    the state word, the slug, the check type, the title, the summary, and the
+    whole detail grid. The inventory is a named list rather than a count, so
+    dropping a binding fails here and says which one."""
+    page = ctx["page"]
+    card = _tags_with(page, "data-kw-item")
+    if len(card) != 1:
+        return False
+    sub = _subtree(page, card[0])
+    return bool(ctx["card_facts"]) and all(f in sub for f in ctx["card_facts"])
 
 
 @_covers("running-card-breathes-and-keeps-breathing", kind="rendered",
@@ -11666,6 +12023,9 @@ def _coverage_context() -> dict:
         "panel_inlined": _inlined_const(page, "PANEL"),
         "toggle_label_fmt": BINDER_TOGGLE_LABEL_FMT,
         "headline_px": HEADLINE_PX, "type_roles": _ROLE_FAMILY,
+        "card_lead": {"state_px": CARD_STATE_PX, "meta_px": CARD_META_PX,
+                      "state_tracking": CARD_STATE_TRACKING},
+        "card_facts": _CARD_FACTS,
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,

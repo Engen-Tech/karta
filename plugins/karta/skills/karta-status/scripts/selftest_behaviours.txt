@@ -156,6 +156,26 @@ card-border-weight-is-a-named-role
 halted-card-opens-with-a-solid-bar
 running-card-breathes-and-keeps-breathing
 item-cards-key-on-the-work-item-id
+
+# What the collapsed card leads with, and what waits behind its disclosure. The
+# design says the state FIRST, as a capitalised mono label in a plain row with
+# no fill of its own, with the slug and the size trailing it and the title on
+# its own line beneath; the check command, the touched paths and the git ref
+# wait behind a per-card disclosure, and the check TYPE is written into that
+# disclosure button's own label. The page's one departure is the halted card,
+# which DEFAULTS to open so a halt reads with no click — a default and not a
+# force, which is why the last four exist: the collapse has to stick across a
+# poll, the inventory has to prove nothing was subtracted on the way, and the
+# lead's steps have to stay named constants rather than values in the sheet.
+card-leads-with-its-state
+card-meta-reads-the-slug-and-the-size
+check-type-sits-in-the-disclosure-label
+disclosure-holds-the-command-paths-and-ref
+halted-card-opens-at-rest
+a-collapsed-card-stays-collapsed
+card-lead-is-placed-by-named-roles
+card-keeps-every-fact-it-rendered
+
 waiting-wording-never-says-blocked
 item-title-and-summary-are-inert
 copy-confirmation-is-per-affordance
