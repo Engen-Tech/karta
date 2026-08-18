@@ -1215,6 +1215,127 @@ WAVE_HEAD_LABEL_PX = 11
 WAVE_HEAD_LABEL_TRACKING = ".16em"
 WAVE_HEAD_POS_PX = 10
 
+# The page's rectangular corner radii, in px, and the ONE place each is stated.
+#
+# The design declares 130 border-radius values across eight distinct ones, every
+# one of them a bare literal — no token, no var(), no relative unit anywhere.
+# FIVE of the eight shape rectangular containers and together account for 103 of
+# the 130: 12px thirty-two times, 2px twenty-nine, 9px twenty-five, 8px ten and
+# 16px seven. The remaining 27 are 12 pills at 99px, 14 dots at 50%, and one
+# four-value shorthand.
+#
+# This sheet declared NONE of the five. Its whole radius set was twelve
+# declarations and every one of them was 50% or 99px, so every panel, band,
+# card, disclosure and chip on the page fell to the browser's default of 0 —
+# square by DEFAULT rather than by choice. The shape language was ABSENT here,
+# not overridden, which is why it arrives in one place rather than as scattered
+# corrections, and why only two existing declarations are overridden by it.
+#
+# FOUR of the design's five land, and the fourth-to-fifth line is drawn on
+# whether this page has an element to put the step on:
+#   16px  the two largest surfaces — the design's per-binder panel (one per
+#         panel section, each holding that binder's h1) and its next-action
+#         band. Here that is `.binder` and `.band`. The delivery wrapper
+#         `.panel` is NOT the binder panel and does not take this step: it
+#         wraps every phase and every binder at once, the design has no
+#         container matching it, and it is being held to a frame costing at
+#         most PANEL_INSET_BUDGET_PX a side — a 16px corner on a frame that
+#         thin buys nothing. It stays square by this page's own choice.
+#   12px  the work-item card frame, against the 16px of the panel enclosing it,
+#         and the map's own cards, which the design gives the same value.
+#   9px   the per-card disclosure panel, and nothing else here. The design's
+#         twenty-fifth 9px is a panel-level blocked notice this page does not
+#         draw at all — blocked information here is per-item chips inside a
+#         card's disclosure grid — and inventing a banner to land a radius on
+#         is not something a shape item gets to do.
+#   8px   the command chip and the Copy button in the next-action band. The
+#         button is the sharpest instance in this repair: the design declares
+#         8px on it, the same value as the chip beside it, and declares 99px on
+#         twelve OTHER elements but not on this one, while this page shipped it
+#         at 99px — a rounded rectangle rendered as a pill.
+#
+#         The design puts 8px on two more places this page has no bordered
+#         counterpart for: the command block inside a card's disclosure, and
+#         the command value in a card's inline detail grid. Both are drawn
+#         there as bordered, filled code blocks; here they are bare mono text
+#         in the disclosure's value column, with no ground and no edge of their
+#         own, so a corner on them would round nothing a reader can see. Giving
+#         them one means giving them a fill and a border first, which is a
+#         restyle this step does not scope. Stated rather than left silent, the
+#         same way the two rule-outs below are.
+#
+# 2px does NOT land, and that is stated here rather than left for the closing
+# comparison to discover. The design's 29 smallest radii are all lane bars — box
+# spans inside the wave glyphs and inside the map's lane legend rows. This page
+# has no counterpart box: its wave-step glyph is an SVG icon of stroked paths
+# (border-radius does not touch a stroke) and its two legend swatches are
+# painted gradients. A 2px radius on `.step__lane` or on either `.rail__mot`
+# rule would change nothing a reader can see, and re-drawing all three as
+# stacked boxes is markup this step does not get to smuggle in. So the check
+# below FAILS on an introduced 2px rather than passing on one.
+#
+# Named steps and not literals, the way the constants above already are: the
+# sheet interpolates all four and the self-test re-renders it at four DIFFERENT
+# values and watches every container follow, so a literal typed into any rule
+# reads correctly at the shipped numbers and stays put in the second render.
+# They are module constants and not CSS custom properties: no token is added,
+# and the 27-token palette is untouched.
+RADIUS_PANEL_PX = 16
+RADIUS_CARD_PX = 12
+RADIUS_DISCLOSURE_PX = 9
+RADIUS_CHIP_PX = 8
+
+# Which container sits on which step. ONE table, read by the check rather than
+# restated in it, so a container that changes step changes it here.
+_RADIUS_CONTAINERS: tuple[tuple[str, str], ...] = (
+    (".band", "panel"),
+    (".binder", "panel"),
+    (".item", "card"),
+    (".rail__pick", "card"),
+    (".item__detail", "disclosure"),
+    (".band__cmd", "chip"),
+    (".band__copy", "chip"),
+)
+
+# The shapes that were already round and stay exactly as they are: seven dots at
+# 50%, one more the summary line added, and the four pills at 99px that remain
+# once the Copy button leaves that set for the chip step above. Named rather
+# than counted, so a dot quietly becoming a pill fails instead of balancing out.
+_ROUND_DOTS: tuple[str, ...] = (
+    ".brand__dot", ".shell__feed-dot", ".rail__dot", ".rail__mot--pulse",
+    ".rail__mot--breathe", ".rail__mot--spin", ".rail__mot--still",
+    ".counts__dot",
+)
+_ROUND_PILLS: tuple[str, ...] = (
+    ".hctl--icon", ".branch-chip", ".shell__home", ".rail__gtoggle",
+)
+_ROUND_DOT_VALUE = "50%"
+_ROUND_PILL_PX = 99
+
+# The command chip's edge. The design declares it as the literal
+# rgba(232,138,152,.28) — a 28% edge — and this page shipped the bare
+# --band-kick, whose light value #E88A98 is exactly rgb(232,138,152) at full
+# strength: the design's own colour on the design's own element at nearly four
+# times the intended weight. The repair takes it to 28% and KEEPS the token, so
+# the edge still follows the theme; in the light theme this page is compared in,
+# that resolves to the design's literal exactly.
+#
+# One consequence, written down rather than discovered later: the design's edge
+# is a literal rgba and therefore does NOT follow its own token into dark theme,
+# while this one does — it becomes --band-kick's dark value at 28%. The two
+# diverge there. That is invisible to a light-theme comparison and it is not an
+# intended difference in the compared view; it is recorded for whoever takes on
+# the dark theme next.
+BAND_CMD_EDGE_ALPHA = "28%"
+BAND_CMD_EDGE = "color-mix(in srgb, var(--band-kick) %s, transparent)" % (
+    BAND_CMD_EDGE_ALPHA,)
+
+
+def _radius_steps() -> dict[str, int]:
+    """The four steps as the sheet ships them, keyed by step name."""
+    return {"panel": RADIUS_PANEL_PX, "card": RADIUS_CARD_PX,
+            "disclosure": RADIUS_DISCLOSURE_PX, "chip": RADIUS_CHIP_PX}
+
 _RAIL_LEGEND: list[dict] = [
     {"key": "pulsing",  "motion": "karta-ring",    "swatch": "rail__mot--pulse",
      "text": "pulsing — in flight"},
@@ -1520,7 +1641,8 @@ body{
 .rail__pick{
   display:flex; flex-direction:column; gap:5px; width:100%; min-width:0;
   text-align:left; text-decoration:none; color:inherit;
-  border:1px solid var(--line); background:var(--surface); padding:11px 13px;
+  border:1px solid var(--line); background:var(--surface);
+  border-radius:__RADCARD__px; padding:11px 13px;
 }
 .rail__pick:hover{ background:var(--surface-2); border-color:var(--accent-line); }
 /* The one card that is CURRENT. The design rings it twice — a border and an
@@ -1609,7 +1731,7 @@ body{
    flipped would put dark ink on a dark band in one of the two. --band-kick is
    the band's own light-on-dark accent, defined for both themes, and carries the
    eyebrow and the copy button's hover. */
-.band{ background:var(--band); padding:20px 26px 22px; }
+.band{ background:var(--band); border-radius:__RADPANEL__px; padding:20px 26px 22px; }
 .band__eyebrow{
   display:block; font-family:var(--mono); font-size:11px; letter-spacing:1.8px;
   text-transform:uppercase; color:var(--band-kick); margin-bottom:10px;
@@ -1621,16 +1743,19 @@ body{
 .band__run{ display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap; }
 .band__cmd{
   font-family:var(--mono); font-size:13px; color:#FFFFFF;
-  background:rgba(255,255,255,.07); border:1px solid var(--band-kick);
-  padding:9px 13px;
+  background:rgba(255,255,255,.07); border:1px solid __CMDEDGE__;
+  border-radius:__RADCHIP__px; padding:9px 13px;
 }
-/* the page's buttons are pills; the band's is one too, inverted so it reads as
-   the thing to press against the darkest surface on the page. */
+/* The band's button, inverted so it reads as the thing to press against the
+   darkest surface on the page. It is NOT a pill, and it is the one declaration
+   in this sheet that leaves the 99px set: the design declares 8px on it — the
+   same value as the chip beside it — and declares 99px on twelve other
+   elements but not on this one. It sits on the chip step with the chip. */
 .band__copy{
   display:inline-flex; align-items:center; gap:8px; cursor:pointer; flex:none;
   font-family:var(--sans); font-size:13px; font-weight:500;
-  color:var(--band); background:#FFFFFF; border:0; border-radius:99px;
-  padding:9px 14px;
+  color:var(--band); background:#FFFFFF; border:0;
+  border-radius:__RADCHIP__px; padding:9px 14px;
 }
 .band__copy:hover{ background:var(--band-kick); }
 
@@ -1671,6 +1796,7 @@ body{
    land BELOW the sticky header instead of under it — CSS, not a scroll handler. */
 .binder{
   border:1px solid var(--line); background:var(--bg);
+  border-radius:__RADPANEL__px;
   scroll-margin-top:calc(__BARH__px + 18px);
 }
 .binder--now{ border-color:var(--now); }
@@ -1818,7 +1944,10 @@ body{
    selectors — so a state can never be added to the engine and render untreated.
    What DOES live here is the part that is a shape and not a colour: the border
    weight the metadata names as a role, and the dashed edge waiting wears. */
-.item{ border:1px solid var(--line); background:var(--surface); }
+.item{
+  border:1px solid var(--line); background:var(--surface);
+  border-radius:__RADCARD__px;
+}
 /* calm is the 1px default above; urgent is the card that wants to be looked at
    now — running and halted, and nothing else. */
 .item--urgent{ border-width:2px; }
@@ -1904,7 +2033,8 @@ body{
 /* the expanded oracle detail */
 .item__detail{
   margin:0 11px 10px 42px; padding:9px 11px; background:var(--bg);
-  border:1px solid var(--line); animation:karta-fade .2s ease;
+  border:1px solid var(--line); border-radius:__RADDISC__px;
+  animation:karta-fade .2s ease;
 }
 /* the detail itself: a two-column grid, mono uppercase labels down the left in
    --mut-2 (the muted step below body copy, which is what keeps eight labels from
@@ -1988,7 +2118,8 @@ body{
 """
 
 
-def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None) -> str:
+def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None,
+              radii: dict = None) -> str:
     """The stylesheet with every value this file names interpolated into it.
 
     The header bar's height is a PARAMETER and not a constant read in place, for
@@ -2003,9 +2134,15 @@ def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None) -> s
     other: a literal `2px` typed into the rule would match the constant exactly
     and no amount of reading the sheet could tell the two apart. Re-render at a
     different pair and a real derivation follows while a literal does not.
+    The four container corner steps are parameters for that same reason and no
+    other: `12px` typed into a card rule matches RADIUS_CARD_PX exactly and no
+    reading of the sheet could tell the two apart. Re-render at four different
+    steps and a real derivation follows while a literal does not.
+
     Both default to the shipped constants, so every caller but that one check
     reads the sheet the page actually serves."""
     ring_px = NOW_RING_PX if ring_px is None else ring_px
+    radii = _radius_steps() if radii is None else radii
     ring_offset_px = (NOW_RING_OFFSET_PX if ring_offset_px is None
                       else ring_offset_px)
     return (_CSS_TEMPLATE
@@ -2029,6 +2166,11 @@ def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None) -> s
             .replace("__WHLABEL__", str(WAVE_HEAD_LABEL_PX))
             .replace("__WHTRACK__", WAVE_HEAD_LABEL_TRACKING)
             .replace("__WHPOS__", str(WAVE_HEAD_POS_PX))
+            .replace("__RADPANEL__", str(radii["panel"]))
+            .replace("__RADCARD__", str(radii["card"]))
+            .replace("__RADDISC__", str(radii["disclosure"]))
+            .replace("__RADCHIP__", str(radii["chip"]))
+            .replace("__CMDEDGE__", BAND_CMD_EDGE)
             .replace("__BARH__", str(bar_px))
             .strip())
 
@@ -8053,6 +8195,19 @@ def _norm(value: str) -> str:
     return value.replace("!important", "").strip()
 
 
+def _radius_declarations(css: str) -> list[tuple[str, str]]:
+    """(selector, corner radius) for every rule in the sheet that declares one,
+    one entry per selector in a grouped rule. Kept here rather than inline in a
+    check for the same reason as the other readers: the checks read the sheet
+    through the parser, they never match its text."""
+    out = []
+    for prelude, decls in _css_rules(css):
+        if "border-radius" in decls:
+            for sel in prelude.split(","):
+                out.append((sel.strip(), _norm(decls["border-radius"])))
+    return out
+
+
 def _animates_with(decls: dict[str, str], keyframe: str) -> bool:
     return keyframe in _norm(decls.get("animation", "")).split()
 
@@ -10432,6 +10587,128 @@ def _c_current_binder_ring_pair(ctx):
     others = [sel for sel, d in _css_rules(css)
               if "outline" in d and ".rail__" in sel and "--now" not in sel]
     return not others
+
+
+@_covers("container-corners-are-the-designs-four-steps", kind="behaviour",
+         breaks=[lambda c: {"css": _restyled(c["css"], ".panel",
+                                             "border-radius:16px")},
+                 lambda c: {"css": _restyled(c["css"], ".step__lane",
+                                             "border-radius:2px")},
+                 lambda c: {"css": _restyled(c["css"], ".item__detail",
+                                             "border-radius:12px")},
+                 lambda c: {"css_from":
+                            lambda b, r=None, o=None, radii=None: _css_from(b)}])
+def _c_container_corner_steps(ctx):
+    """Every container the design gives a rectangular corner has one, on the
+    step the design gives it, and nothing else on the page has one at all.
+
+    Four steps land and not one: flattening them onto a single value fails here,
+    because each container is checked against its own step. The declined fifth
+    is checked as an absence — the design's 29 smallest radii are lane bars this
+    page draws as an SVG glyph and two painted gradients, so a 2px anywhere in
+    this sheet is a step that landed on nothing a reader can see, and it fails
+    rather than passes. A rectangular corner on a container the table does not
+    name fails the same way: the delivery wrapper is the one this guards, since
+    it is the element a reader most easily mistakes for the design's per-binder
+    panel and the design has no counterpart for it at all.
+
+    Proven to DERIVE, not merely to agree: re-render the whole sheet at four
+    different steps and every container has to follow. A literal typed into a
+    rule reads correctly at the shipped numbers and stays put in the second
+    render, which is exactly the drift reading the sheet once cannot see."""
+    css, steps = ctx["css"], ctx["radii"]
+
+    def corners(sheet):
+        # the re-rendered sheet still carries its comments; the shipped one in
+        # the context does not, so both are read through the same stripper.
+        found: dict = {}
+        for sel, value in _radius_declarations(_strip_css_comments(sheet)):
+            px = _px_length(value)
+            if px is None or px == _ROUND_PILL_PX:
+                continue        # a dot or a pill, not a rectangular step
+            found.setdefault(sel, set()).add(px)
+        return found
+
+    want = {sel: {steps[name]} for sel, name in ctx["radius_containers"]}
+    if corners(css) != want:
+        return False
+    if len({next(iter(v)) for v in want.values()}) != 4:
+        return False
+    if any(_px_length(value) == 2 for _sel, value in _radius_declarations(css)):
+        return False
+    probe = {name: px + 5 * (i + 1) for i, (name, px) in enumerate(steps.items())}
+    moved = corners(ctx["css_from"](ctx["bar_height_px"], radii=probe))
+    return moved == {sel: {probe[name]} for sel, name in ctx["radius_containers"]}
+
+
+@_covers("round-shapes-keep-their-shape", kind="behaviour",
+         breaks=[lambda c: {"css": _restyled(c["css"], ".counts__dot",
+                                             "border-radius:99px")},
+                 lambda c: {"css": _restyled(c["css"], ".band__copy",
+                                             "border-radius:99px")},
+                 lambda c: {"css": _restyled(c["css"], ".rail__gtoggle",
+                                             "border-radius:8px")}])
+def _c_round_shapes_keep_their_shape(ctx):
+    """Giving the page its corners back moves nothing that was already round.
+    Every dot is still a circle and every pill is still a pill, named one by one
+    rather than counted, so a dot quietly becoming a pill fails instead of
+    balancing out against it.
+
+    ONE declaration leaves the pill set, and it is checked by name: the band's
+    Copy button, which the design declares at the same step as the command chip
+    beside it and never declares as a pill. Putting it back on 99px fails."""
+    css = ctx["css"]
+    dots, pills = set(), set()
+    for sel, value in _radius_declarations(css):
+        if value == _ROUND_DOT_VALUE:
+            dots.add(sel)
+        elif _px_length(value) == _ROUND_PILL_PX:
+            pills.add(sel)
+    if dots != set(ctx["round_dots"]) or pills != set(ctx["round_pills"]):
+        return False
+    button = _decls_for(css, ".band__copy")
+    return bool(button) and {_px_length(_norm(d["border-radius"]))
+                             for d in button
+                             if "border-radius" in d} == {ctx["radii"]["chip"]}
+
+
+@_covers("command-chip-edge-at-the-designs-strength", kind="rendered",
+         hook="data-kw-band-cmd",
+         breaks=[lambda c: _renamed(c, "data-kw-band-cmd", "page"),
+                 lambda c: {"css": c["css"].replace(BAND_CMD_EDGE,
+                                                    "var(--band-kick)")},
+                 lambda c: {"css": c["css"].replace(BAND_CMD_EDGE,
+                                                    "rgba(232,138,152,.28)")}])
+def _c_band_cmd_edge_strength(ctx):
+    """The command chip's edge is drawn at the strength the design draws it at,
+    and it is still the band's own token that draws it.
+
+    The design states the edge as a literal at 28%, and this page shipped the
+    bare token — whose light value is that same colour at FULL strength, so the
+    design's own colour was landing on the design's own element at nearly four
+    times the intended weight. Keeping the token and taking it to 28% resolves
+    to the design's literal exactly in the light theme this page is compared in,
+    and unlike the design's literal it still follows the theme.
+
+    Read off the rules the RENDERED chip resolves to, not off a selector named
+    here, so renaming the hook fails rather than passing on a stale name. The
+    chip's corner is read in the same pass: the edge and the corner are the two
+    halves of the same repair on the same element."""
+    css = ctx["css"]
+    chip = _tags_with(ctx["page"], "data-kw-band-cmd")
+    if len(chip) != 1:
+        return False
+    decls = [d for d in _rules_for_tag(css, chip[0]) if "border" in d]
+    if len(decls) != 1:
+        return False
+    edge = _norm(decls[0]["border"])
+    if _VAR_REF_RE.findall(edge) != ["--band-kick"]:
+        return False
+    if ctx["band_cmd_edge"] not in edge:
+        return False
+    corner = {_px_length(_norm(d["border-radius"]))
+              for d in _rules_for_tag(css, chip[0]) if "border-radius" in d}
+    return corner == {ctx["radii"]["chip"]}
 
 
 @_covers("only-the-current-binder-carries-a-bar", kind="rendered",
@@ -13529,6 +13806,9 @@ def _coverage_context() -> dict:
         "rail_hide_label": RAIL_HIDE_LABEL, "foot_line": FOOT_LINE,
         "retired_wording": _RETIRED_WORDING,
         "now_ring": {"px": NOW_RING_PX, "offset_px": NOW_RING_OFFSET_PX},
+        "radii": _radius_steps(), "radius_containers": _RADIUS_CONTAINERS,
+        "round_dots": _ROUND_DOTS, "round_pills": _ROUND_PILLS,
+        "band_cmd_edge": BAND_CMD_EDGE,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
         "breathe_keyframe": BREATHE_KEYFRAME,
