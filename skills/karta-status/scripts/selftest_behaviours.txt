@@ -291,3 +291,20 @@ card-title-on-the-serif-at-the-cards-own-step
 card-body-copy-stays-on-the-sans
 header-controls-sit-on-the-bars-mono-step
 rail-type-steps-do-not-move
+
+# Band geometry and wave rhythm: the top of the page, and the space around each
+# wave. The first three hold the header bar — nothing renders above it, its
+# height is stated once at the number the design declares and the four offsets
+# hanging off it re-derive from that one statement, and every control this page
+# puts in the bar (none of which the design models) is still inside it. The last
+# four hold the wave header: it runs to the panel's edge and repaints the
+# panel's own surface, it takes the design's case treatment on one side and no
+# case treatment at all on the other, its two joins come from named steps, and
+# its position states the run's real wave count rather than the mock's three.
+page-opens-with-the-header-bar
+bar-height-named-once-and-every-offset-derived
+header-bar-keeps-the-pages-own-controls
+wave-header-bleeds-to-the-panel-edge
+wave-header-labels-take-case-treatment-on-one-side
+wave-joins-come-from-named-spacing-steps
+wave-step-position-counts-the-runs-own-waves
