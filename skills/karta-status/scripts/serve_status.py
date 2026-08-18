@@ -1073,6 +1073,15 @@ RAIL_NARROW_PX = 880
 # here — it comes from the existing --serif role token.
 HEADLINE_PX = 40
 
+# The current binder's ring, in px. The design rings its one in-flight card
+# twice — a border and an outline of the SAME width, the outline standing off by
+# its own offset — and declares no animation on either, so the ring is drawn and
+# not moved. Both numbers are stated once here and interpolated into the sheet;
+# the self-test re-renders the sheet at a second pair and watches both rule
+# values follow, so a literal typed into the rule stays where it was and fails.
+NOW_RING_PX = 2
+NOW_RING_OFFSET_PX = 3
+
 # The collapsed work-item card's LEAD row, as the design sets it: a capitalised
 # mono state label at 10px / 600 / .14em tracking, then a mono 11px meta span
 # carrying the item's slug and its size (docs/designs/karta-watch-1440x900-light
@@ -1514,7 +1523,16 @@ body{
   border:1px solid var(--line); background:var(--surface); padding:11px 13px;
 }
 .rail__pick:hover{ background:var(--surface-2); border-color:var(--accent-line); }
-.rail__pick--now{ border-color:var(--now); background:var(--now-soft); }
+/* The one card that is CURRENT. The design rings it twice — a border and an
+   outline of the same width, the outline standing off — and declares no
+   animation on either, so this reads as current by being drawn heavier, not by
+   moving. Both widths and the offset come from the constants above; nothing
+   here is a literal. */
+.rail__pick--now{
+  background:var(--now-soft);
+  border:__NOWRING__px solid var(--now);
+  outline:__NOWRING__px solid var(--now-deep); outline-offset:__NOWRINGOFF__px;
+}
 .rail__line{ display:flex; align-items:center; gap:8px; min-width:0; }
 .rail__name{
   font-family:var(--serif); font-size:17px; line-height:1.15;
@@ -1529,8 +1547,25 @@ body{
   font-family:var(--mono); font-size:10px; color:var(--mut-2);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.rail__bar{ height:4px; background:var(--line); overflow:hidden; }
-.rail__fill{ height:100%; background:var(--now); }
+/* The progress bar, drawn on the CURRENT card and on no other — the design
+   carries exactly one bar in the whole map, and a bar under every card is most
+   of why the current one used to read like the rest. The FILL is solid and the
+   HATCH marks the remainder past it, which is the treatment the legend beside
+   this map already teaches ("hatched — not run yet").
+
+   `display:block` on both is load-bearing in the literal sense: a span left
+   inline takes no width at all, so a fill bound to a percentage measured zero
+   and every bar painted as one flat track whatever the binder's progress. */
+.rail__bar{
+  display:block; position:relative;
+  height:4px; background:var(--line); overflow:hidden;
+}
+.rail__fill{ display:block; height:100%; background:var(--now); }
+.rail__hatch{
+  position:absolute; right:0; top:0; bottom:0;
+  background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px);
+  opacity:.3;
+}
 
 /* "Motion = state" — the page encodes status in movement and in shape, and a
    reader who has not been told that reads a pulsing dot as decoration. */
@@ -1681,7 +1716,6 @@ body{
 .binder__blurb{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; padding:13px 18px 16px; }
 .binder__spacer{ margin-left:auto; flex:none; }
 .binder__pct{ font-family:var(--mono); font-size:12px; color:var(--ink); flex:none; }
-.binder__count{ font-family:var(--mono); font-size:11px; color:var(--mut); flex:none; }
 .binder__caret{ display:flex; flex:none; color:var(--mut); transition:transform .15s; }
 .binder__caret--open{ transform:rotate(180deg); }
 /* The progress bar. The TRACK is hatched, not flat: work not yet run reads as
@@ -1692,27 +1726,41 @@ body{
 .binder__bar{
   height:6px; background:var(--line);
   background-image:repeating-linear-gradient(135deg, var(--line-2) 0 1.5px, transparent 1.5px 6px);
+  flex:1; min-width:200px;
 }
-.binder__fill{ height:100%; background-image:none; transition:width .55s ease; }
+.binder__fill{ display:block; height:100%; background-image:none; transition:width .55s ease; }
 
-/* The counts row. One cell per engine state that HAS runs — a state with none
-   contributes no cell at all. Colours come off the state metadata as inline
-   values (same rule as the item cards), so a state can never be added to the
-   engine and render untinted; what lives here is the shape. */
-.counts{
-  display:flex; flex-wrap:wrap; gap:6px;
+/* The panel's summary — ONE row, the way the design writes it, holding three
+   things: the bar, the count of runs through, and the per-state readings
+   grouped together. It used to be three stacked blocks, with the count parked
+   inside the collapse control besides, which spent three lines of vertical rule
+   on one sentence of state. Wrapping is left ON, as the design leaves it: at
+   this page's width the three sit on one line, and a narrow window should fold
+   them rather than crush the bar. */
+.bsum{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
   padding:11px 18px; border-top:1px solid var(--line);
 }
-.counts__cell{
-  display:flex; align-items:baseline; gap:5px;
-  padding:3px 9px; border:1px solid transparent;
-  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+.bsum__count{
+  font-family:var(--mono); font-size:12px; color:var(--ink); flex:none;
+  font-variant-numeric:tabular-nums;
 }
-.counts__n{ font-size:12px; font-variant-numeric:tabular-nums; }
-/* The one cell that has to be found without reading: halted work. It takes the
-   halt palette's deeper ink and its own outline rather than the soft tint the
-   other cells wear, so a halted count is visible at a glance in a wrapped row. */
-.counts__cell--halted{ border-color:var(--halt-line); }
+/* The per-state readings. One reading per engine state that HAS runs — a state
+   with none contributes nothing at all. They are LABELS and not chips: a dot,
+   a number and a word, with no ground, no border and no padding of their own,
+   which is what the design declares on all four of its. Colour comes off the
+   state metadata as an inline value (same rule as the item cards), so a state
+   can never be added to the engine and render untinted. */
+.counts{
+  display:flex; align-items:center; flex-wrap:wrap; gap:12px; flex:none;
+  font-family:var(--mono); font-size:11px; color:var(--mut-2);
+}
+.counts__cell{ display:inline-flex; align-items:center; gap:5px; }
+.counts__dot{ width:6px; height:6px; border-radius:50%; flex:none; }
+.counts__n{ font-variant-numeric:tabular-nums; }
+/* The one reading that has to be found without reading: halted work. Stripped
+   of the tint the cells used to wear, it keeps its weight from the halt
+   palette's deeper ink on the numeral itself. */
 .counts__cell--halted .counts__n{ color:var(--halt-deep); }
 
 .binder__waves{
@@ -1940,7 +1988,7 @@ body{
 """
 
 
-def _css_from(bar_px: int) -> str:
+def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None) -> str:
     """The stylesheet with every value this file names interpolated into it.
 
     The header bar's height is a PARAMETER and not a constant read in place, for
@@ -1949,11 +1997,23 @@ def _css_from(bar_px: int) -> str:
     max-height — and the only way to prove they derive from it rather than
     happening to agree with it is to render the sheet again at a different bar
     height and watch all four move. That second render is what the self-test
-    does; a literal typed into any of the four stays where it was and fails."""
+    does; a literal typed into any of the four stays where it was and fails.
+
+    The current card's ring pair is a parameter for the same reason and no
+    other: a literal `2px` typed into the rule would match the constant exactly
+    and no amount of reading the sheet could tell the two apart. Re-render at a
+    different pair and a real derivation follows while a literal does not.
+    Both default to the shipped constants, so every caller but that one check
+    reads the sheet the page actually serves."""
+    ring_px = NOW_RING_PX if ring_px is None else ring_px
+    ring_offset_px = (NOW_RING_OFFSET_PX if ring_offset_px is None
+                      else ring_offset_px)
     return (_CSS_TEMPLATE
             .replace("__DARK__", _DARK_VARS)
             .replace("__LIGHT__", _LIGHT_VARS)
             .replace("__NARROW__", str(RAIL_NARROW_PX))
+            .replace("__NOWRINGOFF__", str(ring_offset_px))
+            .replace("__NOWRING__", str(ring_px))
             .replace("__HEADLINE__", str(HEADLINE_PX))
             .replace("__CARDSTATE__", str(CARD_STATE_PX))
             .replace("__CARDTRACK__", CARD_STATE_TRACKING)
@@ -2230,6 +2290,32 @@ def branch_chips(state: dict) -> list[dict]:
 RAIL_TITLE = "Karta's Map"
 RAIL_DELIVERED_KEY = "past"      # the one collapsible group (the show-delivered toggle)
 
+# Where each retired phrase went. Recorded and not merely replaced, for the same
+# reason _RETIRED_TOKENS is: a forward-only "the design's wording renders" check
+# passes happily while the wording it replaced still sits somewhere else on the
+# page, and two phrases saying the same thing differently is the drift this
+# table exists to catch. Asserted in both directions — the new phrase renders,
+# the old one is nowhere.
+_RETIRED_WORDING: dict[str, str] = {
+    "jump to one": "click to drill in",                    # the rail hint
+    "mirrors git": "derived fresh from git every poll",    # the page footer
+}
+
+# The rail hint's fixed half, in the design's own wording. The count in front of
+# it is derived, so only the phrase is written down — once, here, and read by
+# the page through the inert RAIL payload rather than typed into the template.
+RAIL_HINT = "click to drill in"
+
+# The delivered toggle's label is a PAIR, not a string: the design writes words
+# plus the number while the group is collapsed and one word while it is open
+# (the design capture's `data-kw-deliveredlabel` span). Written down as the two
+# halves so neither can be hard-coded as "the label"; `{n}` is the group's own
+# count substituted in. This is also the control's accessible NAME — the button
+# used to contain nothing but a numeral, so a reader heard the number and never
+# what it counted.
+RAIL_SHOW_LABEL_FMT = "show {n}"
+RAIL_HIDE_LABEL = "hide"
+
 
 def _title_case(slug: str) -> str:
     """A kebab slug as a headline: "note-tags-edit" -> "Note Tags Edit".
@@ -2272,7 +2358,12 @@ def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
     Every binder lands in exactly one group, and the groups come back in
     _PHASE_DEFS order — delivered, now, next, later. The Delivered group keeps
     its header and its count whatever the reader has chosen, so the toggle that
-    reveals it is never itself hidden; only its CARDS are withheld."""
+    reveals it is never itself hidden; only its CARDS are withheld.
+
+    The collapsible group also carries its toggle's LABEL, derived here from the
+    two halves and its own count: words plus the number while the cards are
+    hidden, one word while they are shown. It is derived rather than typed so
+    the control can never announce as a bare numeral again."""
     # MIRROR: change together with railGroups() in _APP_JS and the rail self-test.
     tagged, next_seen = [], False
     for binder in binders or []:
@@ -2296,6 +2387,8 @@ def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
             "key": key, "label": defn["label"],
             "color": _PHASE_META[key]["color"],
             "count": len(rows), "collapsible": collapsible,
+            "toggle_label": (RAIL_SHOW_LABEL_FMT.format(n=len(rows)) if hidden
+                             else RAIL_HIDE_LABEL) if collapsible else "",
             "cards": [] if hidden else [_rail_card(b, key) for b in rows],
         })
     return groups
@@ -2343,7 +2436,16 @@ _LANE_SERIAL = {"key": "serial", "icon": "lane-serial",
 # read one string rather than two copies of it.
 META_DEFAULT_LABEL = "default"
 META_INTEGRATION_LABEL = "integration"
-META_PACKS_LABEL = "packs"
+# The design labels this slot `sme` — the word karta's own binder field uses.
+# The entry KEY stays "packs" (the model's own name for the slot); only what a
+# reader sees moves.
+META_PACKS_LABEL = "sme"
+
+# The page footer, in the design's own wording. The design's footer is where it
+# says how often the reading is taken; the page used to compress that to two
+# words that said less. One definition, interpolated into the template, so the
+# string cannot exist in two places that drift.
+FOOT_LINE = "karta · derived fresh from git every poll · read-only"
 
 
 def _panel_progress(binder: dict) -> dict:
@@ -2886,6 +2988,12 @@ function railGroupsOf(binders, showDelivered) {
     return {
       key: d.key, label: d.label, color: PHASE_META[d.key].color,
       count: rows.length, collapsible: collapsible,
+      // words plus the number while the cards are hidden, one word while they
+      // are shown — derived, never a typed string, so the control cannot go
+      // back to announcing as a bare numeral.
+      toggleLabel: collapsible
+        ? (hidden ? RAIL.show_label.replace('{n}', rows.length) : RAIL.hide_label)
+        : '',
       dotClass: 'rail__dot--' + d.key,
       cards: hidden ? [] : rows.map(t => railCard(t.b, d.key)),
     };
@@ -3186,7 +3294,7 @@ const app = createApp({
     railTitle() { return RAIL.title; },
     railHint() {
       const n = this.binders.length;
-      return n + (n === 1 ? ' binder' : ' binders') + ' · jump to one';
+      return n + (n === 1 ? ' binder' : ' binders') + ' · ' + RAIL.hint;
     },
     railGroups() { return railGroupsOf(this.binders, this.showDelivered); },
     legend() { return RAIL.legend; },
@@ -3551,7 +3659,7 @@ const app = createApp({
               @click="toggleShowDelivered"
               title="show delivered binders"
               :aria-pressed="showDelivered ? 'true' : 'false'">
-              <icon :name="showDelivered ? 'checksquare' : 'square'" :size="11" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" />{{ g.count }}
+              <icon :name="showDelivered ? 'checksquare' : 'square'" :size="11" :color="showDelivered ? 'var(--ink)' : 'var(--mut)'" /><span data-kw-delivered-label>{{ g.toggleLabel }}</span>
             </button>
             <span v-else class="rail__gcount">{{ g.count }}</span>
           </div>
@@ -3568,7 +3676,7 @@ const app = createApp({
                   <span class="rail__pct" data-kw-rail-progress :class="{ 'rail__pct--now': c.now }">{{ c.progress }}</span>
                 </span>
                 <span class="rail__slug">{{ c.slug }}</span>
-                <span class="rail__bar"><span class="rail__fill" :style="{ width: c.pctW, background: g.color }"></span></span>
+                <span class="rail__bar" data-kw-rail-bar v-if="c.now"><span class="rail__fill" data-kw-rail-fill :style="{ width: c.pctW }"></span><span class="rail__hatch" data-kw-rail-hatch :style="{ left: c.pctW }"></span></span>
               </a>
             </div>
           </div>
@@ -3631,17 +3739,23 @@ const app = createApp({
                 <span class="binder__icon" :style="{ background: b.color }"><icon :name="b.mark" :size="13" color="var(--on-halt)" /></span>
                 <span class="binder__spacer"></span>
                 <span class="binder__pct">{{ b.pctLabel }}</span>
-                <span class="binder__count">{{ b.countLabel }}</span>
                 <span class="binder__caret" :class="{ 'binder__caret--open': b.open }"><icon name="arrowdown" :size="13" color="var(--mut)" /></span>
               </button>
               <div class="binder__blurb" v-if="b.blurb">{{ b.blurb }}</div>
-              <div class="binder__bar" data-kw-binder-progress role="img" :aria-label="b.countLabel"><div class="binder__fill" data-kw-binder-fill :style="{ width: b.fillW, background: b.color }"></div></div>
-
-              <div class="counts" data-kw-binder-counts v-if="b.counts.length">
-                <span class="counts__cell" data-kw-count :data-kw-count-state="c.key"
-                  :class="{ 'counts__cell--halted': c.halted }"
-                  :style="{ background: c.soft, color: c.color }" v-for="c in b.counts" :key="c.key">
-                  <span class="counts__n">{{ c.n }}</span>{{ c.word }}
+              <!-- The panel's summary, on ONE row: the bar, the count of runs
+                   through, and the per-state readings grouped in their own
+                   wrapper. Three children, the way the design writes it — the
+                   bar and the readings used to be stacked blocks and the count
+                   sat inside the collapse control above. -->
+              <div class="bsum" data-kw-binder-summary>
+                <div class="binder__bar" data-kw-binder-progress role="img" :aria-label="b.countLabel"><div class="binder__fill" data-kw-binder-fill :style="{ width: b.fillW, background: b.color }"></div></div>
+                <span class="bsum__count" data-kw-binder-count>{{ b.countLabel }}</span>
+                <span class="counts" data-kw-binder-counts v-if="b.counts.length">
+                  <span class="counts__cell" data-kw-count :data-kw-count-state="c.key"
+                    :class="{ 'counts__cell--halted': c.halted }"
+                    :style="{ color: c.color }" v-for="c in b.counts" :key="c.key">
+                    <span class="counts__dot" :style="{ background: c.color }"></span><span class="counts__n">{{ c.n }}</span>{{ c.word }}
+                  </span>
                 </span>
               </div>
 
@@ -3735,7 +3849,7 @@ const app = createApp({
     </main>
   </div>
 
-  <footer class="foot">karta · mirrors git · read-only</footer>
+  <footer class="foot">__FOOT__</footer>
 </div>
 `,
 });
@@ -3770,6 +3884,9 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__ORACLE_ICON__", json.dumps(_ORACLE_ICON, separators=(",", ":")))
         .replace("__SHELL__", _inert_json(shell))
         .replace("__RAIL__", _inert_json({"title": RAIL_TITLE,
+                                          "hint": RAIL_HINT,
+                                          "show_label": RAIL_SHOW_LABEL_FMT,
+                                          "hide_label": RAIL_HIDE_LABEL,
                                           "delivered_key": RAIL_DELIVERED_KEY,
                                           "legend": _RAIL_LEGEND}))
         .replace("__BAND__", _inert_json({"eyebrow": BAND_EYEBROW,
@@ -3806,6 +3923,7 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__REFRESH_LABELS__", _inert_json({"on": REFRESH_ON_LABEL,
                                                     "off": REFRESH_OFF_LABEL}))
         .replace("__REFRESH_VECTORS__", _inert_json(REFRESH_VECTORS))
+        .replace("__FOOT__", FOOT_LINE)
         .replace("__ASSET_QS__", asset_qs)
     )
 
@@ -10134,6 +10252,356 @@ def _c_rail_delivered_hidden(ctx):
             == [c["slug"] for g in shown for c in g["cards"] if not g["collapsible"]])
 
 
+# --- the panel's one summary row, and the map's current binder ---------------
+#
+# The design writes a panel's state as ONE row — the bar, the count of runs
+# through, and the per-state readings — and rings exactly one card in the map,
+# the current one, as the only card carrying a bar at all. The page had the same
+# facts spread over three stacked blocks with the count parked inside the
+# collapse control, and drew a bar under every card in the map, which is most of
+# why the current binder read like the rest of them.
+
+
+@_covers("panel-summary-is-one-row", kind="rendered",
+         hook="data-kw-binder-summary",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-summary", "page"),
+                 lambda c: _renamed(c, "data-kw-binder-counts", "page"),
+                 lambda c: {"css": c["css"].replace("gap:14px; flex-wrap:wrap;",
+                                                    "gap:14px;")},
+                 lambda c: {"page": _moved_inside(c, "data-kw-binder-summary",
+                                                  "data-kw-binder-header")["page"]}])
+def _c_panel_summary_one_row(ctx):
+    """The panel's summary is one row holding three things: the bar, the count
+    of runs through, and the per-state readings grouped in a wrapper of their
+    own — three children and not six, which is how the design groups them. It
+    lives outside the collapse control, so collapsing a panel never takes its
+    state reading away.
+
+    Wrapping stays ON. The design's own summary row declares it, and asserting
+    it off would fail the design; what this holds is that the bar is the one
+    child that flexes and the other two do not shrink, so the row folds by
+    moving a whole reading down rather than by crushing the bar. Whether the
+    three land on one line at a given width is a painted question no gate here
+    can answer — that is the closing comparison's."""
+    page, css = ctx["page"], ctx["css"]
+    row = _tags_with(page, "data-kw-binder-summary")
+    if len(row) != 1:
+        return False
+    # the elements the row actually HOLDS, as against everything nested
+    # anywhere beneath it — three of them, the way the design groups them.
+    inner = _subtree(page, row[0])
+    kids = [t for t in _start_tags(inner)[1:]
+            if not _containers_between(inner, row[0], t)]
+    if len(kids) != 3:
+        return False
+    hooks = ["data-kw-binder-progress", "data-kw-binder-count",
+             "data-kw-binder-counts"]
+    if [h for h, k in zip(hooks, kids) if h not in _attrs(k)]:
+        return False
+    header = _tags_with(page, "data-kw-binder-header")
+    if len(header) != 1 or row[0] in _subtree(page, header[0]):
+        return False
+    outer = _decls_for(css, ".bsum")
+    if not outer or not any(_norm(d.get("display", "")) == "flex"
+                            and _norm(d.get("flex-wrap", "")) == "wrap"
+                            for d in outer):
+        return False
+    bar = _decls_for(css, ".binder__bar")
+    steady = [_decls_for(css, ".bsum__count"), _decls_for(css, ".counts")]
+    return (any("min-width" in d and _norm(d.get("flex", "")).split()[:1] == ["1"]
+                for d in bar)
+            and all(group and any(_norm(d.get("flex", "")) == "none"
+                                  for d in group)
+                    for group in steady))
+
+
+@_covers("merged-count-leaves-the-collapse-control", kind="rendered",
+         hook="data-kw-binder-count",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-count", "page"),
+                 lambda c: {"page": _moved_inside(c, "data-kw-binder-count",
+                                                  "data-kw-binder-header")["page"]},
+                 lambda c: {"page": (lambda p, block: p.replace(block, block * 2, 1))(
+                     c["page"], _subtree(c["page"], _tags_with(
+                         c["page"], "data-kw-binder-count")[0]))}])
+def _c_merged_count_moved_out(ctx):
+    """The count of runs through renders ONCE, beside the bar it belongs to,
+    and no longer inside the button that collapses the panel — it was moved,
+    not copied. Counted as renderings and not as occurrences: the bar keeps the
+    same value as its accessible name, which is the progress element naming
+    itself, not a second copy for a reader to meet twice."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-binder-count")
+    if len(tags) != 1:
+        return False
+    binding = "b.countLabel"
+    rendered = page.count(binding) - sum(t.count(binding)
+                                         for t in _start_tags(page))
+    if rendered != 1:
+        return False
+    header = _tags_with(page, "data-kw-binder-header")
+    summary = _tags_with(page, "data-kw-binder-summary")
+    if len(header) != 1 or len(summary) != 1:
+        return False
+    return (tags[0] not in _subtree(page, header[0])
+            and tags[0] in _subtree(page, summary[0]))
+
+
+@_covers("state-readings-are-labels-not-chips", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+             ".counts__cell{ display:inline-flex;",
+             ".counts__cell{ padding:3px 9px; display:inline-flex;")},
+                 lambda c: {"css": c["css"].replace(
+                     ".counts__dot{ width:6px;",
+                     ".counts__cell{ background:var(--now-soft); }\n"
+                     ".counts__dot{ width:6px;")},
+                 lambda c: {"page": c["page"].replace("counts__dot", "counts__x")}])
+def _c_state_readings_are_labels(ctx):
+    """The four per-state readings are LABELS, not chips: a dot, a number and a
+    word, with no ground, no border, no corner radius and no padding of their
+    own — which is what the design declares on all four of its, and the
+    opposite of what it declares on the chips it does draw elsewhere. The tint
+    they used to wear made four readings compete with the halted one.
+
+    Structural, not a colour reading: the dot's colour still comes off the state
+    metadata inline, so the check asks that the dot EXISTS and that the label
+    around it declares none of the four chip properties."""
+    css, page = ctx["css"], ctx["page"]
+    cell = _decls_for(css, ".counts__cell")
+    dot = _decls_for(css, ".counts__dot")
+    if not cell or not dot:
+        return False
+    # longhand counts: "declares no padding" has to mean no padding-left, and
+    # "no border" has to mean no border-radius either.
+    if any(k == prop or k.startswith(prop + "-")
+           for d in cell for k in d
+           for prop in ("background", "border", "padding")):
+        return False
+    reading = _tags_with(page, "data-kw-count")
+    if len(reading) != 1:
+        return False
+    inside = _classes_in(_subtree(page, reading[0]))
+    return ("counts__dot" in inside
+            and any("border-radius" in d and "width" in d for d in dot))
+
+
+@_covers("current-binder-carries-a-static-ring-pair", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace("outline-offset:3px;", "")},
+                 lambda c: {"css": c["css"].replace(
+                     "outline:2px solid var(--now-deep);",
+                     "outline:2px solid var(--now-deep); animation:karta-ring 2s linear infinite;")},
+                 lambda c: {"css_from": lambda b, r=None, o=None: _css_from(b)},
+                 lambda c: {"css": c["css"].replace(
+                     "border:2px solid var(--now);", "border:1px solid var(--now);")}])
+def _c_current_binder_ring_pair(ctx):
+    """The card for the binder in flight is ringed twice — a border and an
+    outline of the same width, the outline standing off by its own offset — and
+    neither moves. The design declares no animation on either, so "this one is
+    current" is said by being drawn heavier; the motion in this map is the
+    gutter dot beside it, which already breathes and is nobody's business here.
+
+    Proven to DERIVE, not merely to agree: re-render the sheet at a different
+    pair and both widths and the offset follow. A literal typed into the rule
+    stays where it was and fails, which is the only way to tell the two apart."""
+    css = ctx["css"]
+
+    def ring(sheet):
+        # the re-rendered sheet still carries its comments; the shipped one in
+        # the context does not, so both are read through the same stripper.
+        decls = _decls_for(_strip_css_comments(sheet), ".rail__pick--now")
+        if not decls:
+            return None
+        border = [_px_length(_border_side_width([d], "top")) for d in decls
+                  if _border_side_width([d], "top")]
+        outline = [_px_length(_norm(d["outline"]).split()[0]) for d in decls
+                   if d.get("outline")]
+        offset = [_px_length(_norm(d["outline-offset"])) for d in decls
+                  if d.get("outline-offset")]
+        if not (border and outline and offset):
+            return None
+        if any("animation" in d for d in decls):
+            return None
+        return border[-1], outline[-1], offset[-1]
+
+    shipped = ring(css)
+    ring_px, offset_px = ctx["now_ring"]["px"], ctx["now_ring"]["offset_px"]
+    if shipped != (ring_px, ring_px, offset_px):
+        return False
+    moved = ring(ctx["css_from"](ctx["bar_height_px"], ring_px + 3, offset_px + 4))
+    if moved != (ring_px + 3, ring_px + 3, offset_px + 4):
+        return False
+    others = [sel for sel, d in _css_rules(css)
+              if "outline" in d and ".rail__" in sel and "--now" not in sel]
+    return not others
+
+
+@_covers("only-the-current-binder-carries-a-bar", kind="rendered",
+         hook="data-kw-rail-bar",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-bar", "page"),
+                 lambda c: {"page": c["page"].replace('data-kw-rail-bar v-if="c.now"',
+                                                      "data-kw-rail-bar")},
+                 lambda c: _gated_by(c, "data-kw-rail-progress", "c.now")])
+def _c_only_current_binder_has_a_bar(ctx):
+    """Exactly one card in the map carries a progress bar — the current one —
+    the way the design carries exactly one. A bar under every card is most of
+    the reason the current binder used to read like every other; the reading it
+    carried is not lost, because every card keeps its own N/M beside its name
+    and only the repeated bar goes."""
+    page = ctx["page"]
+    bar = _tags_with(page, "data-kw-rail-bar")
+    pct = _tags_with(page, "data-kw-rail-progress")
+    card = _tags_with(page, "data-kw-rail-card")
+    if len(bar) != 1 or len(pct) != 1 or len(card) != 1:
+        return False
+    if _attrs(bar[0]).get("v-if") != "c.now":
+        return False
+    if "v-if" in _attrs(pct[0]) or "v-show" in _attrs(pct[0]):
+        return False
+    inside = _subtree(page, card[0])
+    return bar[0] in inside and pct[0] in inside
+
+
+@_covers("rail-bar-fills-solid-and-hatches-the-remainder", kind="rendered",
+         hook="data-kw-rail-fill",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-hatch", "page"),
+                 lambda c: {"css": c["css"].replace(
+                     ".rail__fill{ display:block;", ".rail__fill{")},
+                 lambda c: {"css": c["css"].replace(
+                     ".rail__fill{ display:block; height:100%;",
+                     ".rail__fill{ display:block; background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px); height:100%;")},
+                 lambda c: {"page": c["page"].replace("left: c.pctW", "left: 0")}])
+def _c_rail_bar_fill_and_hatch(ctx):
+    """On the one bar the map draws, the fill is SOLID and the hatch marks the
+    remainder past it — which is the treatment the legend directly above this
+    map already teaches, so the picture and its key now say the same thing.
+
+    The fill's `display` is the load-bearing declaration here, in the literal
+    sense. It shipped without one: an inline element takes no width, so a fill
+    bound to a percentage measured zero pixels and every bar in the map painted
+    as one flat track whatever its binder's progress. The hatch is anchored at
+    the same percentage the fill ends at, so the two meet rather than overlap."""
+    page, css = ctx["page"], ctx["css"]
+    fill = _tags_with(page, "data-kw-rail-fill")
+    hatch = _tags_with(page, "data-kw-rail-hatch")
+    bar = _tags_with(page, "data-kw-rail-bar")
+    if len(fill) != 1 or len(hatch) != 1 or len(bar) != 1:
+        return False
+    width = _attrs(fill[0]).get(":style", "")
+    left = _attrs(hatch[0]).get(":style", "")
+    if "c.pctW" not in width or "c.pctW" not in left:
+        return False
+    inside = _subtree(page, bar[0])
+    if fill[0] not in inside or hatch[0] not in inside:
+        return False
+    fill_css = _decls_for(css, ".rail__fill")
+    hatch_css = _decls_for(css, ".rail__hatch")
+    bar_css = _decls_for(css, ".rail__bar")
+    if not (fill_css and hatch_css and bar_css):
+        return False
+    gradient = "repeating-linear-gradient"
+    return (any(_norm(d.get("display", "")) == "block" for d in fill_css)
+            and not any(gradient in d.get("background-image", "") for d in fill_css)
+            and any(gradient in d.get("background-image", "") for d in hatch_css)
+            and any(_norm(d.get("position", "")) == "absolute" for d in hatch_css)
+            and any(_norm(d.get("position", "")) == "relative" for d in bar_css))
+
+
+@_covers("design-wording-lands-where-the-design-puts-it", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace("RAIL.hint",
+                                                            "'jump to one'")},
+                 lambda c: {"page": c["page"].replace(c["foot_line"],
+                                                      "karta · mirrors git · read-only")},
+                 lambda c: {"panel_meta_labels": dict(c["panel_meta_labels"],
+                                                      packs="packs")},
+                 lambda c: {"retired_wording": dict(c["retired_wording"],
+                                                    **{"read-only": "x"})}])
+def _c_design_wording_lands_in_place(ctx):
+    """Three fixed labels take the design's wording, and each lands where the
+    design puts it — which is not all in one region. The hint belongs to the
+    map, the derivation sentence to the FOOTER, and the pack label to a binder
+    panel's meta bar; two of the three were never rail text at all.
+
+    Held in both directions. The new wording renders, read from its one
+    definition rather than typed into the template — and no phrase it replaced
+    survives anywhere the page renders, which is the failure a forward-only
+    check misses: two sentences saying the same thing in different words."""
+    page, app = ctx["page"], ctx["app_src"]
+    rail = _inlined_const(page, "RAIL") or {}
+    if rail.get("hint") != ctx["rail_hint"] or "RAIL.hint" not in app:
+        return False
+    hint = _tags_with(page, "data-kw-rail-title")
+    if len(hint) != 1:
+        return False
+    foot = ctx["foot_line"]
+    if foot not in page or ctx["rail_hint"] in foot:
+        return False
+    rail_block = _subtree(page, _tags_with(page, "data-kw-rail")[0])
+    if foot in rail_block:
+        return False
+    labels = ctx["panel_meta_labels"]
+    packed = ctx["binder_panel"](_panel_binder(ctx, _PANEL_DETAIL,
+                                               sme=["alpha-pack"]), ctx["state"])
+    slot = [e for e in packed["meta"] if e["key"] == "packs"]
+    if len(slot) != 1 or slot[0]["label"] != labels["packs"]:
+        return False
+    retired = ctx["retired_wording"]
+    if not retired or labels["packs"] in retired:
+        return False
+    docs = [ctx[k] for k in _APP_DOC_KEYS]
+    return not [old for old in retired if any(old in d for d in docs)]
+
+
+@_covers("delivered-toggle-announces-in-words", kind="rendered",
+         hook="data-kw-delivered-label",
+         breaks=[lambda c: _renamed(c, "data-kw-delivered-label", "page"),
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "RAIL.show_label.replace('{n}', rows.length)", "'show 1'")},
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, toggle_label=str(g["count"])) if g["collapsible"] else g
+                     for g in rail_groups(b, s)]},
+                 lambda c: {"rail_show_label": "{n}"}])
+def _c_delivered_toggle_in_words(ctx):
+    """The control that reveals the delivered binders says what its number
+    counts. It used to contain nothing but the numeral, and a button's content
+    IS its accessible name while it has any — so a reader heard "1" and never
+    heard what one of them was, with the title beside it doing nothing.
+
+    The design's label is a PAIR and not a string: words plus the number while
+    the group is folded, one word while it is open. So the label is derived from
+    the group's own count, and the folded half is never hard-coded as `the`
+    label — that is the shape this asserts, driven by direct call over both
+    states, plus the reading that the name carries words at all."""
+    page, app = ctx["page"], ctx["app_src"]
+    tags = _tags_with(page, "data-kw-delivered-label")
+    if len(tags) != 1:
+        return False
+    label = _subtree(page, tags[0])
+    if "g.toggleLabel" not in label:
+        return False
+    button = _tags_with(page, "data-kw-show-delivered")
+    if len(button) != 1 or tags[0] not in _subtree(page, button[0]):
+        return False
+    live = ctx["state"]["binders"]
+    binders = live + [dict(live[0], slug="s-old", status="merged")]
+
+    def toggle(shown):
+        got = [g["toggle_label"] for g in ctx["rail_groups"](binders, shown)
+               if g["collapsible"]]
+        return got[0] if len(got) == 1 else None
+
+    folded, opened = toggle(False), toggle(True)
+    show_fmt, hide = ctx["rail_show_label"], ctx["rail_hide_label"]
+    if folded != show_fmt.format(n=1) or opened != hide:
+        return False
+    if folded == opened or not re.search(r"[A-Za-z]", folded):
+        return False
+    if not re.search(r"[A-Za-z]", hide) or any(ch.isdigit() for ch in hide):
+        return False
+    quiet = [g["toggle_label"] for g in ctx["rail_groups"](binders, True)
+             if not g["collapsible"]]
+    return (any(v for v in quiet) is False
+            and "RAIL.show_label" in app and "RAIL.hide_label" in app)
+
+
 @_covers("rail-title-falls-back-to-title-case", kind="behaviour",
          breaks=[lambda c: {"title_case": lambda s: str(s or "")},
                  lambda c: {"app_src": c["app_src"].replace("titleCase(b.slug)",
@@ -13057,6 +13525,10 @@ def _coverage_context() -> dict:
                            "pos_px": WAVE_HEAD_POS_PX},
         "inset_vectors": _INSET_VECTORS, "inset_reader": _side_inset,
         "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
+        "rail_hint": RAIL_HINT, "rail_show_label": RAIL_SHOW_LABEL_FMT,
+        "rail_hide_label": RAIL_HIDE_LABEL, "foot_line": FOOT_LINE,
+        "retired_wording": _RETIRED_WORDING,
+        "now_ring": {"px": NOW_RING_PX, "offset_px": NOW_RING_OFFSET_PX},
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
         "breathe_keyframe": BREATHE_KEYFRAME,
