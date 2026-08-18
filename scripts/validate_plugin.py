@@ -94,6 +94,7 @@ def check() -> list[str]:
     _check_skill_scripts(errors)
     _check_behaviour_anchor(errors)
     _check_vendored_fonts(errors)
+    _check_design_reference(errors)
     return errors
 
 
@@ -448,6 +449,194 @@ def _check_vendored_fonts(errors: list[str], root: Path | None = None) -> None:
             errors.append(f"skills/{WATCH_SCRIPT_REL.as_posix()}: {problem}")
 
 
+# --- Watch design reference: self-contained, no-network, and the serving rig
+# that later visual checks in the watch-fidelity binder depend on. -----------
+#
+# docs/designs/karta-watch-1440x900-light.html is a frozen capture of a live
+# Claude Design export, committed instead of the export itself so the
+# comparison never needs the network and never drifts when a font host does.
+# The rule below is the guard against it quietly regaining a remote
+# dependency: every http(s) reference is an error, and every local asset
+# reference must resolve to a real file relative to the design file itself.
+#
+# docs/designs/fixtures/watch-fidelity-state is a hand-written repo root the
+# serving rig points serve_status.py at (--root) so the page it renders is
+# fixed by one committed binder file rather than by whatever binder happens
+# to be live in this repo. Its slug is deliberately fictitious — checked
+# against this repo's real karta/*/* refs so it can never collide.
+
+DESIGN_REFERENCE_REL = Path("docs") / "designs" / "karta-watch-1440x900-light.html"
+DESIGN_FIXTURE_REL = Path("docs") / "designs" / "fixtures" / "watch-fidelity-state"
+
+# Absolute http(s) URLs, and the protocol-relative `//host/path` form that is
+# just as much an external fetch while carrying no scheme to grep for. The
+# leading (?<![:/\w]) keeps it off the `//` inside `https://…` (already matched
+# by the first branch) and off a bare `path//x`.
+_EXTERNAL_URL_RE = re.compile(r"https?://[^\s\"'()]+|(?<![:/\w])//[A-Za-z0-9-]+\.[^\s\"'()]+")
+_ASSET_REF_RE = re.compile(r'(?:src|href)="([^"]+)"|url\(\s*[\'"]?([^\'")]+)[\'"]?\s*\)')
+_HEADER_COMMENT_RE = re.compile(r"<!--(.*?)-->", re.DOTALL)
+
+
+def _design_reference_asset_paths(text: str) -> list[str]:
+    """Every local asset a design capture points at (src=, href=, css url()) —
+    skipping data: URIs and same-page #fragments, which resolve to nothing on
+    disk by design."""
+    paths: list[str] = []
+    for m in _ASSET_REF_RE.finditer(text):
+        ref = m.group(1) or m.group(2)
+        if not ref or ref.startswith(("data:", "#")):
+            continue
+        paths.append(ref)
+    return paths
+
+
+def _check_design_self_contained(errors: list[str], design_file: Path) -> None:
+    """The committed design capture opens with no network: no external host
+    referenced anywhere, every local asset it points at resolves to a real
+    file relative to the design file itself, and its header comment records
+    the origin design, the capture date, the viewport and the theme."""
+    if not design_file.is_file():
+        errors.append(f"{design_file}: missing — the watch-fidelity binder's design "
+                      "reference, and every visual check built on it, has nothing to "
+                      "compare against")
+        return
+    text = design_file.read_text(encoding="utf-8")
+    hosts = sorted(set(_EXTERNAL_URL_RE.findall(text)))
+    if hosts:
+        errors.append(f"{design_file}: references an external host ({', '.join(hosts[:3])}) "
+                      "— the committed design reference must open with no network")
+    for ref in _design_reference_asset_paths(text):
+        if ref.startswith(("http://", "https://", "//")):
+            continue  # already reported above as an external-host reference
+        target = (design_file.parent / ref).resolve()
+        if not target.is_file():
+            errors.append(f"{design_file}: points at asset '{ref}' which does not "
+                          "resolve to a file in this repo")
+    header_m = _HEADER_COMMENT_RE.search(text)
+    header = header_m.group(1) if header_m else ""
+    if "1440" not in header or "900" not in header:
+        errors.append(f"{design_file}: header comment must record the 1440x900 viewport")
+    if "light" not in header.lower():
+        errors.append(f"{design_file}: header comment must record the light theme")
+    if not re.search(r"\b(19|20)\d{2}-\d{2}-\d{2}\b", header):
+        errors.append(f"{design_file}: header comment must record the capture date")
+    if "origin" not in header.lower() and "claude-design://" not in header:
+        errors.append(f"{design_file}: header comment must record the origin design")
+
+
+def _check_design_fixture(errors: list[str], fixture_root: Path,
+                          ref_prober=None) -> str | None:
+    """The committed fixture is a repo root holding exactly one hand-written
+    .karta/binders/<slug>.json, whose slug matches no karta/<slug>/* ref
+    anywhere in this repo — so the wave shape the page renders when rooted
+    there is fixed by that one committed file, readable in the diff, with
+    nothing needing to be served to settle it. Returns the fixture's slug on
+    success, None on any check failure. `ref_prober(slug) -> bool` (True if a
+    matching ref exists) is the self-test injection seam — default probes
+    this repo's real refs with `git for-each-ref`."""
+    binders_dir = fixture_root / ".karta" / "binders"
+    if not binders_dir.is_dir():
+        errors.append(f"{fixture_root}: missing .karta/binders — not a fixture repo root")
+        return None
+    binder_files = sorted(binders_dir.glob("*.json"))
+    if len(binder_files) != 1:
+        errors.append(f"{fixture_root}/.karta/binders: must hold exactly one binder "
+                      f"json (found {len(binder_files)})")
+        return None
+    try:
+        binder = json.loads(binder_files[0].read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        errors.append(f"{binder_files[0]}: invalid JSON ({e})")
+        return None
+    slug = binder.get("slug")
+    if not slug or not isinstance(slug, str):
+        errors.append(f"{binder_files[0]}: binder has no 'slug'")
+        return None
+    if ref_prober is None:
+        def ref_prober(s: str) -> bool:
+            proc = subprocess.run(["git", "for-each-ref", f"refs/karta/{s}/"],
+                                  cwd=str(ROOT), capture_output=True, text=True)
+            return bool(proc.stdout.strip())
+    if ref_prober(slug):
+        errors.append(f"{binder_files[0]}: slug '{slug}' matches a real karta/{slug}/* "
+                      "ref in this repo — the fixture must use a slug that derives as "
+                      "pending forever, never a real binder's slug")
+        return None
+    return slug
+
+
+def _check_design_serving_rig(errors: list[str], fixture_root: Path, script: Path,
+                              slug: str, *, timeout: float = 10.0) -> None:
+    """Prove the rig this whole binder depends on, at item one rather than the
+    end of the binder: start the committed page as a subprocess rooted at the
+    committed fixture on a loopback port, request it with ?theme=light, and
+    confirm HTTP 200 with the fixture's one binder actually rendered in the
+    body. A wrong --root, a malformed fixture, or a page that stops serving
+    then fails here instead of at the last item that needs it."""
+    import socket
+    import time
+    import urllib.error
+    import urllib.request
+
+    if not script.is_file():
+        errors.append(f"{script}: missing — cannot prove the watch-fidelity serving rig")
+        return
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--root", str(fixture_root), "--port", str(port)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    try:
+        url = f"http://127.0.0.1:{port}/?theme=light"
+        body = None
+        last_err: Exception | None = None
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                last_err = RuntimeError(
+                    f"exited early ({proc.returncode}): {proc.stderr.read() if proc.stderr else ''}")
+                break
+            try:
+                with urllib.request.urlopen(url, timeout=1) as resp:
+                    if resp.status == 200:
+                        body = resp.read().decode("utf-8", "replace")
+                        break
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+                last_err = e
+                time.sleep(0.2)
+        if body is None:
+            errors.append(f"watch-fidelity serving rig: the page never answered 200 "
+                          f"at --root {fixture_root} --port {port} ({last_err})")
+            return
+        if slug not in body:
+            errors.append("watch-fidelity serving rig: the page answered but the "
+                          f"fixture's binder ('{slug}') is not visibly rendered in the response")
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+
+
+def _check_design_reference(errors: list[str]) -> None:
+    """The watch-fidelity binder's design reference is self-contained and its
+    fixture is well-formed, then — only once both hold — the serving rig
+    itself is proven for real against the committed files. The three parts
+    each take their target as an argument, so `_self_test()` drives every one
+    of them against synthetic fixtures; this composes them over the real repo."""
+    _check_design_self_contained(errors, ROOT / DESIGN_REFERENCE_REL)
+    fixture_root = ROOT / DESIGN_FIXTURE_REL
+    before = len(errors)
+    slug = _check_design_fixture(errors, fixture_root)
+    if slug is None or len(errors) > before:
+        return  # fixture is malformed — nothing to serve, don't spin up the rig
+    _check_design_serving_rig(errors, fixture_root, ROOT / "skills" / WATCH_SCRIPT_REL, slug)
+
+
 DG_SCHEMA = ROOT / "skills" / "karta-doc-gardner" / "references" / "doc-gardner-schema.json"
 _TYPE_BY_NAME = {"boolean": bool, "string": str}
 
@@ -646,8 +835,163 @@ def _self_test() -> int:
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
             failures += 0 if ok else 1
+
+        # The watch design reference: a self-contained good capture, then one
+        # deliberately violating negative control per rule — carrying an
+        # external stylesheet, a dangling asset, a bare/incomplete header, or
+        # a malformed fixture. Each is built fresh in this temp dir and
+        # committed nowhere; the checks below are the static, fast half of
+        # _check_design_reference (no subprocess) — the real serving-rig
+        # proof runs only against the real repo, from `check()`.
+        good_header = ('<!--\n  Origin design : claude-design://demo/Demo.dc.html\n'
+                       '  Captured      : 2026-08-17\n  Viewport      : 1440x900\n'
+                       '  Theme         : light\n-->\n')
+
+        def _design_file(base: Path, *, header=good_header,
+                         asset_tag='<img src="mascot.png">',
+                         extra="", with_asset=True) -> Path:
+            base.mkdir(parents=True, exist_ok=True)
+            if with_asset:
+                (base / "mascot.png").write_bytes(b"PNG")
+            f = base / "design.html"
+            f.write_text(f"<!DOCTYPE html>\n<html>\n<head>\n{header}"
+                         f"<style>body{{color:red}}</style>\n</head>\n"
+                         f"<body>\n{asset_tag}\n{extra}\n</body>\n</html>\n")
+            return f
+
+        design_cases = [
+            ("design: self-contained capture with a full header -> no error",
+             lambda b: _design_file(b), []),
+            ("design: an external stylesheet fails (the required negative control)",
+             lambda b: _design_file(b, extra='<link href="https://fonts.googleapis.com/x" rel="stylesheet">'),
+             ["references an external host"]),
+            ("design: a dangling asset reference fails",
+             lambda b: _design_file(b, asset_tag='<img src="missing.png">', with_asset=False),
+             ["does not resolve to a file"]),
+            ("design: a header missing the viewport fails",
+             lambda b: _design_file(b, header='<!--\n  Captured: 2026-08-17\n  Theme: light\n  Origin: demo\n-->\n'),
+             ["must record the 1440x900 viewport"]),
+            ("design: a header missing the theme fails",
+             lambda b: _design_file(b, header='<!--\n  Captured: 2026-08-17\n  Viewport: 1440x900\n  Origin: demo\n-->\n'),
+             ["must record the light theme"]),
+            ("design: a header missing the capture date fails",
+             lambda b: _design_file(b, header='<!--\n  Viewport: 1440x900\n  Theme: light\n  Origin: demo\n-->\n'),
+             ["must record the capture date"]),
+            ("design: a missing design file fails",
+             lambda b: b / "nope.html", ["missing"]),
+            ("design: a protocol-relative //host reference fails too (no scheme to grep for)",
+             lambda b: _design_file(b, extra='<link href="//fonts.googleapis.com/x" rel="stylesheet">'),
+             ["references an external host"]),
+        ]
+        for i, (name, make, want) in enumerate(design_cases):
+            errs: list[str] = []
+            target = make(Path(td) / f"design{i}")
+            _check_design_self_contained(errs, target)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
+
+        # The design fixture: a well-formed synthetic fixture repo root, then
+        # one malformed variant per rule — no .karta/binders, zero or two
+        # binder files, invalid JSON, no slug, and a slug a fake ref_prober
+        # reports as already real (the collision this fixture's whole point
+        # is to avoid).
+        def _fixture_root(base: Path, *, binders="one", slug="fixture-demo-slug",
+                          valid_json=True) -> Path:
+            d = base / ".karta" / "binders"
+            if binders != "absent":
+                d.mkdir(parents=True, exist_ok=True)
+            if binders in ("one", "two"):
+                payload = json.dumps({"slug": slug}) if valid_json else "{not json"
+                (d / "a.json").write_text(payload)
+            if binders == "two":
+                (d / "b.json").write_text(json.dumps({"slug": slug + "-2"}))
+            if binders == "no-slug":
+                (d / "a.json").write_text(json.dumps({"title": "no slug here"}))
+            return base
+
+        fixture_cases = [
+            ("fixture: one well-formed binder, unclaimed slug -> no error",
+             lambda b: _fixture_root(b), None, []),
+            ("fixture: no .karta/binders -> not a fixture repo root",
+             lambda b: _fixture_root(b, binders="absent"), None,
+             ["not a fixture repo root"]),
+            ("fixture: two binder files -> exactly one required",
+             lambda b: _fixture_root(b, binders="two"), None,
+             ["must hold exactly one binder"]),
+            ("fixture: invalid JSON -> reported, not crashed",
+             lambda b: _fixture_root(b, valid_json=False), None,
+             ["invalid JSON"]),
+            ("fixture: binder with no slug -> reported",
+             lambda b: _fixture_root(b, binders="no-slug"), None,
+             ["binder has no 'slug'"]),
+            ("fixture: slug the prober reports as a real ref -> collision fails",
+             lambda b: _fixture_root(b), lambda s: True,
+             ["matches a real"]),
+        ]
+        for i, (name, make, prober, want) in enumerate(fixture_cases):
+            errs: list[str] = []
+            root = make(Path(td) / f"fixture{i}")
+            _check_design_fixture(errs, root, ref_prober=prober)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
+
+        # The serving rig, driven against stand-in pages rather than only
+        # against the real one. The rig check is the assertion that a wrong
+        # --root, a malformed fixture, or a page that stopped serving fails
+        # at item one — so it ships with the pages that make it fail: one
+        # that never answers, one that answers 200 without the fixture's
+        # binder in the body, and a missing script. `serve_status.py` is
+        # never started here; each stand-in takes the same --root/--port.
+        rig_dir = Path(td) / "rig"
+        rig_dir.mkdir()
+
+        def _stand_in(name: str, body_expr: str) -> Path:
+            p = rig_dir / name
+            p.write_text(
+                "import argparse, http.server\n"
+                "p = argparse.ArgumentParser()\n"
+                "p.add_argument('--root'); p.add_argument('--port', type=int)\n"
+                "a = p.parse_args()\n"
+                f"BODY = {body_expr}\n"
+                "class H(http.server.BaseHTTPRequestHandler):\n"
+                "    def do_GET(self):\n"
+                "        b = BODY.encode()\n"
+                "        self.send_response(200)\n"
+                "        self.send_header('Content-Length', str(len(b)))\n"
+                "        self.end_headers()\n"
+                "        self.wfile.write(b)\n"
+                "    def log_message(self, *a): pass\n"
+                "http.server.HTTPServer(('127.0.0.1', a.port), H).serve_forever()\n")
+            return p
+
+        serving = _stand_in("serving.py", "'<html>fixture-demo-slug rendered</html>'")
+        blank = _stand_in("blank.py", "'<html>no binder here</html>'")
+        dead = rig_dir / "dead.py"
+        dead.write_text("import sys\nsys.exit(3)\n")
+
+        rig_cases = [
+            ("rig: a page serving 200 with the fixture's binder in the body -> no error",
+             serving, []),
+            ("rig: a page answering 200 WITHOUT the fixture's binder fails "
+             "(the negative control for a wrong --root)",
+             blank, ["is not visibly rendered"]),
+            ("rig: a page that exits instead of serving fails",
+             dead, ["never answered 200"]),
+            ("rig: a missing page script fails",
+             rig_dir / "absent.py", ["missing"]),
+        ]
+        for name, script, want in rig_cases:
+            errs: list[str] = []
+            _check_design_serving_rig(errs, rig_dir, script, "fixture-demo-slug",
+                                      timeout=4.0)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            failures += 0 if ok else 1
     total = (len(cases) + 1 + len(rst_cases) + len(anchor_cases) + 1
-             + len(font_cases))
+             + len(font_cases) + len(design_cases) + len(fixture_cases)
+             + len(rig_cases))
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
