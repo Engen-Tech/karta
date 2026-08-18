@@ -6,7 +6,7 @@ Every visual check in the watch-fidelity binder compares the served Karta Watch 
 
 - **Design file**: `docs/designs/karta-watch-1440x900-light.html` — a frozen, self-contained capture of the Claude Design export at 1440x900 in light theme. It opens with no network: its fonts and mascot are pointed at the copies this repo already vendors under `skills/karta-status/assets/`, not fetched. See the file's own header comment for its origin design and capture date. It is derived and can go stale against the living design — recapture it from the design source rather than hand-editing it.
 - **Theme pin**: `?theme=light`. The served page defaults to dark and the design is light. A run taken without this pin compares two different themes and reports every token as drifted when nothing changed — that happened once already, producing 27 false positives.
-- **Fixture**: `docs/designs/fixtures/watch-fidelity-state` — a committed repo root holding one hand-written `.karta/binders/watch-fidelity-fixture-demo.json`. Its slug matches no `karta/<slug>/*` ref anywhere in this repo, so every item in it always derives as pending: the served page always renders the same one binder, one wave, one card, regardless of whatever binder happens to be live in this repo when the check runs.
+- **Fixture**: `docs/designs/fixtures/watch-fidelity-state` — a committed repo root holding one hand-written `.karta/binders/watch-fidelity-fixture-demo.json`. Its slug matches no `karta/<slug>/*` ref anywhere in this repo, so every item in it always derives as pending: the shape the page derives — one binder, one wave, one card — is fixed regardless of whatever binder happens to be live in this repo when the check runs. Fixed is not the same as painted: that binder derives as `next`, and the page opens only the current binder's panel at rest, so the wave and the card are behind one click. See [The command](#the-command) for where the click belongs.
 - **Viewport**: 1440x900, matching the design capture.
 
 ## The command
@@ -25,7 +25,14 @@ Then open `http://127.0.0.1:8765/?theme=light` at a 1440x900 viewport.
 KARTA_WATCH_STATE_DIR=$(mktemp -d) uv run --script skills/karta-status/scripts/serve_status.py --root docs/designs/fixtures/watch-fidelity-state --port 8765
 ```
 
-Compare what renders at that URL against `docs/designs/karta-watch-1440x900-light.html`, opened directly in a browser (no server needed — it is self-contained).
+Compare what renders at that URL against `docs/designs/karta-watch-1440x900-light.html`. **Open the design file directly** — a `file://` path in a browser, or a `file://` `--design-url` if you are driving `capture_view.py`. It is self-contained and needs no server. Do not put it behind `karta-validate`'s `serve_design.py`: that script roots at the design file's own parent, and this capture points at `../../skills/karta-status/assets/`, so all eight font faces and the mascot 404 and the page silently falls back to different faces with no error anywhere.
+
+**Two clicks are part of the run.** The fixture binder derives as `next`, and the page opens only the current binder's panel at rest — so the view at rest is the binder head alone. Take the head-level readings there, then:
+
+1. click the binder header to open the panel, and take the work-item card readings — the card's corner, its title, its state label, its description;
+2. expand one card's disclosure, and take the detail-panel readings.
+
+Both clicks are protocol, not improvisation. `design-fidelity-gate`'s own assertion 8 names the work-item cards and the per-card disclosure panels, so a run that never clicks cannot satisfy the item it belongs to.
 
 ## Differences that are meant to stay
 
@@ -79,13 +86,15 @@ This page used to charge three. A "Delivery" panel with a 30px pad, then a phase
 
 The budget is checked on more than the two numbers, because there are cheaper ways to steal the same width. A shorthand is read on its horizontal step, so a three-value padding's bottom cannot stand in for its left and right. A contributor written as a `var()`, `calc()`, `clamp()`, `rem` or percentage fails rather than being guessed at. And a `width`, `max-width`, offset or `transform` on the frame is refused outright — the page's column cap already exists a level up, on the shared wrapper, which is where a cap belongs.
 
-So a comparison will still find one more container around a binder card here than in the design, and that container is this frame. Reported as a difference it is this decision; reported as *indent* it is a defect, because the frame is budgeted not to read as one.
+So a comparison will find the frame as one container around a binder card that the design does not have, and **the frame is the only container this difference books.** Reported as a difference it is this decision; reported as *indent* it is a defect, because the frame is budgeted not to read as one.
+
+If a run also finds the phase grouping — `section.panel` > `div.phase` > `div.phase__binders` > `div.binder`, three levels where the design has the frame's one — that is **not** covered here. It is open finding 1 below, and it blocks. The real count today is three containers, not one; this difference accounts for one of them. Counting them together is exactly how a run has already cleared this defect once.
 
 What none of this settles is whether the panel stops **looking** indented and the cards visibly regain their width. The checks behind it are pure Python with no browser: they prove the arithmetic and the shape of the nesting, not the painted result. That is what the run described at the top of this file is for.
 
 ## The five differences ruled out at plan time
 
-These five were weighed when the binder was planned and are not defects. The comparison has no way to be told about them, so it will report them every run; when it does, they are expected, and they are not new.
+These five were weighed when the binder was planned and are not defects. The comparison has no way to be told about them, so whenever the served state actually exhibits one, the run will report it; when it does, it is expected, and it is not new. Two of the five will not arise against the pinned fixture at all — the fixture's next action does carry a runnable command, so both sides draw a copy control and match, and token drift is a finding of no-difference rather than a difference.
 
 - **Five seeded binder panels against this repo's live binders.** The design draws five, four of them hidden, with its own script showing one at a time. The page renders whatever binders the served repo actually has.
 - **Single-item waves.** The real run this page was built against produced waves of one item each. There is nothing to pair, so nothing pairs.
@@ -97,13 +106,15 @@ These five were weighed when the binder was planned and are not defects. The com
 
 The fixture's slug matches no `karta/<slug>/*` ref, which is what makes it stable — and also means every item in it derives as **pending**. So nothing state-dependent is observable in this comparison: no halted card, no in-flight ring, no running strip, no part-filled progress bar. A binder that is not the current one also renders with its panel collapsed, because the page opens the current binder's panel at rest and no other, so the compared view shows the binder head and no work-item cards until something is clicked.
 
-None of that is a finding, and no assertion in this comparison may rest on it. Those treatments are checked where they can be — in the unit checks of the items that added them.
+None of that is a finding, and no assertion in this comparison may rest on **those state-dependent treatments** — the halted card, the in-flight ring, the running strip, the part-filled progress bar. They are checked where they can be, in the unit checks of the items that added them.
+
+This rule does **not** sweep in the work-item cards. Those are one documented click away, the run takes them there, and the gate's own assertions require them.
 
 ## Findings from the latest run
 
-**Run of 2026-08-18**, taken exactly as described at the top of this file: the committed design file served locally at 1440x900, the page served against the committed fixture with `?theme=light`, no network on either side.
+**Run of 2026-08-18**, taken exactly as described at the top of this file: the committed design file opened directly at 1440x900, the page served against the committed fixture with `?theme=light`, no network on either side. The card-level and detail-level readings below come from the two clicks the procedure describes, not from the view at rest.
 
-**What matched.** The palette (page ground, header ground, band ground and progress track all identical), the next-action band's 16px corner and its 8px command chip and Copy button, the binder headline at 40px Newsreader with the same -0.8px tracking, the binder card's 16px corner and 1px edge, the work-item card's 12px corner and its 20px Newsreader title, and the card's 10px mono state label. The binder headline region matched the design's composition: a mono eyebrow above, the slug at the far right, the headline alone on its own full-width line, and no headline text inside the panel toggle.
+**What matched.** The palette (page ground, header ground, band ground and progress track all identical), the next-action band's 16px corner and its 8px command chip and Copy button, the binder headline at 40px Newsreader with the same -0.8px tracking, the binder card's 1px edge, the work-item card's 12px corner and its 20px Newsreader title, and the card's 10px mono state label. The binder headline region matched the design's composition: a mono eyebrow above, the slug at the far right, the headline alone on its own full-width line, and no headline text inside the panel toggle.
 
 **All three intended differences were still on the page** and still looked the way this document describes them. None had quietly reverted.
 
@@ -112,6 +123,8 @@ None of that is a finding, and no assertion in this comparison may rest on it. T
 1. **The main panel still groups binders under Now / Next / Later.** *Blocking.* The design's main column runs from the next-action band straight into the binder's own panel — head, then wave rows, then cards. This page nests the binder two boxes deeper, inside a phase group, and renders the two empty phase groups as headed rows reading "0 binders" and "— no binders" above and below the only binder there is. The design has no phase grouping anywhere in its main column.
 
    This is the *grouping*, not the spine. Difference 3 removed the spine and only the spine; `PHASE_DEFS`, `phases()`, `phase__head`, `phase__binders` and `data-kw-phase` all remain. It is confirmed wrong: the right-hand panel should never group by phase — it is always the detailed view of whichever binder is selected in the map. Fixing it is a change to how the panel is selected and driven, which is a binder of its own and is out of this one's scope. It is filed as a follow-up, and it is why this comparison does not pass.
+
+   **The binder card's corner was recorded as matching, and it was not.** `.binder` declared a 16px radius and no clipping, and its last child `.bmeta` — the DEFAULT / INTEGRATION / PACKS strip — carried a solid `--surface-2` fill with square corners. Two different opaque fills, so the strip painted straight through the parent's curve and flattened it. It renders at rest, outside the collapse gate, so it was in the compared view. The design answers this at export line 458, where its own counterpart footer carries `border-radius:0 0 15px 15px` — the same value the page later derived as the panel radius less its border. The repair landed in `81f77c2`, after this binder was archived, which is why the record and the code now disagree about this one line. **The check to run next time is not "does the container declare a radius?" but "does any opaque last child sit square inside it?"**
 
    **This finding was nearly lost, and how is worth recording.** The first comparison pass of this run folded the phase grouping into difference 3 — it read the wrapper and the grouping as one thing, called it the panel wrapper "around the phase/binder chain", found it on the list, and returned a pass. They are not one thing. The wrapper is `section.panel`; the grouping is three `div.phase` blocks with their own heads and counts. Difference 3 names only the first. A comparison that reads them together will clear this defect every time, so check them apart: the question is not "is there a wrapper?" but "how many box levels sit between the wrapper and the binder card, and does the design have any of them?" On this page it is `section.panel` > `div.phase` > `div.phase__binders` > `div.binder`; in the design it is `section` > the binder panel, directly. That is the check to run next time.
 
