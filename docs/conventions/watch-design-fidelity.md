@@ -27,9 +27,27 @@ KARTA_WATCH_STATE_DIR=$(mktemp -d) uv run --script skills/karta-status/scripts/s
 
 Compare what renders at that URL against `docs/designs/karta-watch-1440x900-light.html`, opened directly in a browser (no server needed — it is self-contained).
 
+## Differences that are meant to stay
+
+Read these as intended, not as defects. Each one is a place the page deliberately does something the design does not, with the reason it does it.
+
+### The heading outline
+
+The design's only headings are its five binder titles, and its script shows one binder section at a time — so a rendered view of the design holds exactly **one** heading, at the top level, and nothing else on it is headed at all: the map's title is a span, the next-action kicker a div, every wave header's label a span, the footer bare text.
+
+The page heads each binder the same way the design does. What it adds is one heading naming the view — the repo whose watch this is, the name the header already prints. It needs that heading because it renders every binder a repo has at once, where the design mock renders one; several binder headlines all sitting at the top level would leave a reader no sense of what contains what.
+
+So a rendered view of either has exactly one top-level heading. The only difference is that the page's binder titles are nested one level beneath its own, instead of being top-level themselves. If a reviewer wants literal parity — every binder headline top-level — that is the knob, and this paragraph is the reason it was not turned.
+
+Nothing the design leaves unheaded is headed here. Those regions keep being named by the landmarks the page already gives them, which is more than the design does: the design exposes no named regions anywhere, and its own map aside carries no accessible name at all.
+
+Where a region's name and a heading inside it would ever be the same words, the rule is that the heading text stays and the region takes its name from that heading with `aria-labelledby`, rather than holding a second copy for a reader to hear twice. No region and heading collide today, so the rule is stated and unexercised.
+
 ## What's out of scope here
 
 This runbook and the checks built on it cover one view at one viewport in one theme. The design carries two responsive breakpoints (880px and 640px) and a dark theme that are not built or compared by this binder — recorded as a deliberate deferral, the obvious next binder, not an oversight.
+
+The multi-repo hub landing is a different page with no counterpart in the design, so it is not compared here either. The heading rules above are about the repo view.
 
 ## Recapturing the design reference
 

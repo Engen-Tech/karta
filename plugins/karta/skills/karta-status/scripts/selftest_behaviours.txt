@@ -178,6 +178,19 @@ binder-toggle-names-its-binder
 collapsed-binder-keeps-its-masthead
 binder-headline-at-the-serif-display-step
 
+# The outline the design's own headings imply. The design heads its binders and
+# nothing else, and shows one binder at a time, so a rendered design view holds
+# exactly one heading. This page renders every binder at once: it heads each one
+# the same way and adds a single heading naming the view for them to sit under,
+# so it too has exactly one top-level heading. Nothing the design leaves
+# unheaded is headed here, no region's name repeats a heading inside it, and
+# taking the heading tag changes no family, weight, step or margin.
+one-top-level-heading-names-the-view
+binder-headlines-sit-one-level-down
+unheaded-regions-stay-unheaded
+landmark-names-never-echo-a-heading
+headings-keep-the-step-they-had
+
 binder-progress-is-the-finished-share
 progress-track-hatches-the-unrun-share
 counts-row-totals-the-cards-below-it
