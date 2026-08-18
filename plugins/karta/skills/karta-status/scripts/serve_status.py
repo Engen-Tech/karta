@@ -1086,6 +1086,42 @@ CARD_STATE_PX = 10
 CARD_STATE_TRACKING = ".14em"
 CARD_META_PX = 11
 
+# The work-item card's TITLE step, in px. The design sets every one of its 27
+# card titles in Newsreader at 20px with a 1.2 leading and no weight of its own,
+# so it renders at the inherited 400 (docs/designs/karta-watch-1440x900-light
+# .html, the title line of each work-item card). The page had it at bold sans
+# 13px, which is the body step with a weight on it rather than a step of its
+# own. This is that step's ONE definition — the stylesheet interpolates it and
+# the self-test reads the same constant — so the title cannot drift onto a
+# one-off pixel value without the check that guards it moving too. The FAMILY is
+# not duplicated here: it comes from the existing --serif role token, the one
+# the wordmark and the binder headline already sit on. The weight IS stated on
+# the rule, at the 400 the design inherits, because this page states family,
+# weight and step together everywhere else it puts something on the serif.
+CARD_TITLE_PX = 20
+
+# The step the header's own controls sit at, in px. The design's header holds
+# exactly one control — a 32x32 icon button that declares no font-size at all —
+# so the design cannot be quoted for the size of the controls this page adds.
+# What it can be quoted for is the BAR those controls sit in, and that bar is
+# mono throughout at 10px and 11px with the sans declared nowhere in it. 11px is
+# its chip step: the branch pills and the running reading beside them.
+#
+# The page already had three readings on that step — the refresh meter, the hub
+# link and the repo switcher below the header — and one rule that was not: the
+# `.hctl` control, sans at 12px. It moves onto this constant, and the check
+# reads the SAME constant for all four, so a drift in any of them fails whether
+# or not this item wrote the rule.
+HEADER_CONTROL_PX = 11
+
+# The rail's complete declared type set. The rail already matches the design
+# exactly — mono 10px and 11px with the serif binder names at 17px, which is the
+# design's own rail set — so this item's job there is to keep it that way. It is
+# a recorded floor rather than a knob: the check reads every rule the rail
+# selectors carry and fails if the set moves in EITHER direction, so enlarging a
+# rail control while chasing the header's type is caught here.
+RAIL_TYPE_STEPS = ("10px", "11px", "17px")
+
 # The delivery wrapper's frame, in px — its border and its padding, which are
 # together the whole horizontal cost it charges a card on each side.
 #
@@ -1251,9 +1287,14 @@ body{
   animation:karta-breathe 2s ease-in-out infinite; flex:none;
 }
 .hdr-right{ display:flex; align-items:center; gap:8px; flex:none; }
+/* The header's own controls. The bar they sit in is mono at its chip step on
+   both sides, and this rule was the one thing in it that was not — sans at a
+   step nothing else in the bar uses. The family comes from the --mono role
+   token and the step from HEADER_CONTROL_PX, the same constant the three
+   readings already on it are checked against. */
 .hctl{
   display:flex; align-items:center; gap:6px; border:none; cursor:pointer;
-  background:transparent; font-family:var(--sans); font-size:12px;
+  background:transparent; font-family:var(--mono); font-size:__HCTL__px;
   color:var(--mut); padding:6px 8px;
 }
 .hctl--on{ color:var(--ink); }
@@ -1698,7 +1739,15 @@ body{
    one word per line and never arrives before the card has said what state it
    is in. */
 .item__main{ min-width:0; flex:1; display:flex; flex-direction:column; gap:7px; }
-.item__title{ font-weight:600; font-size:13px; line-height:1.35; text-wrap:pretty; }
+/* The title, on the serif at the card's own display step. The design gives it
+   a family, a step and a leading and no weight, so it renders at the inherited
+   400; the weight is stated here at that same 400 because every other serif
+   rule on this page states all three together. The step is CARD_TITLE_PX, so
+   re-pitching it is one edit and a literal value fails the check. */
+.item__title{
+  font-family:var(--serif); font-weight:400; font-size:__CARDTITLE__px;
+  line-height:1.2; text-wrap:pretty;
+}
 /* The card's LEAD row: what state this item is in, said first and said as a
    word, with the slug and the size trailing it. Both steps come from the named
    constants above rather than sitting here as one-off values. */
@@ -1836,6 +1885,8 @@ body{
         .replace("__CARDSTATE__", str(CARD_STATE_PX))
         .replace("__CARDTRACK__", CARD_STATE_TRACKING)
         .replace("__CARDMETA__", str(CARD_META_PX))
+        .replace("__CARDTITLE__", str(CARD_TITLE_PX))
+        .replace("__HCTL__", str(HEADER_CONTROL_PX))
         .replace("__PANELBORDER__", str(PANEL_BORDER_PX))
         .replace("__PANELPAD__", str(PANEL_PAD_PX))
         .strip())
@@ -3542,8 +3593,8 @@ const app = createApp({
                               <span class="item__size" data-kw-item-size v-if="it.size">{{ it.size }}</span>
                             </span>
                           </div>
-                          <div class="item__title">{{ it.title }}</div>
-                          <div class="item__desc" v-if="it.summary">{{ it.summary }}</div>
+                          <div class="item__title" data-kw-item-title>{{ it.title }}</div>
+                          <div class="item__desc" data-kw-item-desc v-if="it.summary">{{ it.summary }}</div>
                         </div>
                         <span class="item__oracle" data-kw-item-oracle><icon :name="it.oracleIcon" :size="10" color="var(--mut)" />{{ it.oracle }}</span>
                         <span class="item__caret" data-kw-item-caret :class="{ 'item__caret--open': isExpanded(b.slug, it.id, it.openAtRest) }" aria-hidden="true"><icon name="chevron" :size="13" color="var(--mut)" /></span>
@@ -7661,6 +7712,23 @@ def _attrs(tag: str) -> dict[str, str]:
     return {m.group(1): (m.group(2) or "") for m in _ATTR_RE.finditer(body)}
 
 
+def _classes_in(doc: str) -> set[str]:
+    """Every class name any start tag in `doc` carries. Lets a check ask "which
+    elements in this subtree reach a given type role" without writing a markup
+    fragment into the check itself."""
+    out: set[str] = set()
+    for tag in re.finditer(r"<[a-zA-Z][^<>]*>", doc):
+        out.update(_attrs(tag.group(0)).get("class", "").split())
+    return out
+
+
+def _role_of(css: str, cls: str) -> set[str]:
+    """The type-role variables the rules for `.cls` name as its font-family. An
+    empty set means the class states no family and inherits one."""
+    return {v for d in _decls_for(css, "." + cls)
+            for v in _VAR_REF_RE.findall(d.get("font-family", ""))}
+
+
 def _url_attr_exprs(doc: str) -> list[str]:
     """Every URL-bearing attribute value in `doc` — href/src/action/formaction,
     static or Vue-bound. The population a "no untrusted field reaches a URL"
@@ -8127,6 +8195,41 @@ def _c_branch_chip_names(ctx):
         return False
     idle = dict(state, binders=[dict(b, status="merged") for b in state["binders"]])
     return [c["key"] for c in ctx["branch_chips"](idle)] == ["default"]
+
+
+@_covers("header-controls-sit-on-the-bars-mono-step", kind="rendered",
+         hook="data-kw-auto-refresh",
+         breaks=[lambda c: _renamed(c, "data-kw-auto-refresh", "page"),
+                 lambda c: {"header_control_px": 12},
+                 lambda c: {"css": c["css"].replace(
+                     "background:transparent; font-family:var(--mono);",
+                     "background:transparent; font-family:var(--sans);")},
+                 lambda c: {"css": c["css"] + "\n.shell__home{ font-size:12px; }"}])
+def _c_header_controls_mono_step(ctx):
+    """The header's own controls read as the bar they sit in. The design's
+    header holds one control and states no size on it, so it cannot be quoted
+    for a control this page adds — but it can be quoted for the bar, which is
+    mono throughout and names the sans nowhere. Four readings are held to that
+    one step from one constant: the control this item moved, and the three that
+    were already there. Moving any of them fails, whether or not this item wrote
+    the rule. The family arrives through the --mono role token, so a control
+    restyled onto a fourth family fails here rather than at the comparison."""
+    page, css, step = ctx["page"], ctx["css"], ctx["header_control_px"]
+    hooks = ("data-kw-auto-refresh", "data-kw-refresh-countdown",
+             "data-kw-shell-home", "data-kw-switcher")
+    roles, sizes = set(), set()
+    for hook in hooks:
+        tags = _tags_with(page, hook)
+        if len(tags) != 1:
+            return False
+        for cls in _attrs(tags[0]).get("class", "").split():
+            roles |= _role_of(css, cls)
+            for decls in _decls_for(css, "." + cls):
+                if decls.get("font-size"):
+                    sizes.add(_norm(decls["font-size"]))
+    return (roles == {"--mono"} and "--mono" in ctx["type_roles"]
+            and ctx["type_roles"]["--mono"] in ctx["vendored_weights"]
+            and sizes == {str(step) + "px"})
 
 
 @_covers("every-rendered-hook-is-covered", kind="behaviour",
@@ -9712,6 +9815,31 @@ def _c_rail_narrow_breakpoint(ctx):
             and ctx["app_src"].count("addEventListener") == 1)
 
 
+@_covers("rail-type-steps-do-not-move", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"] + "\n.rail__slug{ font-size:9px; }"},
+                 lambda c: {"css": c["css"] + "\n.rail__name{ font-size:20px; }"},
+                 lambda c: {"rail_type_steps": ("10px", "11px")}])
+def _c_rail_type_steps_hold(ctx):
+    """The map already carries the design's own rail type — mono at its two
+    small steps with the binder names on the serif above them — so this item's
+    job in the rail is to leave it alone. The check reads every rule the rail's
+    selectors carry and holds the whole declared set to the recorded floor, so a
+    rail size that drifts in EITHER direction fails: chasing the header's step
+    into the rail enlarges it, and trimming a rail label shrinks it, and neither
+    is something the design asks for. The floor is a recorded constant rather
+    than a set derived from the sheet, so the check cannot pass by agreeing with
+    the stylesheet it is inspecting."""
+    css, floor = ctx["css"], set(ctx["rail_type_steps"])
+    sizes = set()
+    for sel, decls in _css_rules(css):
+        if not any(part.strip().startswith(".rail")
+                   for part in sel.split(",")):
+            continue
+        if decls.get("font-size"):
+            sizes.add(_norm(decls["font-size"]))
+    return bool(floor) and sizes == floor
+
+
 # --- the next action -----------------------------------------------------
 
 @_covers("next-action-band", kind="rendered", hook="data-kw-band",
@@ -11293,6 +11421,77 @@ def _c_card_lead_named_roles(ctx):
             and strack == {lead["state_tracking"]})
 
 
+@_covers("card-title-on-the-serif-at-the-cards-own-step", kind="rendered",
+         hook="data-kw-item-title",
+         breaks=[lambda c: _renamed(c, "data-kw-item-title", "page"),
+                 lambda c: {"card_title_px": 13},
+                 lambda c: {"css": c["css"].replace(
+                     "font-size:%dpx" % CARD_TITLE_PX, "font-size:19px")},
+                 lambda c: {"css": c["css"].replace(
+                     "font-family:var(--serif); font-weight:400; "
+                     "font-size:%dpx" % CARD_TITLE_PX,
+                     "font-family:var(--sans); font-weight:600; "
+                     "font-size:%dpx" % CARD_TITLE_PX)}])
+def _c_card_title_serif_step(ctx):
+    """The card title resolves to the SERIF role at the card's own display step.
+    The family comes through the role token the wordmark and the binder headline
+    already sit on, so a title styled off a fourth custom property fails; the
+    step comes from CARD_TITLE_PX, so a literal pixel value written into the
+    sheet fails even when it looks right. The weight is checked against the
+    faces this plugin actually ships, because a weight with no vendored file is
+    a synthetic bold the browser fakes and nothing complains about. Whether the
+    result PAINTS at the design's step is not settled here; that is the rendered
+    comparison at the end of this binder."""
+    page, css, step = ctx["page"], ctx["css"], ctx["card_title_px"]
+    titles = _tags_with(page, "data-kw-item-title")
+    if len(titles) != 1:
+        return False
+    classes = _attrs(titles[0]).get("class", "").split()
+    decls = [d for cls in classes for d in _decls_for(css, "." + cls)]
+    families = {role for cls in classes for role in _role_of(css, cls)}
+    sizes = {_norm(d["font-size"]) for d in decls if d.get("font-size")}
+    weights = {_norm(d["font-weight"]) for d in decls if d.get("font-weight")}
+    roles = ctx["type_roles"]
+    if families != {"--serif"} or "--serif" not in roles:
+        return False
+    shipped = ctx["vendored_weights"].get(roles["--serif"], set())
+    return (bool(weights) and all(w.isdigit() and int(w) in shipped for w in weights)
+            and sizes == {str(step) + "px"})
+
+
+@_covers("card-body-copy-stays-on-the-sans", kind="rendered",
+         hook="data-kw-item-desc",
+         breaks=[lambda c: _renamed(c, "data-kw-item-desc", "page"),
+                 lambda c: {"css": c["css"] + "\n.item__desc{ font-family:var(--serif); }"},
+                 lambda c: {"css": c["css"] + "\n.item__meta{ font-family:var(--serif); }"}])
+def _c_card_body_stays_sans(ctx):
+    """The serif stops at the title. The design names no family on a card
+    description at all — it inherits the page's sans — so the description's own
+    rules may name the sans or name nothing, and nothing else. The check reads
+    the WHOLE card rather than that one element: the title is the only thing
+    inside a card whose classes reach the serif role, so a restyle that spreads
+    the display face down into the meta line or the detail grid fails here
+    instead of surviving to the comparison."""
+    page, css = ctx["page"], ctx["css"]
+    desc = _tags_with(page, "data-kw-item-desc")
+    title = _tags_with(page, "data-kw-item-title")
+    card = _tags_with(page, "data-kw-item")
+    if len(desc) != 1 or len(title) != 1 or len(card) != 1:
+        return False
+    body_roles = {v for d in _decls_for(css, "body")
+                  for v in _VAR_REF_RE.findall(d.get("font-family", ""))}
+    desc_roles = {role for cls in _attrs(desc[0]).get("class", "").split()
+                  for role in _role_of(css, cls)}
+    if body_roles != {"--sans"} or not desc_roles <= {"--sans"}:
+        return False
+    sub = _subtree(page, card[0])
+    if desc[0] not in sub or title[0] not in sub:
+        return False
+    serif_classes = {cls for cls in _classes_in(sub) if "--serif" in _role_of(css, cls)}
+    title_classes = set(_attrs(title[0]).get("class", "").split())
+    return bool(serif_classes) and serif_classes <= title_classes
+
+
 @_covers("card-keeps-every-fact-it-rendered", kind="behaviour",
          breaks=[lambda c: {"page": c["page"].replace("it.summary", "it.blurb")},
                  lambda c: {"card_facts": c["card_facts"] + ("it.nothing",)}])
@@ -12454,6 +12653,9 @@ def _coverage_context() -> dict:
         "headline_px": HEADLINE_PX, "type_roles": _ROLE_FAMILY,
         "card_lead": {"state_px": CARD_STATE_PX, "meta_px": CARD_META_PX,
                       "state_tracking": CARD_STATE_TRACKING},
+        "card_title_px": CARD_TITLE_PX,
+        "header_control_px": HEADER_CONTROL_PX,
+        "rail_type_steps": RAIL_TYPE_STEPS,
         "card_facts": _CARD_FACTS,
         "panel_frame": {"border_px": PANEL_BORDER_PX, "pad_px": PANEL_PAD_PX,
                         "budget_px": PANEL_INSET_BUDGET_PX},
