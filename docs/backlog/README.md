@@ -78,13 +78,95 @@ Full report, evidence, constraints and the open design decisions:
 
 ---
 
-## 5. Watch page: main panel should show binder detail, not phase groups — *Ready* (filed 2026-08-18)
+## 5. the right panel is a binder detail view, not a phase list — *Ready* (decided 2026-08-18)
 
-**What.** The watch page's main panel groups binders under Now / Next / Later phase headers. It should instead be a detail view of whichever binder is selected in the left rail, with no phase grouping inside the panel.
+**What.** The main panel must never show the Now / Next / Later phase grouping. It is always the
+detailed view of whichever binder is selected in the left rail. The rail is the selector; the panel
+is the detail.
 
-**Why it matters.** It is the one confirmed, blocking defect the watch-fidelity binder's closing design comparison could not clear — see finding 1 in [`docs/conventions/watch-design-fidelity.md`](../conventions/watch-design-fidelity.md#findings-from-the-latest-run). Fixing it means changing how the panel is selected and driven, which the watch-fidelity binder scoped out as a binder of its own.
+**Why it is not already done.** `watch-fidelity`'s `panel-nesting` item removed the phase *spine* —
+the 2px rule, the gutter, the mark icons and the JS fields feeding them — but left the phase
+*grouping* standing. `_PHASE_DEFS` still defines Delivered/Now/Next/Later and the page still renders
+`phase__head`, `phase__label`, `phase__meaning`, `phase__binders`, `phase__count` and
+`data-kw-phase`. Removing the rule was mistaken for removing the model.
 
-**Notes for whoever picks this up.** The linked finding has the full description, the check for telling the grouping apart from the delivery frame (a difference the watch-fidelity binder did keep), and the box-level count to confirm against once fixed.
+**What the design says.** Unambiguous: five `section data-kw-panel` siblings, exactly one
+`display:flex` and four `display:none` (export 282, 468, 511, 700, 880), each one's slug matching a
+rail button's `data-kw-pick` one to one (export 164, 187, 217, 240, 256), under a map header reading
+"5 binders · click to drill in" (export 145). The delivered page renders every binder at once and its
+rail links are plain scroll anchors.
+
+**Scope note.** `design-fidelity-gate` books the surviving wrapper as an intended difference on the
+grounds that it carries which repository this watch is of, which the design was never asked to model.
+That booking covers the frame only — not the phase grouping, which is unbooked and uncovered. The
+fidelity record's difference 3 has been amended to say so, after it was found stating a container
+count its own finding 1 contradicts.
+
+**Carry the other five open findings with it.** The waiver on the accepted `design-fidelity-gate`
+merge says findings 2-6 are scheduled here; naming them is what makes that claim checkable. All are
+in [`docs/conventions/watch-design-fidelity.md`](../conventions/watch-design-fidelity.md#findings-from-the-latest-run),
+and four of the five sit in the panel this entry rebuilds:
+- the binder summary set at 13px full-strength ink across the panel's width, against the design's
+  16.5px muted lede held to 66ch (export 302)
+- the progress track's square ends, against the design's pill (export 196)
+- three smaller head type gaps — eyebrow 9px against 11px, slug 10px against 11px with a tinted chip
+  and an icon the design does not draw, work-item description 11.5px against 13.5px
+- the binder card's ground inverted: the frame is white and the card warm, where the design puts the
+  panel white on the warm page ground (export 295)
+- live-page controls the mock never modelled — the panel's toggle row, the header's countdown and
+  refresh, the legend's nine rows against seven. Recorded but never weighed, so not intended either
+
+**Carry the three fact-table gaps too,** since they are the same defect class — a fact the rethink
+recorded that no assertion checks:
+- the rail card's halted badge (design: a blinking `--halt` pill reading "1 halted" beside the slug,
+  export 194; the rail template renders no badge node on any branch and the sheet has no halt-chip
+  rule)
+- the soft-tint compositing base (`--green-soft` is `rgba(74,117,68,.13)`, 13% alpha, and
+  `.binder{ background:var(--bg) }` makes a passed card read khaki instead of mint)
+- the work-item description size (design declares 13.5px, 32 occurrences; the page ships 11.5px —
+  the binder asserts that text's family but never its size)
+
+**The lesson worth encoding.** `watch-fidelity` built a 279-fact table so no design number could be
+stated without a citation, and that worked. But nothing forced those facts to be traced into
+assertions. A plan-time pass asking of every recorded fact *does any assertion depend on this?*
+would have caught all three gaps before delivery.
+
+---
+
+## 6. the design-asset rule certifies more than it enforces — *Ready* (filed 2026-08-18)
+
+**What.** `scripts/validate_plugin.py`'s design-asset rule promises that every asset a committed
+design reference points at "resolves inside this repo". It checks neither half completely.
+
+**Two holes.** `_ASSET_REF_RE`'s attribute branch admits double quotes only, so `<img src='x.png'>`
+and `<img src=x.png>` are never seen at all. And the resolution check never tests containment, so
+`/etc/hostname` and a `../../../../../../etc/hostname` both pass — despite the rule's own error text
+and the runbook both promising otherwise.
+
+**Nothing is wrong today.** The one committed capture's nine refs are all double-quoted, relative,
+and inside the repo. This is a rule that would not catch the next one.
+
+**Unblock path.** Match all three attribute quotings, assert containment against the repo ROOT — not
+the design directory, since the mascot and all eight font faces legitimately live under `skills/` —
+and add three negative controls to `_self_test()`'s `design_cases`, one per hole.
+
+---
+
+## 7. the watch ensure probe scores a slow answer as a foreign occupant — *Ready* (filed 2026-08-18)
+
+**What.** The watch end-to-end check fails roughly one run in six, and has since before the
+watch-fidelity delivery.
+
+**Why.** `hooks/scripts/inject_karta_status.py` waits on a detached ensure child whose `_probe_hub`
+has a hard 500ms per-attempt cap. A loopback `/identity` that answers slower than that is scored
+"foreign", the child steps past it, and the breadcrumb never clears.
+
+**Measured, not inferred.** Sixteen interleaved paired runs: two failures in a worktree, two in a
+pristine clone — identical rates, so it is not worktree-specific. `KARTA_WATCH_STATE_DIR` is a
+proven no-op as a remedy: both self-tests overwrite it with their own temp dir before the first
+check.
+
+**Unblock path.** Retry the identity probe rather than treating one slow answer as a verdict.
 
 ---
 
