@@ -69,6 +69,19 @@ Say it plainly, because it cuts against karta's own doctrine of enforced checks 
 
 Two routes back to enforcement, neither built: restore a working multi-provider environment and set `enabled: true`; or teach `scripts/hooks/roundtable_gate.py` to also accept a committed panel record as its own clearly-labelled kind that never claims to be multi-model.
 
+### Two human approvals, and only one of them is enforced
+
+A karta delivery asks a person to decide twice. The two are not equally protected, and reading them as one thing is how a decision gets taken quietly.
+
+| Decision | Who makes it | What holds the line |
+|-|-|-|
+| Accept an item that failed its own acceptance gate | the human, at a live orchestrator prompt | **Enforced in code.** The orchestrator issues the prompt itself; an accept signal appearing anywhere in worker output is non-authoritative and is ignored. The waiver's reason is the human's own words captured at the prompt — never lifted from worker text, a commit message, or a marker. The waiver suppresses only the named assertion, and a fresh floor check on the post-accept tip can still revert it. |
+| Land the integration branch on the default branch | the human | **Nothing.** karta stops at the assembled branch by design — no PR, no push, no auto-merge — so the landing is a separate act. The roundtable merge gate would have blocked it, but `.karta/roundtable.json` carries `enabled: false`. |
+
+Say the consequence plainly, since this repo's own history is the example. `watch-fidelity` reached `main` at `ff800d8` through an agent-run `git merge --ff-only`, after the agent ran the four floor commands by hand. The accept-waiver on `design-fidelity-gate` was a real human decision, made at a real prompt. The landing was not — no one was asked.
+
+**The landing is the human's call.** An agent that runs the merge is standing in for a decision the doctrine assigns to a person. Two things follow. Ask first, in the same session, the way the accept prompt asks. And if a merge is run without asking — a deliberate call the human made earlier, or a mistake — report it as what it was at the moment it happens, not as a clean landing. A run that reports "merged, floor green" and omits who decided has substituted itself for the person and hidden the substitution.
+
 ### The roundtable machinery, for when it returns
 
 Switched off, not removed — still present and still correct. The gate was deterministic: it enforced one fact, *a fresh recorded review of this exact content exists*, never the panel's verdict, so disagreeing with findings never blocked and only skipping the review did.
