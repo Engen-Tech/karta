@@ -52,7 +52,7 @@ karta's own binders and deliveries get a multi-perspective review before they la
 
 ### What runs today
 
-`.karta/roundtable.json` carries `enabled: false`. The roundtable tool is not called, and **both enforced gates are inert** — the hook reads that switch and exits 0. The review is now the multi-lens panel:
+`.karta/roundtable.json` carries `enabled: false`. The roundtable tool is not called, and **both of its enforced review gates are inert** — the hook reads that switch and exits 0. A third gate in the same hook, the landing gate, is not a review gate and never reads that switch; see "Two human approvals" below. The review is now the multi-lens panel:
 
 ```
 Workflow({ scriptPath: 'scripts/review/binder_review_panel.js',
@@ -76,11 +76,24 @@ A karta delivery asks a person to decide twice. The two are not equally protecte
 | Decision | Who makes it | What holds the line |
 |-|-|-|
 | Accept an item that failed its own acceptance gate | the human, at a live orchestrator prompt | **Enforced in code.** The orchestrator issues the prompt itself; an accept signal appearing anywhere in worker output is non-authoritative and is ignored. The waiver's reason is the human's own words captured at the prompt — never lifted from worker text, a commit message, or a marker. The waiver suppresses only the named assertion, and a fresh floor check on the post-accept tip can still revert it. |
-| Land the integration branch on the default branch | the human | **Nothing.** karta stops at the assembled branch by design — no PR, no push, no auto-merge — so the landing is a separate act. The roundtable merge gate would have blocked it, but `.karta/roundtable.json` carries `enabled: false`. |
+| Land the integration branch on the default branch | the human | **Enforced in code.** `scripts/hooks/roundtable_gate.py`'s landing gate blocks a `git merge` naming a `karta/*/integration` ref while you are on the default branch. It reads neither `.karta/roundtable.json` nor `KARTA_SKIP_ROUNDTABLE` — a downed review environment says nothing about who decides a delivery ships. Its own variable, `KARTA_LANDING_APPROVED=1`, must prefix the merge itself. |
 
 Say the consequence plainly, since this repo's own history is the example. `watch-fidelity` reached `main` at `ff800d8` through an agent-run `git merge --ff-only`, after the agent ran the four floor commands by hand. The accept-waiver on `design-fidelity-gate` was a real human decision, made at a real prompt. The landing was not — no one was asked.
 
-**The landing is the human's call.** An agent that runs the merge is standing in for a decision the doctrine assigns to a person. Two things follow. Ask first, in the same session, the way the accept prompt asks. And if a merge is run without asking — a deliberate call the human made earlier, or a mistake — report it as what it was at the moment it happens, not as a clean landing. A run that reports "merged, floor green" and omits who decided has substituted itself for the person and hidden the substitution.
+**The landing is the human's call**, and since 2026-08-19 that is a gate rather than a paragraph. An agent that runs the merge is standing in for a decision the doctrine assigns to a person. Ask first, in the same session, the way the accept prompt asks. If a merge does happen without asking, report it as what it was at the moment it happens — a run that says "merged, floor green" and omits who decided has substituted itself for the person and hidden the substitution.
+
+#### What the landing gate does and does not do
+
+It fires on a `git merge` naming a `karta/*/integration` ref while HEAD is the default branch, and it exits 2 unless `KARTA_LANDING_APPROVED=1` prefixes that same invocation (or sits in the environment). Two deliberate narrowings, both of which cost something:
+
+- **Anchored, not searched.** The ref has to head its own shell segment, after any `VAR=value` prefix. Without this the gate blocks its own maintenance: a merge command inside a heredoc, an `echo`, or a `grep` pattern is text, and the first thing this gate did when it went live was refuse a command that merely quoted one. The cost is that an invocation buried mid-segment — behind a `do`, an `xargs` — reads as text and is not caught.
+- **Approval must prefix the merge.** `KARTA_SKIP_ROUNDTABLE` is matched against the whole command, which is fine for a hatch that loosens a review requirement. This one grants authority, so an accidental grant is worse than an accidental block.
+
+And the limits worth saying out loud, because the gate is not a proof:
+
+- **It cannot tell an agent from a human.** A PreToolUse hook sees command text. An agent that sets `KARTA_LANDING_APPROVED=1` has forged an approval it was never given. The gate makes the moment impossible to pass through *silently*; the rule against forging it lives in doctrine, in this file and in CLAUDE.md.
+- **It shares the documented bypasses.** `git cherry-pick`, `git rebase`, `git reset --hard` reach the same end and are not `git merge`.
+- **It fails open.** Like every hook here, an internal error exits 0 rather than wedging the repo.
 
 ### The roundtable machinery, for when it returns
 

@@ -1,7 +1,9 @@
 # Roundtable edict (house-only)
 
 > **Currently switched off.** `.karta/roundtable.json` carries `enabled: false`, so the roundtable
-> tool is not called and neither enforced gate fires. The review requirement itself still stands —
+> tool is not called and neither enforced *review* gate fires. The landing gate in the same hook is
+> a different thing and stays on — see [The landing gate](#the-landing-gate). The review
+> requirement itself still stands —
 > it is met today by the multi-lens panel in `scripts/review/binder_review_panel.js`. See
 > "Review before commit" in [AGENTS.md](../../AGENTS.md) for the current rule and for what the
 > switch-off trades away. **A panel result is not a roundtable record and must never be filed as
@@ -24,6 +26,8 @@ Four points, split by whether a git event exists to gate on:
 | Standalone (ad hoc) | none | helper-available (advisory) |
 
 Plan-commit and deliver-merge are enforced — each has a real commit to block. Verify and standalone are advisory — no commit or stop moment to hang a gate on, so the helper is available but nothing is blocked. The merge gate is narrow: it fires only for a `git merge` naming a `karta/*/integration` branch while you are on the default branch.
+
+The same hook carries a third gate that is **not** about review at all, and is not covered by the switch below or by the escape hatch: the landing gate. See [The landing gate](#the-landing-gate).
 
 ## The config file
 
@@ -79,6 +83,22 @@ A PreToolUse hook sees a command before it runs. It can match command text and r
 - `git merge --squash` followed by a separate `git commit`
 
 The doctrine lists them plainly rather than pretending the gate is airtight. If you land integration content this way, run the review yourself — the gate will not remind you.
+
+## The landing gate
+
+Separate from everything above, and switched on regardless of `enabled`.
+
+karta stops at the assembled integration branch — no PR, no push, no auto-merge — so landing it is a separate act, and **who decides a delivery ships is always the human**. The gate blocks a `git merge` naming a `karta/*/integration` ref while you are on the default branch:
+
+```
+KARTA_LANDING_APPROVED=1 git merge --ff-only karta/<slug>/integration
+```
+
+The assignment has to prefix the merge itself; the same string elsewhere in the command line does not grant it. `KARTA_SKIP_ROUNDTABLE` does **not** bypass this — that hatch means the review environment is down, which says nothing about who decides to ship.
+
+If you are an agent reading this: do not set it. Report that the branch is assembled and what the floor said, then ask.
+
+Two known limits, stated rather than implied. The gate matches command text, so it cannot tell an agent's merge from a human's — the rule against forging the variable is doctrine, not enforcement. And it shares the bypasses below: `git cherry-pick`, `git rebase`, and `git reset --hard` are not a `git merge`.
 
 ## Escape hatch
 
