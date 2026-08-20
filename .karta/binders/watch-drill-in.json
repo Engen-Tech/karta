@@ -1,0 +1,842 @@
+{
+  "slug": "watch-drill-in",
+  "title": "The right panel shows the binder you picked",
+  "summary": "The status page's main panel still groups every binder under Now, Next and Later, so it renders all of them at once with empty group headings above and below. The design has no grouping there at all: the map on the left picks a binder and the panel on the right is that binder's detail. This binder makes the page work that way and closes the six differences the last design comparison left open.",
+  "motivation": "The previous binder removed the phase spine and was read as having removed the phase model with it — the grouping survived, and the comparison that caught it could not fix it without changing how the panel is driven.\n\nEvery open finding the 2026-08-18 run recorded is closed by an item here, and the mapping is written down so a gap shows as an absence rather than being discovered at the gate. Finding 1, the phase grouping, is panel-is-one-binder; its box-level sub-check is drill-in-fidelity-gate's second assertion, deliberately counted apart from the delivery frame because reading the two together is how the previous run nearly cleared the defect; its corner sub-finding already landed in 81f77c2, and the general rule it asks for — does any opaque last child sit square inside a rounded container — is progress-track-pill's. Finding 2, the binder summary, and finding 4, the three smaller type gaps with the slug's chip and icon, are both binder-head-type-scale. Finding 3, the square-ended progress track, is progress-track-pill. Finding 5, the inverted card ground, is card-ground-and-tint-base. Finding 6, the live-page controls, is live-controls-recorded. Four items answer to no finding: rail-is-the-selector is the mechanism the panel item needs, alarm-motion-softens and rail-halt-badge come from the fact-table gaps, and fact-to-assertion-trace is the recurrence guard — all four are named in scope.included rather than inherited from the run.",
+  "after": [
+    "watch-fidelity"
+  ],
+  "scope": {
+    "included": [
+      "skills/karta-status/scripts/serve_status.py — the stylesheet, the Vue template, the rendered shell and the self-test, plus its two generated Codex mirrors",
+      "skills/karta-status/scripts/selftest_behaviours.txt and its two mirrors — the committed anchor. FOUR entries move, in two kinds. Retired outright: phase-timeline-groups, whose data-kw-phase hook panel-is-one-binder removes, and both of alarm-motion-softens' pair — five-keyframes-each-settle-under-reduced-motion and reduced-motion-keeps-halt-and-run-legible — which carry no hook at all and go because the doctrine they pin is reversed. Re-keyed, not retired: no-phase-spine-beside-the-panel, whose read survives on the chrome that remains",
+      "docs/conventions/watch-design-fidelity.md — the verdict on the live-page controls, and the record of this binder's own comparison run",
+      "scripts/ — two edits to the repo's own floor: one new stdlib check that a recorded design fact is traced to an assertion, and card-ground-and-tint-base's extension of the design-reference read in scripts/validate_plugin.py, which is where that item's design-file comparison has to live"
+    ],
+    "excluded": [
+      "the rail's four phase groups — the design groups its map the same way (export 150, 176) and only the main panel is wrong; _PHASE_DEFS stays and keeps driving the rail",
+      "the delivery frame around the binder card — booked as intended difference 3 in the fidelity record because it carries which repository this watch is of, which the design was never asked to model",
+      "the 27 design tokens — no token value is added, changed or removed; the surface item changes which role sits where, not what any role resolves to",
+      "the responsive breakpoints and the dark theme comparison — recorded by the previous binder as the obvious next one, still deferred. Only 880px is common ground; below it the two part company and the second breakpoints do not correspond at all. The design's is max-width:640px — 18px gutters and every binder headline stepped 40px to 32px (export 102); the page's is max-width:560px — the wave grid to one column (serve_status.py:2123). The responsive binder starts from this sentence, so it says so",
+      "the multi-repo hub landing — a different page with no counterpart in the design",
+      "the stack: Vue stays the one vendored runtime, the page stays a global-build Options API app with a string template, and no build step is introduced"
+    ]
+  },
+  "design_facts": {
+    "source": "docs/designs/karta-watch-1440x900-light.html",
+    "stack": "Python stdlib http.server + vendored Vue 3 SPA, shipped as a Claude Code / Codex plugin skill"
+  },
+  "env_contract": {
+    "command": "uv run --script skills/karta-status/scripts/serve_status.py --root docs/designs/fixtures/watch-fidelity-state --port 8700",
+    "supports_isolation": true,
+    "isolation_params": [
+      "--port <n> — the loopback port the server binds. 8700 is pinned rather than the script's own default 8765, because the multi-repo hub derives its port as 8765 + uid % 1000 (serve_status.py:230-238) and collides with the default outright on a uid-1000 host; --ensure then respawns the hub and the command fails with Errno 98. A wave run may substitute its own port here",
+      "--root <dir> — pass only the pinned value docs/designs/fixtures/watch-fidelity-state; a wave must not substitute its own. It points the page at the committed fixture the fidelity runbook names (docs/conventions/watch-design-fidelity.md:17), which is what makes the shape the page derives — one binder, one wave, one card — fixed across runs. A wave that injects its own --root un-pins the fixture and the comparison stops being repeatable",
+      "KARTA_WATCH_STATE_DIR — overrides the multi-repo hub's own store directory (state.json, state.lock, a token file). Worth setting so a run never touches the real per-user store; it carries no binder or wave state and cannot point the page at a fixture"
+    ]
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "token_manifest": {
+    "mechanism": "CSS custom properties emitted by serve_status.py, one block per theme",
+    "source_of_truth": "docs/designs/karta-watch-1440x900-light.html — the committed export; every claim below cites the line it is read from. Each row's traced_by names '<item-id>:<0-based assertion index>' — the grammar fact-to-assertion-trace pins and then checks. A fact with no assertion that depends on it carries an explicit untraced reason instead; one row — halt-badge-legend — carries one",
+    "no_new_tokens": "no token is added, changed or removed by this binder. card-ground-and-tint-base changes which role a container resolves to, never what a role resolves to",
+    "design_fact_table": [
+      {
+        "id": "rail-hint",
+        "claim": "the map's header reads '5 binders · click to drill in' — the rail is a selector, and the design says so in words",
+        "export": "export 145",
+        "kind": "declared",
+        "traced_by": [
+          "rail-is-the-selector:6"
+        ]
+      },
+      {
+        "id": "rail-pick-control",
+        "claim": "every rail card's control is a <button type=\"button\" data-kw-pick=\"<slug>\" onClick=\"{{ pick }}\"> — five of them, one per binder, and not one is an anchor or a fragment link",
+        "export": "export 164, 187, 217, 240, 256",
+        "kind": "declared",
+        "traced_by": [
+          "rail-is-the-selector:0"
+        ]
+      },
+      {
+        "id": "rail-selected-treatment",
+        "claim": "the selected card carries border:2px solid var(--now) and outline:2px solid var(--now-deep) at outline-offset:3px; the four unselected ones carry border:1px solid var(--line) and no outline",
+        "export": "export 186 against 163, 216, 239, 255",
+        "kind": "declared",
+        "traced_by": [
+          "rail-is-the-selector:3",
+          "rail-is-the-selector:2"
+        ]
+      },
+      {
+        "id": "rail-selected-button-ground",
+        "claim": "the selected card's button ground is var(--now-soft); every unselected button is background:transparent with a hover to var(--surface-2)",
+        "export": "export 187 against 164",
+        "kind": "declared",
+        "traced_by": [
+          "rail-is-the-selector:4"
+        ]
+      },
+      {
+        "id": "panel-count",
+        "claim": "the design holds five <section data-kw-panel=\"<slug>\"> elements, one per binder — exactly one is display:flex and the other four are display:none",
+        "export": "export 282, 468, 511, 700, 880",
+        "kind": "declared",
+        "traced_by": [
+          "panel-is-one-binder:2"
+        ]
+      },
+      {
+        "id": "panel-slug-matches-pick",
+        "claim": "each panel's data-kw-panel value equals a rail button's data-kw-pick value, one to one, so the panel shown is the card picked",
+        "export": "export 282 with 187; 468 with 164; 511 with 217; 700 with 240; 880 with 256",
+        "kind": "declared",
+        "traced_by": [
+          "panel-is-one-binder:2",
+          "panel-is-one-binder:3"
+        ]
+      },
+      {
+        "id": "no-phase-grouping",
+        "claim": "the design's main column carries no phase grouping of any kind: no Delivered/Now/Next/Later heading, no group count, no wrapper between the panel section and the binder's own bordered card",
+        "export": "export 282-296 — the section opens straight onto the next-action band and the binder panel",
+        "kind": "absent",
+        "traced_by": [
+          "panel-is-one-binder:0",
+          "panel-is-one-binder:4"
+        ]
+      },
+      {
+        "id": "panel-head-composition",
+        "claim": "the binder panel's head is one row: a mono eyebrow reading the state, a pulsing var(--now) dot, and the slug pushed right with margin-left:auto",
+        "export": "export 296-300",
+        "kind": "declared",
+        "traced_by": [
+          "panel-is-one-binder:1"
+        ]
+      },
+      {
+        "id": "panel-lede-size",
+        "claim": "the binder summary is the panel's lede at 16.5px, line-height 1.6, color var(--mut), max-width 66ch — the same five times over",
+        "export": "export 302, 476, 528, 707, 887",
+        "kind": "declared",
+        "traced_by": [
+          "binder-head-type-scale:0"
+        ]
+      },
+      {
+        "id": "panel-eyebrow-size",
+        "claim": "the panel eyebrow is 11px mono at .16em tracking, uppercase",
+        "export": "export 297",
+        "kind": "declared",
+        "traced_by": [
+          "binder-head-type-scale:1"
+        ]
+      },
+      {
+        "id": "panel-slug-size",
+        "claim": "the panel's slug is 11px mono in var(--mut-2), bare text — no ground, no padding, no icon",
+        "export": "export 299",
+        "kind": "declared",
+        "traced_by": [
+          "binder-head-type-scale:1",
+          "binder-head-type-scale:2"
+        ]
+      },
+      {
+        "id": "item-desc-size",
+        "claim": "a work-item card's description is 13.5px at line-height 1.55 in var(--mut) — 32 occurrences, no other size used for that role",
+        "export": "export 336, 357",
+        "kind": "declared",
+        "traced_by": [
+          "binder-head-type-scale:3"
+        ]
+      },
+      {
+        "id": "rail-track-pill",
+        "claim": "the rail card's progress track and its fill are both border-radius:99px — fully rounded, not the rectangular set",
+        "export": "export 196, 197",
+        "kind": "declared",
+        "traced_by": [
+          "progress-track-pill:0"
+        ]
+      },
+      {
+        "id": "rail-track-height",
+        "claim": "the track is 4px tall on a var(--line) ground with overflow:hidden",
+        "export": "export 196",
+        "kind": "declared",
+        "traced_by": [
+          "progress-track-pill:0"
+        ]
+      },
+      {
+        "id": "binder-panel-ground",
+        "claim": "the binder panel is background:var(--surface) — white — sitting on the page's warm var(--bg) ground, so it advances",
+        "export": "export 294",
+        "kind": "declared",
+        "traced_by": [
+          "card-ground-and-tint-base:0"
+        ]
+      },
+      {
+        "id": "no-frame-around-panel",
+        "claim": "no container sits between the panel section and the binder card carrying a competing surface; the section itself declares only display, direction and gap",
+        "export": "export 282",
+        "kind": "absent",
+        "traced_by": [
+          "card-ground-and-tint-base:0"
+        ]
+      },
+      {
+        "id": "green-soft-alpha",
+        "claim": "--green-soft is rgba(74,117,68,.13) — 13% alpha, so whatever it composites over decides the colour a reader sees",
+        "export": "export 67",
+        "kind": "declared",
+        "traced_by": [
+          "card-ground-and-tint-base:2"
+        ]
+      },
+      {
+        "id": "halt-badge-exists",
+        "claim": "a rail card with a halted item carries a pill reading '<n> halted' beside the slug, background var(--halt), color var(--on-halt), border-radius 99px, 10px mono",
+        "export": "export 194",
+        "kind": "declared",
+        "traced_by": [
+          "rail-halt-badge:0"
+        ]
+      },
+      {
+        "id": "halt-badge-motion",
+        "claim": "the badge blinks on steps(1,end) — a hard on/off, not a fade",
+        "export": "export 194",
+        "kind": "declared",
+        "traced_by": [
+          "rail-halt-badge:2"
+        ]
+      },
+      {
+        "id": "halt-badge-reduced-motion",
+        "claim": "under prefers-reduced-motion the design re-points three hooks together — [data-kw-spin],[data-kw-ring],[data-kw-alarm] — at kwBreathe 2.4s ease-in-out infinite !important, softening rather than stopping. This binder adopts the alarm hook only; the spin and ring divergence is booked by live-controls-recorded",
+        "export": "export 96",
+        "kind": "declared",
+        "traced_by": [
+          "alarm-motion-softens:0"
+        ]
+      },
+      {
+        "id": "halt-badge-legend",
+        "claim": "the map's legend names the treatment in words — 'blinking — halted' — beside the same data-kw-alarm hook",
+        "export": "export 273",
+        "kind": "declared",
+        "traced_by": [],
+        "untraced_reason": "no assertion depends on it and none should. The page already carries the design's exact string, 'blinking — halted' (serve_status.py:1348-1349 against export 273), so this fact is already true and this binder deliberately leaves it alone — alarm-motion-softens' regression_risk records why changing it would manufacture a divergence"
+      }
+    ],
+    "visual_check_waivers": "seven items carry contract.visual_check_waiver. Five point at drill-in-fidelity-gate. Two — alarm-motion-softens and rail-halt-badge — point at none, because the pinned fixture cannot show what they change. The remaining three — live-controls-recorded, fact-to-assertion-trace and drill-in-fidelity-gate itself — paint nothing and correctly carry none. The field is not in the work-item schema, which is additionalProperties:false, so it is parked inside the open contract object — promoting it to a first-class field is a one-level move once the schema carries it. Ordering precondition: the design-reference-gate-2 binder's waiver-rule item makes this parked form illegal and then sweeps every live binder for it, so that binder declares this one in its after list and must not run first."
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "work_items": [
+    {
+      "id": "rail-is-the-selector",
+      "title": "Make the map a selector, not a list of links",
+      "summary": "Turn each card in the left-hand map into a control that picks a binder, and mark the one that is picked the way the design marks it.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "the map aside and its cards (export 142-280)",
+      "component_map": [
+        {
+          "design": "every rail card's control is a <button type=\"button\" data-kw-pick=\"<slug>\" onClick=\"{{ pick }}\"> — five of them, none an anchor and none a fragment link (export 164, 187, 217, 240, 256), under a header that reads '5 binders · click to drill in' (export 145)",
+          "implementation": "the page's rail card control is today an <a :href=\"'#binder-' + c.slug\"> (serve_status.py:3824) whose only effect is a scroll jump, because the page renders every binder at once. It becomes a button that sets the selected slug. The rail's four groups, its gutter, its dots and its Delivered toggle are untouched — the design groups its map the same way and this item is about the control, not the grouping"
+        },
+        {
+          "design": "the picked card is marked twice over: border:2px solid var(--now) with outline:2px solid var(--now-deep) at outline-offset:3px on the card (export 186), and background:var(--now-soft) on the button inside it (export 187). The other four carry a 1px var(--line) border, no outline, and a transparent button that only tints on hover (export 163, 164)",
+          "implementation": "a selected modifier on the existing .rail__pick / card structure carrying those two treatments. The page already has a .rail__pick--now modifier bound to c.now (serve_status.py:3824, 1653) — that one says 'this binder is in flight', which is a different claim from 'this is the one you are looking at'. Both can be true of one card and neither implies the other, so selection gets its own modifier rather than borrowing that one. The design settles nothing about which mark is which, because its ringed card is also its only in-flight card. This binder decides it: the ring and the 2px border are SELECTION's mark, and in flight keeps the marks the design's own legend names for it — the breathing gutter dot, the sole progress bar, the --now-deep figure and its Now grouping. So the two states stay readable on one screen when they land on different cards"
+        }
+      ],
+      "contract": {
+        "exposes": "a selected-binder slug held in the app's data, the method that sets it, and a data-kw-rail-selected hook on the picked card. The default selection is derived, never typed: the in-flight binder if the state has one, else the first binder the rail's own group order yields — the same order railGroupsOf already computes (serve_status.py:3118-3160), so the map and the default can never disagree.",
+        "consumes": "the binder list already in the state feed, and railGroupsOf's existing classification. No new server field, no new git call.",
+        "regression_risk": "the control changes element type, so anything that depended on it being a link breaks: the href-driven scroll jump, and .binder's scroll-margin-top (serve_status.py:1800) which exists only to land that jump below the sticky header. Both are this item's to account for — the jump target disappears in the next item, so this item must not leave a dead scroll-margin rule behind it either. Two checks read that rule and fail on the true render once it is gone: _BAR_DERIVED (serve_status.py:8434), which proves all four bar-derived offsets move when the bar height changes, and _c_wave_step_sticky (serve_status.py:9973). Nothing replaces the offset — the jump it existed for is gone — so both must be re-stated to cover the three offsets that remain, not re-pointed at a substitute. Five prose statements still say four offsets hang off the bar height and go false with the fourth gone: serve_status.py:1176-1181, 2134-2139, 8430 and 8499-8503, plus selftest_behaviours.txt:297 — the committed anchor, already in this item's touches. Nothing in the suite reads a comment, so all five are corrected by hand in the same commit or they drift silently.",
+        "preserves": "the rail's four groups, the Delivered toggle and its derived label, the gutter dots and stems, and the legend. A binder that is in flight still reads as in flight whether or not it is the selected one. The map header's hint keeps saying what it says today — the wording already names picking rather than jumping (RAIL_HINT, serve_status.py:2458) and the count is already derived (railHint(), serve_status.py:3446-3448), both guarded with a negative control by design-wording-lands-where-the-design-puts-it (serve_status.py:10794). The assertion below is a regression guard on work already done, not a change this item makes, and it is listed here so the traceability rule is satisfied rather than sidestepped.",
+        "visual_check_waiver": {
+          "reason": "whether the selected card actually LOOKS picked — the 2px border and the offset outline reading as one mark rather than two competing rings — is a painted result no Python assertion can settle",
+          "covered_by": "drill-in-fidelity-gate"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the rail card's control renders as a button element carrying the binder's slug, and no rail card renders an anchor whose href is a '#binder-' fragment",
+          "exactly one rail card carries the selected hook at rest, for any state the fixture set can produce — including a state with no in-flight binder, where the default falls through to the first card the rail's own group order yields",
+          "the selected treatment and the in-flight treatment are separate modifiers, and they differ in at least one RENDERED declaration — not merely in rule text — so a state where the selected binder is not the in-flight one shows two marks a reader can tell apart. The ring and the 2px border belong to selection; the in-flight card keeps the gutter dot, the progress bar and the --now-deep figure it already carries",
+          "the selected card's border width and its outline both resolve to the design's values through the existing token set, with no new token introduced",
+          "the button inside the selected card resolves to the design's soft ground role, and the button inside every unselected card resolves to no ground at rest with the page's second surface role on hover — both read off the sheet by selector, the way the existing ring check reads its declarations (serve_status.py:10574)",
+          "no rule in the sheet still declares scroll-margin-top for a jump target this item removed, and the page registers no behaviour asserting a '#binder-' anchor",
+          "the hint the map's header renders names picking rather than jumping, and its wording is derived from the binder count rather than typed as a fixed string",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files",
+          "every behaviour this item adds is registered in the page's coverage registry and named in selftest_behaviours.txt"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "contract mutation — a rendered control changes element type, from a link to a button, and the fragment-anchor behaviour it carried is removed. Both are covered by the page's behaviour registry and its committed anchor"
+        ]
+      }
+    },
+    {
+      "id": "panel-is-one-binder",
+      "title": "The right panel shows the binder you picked, and nothing else",
+      "summary": "Remove the Now / Next / Later grouping from the main panel so it renders exactly one binder — the one selected in the map.",
+      "estimate": "L",
+      "depends_on": [
+        "rail-is-the-selector"
+      ],
+      "design_reference": "the main column (export 282-296)",
+      "component_map": [
+        {
+          "design": "five <section data-kw-panel=\"<slug>\"> siblings, exactly one display:flex and four display:none (export 282, 468, 511, 700, 880), each one's slug matching a rail button's data-kw-pick (export 187, 164, 217, 240, 256). One binder is on screen at a time",
+          "implementation": "the page renders every binder at once, grouped: section.panel > div.phase > div.phase__binders > div.binder (serve_status.py:3868-3877). The grouping goes. What renders is the selected binder's own card, reached directly from the panel"
+        },
+        {
+          "design": "the design's main column has no phase grouping anywhere: no Delivered/Now/Next/Later label, no group count, no empty-group row (export 282-296)",
+          "implementation": "delete the phases() computed (serve_status.py:3468-3487), the v-for=\"p in phases\" block and its head/empty/binders children (serve_status.py:3868-3877), and the .phase rule itself with the six-line rationale comment above it, plus the .phase__head/.phase__label/.phase__meaning/.phase__count/.phase__empty/.phase__binders rules (serve_status.py:1781-1793 — the range starts at the comment, not at the first selector). _PHASE_DEFS itself STAYS — the rail's four groups are built from it (serve_status.py:2532, 3135) and the design groups its map the same way (export 150, 176). This item removes the grouping from the panel only"
+        },
+        {
+          "design": "the panel head is one row — mono eyebrow, a pulsing var(--now) dot, slug pushed right with margin-left:auto — closed by a 1px bottom rule (export 296-300). The dot is the IN-FLIGHT variant, not part of every head: export 298 carries it and the other four panel heads at 472, 524, 703 and 883 do not",
+          "implementation": "the page's masthead already renders eyebrow, headline and slug (serve_status.py:3879-3885). What it lacks is the state dot beside the eyebrow, and this item adds it. Its type sizes are binder-head-type-scale's, one item later, so nothing here sets one"
+        }
+      ],
+      "contract": {
+        "exposes": "a main panel whose subtree contains exactly one binder card — the selected one — with no node between the panel and that card carrying a phase label, a phase count or a phase key. The wrapper that names the repository and its binder count stays; the phase grouping inside it does not.",
+        "consumes": "the selected slug the previous item exposes.",
+        "regression_risk": "two registered behaviours hook on data-kw-phase — phase-timeline-groups (serve_status.py:11383) and no-phase-spine-beside-the-panel (serve_status.py:11463) — and both are named in selftest_behaviours.txt, which validate_plugin.py enforces as a floor. The two are NOT the same move. phase-timeline-groups asserts the grouping's shape and is genuinely retired. no-phase-spine-beside-the-panel reads what a spine is MADE OF — position, background, background-color, width, plus an icon ban (serve_status.py:11469-11494) — over everything between the panel start tag and the first binder, and its own docstring says a spine rebuilt under a different class name still fails it. That region survives this item (panel__head and panel__note remain), so the check is re-keyed onto the surviving chrome rather than retired; hook reuse is existing precedent (serve_status.py:11498, 11542). Removing a hook without retiring or re-keying through that anchor fails the build; deleting the names quietly is the move the anchor exists to stop. Each retirement must be replaced by a behaviour making the stronger claim, not merely dropped. A third check breaks and is not about data-kw-phase at all: MAIN_TO_CARD_LEVELS = 6 (serve_status.py:1166) is read by _c_card_sits_one_level_shallower (serve_status.py:11641), anchored as a-card-sits-one-level-shallower. Deleting div.phase and div.phase__binders takes the measured depth from 6 to 4 and the check returns False. The constant is the answer this item changes — re-state it to 4 with its comment rewritten to say what the two removed levels were; do NOT reintroduce a wrapper to keep the number at 6, which is the cheap fix a red check invites. frame-inset-comes-from-named-steps (anchor line 68) also carries two break mutators keyed on .phase and .phase__binders, which go vacuous once those selectors are gone; re-key them onto nodes that still exist rather than leaving mutators that can never fire.",
+        "preserves": "the delivery frame and what it carries — which repository this watch is of and how many binders it holds — booked as intended difference 3 in the fidelity record. The rail keeps its four groups and its Delivered toggle; the collapse control on the binder panel keeps working.",
+        "visual_check_waiver": {
+          "reason": "whether the column now reads as the design's — band, then one panel, with the cards at their full width — is a painted result the assertions here cannot settle; they prove the node is gone, not that the page looks right without it",
+          "covered_by": "drill-in-fidelity-gate for the column's composition. NOT for the in-flight state dot this item adds: the pinned fixture derives every item as pending, and the runbook bars any comparison assertion resting on the in-flight ring (docs/conventions/watch-design-fidelity.md:107, 109). The dot's declarations are proven by assertion 1 here; its painted result is proven by nothing in this binder, and the gate must name it as not observable"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "no node between the main panel and the binder card it renders carries a phase key, a phase label, a phase count or a phase-group class, in any state the fixture set can produce — asserted by walking the rendered markup, not by grepping the source for a deleted string. Scoped to that path deliberately: the rail still renders all four group headings (assertion 8), and the surviving binder card still carries phase-derived chrome of its own — the header's state phrase, guarded by binder-header-states-its-phase (serve_status.py:9352) — so a page-wide ban would contradict two checks this item keeps",
+          "a binder deriving as in flight renders exactly one state dot between the panel eyebrow and the slug, wearing the page's existing .karta-ring treatment with no new token and no second keyframe; a binder in any other state renders no dot node at all — both branches exercised against a state built for the check, so the pending fixture cannot satisfy this vacuously",
+          "the main panel's subtree contains exactly one binder card, and its slug equals the selected slug — checked in a state with several binders, so a fixture holding one cannot make this pass vacuously",
+          "picking a different card in the map changes which binder the panel renders, and the count of binder cards in the panel stays one",
+          "no empty-group row renders in any state — including a state where a phase the rail still groups by holds no binders, which is the state that produced the '0 binders' and '— no binders' rows this item removes",
+          "the retired behaviour, phase-timeline-groups, is recorded in the page's own retirement mapping, in both directions, the way retired tokens and retired wording already are (serve_status.py:884, 2450) — not merely deleted from the anchor file",
+          "phase-timeline-groups is retired and replaced by a registered behaviour making a stronger claim than it made: that no phase grouping node exists at all, rather than that the existing one is shaped correctly",
+          "no-phase-spine-beside-the-panel is RE-KEYED, not retired — its hook moves to the surviving delivery-panel chrome and its _SPINE_PROPS read is kept intact, so a spine rebuilt under a different class name over the region that still exists still fails it. That check never asserted the phase node's shape; the phase node was only its availability hook, and dropping it would lose a guard nothing else in the sheet covers",
+          "_PHASE_DEFS still drives the rail's four groups, and the rail still renders all four group headings with their counts",
+          "the delivery frame still renders the repository name and the binder count, and its horizontal inset still passes the 16px budget the fidelity record describes",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files",
+          "no rule in the sheet still declares a .phase or .phase__* selector for the grouping node this item removes — after the deletion class=\"phase\" has zero occurrences page-wide, and nothing else in the repo catches a stylesheet rule left behind with no element to match"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "destructive op — retires one behaviour, re-keys a second, and re-states a third check's pinned constant whose names are in selftest_behaviours.txt, which validate_plugin.py enforces as a floor. That anchor exists precisely to make this deletion visible, so removing a name from it is the one move it was built to catch, and doing it deliberately still deserves a look",
+          "explicit open question — the repo records retired TOKENS and retired WORDING with a two-way mapping (serve_status.py:884, 2450) but has no such path for a retired BEHAVIOUR. This item proposes the same shape; whether that is right, or heavier than it needs to be, is not settled anywhere"
+        ]
+      }
+    },
+    {
+      "id": "binder-head-type-scale",
+      "title": "Set the binder head at the sizes the design declares",
+      "summary": "Give the binder summary the lede treatment the design gives it, step the eyebrow and slug up to 11px, strip the slug's chip, and set the work-item description at 13.5px.",
+      "estimate": "M",
+      "depends_on": [
+        "panel-is-one-binder"
+      ],
+      "design_reference": "the panel head and a work-item card (export 297-302, 336)",
+      "component_map": [
+        {
+          "design": "the binder summary is the panel's lede: 16.5px, line-height 1.6, color var(--mut), max-width 66ch, with text-wrap:pretty — identical across all five panels (export 302, 476, 528, 707, 887)",
+          "implementation": ".binder__blurb is 13px, full-strength var(--ink) at .82 opacity, across the panel's whole width (serve_status.py:1842). Size, colour and measure all move. The type-fidelity item in the previous binder scoped itself to the card title, card body, header controls and the map, so this element was never in its reach"
+        },
+        {
+          "design": "the panel eyebrow is 11px mono at .16em tracking (export 297); the slug is 11px mono in var(--mut-2), bare — no ground, no padding, no icon (export 299)",
+          "implementation": ".binder__eyebrow is 9px (serve_status.py:1833); .binder__slug is 10px and carries padding:2px 6px on a var(--surface-2) ground plus a branch icon (serve_status.py:1837-1841, 3882). The chip and the icon both go"
+        },
+        {
+          "design": "a work-item card's description is 13.5px at line-height 1.55 in var(--mut), the only size used for that role in 32 occurrences (export 336, 357)",
+          "implementation": ".item__desc is 11.5px at .66 opacity (serve_status.py:2025). Its two-line clamp stays — the design's cards are short enough never to need it, so the clamp is a live-page affordance rather than a divergence"
+        }
+      ],
+      "contract": {
+        "exposes": "the four type steps at the design's values, each read from the sheet by the self-test rather than asserted against a token name.",
+        "consumes": "the existing token set and the existing type roles. No new token, no new family, no new weight.",
+        "regression_risk": "the slug loses its ground and its icon, so it loses the visual separation the chip gave it from the eyebrow on the same row; the row's own layout must still hold the two apart at the narrowest width the page supports. Raising the description to 13.5px inside a two-line clamp makes the clamped block taller, which changes every card's height.",
+        "preserves": "the 40px serif headline, the mono family on eyebrow and slug, and the description's two-line clamp.",
+        "visual_check_waiver": {
+          "reason": "whether the head now reads with the design's hierarchy — lede against headline, eyebrow against slug — is a painted result no Python assertion settles. The narrowest-width separation is NOT waived here: it is answerable from the row's layout declarations and is asserted above",
+          "covered_by": "drill-in-fidelity-gate"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the binder summary resolves to the design's 16.5px step, its muted colour role and a bounded measure — with each value read as a resolvable number or a named role from the sheet, never as a token name whose value could be a calc(), clamp(), rem or viewport expression",
+          "the panel eyebrow and the panel slug both resolve to the 11px mono step",
+          "the slug renders as bare text: no background declaration, no padding, and no icon element inside it",
+          "the work-item card description resolves to 13.5px at line-height 1.55 in the design's muted colour role — each read as a resolvable number or a named role from the sheet — and keeps its two-line clamp. The colour is not optional detail: the page ships full-strength var(--ink) at .66 opacity (serve_status.py:2025-2026), which composites differently over every tinted card state, while var(--mut) is constant",
+          "the panel head's row still holds the eyebrow and the bare slug apart at the narrowest width the page supports — read from the row's own layout declarations, since the chip that used to separate them is gone",
+          "each of the four steps is checked against the value the sheet actually declares for the element, not against a constant this item also defines — a check that would pass if both were changed together is not a check",
+          "the negative control for each step fails on the value the page shipped before this item, not merely on an absent rule",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      }
+    },
+    {
+      "id": "card-ground-and-tint-base",
+      "title": "Put the binder card on white, the way the design does",
+      "summary": "Swap the two surfaces so the binder card advances off the page ground instead of receding into it, which also gives the soft state tints the white base they were mixed for.",
+      "estimate": "M",
+      "depends_on": [
+        "binder-head-type-scale"
+      ],
+      "design_reference": "the binder panel (export 294)",
+      "component_map": [
+        {
+          "design": "the binder panel is background:var(--surface) — white — on the page's warm var(--bg) ground, and no container between the section and that panel carries a competing surface (export 282, 294)",
+          "implementation": "the page has it the other way round: .panel is var(--surface) and .binder inside it is var(--bg) (serve_status.py:1769, 1798). Same two surfaces, opposite assignment, so the card recedes where the design's advances"
+        },
+        {
+          "design": "--green-soft is rgba(74,117,68,.13) — 13% alpha (export 67), so the ground beneath it decides the colour a reader sees. In the design that ground is the white panel",
+          "implementation": ".binder__header--done paints --green-soft (serve_status.py:1812) over .binder's warm var(--bg), so a passed binder reads khaki rather than mint. This is the same defect as the surface swap, not a second one: fixing the ground fixes the tint, and the check has to say which of the two it is proving"
+        }
+      ],
+      "contract": {
+        "exposes": "the binder card on the white surface and the frame on the page ground, with every soft state tint compositing over white.",
+        "consumes": "the existing token set. No token value changes — --green-soft keeps its 13% alpha; what changes is what it sits on.",
+        "regression_risk": "every element inside the binder card was tuned against the warm ground: the wave step headers, the work-item cards, the disclosure panels and the chip grounds. Any of them that used var(--surface) to advance off the warm card now matches its parent and disappears. Both themes are affected — the dark palette assigns the same two roles (serve_status.py:837-839) and the swap applies to both.",
+        "preserves": "the token values, the panel's 1px border and 16px corner, and the frame's inset budget.",
+        "visual_check_waiver": {
+          "reason": "whether the card now advances, and whether anything inside it went flat against the new ground, are painted results — the assertions prove which role each surface holds, not what a reader sees",
+          "covered_by": "drill-in-fidelity-gate"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the binder card resolves to the surface role the design gives it and the frame around it resolves to the page ground role, in both the light and the dark palette — and the design side of that comparison is read from the committed design file's own declared value, so the check cannot pass by agreeing with itself the way one whose two sides both descend from _PALETTE does. That read lives in the repo validator, which already resolves the design file by a repo-relative constant; it must NOT live in serve_status.py, whose self-test is contracted to need no repo (serve_status.py:13969) and which ships to consumer installs that carry no docs/ at all — siting it there yields a green oracle here and a repo-path dependency in every consumer install",
+          "no element inside the binder card resolves to the same computed ground as the card itself — the check enumerates every rule in the sheet that declares a background inside that subtree and names any that now matches, so a child that went flat is a failure rather than something a reader has to notice",
+          "every soft state tint declared for a binder header composites over the card's surface, and the check states plainly that it is proving the compositing BASE, not the tint's own value — --green-soft's 13% alpha is unchanged by this item",
+          "the negative control restores the pre-item assignment and fails",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "scripts/validate_plugin.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "scripts/validate_plugin.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — inverts which role two containers resolve to, in both the light and the dark palette, and every element inside the binder card was tuned against the ground it is losing. Any child that used the white surface to advance off the warm card now matches its parent and disappears",
+          "contract mutation — the soft state tints are 13%-alpha colours, so changing what they composite over changes every state reading on the page without changing a single token value",
+          "scope of impact — this item and fact-to-assertion-trace both edit scripts/validate_plugin.py, the repo's own floor. Declared as a shared resource on both so the wave scheduler serializes them and the boundary auditor sees a declared crossing rather than inferring one"
+        ]
+      }
+    },
+    {
+      "id": "progress-track-pill",
+      "title": "Round the ends of the progress track",
+      "summary": "Give the map's progress track and its fill the fully-rounded ends the design draws, move the shape check in the same edit so it asserts the new set, and close the hole that check already has: it reads only a single bare pixel length, so a radius written as a shorthand is skipped entirely and goes unguarded.",
+      "estimate": "S",
+      "depends_on": [
+        "card-ground-and-tint-base"
+      ],
+      "design_reference": "a rail card's progress track (export 196-198)",
+      "component_map": [
+        {
+          "design": "the track is 4px tall on var(--line) with overflow:hidden and border-radius:99px; its fill carries border-radius:99px too (export 196, 197)",
+          "implementation": ".rail__bar declares height, ground and overflow but no radius at all, and .rail__fill none either (serve_status.py:1681-1685) — so both ends are square. The hatch that marks the unfinished remainder (serve_status.py:1686) is clipped by the track's overflow and needs no radius of its own"
+        },
+        {
+          "design": "every rounded container in the design states its radius, including the panel footer strip's bottom-only pair (export 458, `border-radius:0 0 15px 15px`)",
+          "implementation": "the shape check reads a radius declaration through _px_length (serve_status.py:7970-7980), which returns None for anything that is not one bare pixel length; corners() then skips that selector outright (serve_status.py:10630-10640). So .bmeta's own `border-radius:0 0 __RADPANELINNER__px __RADPANELINNER__px` (serve_status.py:1941) is read by nothing. Measured on main: swap that derived pair for a literal `0 0 15px 15px` and the suite still reports 258/258"
+        }
+      ],
+      "contract": {
+        "exposes": "the track and its fill fully rounded; the shape check updated in the same edit to assert the new set rather than the one it currently pins; and that check widened to read a multi-value border-radius, so a container whose corners are written as a shorthand is covered instead of silently skipped.",
+        "consumes": "the radius constants already in serve_status.py (RADIUS_PANEL_PX, RADIUS_CARD_PX, RADIUS_DISCLOSURE_PX, RADIUS_CHIP_PX at serve_status.py:1283-1286) and the round set the container-shape item left alone.",
+        "regression_risk": "the container-shape item's check asserts the existing round set exactly (serve_status.py:1290, 2146), so changing the track without moving that check fails the build — which is the check working. This is a deliberate change with its own assertion moved alongside it, not a value nudged past a check. The widening is the opposite move and carries its own risk: a check that starts reading declarations it used to skip may fail on a rule that was always fine. Every selector it newly covers is named and given its expected value in the same edit, so a new failure means a real disagreement rather than a check meeting the sheet for the first time.",
+        "preserves": "the four rectangular radii the container-shape item adopted, and the hatch's clipping.",
+        "visual_check_waiver": {
+          "reason": "whether a 4px pill actually reads as rounded rather than as a slightly softened rectangle is a painted result at that size",
+          "covered_by": "drill-in-fidelity-gate"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the track and its fill both resolve to a fully-rounded end, and the value is expressed so a track of any height stays a pill rather than being pinned to a radius that only works at 4px",
+          "the four rectangular container radii are unchanged, each still read from its named constant in serve_status.py rather than from a literal in the sheet",
+          "the shape check's own record of which containers are round and which are rectangular now names the track, so the two lists together still account for every radius the sheet declares — no container falls into neither list",
+          "the shape check reads a border-radius written as a shorthand, not only as one bare length: .bmeta's bottom-only pair is covered, its expected value is derived from the panel radius less the panel border rather than typed, and the re-render at a different radius step moves it too",
+          "the negative control replaces .bmeta's derived shorthand with the literal it currently renders to and fails — the exact swap that passes 258/258 on main today",
+          "the general form of the corner defect is checked, not only the one instance of it: no rounded container in the sheet ends with an opaque-filled last child whose own bottom corners are square. That is the check the fidelity record asks for by name — 'does any opaque last child sit square inside it?' rather than 'does the container declare a radius?' (docs/conventions/watch-design-fidelity.md, finding 1) — and it is the rule the .bmeta instance above is one case of",
+          "the negative control squares the track and fails",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "explicit — this item edits an existing check in the same commit as the change that check would otherwise refuse. That is the sanctioned shape (move the assertion, do not nudge the value past it), and it is recorded here because a weakened check and a moved one look identical in a diff",
+          "explicit — this item widens an existing check's reading, not only its expectations. A check that newly covers rules it used to skip can fail on something that was always correct, so every newly-covered selector is named with its expected value in the same edit"
+        ]
+      }
+    },
+    {
+      "id": "alarm-motion-softens",
+      "title": "Under reduced motion, an alarm breathes instead of stopping",
+      "summary": "Change the page's reduced-motion doctrine for alarm elements from stop-and-hold to the slow fade the design specifies, and retire the two behaviours that pinned the old answer.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "the reduced-motion block (export 96)",
+      "component_map": [
+        {
+          "design": "under prefers-reduced-motion the design re-points [data-kw-alarm] at kwBreathe 2.4s ease-in-out infinite !important — it slows and softens the alarm rather than stopping it, so the element still moves and still reads as urgent without a hard on/off flash (export 96)",
+          "implementation": ".karta-alarm{ animation:none !important; opacity:1 !important; color:var(--halt) !important; } inside the page's own reduced-motion block (serve_status.py:2102), under a comment saying the alarm holds its alerting state at FULL strength. This item adopts the design's answer and removes the page's. Both !important declarations matter, not just the animation one: the breathe keyframe animates opacity and nothing else (serve_status.py:1427), and an important author declaration outranks an animation in the cascade — so swapping the animation value while leaving opacity:1 !important standing yields an element that animates and paints perfectly still. The page's own settled-breathe rules declare animation alone (serve_status.py:2093, 2113), as does the design at export 96"
+        },
+        {
+          "design": "export 96 is one rule over THREE hooks — [data-kw-spin],[data-kw-ring],[data-kw-alarm]{animation:kwBreathe 2.4s ease-in-out infinite !important} — not the alarm alone. This item adopts the alarm hook only. The page settles spin and ring the opposite way (serve_status.py:2095, 2099) and this item leaves them there, which is a divergence from the design that pre-dates this binder; live-controls-recorded books it so the closing gate does not file it as a fresh finding",
+          "implementation": "the page ships one alarm keyframe on steps(1,end) (serve_status.py:1437). A breathe keyframe already exists on this page and is named in the self-test context as breathe_keyframe (serve_status.py:13823) — the reduced-motion branch re-points at that one rather than authoring a third"
+        }
+      ],
+      "contract": {
+        "exposes": "a reduced-motion branch that re-points every alarm element at the page's existing breathe keyframe at a slow, eased, infinite duration, and two replacement behaviours covering what the retired pair covered.",
+        "consumes": "the alarm keyframe and the breathe keyframe the page already ships, and the halt colour role. No new token, no third keyframe.",
+        "regression_risk": "two registered checks pin the OPPOSITE answer and both fail on the true render the moment this lands: _c_five_keyframes_settle (serve_status.py:9017) and _c_reduced_motion_urgency (serve_status.py:9207, which requires animation == none exactly). reduced-motion-keeps-halt-and-run-legible is on the committed anchor, which validate_plugin.py enforces as a floor, so deleting the name quietly is the one move that anchor exists to catch. Each retirement is replaced by a behaviour making the stronger claim — that the alarm still MOVES under reduced motion and that its motion is the page's existing softer keyframe, which is strictly more than 'it stopped'. The map legend is deliberately NOT part of this. It reads 'blinking — halted' (serve_status.py:1348-1349) and the design says the same at export 273 — byte-identical, beside a swatch the design also breathes under reduced motion. Retiring the page's copy would manufacture a divergence from the design that is on neither closed list, and _RETIRED_WORDING is unconditional (serve_status.py:2450), so a media-query text variant is not available. The legend copy is a separate change and this item's job is the motion doctrine.",
+        "preserves": "the single hard on/off alarm keyframe for readers who have not asked for reduced motion, the halt colour role, and the page's rule that a reduced-motion reader loses no information — only the flash. The map legend's wording is untouched, and spin and ring keep the page's stop-and-hold settlement — this item moves the alarm hook alone.",
+        "visual_check_waiver": {
+          "reason": "whether a 2.4s eased breathe actually reads as urgent rather than as decor is a motion result, and the pinned fixture derives every item as pending so no alarm element appears in it at all",
+          "covered_by": "none — the pinned view cannot show it. The unit assertions below prove the declarations; nothing in this binder proves the painted result, and drill-in-fidelity-gate must record it as not observable rather than passing over it"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "under the reduced-motion branch every alarm element resolves to a non-none animation naming the page's existing breathe keyframe, at the design's 2.4s eased infinite timing — read from the sheet, not from a constant this item also defines — AND no declaration on that element overrides, at !important, the property that keyframe animates. The breathe keyframe animates opacity alone (serve_status.py:1427), so an opacity:1 !important left standing would leave the element animating and painting perfectly still; the reduced-motion alarm rule declares no opacity of its own, matching the page's existing settled-breathe rules (serve_status.py:2093, 2113) and export 96",
+          "the sheet still declares exactly two keyframes in this family — the hard alarm one and the breathe one — so the change re-points rather than authors a third",
+          "outside the reduced-motion branch the alarm keeps its hard steps(1,end) timing unchanged, proven by a negative control that softens it there and fails",
+          "the alarm still resolves the halt colour role under reduced motion — var(--halt), not a muted role. 'Full strength' here is about the colour role and nothing else; the breathe keyframe owns opacity, and pinning opacity here would defeat assertion 0",
+          "both retired behaviours are recorded in the page's own retirement mapping, in both directions, the way retired tokens and retired wording already are (serve_status.py:884, 2450) — not merely deleted from the anchor file. The page's own motion registry states the old doctrine in prose 1,190 lines from the rule — 'holds its alerting state at full strength' (serve_status.py:911-912) — and both of its readers check only that the text is non-empty, so nothing catches it going false. That entry states the new settled behaviour in the same commit. It is NOT routed through _RETIRED_WORDING: that table is asserted against rendered documents and the registry prose never renders",
+          "each retirement is replaced by a registered behaviour that covers what the retired one covered. For reduced-motion-keeps-halt-and-run-legible that means its RUN half survives intact: under reduced motion .karta-spin still resolves static at full strength — animation:none, transform:none, opacity:1 — checked as declarations, not inherited from the alarm's new rule",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "destructive op — retires TWO behaviours from selftest_behaviours.txt, which validate_plugin.py enforces as a floor: five-keyframes-each-settle-under-reduced-motion and reduced-motion-keeps-halt-and-run-legible. It also reverses the doctrine two registered checks were written to pin (serve_status.py:9017, 9207)",
+          "accessibility decision — this changes what a reader who asked for reduced motion is shown. Stopping motion outright is the conservative reading of that preference; the design asks for slow eased motion instead, on the argument that an alarm that stops moving stops reading as an alarm. The design's answer was chosen deliberately, and it is the kind of call worth a second look rather than a silent adoption"
+        ]
+      }
+    },
+    {
+      "id": "rail-halt-badge",
+      "title": "Show a halt on the map card, without a click",
+      "summary": "Give a map card whose binder has a halted item the blinking pill the design puts there, so a halt is visible before anything is picked.",
+      "estimate": "M",
+      "depends_on": [
+        "progress-track-pill",
+        "alarm-motion-softens"
+      ],
+      "design_reference": "a rail card with a halt (export 194)",
+      "component_map": [
+        {
+          "design": "the pill sits beside the slug on the card: 10px mono, color var(--on-halt) on a var(--halt) ground, border-radius 99px, padding 1px 7px, reading '<n> halted' (export 194)",
+          "implementation": "the page's rail card renders no badge node on any branch (serve_status.py:3824-3832) and the sheet has no halt-chip rule. The card already receives the binder's item states through railCard, so the count is derivable without a new server field"
+        },
+        {
+          "design": "the badge blinks on animation:kwAlarm 1.5s steps(1,end) infinite — a hard on/off, not a fade (export 194) — and under reduced motion the design re-points [data-kw-alarm] at kwBreathe 2.4s ease-in-out infinite !important rather than stopping it (export 96)",
+          "implementation": "the page ships the OPPOSITE doctrine today — .karta-alarm holds at full strength with animation:none under reduced motion (serve_status.py:2102) — which is why alarm-motion-softens comes first and turns it into the design's. This item lands after that and simply reuses whatever the reduced-motion branch then says: no second keyframe, no second branch, no opinion of its own about motion"
+        }
+      ],
+      "contract": {
+        "exposes": "a halt badge on a rail card whose binder has at least one halted item, carrying the count, reusing the page's existing alarm treatment and its existing reduced-motion behaviour.",
+        "consumes": "the item states already reaching railCard. No new server field and no new git call — the count is derived from the states the card already has.",
+        "regression_risk": "the badge shares the card's slug row, which binder-head-type-scale has already stripped to bare text on the panel side; on the rail the slug keeps its own treatment. A card whose binder has no halt must render no badge node at all, not an empty one — an empty node would still take the row's gap.",
+        "preserves": "the page's single hard alarm keyframe, whatever reduced-motion doctrine alarm-motion-softens leaves in place, and the legend entry that names the treatment.",
+        "visual_check_waiver": {
+          "reason": "whether the pill reads at 10px beside the slug without crowding it is a painted result",
+          "covered_by": "none for the painted badge — the pinned fixture derives every item as pending, so no halt appears in it and the runbook bars any assertion resting on a state-dependent treatment (docs/conventions/watch-design-fidelity.md:109). The blink and the painted pill are proven by nothing in this binder; drill-in-fidelity-gate must name them as not observable rather than record a verdict"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "a rail card whose binder has halted items renders the badge with the count, and a card whose binder has none renders no badge node at all — both branches exercised against a state built for the check, since the pinned fixture derives every item as pending and can show neither",
+          "the count in the badge is derived from the item states the card already receives, and the check proves it by driving a state with a different number of halted items and reading the rendered count back",
+          "the badge's motion is the page's existing alarm treatment, not a second keyframe — the check counts the alarm keyframes in the sheet and finds one",
+          "under the reduced-motion branch the badge carries the same treatment as every other alarm element on the page — the check reads the badge's resolved animation and the shared alarm rule's and finds them equal, rather than asserting a value of its own, so this item cannot drift from the doctrine alarm-motion-softens sets",
+          "the badge's ground and foreground resolve to the halt role and its paired foreground, with no new token introduced",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "contract mutation — adds a node to the rail card that renders only in a state the pinned fixture cannot produce, so both of its branches are proven against a state built for the check rather than against the fixture"
+        ]
+      }
+    },
+    {
+      "id": "live-controls-recorded",
+      "title": "Weigh what the live page does differently and write down the verdict",
+      "summary": "Decide, one by one, whether each control the live page has and the mock does not is meant to stay, and record each decision with its reason.",
+      "estimate": "S",
+      "depends_on": [
+        "alarm-motion-softens"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "a closed list in the fidelity record covering every control finding 6 named, plus the one reduced-motion divergence this binder leaves standing — the panel's toggle row (state icon, percentage, caret), the header's countdown, refresh button and auto-refresh toggle, and the map legend's nine rows against the design's seven — each one either booked as an intended difference with its reason, or named as work with the item that will do it. The added entry: export 96 is one rule over three hooks — spin, ring and alarm — and alarm-motion-softens adopts the alarm hook only, so the page keeps settling spin and ring to a stop where the design breathes them (serve_status.py:2095, 2099). That divergence pre-dates this binder and was never observable in a run, because the pinned fixture derives every item as pending and shows neither a spinner nor a ring. Booking it here is what stops the closing gate filing it as a fresh open finding.",
+        "consumes": "the existing fidelity record and its two closed lists.",
+        "regression_risk": "the record's own rule is that its intended-differences list closed when watch-fidelity was planned, and that promoting a fresh difference into it to make a run pass is the one move the document exists to prevent. This item is a plan-time decision on a new binder, not a run-time promotion — but the two are easy to confuse later, so the record must state the distinction in its own words rather than leaving it to be inferred.",
+        "preserves": "watch-fidelity's three intended differences and its five plan-time rule-outs, unedited. This item adds a dated section; it does not reopen theirs."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "every control finding 6 of the 2026-08-18 run named appears in the new section with a verdict, and so does the spin/ring reduced-motion divergence against export 96, and the section states how many it covers so a dropped one is visible as a count mismatch rather than an absence",
+          "each entry booked as intended carries its reason, and each entry named as work carries the id of the item in this binder that does it",
+          "the record states in its own words why a plan-time booking is legal where a run-time promotion is not, and names which of the two this section is",
+          "the earlier binder's three intended differences and five rule-outs are unchanged, byte for byte",
+          "the record follows the house markdown conventions — minimum table separators, no box-drawing characters, none of the banned words — confirmed by reading, since no script in this repo enforces them. Saying a check exists where none does is the failure mode this binder is about, so it is stated as a reading and not as a gate"
+        ]
+      },
+      "touches": [
+        "docs/conventions/watch-design-fidelity.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "explicit open question — six controls need a verdict each, and each verdict is a decision about what this page is for rather than about what the design says. The design has no counterpart to weigh them against",
+          "explicit open question — the fidelity record's intended-differences list is closed by its own rule, and this item adds a new dated section rather than reopening it. Whether that is the right shape, or whether some of these controls should be changed rather than booked, is not a call this plan should make alone"
+        ]
+      }
+    },
+    {
+      "id": "fact-to-assertion-trace",
+      "title": "Make a recorded design fact prove it is checked",
+      "summary": "Add a check that every design fact a binder records is traced to an assertion that depends on it, or is marked untraced with a reason.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "a stdlib-only check, in the house pattern (argparse, a --self-test mode printing [PASS]/[FAIL] lines), that reads a binder's design fact table and requires every fact to carry either a trace naming the work item and the assertion that depends on it, or an explicit untraced reason. The grammar is pinned here so the check and its subject cannot disagree: a trace is '<item-id>:<0-based assertion index>', and the table lives at token_manifest.design_fact_table — not under design_facts, which is additionalProperties:false in the schema and could never hold one. The sweep is non-recursive .karta/binders/*.json: an archived binder is unwritable by the immutability guard, so a trace rule there would be unsatisfiable by construction. Wired into the repo's floor so it runs unprompted.",
+        "consumes": "the binder JSON only. It reads no git state and starts no server.",
+        "regression_risk": "a binder with no design fact table must pass untouched — the check applies to binders that record facts, and turning it into a requirement that every binder record facts would be a wider rule than the defect calls for. A trace that names an item id or an assertion that does not exist has to fail; a trace that names them but where the assertion does not actually depend on the fact cannot be caught by a script, and the check must say so rather than implying it proves more than it does.",
+        "preserves": "the existing binder schema for every binder that records no facts, and the existing validator's behaviour on all of them."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "a fact table where every fact carries a trace naming a real work item passes",
+          "a fact table with one untraced fact fails, and the failure names that fact",
+          "a trace naming a work item id that does not exist in the binder fails, and so does one naming an assertion index the item does not have",
+          "a fact carrying an explicit untraced reason passes, and the reason is echoed in the check's output so it is visible rather than silent",
+          "a binder with no design fact table passes untouched — the fixture for this includes a real binder from this repo that records none",
+          "the check's own limit is stated in its output or its usage text: it proves a fact NAMES an assertion, never that the assertion depends on the fact",
+          "the check runs as part of the repo's floor, so a fact table added later cannot go untraced without failing the build",
+          "this binder's own fact table passes the check"
+        ]
+      },
+      "touches": [
+        "scripts/validate_plugin.py",
+        "scripts/check_fact_traces.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "capability or resource escalation — a new check wired into the repo's floor, so every commit from then on runs it",
+          "contract mutation — adds a required field shape to any binder that records design facts. It is house-only (scripts/, not the shipped plugin) so no consumer repo inherits it, but it constrains how binders in this repo are written from here on",
+          "explicit open question — this is the systemic item, drawn from the lesson rather than from the design, and it is the one most reasonably cut from this binder into its own",
+          "scope of impact — this item and card-ground-and-tint-base both edit scripts/validate_plugin.py, the repo's own floor. Declared as a shared resource on both so the wave scheduler serializes them"
+        ]
+      },
+      "shared_resources": [
+        "scripts/validate_plugin.py"
+      ]
+    },
+    {
+      "id": "drill-in-fidelity-gate",
+      "title": "Compare the page against the design and record what the run found",
+      "summary": "Run the design comparison the way the runbook describes and write down every difference, so nothing in this binder is only checked by assertions that never open a browser.",
+      "estimate": "M",
+      "depends_on": [
+        "rail-halt-badge",
+        "live-controls-recorded"
+      ],
+      "design_reference": "the whole view at 1440x900 in light theme",
+      "contract": {
+        "exposes": "a recorded comparison run in the fidelity record, dated, taken with the four constants the runbook pins, listing every difference it found and classifying each one as intended, already-booked, or an open finding. It also tidies two lines the run makes stale: docs/conventions/watch-design-fidelity.md:35 still points at the archived design-fidelity-gate's assertion 8 rather than this binder's gate, and :107's aside 'and no other' goes vacuous once non-selected binders stop rendering. The runbook's port also moves to 8700 at lines 17, 20 and 25, matching the env_contract, because 8765 collides with the multi-repo hub's derived port.",
+        "consumes": "the committed design file, the committed fixture and the runbook's four constants — all of which already exist.",
+        "regression_risk": "the pinned fixture derives every item as pending, so a halt badge, an in-flight ring and a part-filled progress bar cannot appear in it at all. Two items in this binder — the halt badge and the selection mark — are partly invisible to a run against that fixture, and the gate must name what it could not see rather than passing over it. The previous run's near-miss is the pattern to avoid: it folded the phase grouping into an already-booked difference and returned a pass, so this gate must check the panel's box levels apart from the wrapper, by count.",
+        "preserves": "the runbook's four constants and both of its closed lists.",
+        "verification_honesty": "this gate opens a browser and the other items do not — that is why seven items carry a waiver. Five point here. Two — alarm-motion-softens and rail-halt-badge — point at none, because the pinned fixture cannot show what they change, and this gate must name them as unproven rather than absorb them But a screenshot at rest cannot settle the blink, the hover treatments, the reduced-motion branch, or any width other than 1440. Those stay proven only by the assertions in their own items, and the gate must say so plainly rather than letting a pass imply it looked. The oracle type is 'unit' on purpose, and reverting it to 'visual' would break this item. karta-build routes a visual oracle to karta-validate for acceptance (karta-build/SKILL.md:348), and karta-validate's comparison worker is handed only the capture JSON — 'it has not seen the app code, design files, or pipeline state' (karta-validate/SKILL.md:118). Eight of the nine assertions below are about committed files: the recorded run, this binder's waivers, the runbook's closed lists, and two serve_status.py statements this item rewrites. None of that is in a capture JSON. Worse, karta-validate's Phase 1 mandatorily serves the design through serve_design.py, which hard-roots at the design file's own parent (karta-validate/scripts/serve_design.py:73, no root flag) — the exact path assertion 0 forbids, because it 404s all eight faces and the mascot and poisons the px-level type readings. Under 'unit' the browser run still happens exactly as the runbook describes — the wave env_contract serves the page at 127.0.0.1:8700 and the design opens over file:// — and karta-verify dispositions all nine assertions against the diff, which is where the run's evidence lands."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the comparison runs against the committed design file at docs/designs/karta-watch-1440x900-light.html, opened directly over file:// and never behind karta-validate's serve_design.py, which roots at the design file's own parent and 404s all eight woff2 faces and the mascot silently — two of the findings this run re-checks are px-level type readings on exactly those faces, at 1440x900, with the page served against the committed fixture and ?theme=light",
+          "the number of box levels between the main panel and the binder card is counted and reported, and it equals the design's — checked apart from the delivery frame, because reading the two together is exactly how the previous run nearly cleared this defect",
+          "each of the six open findings the 2026-08-18 run recorded is re-checked by name and reported as fixed or still open, so a finding cannot be closed by silence",
+          "the gate lists every waiver in this binder and records, for each, the assertion of this run that discharged it or — where the pinned view could not show the waived facet — names it as not observable in this run and points at the unit assertion in the waiving item that proves what can be proven instead. A waiver left off the list is a failure of this item; a waiver honestly recorded as unobservable is not",
+          "the run names what the pinned fixture could not show — the halt badge, the in-flight ring and any part-filled progress bar — and does not record a verdict on any of them",
+          "the run's verdict is derived from what it observed and is recorded even when it is a fail; a difference found that is on neither closed list is written down as an open finding rather than promoted into the intended list",
+          "the recorded run states which of its claims came from a screenshot and which from computed values, so a later reader can tell what was seen from what was measured",
+          "the header bar's rendered height is measured in the browser and recorded beside the claim the constant's own comment makes (serve_status.py:1168-1174) and the same claim restated as arithmetic in _c_bar_height_named_once's docstring (serve_status.py:8506, which a search for '71' will never reach). If measurement and comment disagree, BOTH statements are rewritten to say what the design renders and what this page renders — the design carries the border on a separate outer element (export 111-112) while this page collapses both onto one border-box element, so the two numbers can legitimately differ and simply editing 71 to 70 would leave the sentence self-contradicting",
+          "the readings behind the panel click, and behind one work-item card's disclosure, are taken and reported — the fixture binder derives as next and the page opens only the current binder's panel at rest (serve_status.py:3492), so the work-item cards are absent from the DOM until clicked. The run names which waived item each card-level reading pays; a run that never opens the panel leaves those waivers unpaid while satisfying every other assertion here"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "docs/conventions/watch-design-fidelity.md"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "scope of impact — serve_status.py is edited by eight of this binder's ten items, so each one is serialized behind the others",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "capability or resource escalation — this item serves the page and drives a browser, which no deterministic check in this repo does"
+        ]
+      }
+    }
+  ]
+}
