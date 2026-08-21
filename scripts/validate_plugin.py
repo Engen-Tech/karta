@@ -21,7 +21,7 @@ PATH_RE = re.compile(r"`(references/[^`]+|scripts/[^`]+)`")    # backticked path
 # disagree about what "in sync" means. (Importing is side-effect-free: argparse runs
 # only under each script's __main__.)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import sync_codex_skills, sync_codex_agents  # noqa: E402
+import sync_codex_skills, sync_codex_agents, check_fact_traces  # noqa: E402
 
 
 def _frontmatter(text: str) -> dict[str, str]:
@@ -95,6 +95,7 @@ def check() -> list[str]:
     _check_behaviour_anchor(errors)
     _check_vendored_fonts(errors)
     _check_design_reference(errors)
+    _check_fact_traces(errors)
     return errors
 
 
@@ -759,6 +760,30 @@ def _self_test() -> int:
               + ("" if ok else f" — got {errs!r}"))
         failures += 0 if ok else 1
 
+        # The fact-trace floor: the sweep is wired, it fails on an untraced fact, and it
+        # stops at .karta/binders — an archived binder underneath is not swept.
+        def _fact_binder(traced: bool) -> str:
+            row = {"id": "a-fact", "claim": "x", "traced_by": ["it:0"] if traced else []}
+            return json.dumps({"slug": "fx", "work_items": [{"id": "it", "oracle": {"assertions": ["a"]}}],
+                               "token_manifest": {"design_fact_table": [row]}})
+        bd = Path(td) / "binders"
+        (bd / "archive").mkdir(parents=True)
+        (bd / "ok.json").write_text(_fact_binder(True))
+        (bd / "archive" / "frozen.json").write_text(_fact_binder(False))
+        errs = []
+        _check_fact_traces(errs, binders_dir=bd)
+        ok = errs == []
+        print(f"[{'PASS' if ok else 'FAIL'}] fact traces: a traced live binder passes; the archive is not swept"
+              + ("" if ok else f" — got {errs!r}"))
+        failures += 0 if ok else 1
+        (bd / "gap.json").write_text(_fact_binder(False))
+        errs = []
+        _check_fact_traces(errs, binders_dir=bd)
+        ok = len(errs) == 1 and "gap.json" in errs[0] and "fact 'a-fact' is untraced" in errs[0]
+        print(f"[{'PASS' if ok else 'FAIL'}] fact traces: an untraced fact in a live binder fails the floor"
+              + ("" if ok else f" — got {errs!r}"))
+        failures += 0 if ok else 1
+
         # _run_self_test enforces "every gated script exposes --self-test": check all three
         # dispositions on fabricated scripts. Their paths are outside ROOT, exercising rel().
         rst = Path(td) / "rst"
@@ -1028,6 +1053,22 @@ def _run_self_test(script: Path, errors: list[str]) -> None:
     if proc.returncode != 0:
         tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
         errors.append(f"{rel(script)}: --self-test failed ({tail})")
+
+
+def _check_fact_traces(errors: list[str], binders_dir: Path | None = None) -> None:
+    """Every design fact a live binder records must be traced to an assertion
+    ('<item-id>:<0-based assertion index>') or carry an untraced_reason — the rule
+    scripts/check_fact_traces.py owns. It runs here so a fact table added later cannot
+    go untraced without failing the floor; the sweep is .karta/binders/*.json,
+    non-recursive (archived binders are frozen, so the rule is not applied there).
+    The script's own fixtures run too, the way every other gated script's do.
+    `binders_dir` is the self-test seam; the default sweeps this repo."""
+    if binders_dir is None:
+        binders_dir = ROOT / ".karta" / "binders"
+        _run_self_test(ROOT / "scripts" / "check_fact_traces.py", errors)
+    if binders_dir.is_dir():
+        swept, _notes = check_fact_traces.check_path(binders_dir)
+        errors.extend(f"fact traces: {e}" for e in swept)
 
 
 def _check_skill_scripts(errors: list[str]) -> None:
