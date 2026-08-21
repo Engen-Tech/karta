@@ -1,11 +1,12 @@
 {
-  "slug": "design-reference-gate",
+  "slug": "design-reference-gate-2",
   "title": "Make a design claim in a binder mean something",
   "summary": "A work item can name the design view it renders and then be checked by a test that never opens a browser — which is what happened on the status page rework, where ten items named a design view, none carried a visual check, and four large differences reached the merged page unnoticed. This binder makes that combination impossible to write down silently: an item that names a design view must either be checked against the design or carry a recorded waiver naming the item that checks it for them. It also gives a frozen copy of an external design a recorded fingerprint, so a capture that has drifted from what was pinned stops the comparison instead of quietly becoming the design.",
-  "motivation": "The only signal that routes an item to the visual gate is its oracle type, and nothing has ever required that signal to be present on an item that names a design view.",
+  "motivation": "The only signal that routes an item to the visual gate is its oracle type, and nothing has ever required that signal to be present on an item that names a design view.\n\nThis file supersedes .karta/binders/design-reference-gate.json, which was committed and never started. It needed one edge added — watch-drill-in must land first, because seven of that binder's items park a visual_check_waiver inside contract, a form the waiver rule's validator cannot read — it checks only the sibling field — so every such item would be rejected by its sweep across every live binder. A committed binder is read-only (hooks/scripts/guard_binder_immutability.py), and the route its own deny message names is a fresh binder file, so that is what this is. The four work items are unchanged. waiver-rule's existing_binders clause describes the live set as of the 2026-08-17 plan; watch-fidelity and watch-redesign have since delivered and are archived. watch-drill-in is now the only live binder the sweep would reject — its eight view-naming items sit under a unit-typed gate and no visual oracle anywhere, so like watch-redesign it cannot be waived into compliance; its seven contract-parked waivers are prose the rule never reads. It leaves the live set by landing first, which is the third after edge.",
   "after": [
     "watch-fidelity",
-    "watch-redesign"
+    "watch-redesign",
+    "watch-drill-in"
   ],
   "scope": {
     "included": [
