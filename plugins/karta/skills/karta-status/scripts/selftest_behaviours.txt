@@ -36,8 +36,16 @@ retired-tokens-unreferenced
 waiting-state-distinct-from-ready
 halted-state-carries-a-foreground
 delivered-and-built-share-one-green
-five-keyframes-each-settle-under-reduced-motion
-reduced-motion-keeps-halt-and-run-legible
+# Two names RETIRED here, not lost: five-keyframes-each-settle-under-reduced-motion
+# and reduced-motion-keeps-halt-and-run-legible pinned the alarm to animation:none
+# under reduced motion, and the page now takes the design's soften instead — the
+# alarm re-points at the breathe keyframe, slow and eased, so a halted item still
+# moves and still reads urgent. Each is replaced by the stronger claim, and the
+# retirement is recorded both ways in serve_status.py's _RETIRED_BEHAVIOURS and
+# asserted by the third name below.
+five-keyframes-each-settle-and-two-keep-moving
+reduced-motion-keeps-halt-urgent-and-run-legible
+retired-behaviours-recorded-both-ways
 type-roles-bound-to-vendored-weights
 reduced-motion-breathes
 show-delivered-aria-pressed

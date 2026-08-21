@@ -908,8 +908,10 @@ _KEYFRAMES: dict[str, str] = {
     "karta-spin":    "resolves to a static in-progress mark",
     "karta-draw":    "renders in its finished state, with no draw",
     "karta-ring":    "holds its resting ring instead of pulsing outward",
-    "karta-alarm":   "holds its alerting state at full strength, so a halted "
-                     "item still reads urgent through colour and icon",
+    "karta-alarm":   "softens instead of stopping — re-points at the breathe "
+                     "keyframe, slow and eased, so a halted item still MOVES and "
+                     "still reads urgent through colour and icon without the "
+                     "hard on/off flash",
 }
 
 # ---------------------------------------------------------------------------
@@ -2110,9 +2112,13 @@ body{
   .karta-draw{ animation:none !important; stroke-dashoffset:0 !important; }
   /* RING holds its resting ring instead of pulsing outward. */
   .karta-ring{ animation:none !important; box-shadow:0 0 0 2px var(--now-soft) !important; }
-  /* ALARM holds its alerting state at FULL strength: a halted item keeps
-     reading as urgent through colour and icon rather than through blinking. */
-  .karta-alarm{ animation:none !important; opacity:1 !important; color:var(--halt) !important; }
+  /* ALARM softens instead of stopping: a halted item re-points at the breathe
+     keyframe, slow and eased, so it still MOVES and still reads urgent through
+     colour and icon without the hard on/off flash (the design's export 96).
+     Opacity is the breathe keyframe's to drive — nothing here pins it, because
+     an !important author declaration outranks an animation in the cascade and
+     would leave the element animating and painting perfectly still. */
+  .karta-alarm{ animation:karta-breathe 2.4s ease-in-out infinite !important; color:var(--halt) !important; }
 
   /* The motions outside the design's five settle as well: the disclosure fade
      drops, and the two carets arrive already turned instead of turning. The
@@ -7850,7 +7856,24 @@ def _poll_self_test_checks() -> list[tuple[str, bool]]:
 
 KW_PREFIX = "data-kw-"          # the test-hook attribute prefix (cross-item term)
 BREATHE_KEYFRAME = "karta-breathe"   # the reduced-motion keyframe (cross-item term)
+ALARM_KEYFRAME = "karta-alarm"       # the hard on/off flash a halted item wears
 BEHAVIOUR_ANCHOR = _SCRIPT_PATH.parent / "selftest_behaviours.txt"
+
+# Where each retired behaviour went. Recorded and not merely deleted from the
+# anchor, for the same reason _RETIRED_TOKENS and _RETIRED_WORDING are: the
+# anchor floor catches a name that vanished from the registry, but it cannot
+# tell a retirement from a rename, and it cannot say what took the old claim
+# over. Asserted in both directions — the old name is registered nowhere and
+# anchored nowhere, the new name is both. The first pair pinned the alarm to
+# animation:none under reduced motion; the page now takes the design's soften
+# instead, and each replacement makes the stronger claim — the alarm still
+# MOVES, and its motion is the page's existing breathe keyframe.
+_RETIRED_BEHAVIOURS: dict[str, str] = {
+    "five-keyframes-each-settle-under-reduced-motion":
+        "five-keyframes-each-settle-and-two-keep-moving",
+    "reduced-motion-keeps-halt-and-run-legible":
+        "reduced-motion-keeps-halt-urgent-and-run-legible",
+}
 
 _COVERAGE_REGISTRY: dict[str, dict] = {}
 # The rendered documents a hook may legitimately live in.
@@ -9082,21 +9105,38 @@ def _c_built_and_passed_three_cues(ctx):
 
 # --- the five motions and how each one settles -------------------------------
 
-@_covers("five-keyframes-each-settle-under-reduced-motion", kind="behaviour",
+@_covers("five-keyframes-each-settle-and-two-keep-moving", kind="behaviour",
          breaks=[lambda c: {"css": c["css"].replace("@keyframes karta-draw{",
                                                     "@keyframes zz-draw{")},
                  lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
                  lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-breathe")},
                  lambda c: {"keyframes": dict(c["keyframes"],
-                                              **{"karta-nothing": "unstated"})}])
-def _c_five_keyframes_settle(ctx):
+                                              **{"karta-nothing": "unstated"})},
+                 # the retired doctrine: the alarm frozen outright
+                 lambda c: {"css": c["css"].replace(
+                     "karta-breathe 2.4s ease-in-out infinite !important",
+                     "none !important")},
+                 # a THIRD keyframe in the alarm's family instead of a re-point
+                 lambda c: {"css": c["css"] + "\n@keyframes karta-alarm-soft{ to{ opacity:.5; } }"},
+                 # the alarm softened OUTSIDE the branch — the flash is the
+                 # default, and only a reader who asked loses it
+                 lambda c: {"css": c["css"].replace(
+                     "animation:karta-alarm 1.1s steps(1,end) infinite",
+                     "animation:karta-breathe 2.4s ease-in-out infinite")}])
+def _c_five_keyframes_settle_two_moving(ctx):
     """Every motion the page ships is defined, is applied through a class of the
     same name, and states what it does when the reader asks for reduced motion.
     A spinner that ignores the preference is as much a defect as an alarm that
-    keeps blinking — so "none" is a stated behaviour, and so is "keeps going"."""
+    keeps flashing — so "none" is a stated behaviour, and so is "keeps going".
+    Two keep going, and both the same way: breathe, and the alarm re-pointed at
+    breathe — slowed and softened rather than stopped, because an alarm that
+    stops moving stops reading as an alarm. The re-point is held to be a
+    re-point: the alarm's family is exactly two keyframes, the hard one and the
+    breathe one, and outside the branch the hard one keeps its steps timing."""
     css, keyframes = ctx["css"], ctx["keyframes"]
+    breathe, alarm = ctx["breathe_keyframe"], ctx["alarm_keyframe"]
     reduced = _reduced_block(css)
-    if not reduced or not keyframes:
+    if not reduced or not keyframes or alarm not in keyframes:
         return False
     for name, settling in keyframes.items():
         if not settling.strip():
@@ -9109,13 +9149,23 @@ def _c_five_keyframes_settle(ctx):
         settled = _decls_for(reduced, "." + name)
         if not settled:
             return False                      # left running unconditionally
-        anim = _norm(settled[0].get("animation", ""))
-        if name == ctx["breathe_keyframe"]:
-            # the one motion that CONTINUES: a status page that stops signalling
-            # life reads as broken, and an opacity fade is not movement.
-            if not _animates_with(settled[0], name):
+        if name in (breathe, alarm):
+            # the two that CONTINUE, and both on the breathe keyframe: a status
+            # page that stops signalling life reads as broken, and an alarm
+            # that stops moving stops reading as an alarm.
+            if not _animates_with(settled[0], breathe):
                 return False
-        elif anim != "none":
+        elif _norm(settled[0].get("animation", "")) != "none":
+            return False
+    # exactly two keyframes in the alarm's family — re-pointed, not authored
+    defined = set(re.findall(r"@keyframes\s+(karta-[\w-]+)", css))
+    family = {n for n in defined if n == breathe or n.startswith(alarm)}
+    if family != {alarm, breathe}:
+        return False
+    # and outside the branch the alarm keeps its hard on/off timing
+    for decls in _decls_for(css.replace(reduced, ""), "." + alarm):
+        tokens = _norm(decls.get("animation", "")).split()
+        if alarm not in tokens or "steps(1,end)" not in tokens:
             return False
     return True
 
@@ -9238,7 +9288,7 @@ def _c_browser_checklist_is_walkable(ctx):
                  lambda c: {"keyframes_off_legend": {}}])
 def _c_every_keyframe_settles(ctx):
     """The reduced-motion audit, scoped to what the STYLESHEET defines rather
-    than to a hand-kept list. `_c_five_keyframes_settle` above holds the design's
+    than to a hand-kept list. `_c_five_keyframes_settle_two_moving` above holds the design's
     five motions to their vocabulary; this one holds the sheet to itself, and
     that difference is the whole point — the five-motion check cannot see a sixth
     keyframe, so a motion added outside the vocabulary would settle by convention
@@ -9271,28 +9321,91 @@ def _c_every_keyframe_settles(ctx):
     return True
 
 
-@_covers("reduced-motion-keeps-halt-and-run-legible", kind="behaviour",
+@_covers("reduced-motion-keeps-halt-urgent-and-run-legible", kind="behaviour",
          breaks=[lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
+                 # frozen outright — the doctrine this replaced
                  lambda c: {"css": c["css"].replace(
-                     "opacity:1 !important; color:var(--halt) !important",
-                     "opacity:.45 !important; color:var(--mut) !important")},
-                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-spin")}])
-def _c_reduced_motion_urgency(ctx):
-    """Settling must not delete the signal. With motion removed, a halted item
-    still has to read as urgent — full-strength colour plus its icon, not a
-    dimmed ghost — and a running item still has to read as in progress."""
-    reduced = _reduced_block(ctx["css"])
+                     "karta-breathe 2.4s ease-in-out infinite !important",
+                     "none !important")},
+                 # the right keyframe at the wrong pace: not the design's timing
+                 lambda c: {"css": c["css"].replace(
+                     "karta-breathe 2.4s ease-in-out infinite !important",
+                     "karta-breathe 2.4s linear infinite !important")},
+                 # opacity pinned at !important beside the breathe: the element
+                 # animates and paints perfectly still
+                 lambda c: {"css": c["css"].replace(
+                     "2.4s ease-in-out infinite !important; color:var(--halt) !important",
+                     "2.4s ease-in-out infinite !important; opacity:1 !important; color:var(--halt) !important")},
+                 lambda c: {"css": c["css"].replace(
+                     "2.4s ease-in-out infinite !important; color:var(--halt) !important",
+                     "2.4s ease-in-out infinite !important; color:var(--mut) !important")},
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-spin")},
+                 lambda c: {"css": c["css"].replace(
+                     "transform:none !important; opacity:1 !important",
+                     "transform:none !important; opacity:.45 !important")}])
+def _c_reduced_motion_halt_urgent_run_legible(ctx):
+    """Settling must not delete the signal. With the flash removed, a halted
+    item still has to read as urgent — and urgent means it still MOVES: the
+    alarm re-points at the page's breathe keyframe at the design's slow, eased,
+    infinite pace (export 96: 2.4s ease-in-out infinite), read off the sheet. No
+    declaration on that element may pin, at !important, a property the breathe
+    keyframe drives — an important author declaration outranks an animation in
+    the cascade, so a pinned opacity would leave the alarm animating and
+    painting perfectly still. Its colour stays the halt role, not a muted one.
+    And a running item still reads as in progress: the spinner settles static
+    at full strength, checked as its own declarations."""
+    css, breathe = ctx["css"], ctx["breathe_keyframe"]
+    reduced = _reduced_block(css)
     alarm = _decls_for(reduced, ".karta-alarm")
     spin = _decls_for(reduced, ".karta-spin")
     if not alarm or not spin:
         return False
+    # what the breathe keyframe drives, read from the keyframe rather than named
+    driven = {prop for _, decls in _css_rules(_at_rule_body(css, "keyframes " + breathe))
+              for prop in decls}
+    if not driven:
+        return False
     a, s = alarm[0], spin[0]
-    return (_norm(a.get("animation", "")) == "none"
-            and _norm(a.get("opacity", "")) == "1"
-            and "var(--halt)" in _norm(a.get("color", ""))
+    tokens = _norm(a.get("animation", "")).split()
+    if breathe not in tokens or not {"2.4s", "ease-in-out", "infinite"} <= set(tokens):
+        return False
+    if any("!important" in rule.get(prop, "") for rule in alarm for prop in driven):
+        return False
+    return ("var(--halt)" in _norm(a.get("color", ""))
             and _norm(s.get("animation", "")) == "none"
             and _norm(s.get("transform", "")) == "none"
             and _norm(s.get("opacity", "")) == "1")
+
+
+@_covers("retired-behaviours-recorded-both-ways", kind="behaviour",
+         breaks=[lambda c: {"retired_behaviours": dict(
+                     c["retired_behaviours"],
+                     **{next(iter(c["retired_behaviours"])): "a-behaviour-nobody-registered"})},
+                 lambda c: {"registered": c["registered"]
+                            + [next(iter(c["retired_behaviours"]))]},
+                 lambda c: {"anchored": c["anchored"]
+                            + [next(iter(c["retired_behaviours"]))]},
+                 # the motion registry still stating the retired doctrine
+                 lambda c: {"keyframes": dict(c["keyframes"], **{
+                     c["alarm_keyframe"]: "holds its alerting state at full strength"})}])
+def _c_retired_behaviours_recorded(ctx):
+    """A retired behaviour is recorded, not merely deleted — the same rule the
+    retired tokens and the retired wording live under. Both directions: the old
+    name is registered nowhere and anchored nowhere, and the name that took its
+    claim over is both. And the motion registry, whose readers only ever ask
+    that its prose be non-empty, states the doctrine the retirement moved to:
+    the alarm's entry names the keyframe it now settles to."""
+    retired = ctx["retired_behaviours"]
+    registered, anchored = set(ctx["registered"]), set(ctx["anchored"])
+    if not retired:
+        return False
+    for old, new in retired.items():
+        if old in registered or old in anchored:
+            return False
+        if new not in registered or new not in anchored:
+            return False
+    stem = ctx["breathe_keyframe"].rpartition("-")[2]
+    return stem in ctx["keyframes"].get(ctx["alarm_keyframe"], "")
 
 
 @_covers("type-roles-bound-to-vendored-weights", kind="behaviour",
@@ -14135,6 +14248,10 @@ def _coverage_context() -> dict:
         "title_case": _title_case, "rail_title": RAIL_TITLE,
         "narrow_breakpoint": "max-width:%dpx" % RAIL_NARROW_PX,
         "breathe_keyframe": BREATHE_KEYFRAME,
+        "alarm_keyframe": ALARM_KEYFRAME,
+        "retired_behaviours": _RETIRED_BEHAVIOURS,
+        "registered": list(_COVERAGE_REGISTRY),
+        "anchored": _anchored_behaviours(),
         "repo_name": repo_name, "title_suffix": _TITLE_SUFFIX,
         "key_token": key_token, "current_slug": current_slug,
         "poll_ms": poll_ms, "tick_ms": tick_ms,
