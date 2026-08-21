@@ -54,7 +54,14 @@ theme-toggle-control
 theme-persistence-key
 theme-query-override
 switcher-also-watching
-phase-timeline-groups
+
+# One name RETIRED here, not lost: phase-timeline-groups asserted the shape of
+# the panel's phase grouping — one row per phase, keyed and ordered. The design's
+# main column has no grouping at all, so the grouping is gone and the claim is
+# replaced by the stronger one in the panel block below — that no grouping node
+# exists between the frame and the card — with the retirement recorded both ways
+# in serve_status.py's _RETIRED_BEHAVIOURS and asserted by
+# retired-behaviours-recorded-both-ways above.
 
 # The nesting a work-item card sits inside. The design's main column goes from
 # the next-action band straight into the binder's own bordered panel — no
@@ -62,10 +69,12 @@ phase-timeline-groups
 # column at all — so a card starts one border and one pad in from the column's
 # edge. This page had three container levels where the design draws one.
 #
-# The phase spine went: the map on the left already groups every binder under
-# the same four phases, so the spine restated the grouping and charged every
-# card the gutter's indent for the repeat. Its row wrapper went with it, which
-# is the level the count below is one short of.
+# The phase spine went first: the map on the left already groups every binder
+# under the same four phases, so the spine restated the grouping and charged
+# every card the gutter's indent for the repeat. Its row wrapper went with it.
+# The grouping itself went after — the phase row and the binders box inside it
+# — which is why the count below is two short of what it was; the spine check
+# keeps its name and its read and is keyed on the frame that remains.
 #
 # The wrapper stays, as a FRAME. It carries the repository context the design
 # was never asked to model, so it is held to a budgeted inset per side instead
@@ -375,3 +384,19 @@ rail-picks-exactly-one-binder
 selection-and-in-flight-are-two-marks
 rail-button-ground-follows-selection
 rail-hint-counts-the-binders
+
+# The panel is one binder. The map picks, and the main column shows that
+# binder's card and nothing else — no phase grouping around it, no head, no
+# count, no empty-group row, no wrapper between the frame and the card, and no
+# rule left in the sheet for any of them. The first holds that absence, as the
+# stronger claim that replaced phase-timeline-groups. The second holds the
+# card: exactly one, gated on the shown binder rather than repeated, built from
+# the map's pick — checked over states holding several binders, so a feed of
+# one cannot pass it by accident. The third holds the in-flight mark on the
+# card's masthead row: one dot between the eyebrow and the slug, wearing the
+# page's existing ring motion with no token and no keyframe of its own, rendered
+# only while the shown binder is in flight and absent as a node otherwise, with
+# both branches driven over a built state.
+panel-carries-no-phase-grouping
+panel-shows-the-picked-binder
+in-flight-binder-carries-a-state-dot
