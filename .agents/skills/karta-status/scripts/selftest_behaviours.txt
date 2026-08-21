@@ -294,8 +294,9 @@ rail-type-steps-do-not-move
 
 # Band geometry and wave rhythm: the top of the page, and the space around each
 # wave. The first three hold the header bar — nothing renders above it, its
-# height is stated once at the number the design declares and the four offsets
-# hanging off it re-derive from that one statement, and every control this page
+# height is stated once at the number the design declares and the three offsets
+# hanging off it re-derive from that one statement (a fourth, the binder card's
+# scroll-margin, went with the rail's anchor jump), and every control this page
 # puts in the bar (none of which the design models) is still inside it. The last
 # four hold the wave header: it runs to the panel's edge and repaints the
 # panel's own surface, it takes the design's case treatment on one side and no
@@ -313,9 +314,11 @@ wave-step-position-counts-the-runs-own-waves
 # hold the panel's state reading: it is one row of three — bar, count, grouped
 # per-state readings — and the count renders once, outside the control that
 # collapses the panel rather than copied beside it. The third holds those
-# readings as labels rather than chips. The next three hold the map: the current
-# binder is ringed twice and neither ring moves, it is the only card carrying a
-# bar at all, and on that bar the fill takes a real width (it shipped inline, so
+# readings as labels rather than chips. The next three hold the map: the SELECTED
+# binder (the one the panel shows — rail-is-the-selector moved the ring from in
+# flight to selection) is ringed twice and neither ring moves, the in-flight
+# binder is the only card carrying a bar at all, and on that bar the fill takes
+# a real width (it shipped inline, so
 # every bar measured zero and painted alike) while the hatch marks the
 # remainder the legend above already names. The last two hold wording: three
 # fixed labels take the design's words in the design's own places, with no
@@ -345,3 +348,22 @@ delivered-toggle-announces-in-words
 container-corners-are-the-designs-four-steps
 round-shapes-keep-their-shape
 command-chip-edge-at-the-designs-strength
+
+# The map is a selector. The rail card's control was an anchor into the
+# binder's own card in the main column, which only worked because the panel
+# rendered every binder at once; the design's map picks. The first holds the
+# control: a real button carrying the binder's slug, wired to the pick, with no
+# fragment anchor left in any card. The second holds the pick itself: exactly
+# one card is the picked one in every state the map can be in, and the default
+# is derived — the in-flight binder, else the first card the rail's own group
+# order yields — never typed. The third holds the two states apart: selection
+# and in flight are separate modifiers that render differently, so two marks on
+# two cards stay tellable. The fourth holds the button's ground: soft in the
+# picked card, none at rest and the second surface on hover elsewhere, all by
+# palette role. The last holds the header's hint as a regression guard: it
+# names picking, and its count is derived from the feed.
+rail-card-control-is-a-button
+rail-picks-exactly-one-binder
+selection-and-in-flight-are-two-marks
+rail-button-ground-follows-selection
+rail-hint-counts-the-binders
