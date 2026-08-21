@@ -400,3 +400,20 @@ rail-hint-counts-the-binders
 panel-carries-no-phase-grouping
 panel-shows-the-picked-binder
 in-flight-binder-carries-a-state-dot
+
+# The binder head's type, at the sizes the design declares. The summary is the
+# panel's lede — 16.5px at 1.6 in the muted role, held to a ch measure; the
+# eyebrow and the slug both sit on the 11px mono step; the slug is bare text,
+# with no ground, no padding and no icon; a card's description is 13.5px at
+# 1.55 in the muted role and keeps its two-line clamp. Each is read as the
+# value the sheet declares for the element, never as a token name and never
+# against a constant the sheet also interpolates, and each fails on the value
+# the page shipped before. The last holds the row that now keeps the eyebrow
+# and the bare slug apart — a flex row with a pixel gap, the slug on an auto
+# margin, neither child able to shrink beneath its words — which is what the
+# chip used to do.
+binder-summary-is-the-panels-lede
+panel-eyebrow-and-slug-sit-on-the-11px-mono-step
+panel-slug-is-bare-text
+card-description-on-the-designs-body-step
+masthead-row-holds-eyebrow-and-slug-apart

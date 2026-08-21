@@ -1843,17 +1843,31 @@ body{
   line-height:1.06; letter-spacing:-.02em; margin:7px 0 0; min-width:0;
 }
 /* the masthead's eyebrow: where this binder stands, in the phase's own wording,
-   above the headline rather than only as a coloured mark in the gutter. */
+   above the headline rather than only as a coloured mark in the gutter. Set at
+   the design's 11px mono step and .16em tracking (export 297). It states no
+   min-width, so it can never be squeezed beneath its own words — the row
+   below it holds the eyebrow and the slug apart by its gap, and a child that
+   could shrink to nothing would paint its text across that gap. */
 .binder__eyebrow{
-  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:2px;
-  text-transform:uppercase; min-width:0;
+  font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.16em;
+  text-transform:uppercase;
 }
+/* the slug, the way the design sets it (export 299): bare mono text at the same
+   11px step in the second muted role, pushed to the row's far edge. No ground,
+   no padding and no icon — the chip this used to be is gone, so the row's own
+   gap is what keeps it off the eyebrow. */
 .binder__slug{
-  display:flex; align-items:center; gap:4px; font-family:var(--mono); font-size:10px;
-  color:var(--mut); padding:2px 6px; background:var(--surface-2);
+  font-family:var(--mono); font-size:11px; color:var(--mut-2);
   margin-left:auto; flex:none;
 }
-.binder__blurb{ font-size:13px; line-height:1.6; color:var(--ink); opacity:.82; padding:13px 18px 16px; }
+/* the binder's summary as the panel's lede (export 302): the design's 16.5px
+   step at line-height 1.6 in the muted role, held to a 66ch measure. The
+   colour is the role itself, not the ink at an opacity, so it reads the same
+   over every ground the card can carry. */
+.binder__blurb{
+  font-size:16.5px; line-height:1.6; color:var(--mut); max-width:66ch;
+  text-wrap:pretty; padding:13px 18px 16px;
+}
 .binder__spacer{ margin-left:auto; flex:none; }
 .binder__pct{ font-family:var(--mono); font-size:12px; color:var(--ink); flex:none; }
 .binder__caret{ display:flex; flex:none; color:var(--mut); transition:transform .15s; }
@@ -2036,8 +2050,13 @@ body{
   display:flex; align-items:center; gap:3px; flex:none; align-self:center;
   font-size:9px; color:var(--mut);
 }
+/* the card's description at the design's body step (export 336, 357): 13.5px
+   at line-height 1.55 in the muted role — the role itself rather than the ink
+   at an opacity, which composited differently over every tinted card state.
+   The two-line clamp stays: the design's cards are short enough never to need
+   it, so it is a live-page affordance, not a divergence. */
 .item__desc{
-  font-size:11.5px; line-height:1.5; color:var(--ink); opacity:.66;
+  font-size:13.5px; line-height:1.55; color:var(--mut);
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
 /* the disclosure chevron: it turns a half-turn while the detail is open, so the
@@ -3939,7 +3958,7 @@ const app = createApp({
           <div class="binder__mast-top">
             <span class="binder__eyebrow" data-kw-binder-eyebrow :style="{ color: shown.color }">{{ shown.eyebrow }}</span>
             <span class="binder__dot karta-ring" data-kw-binder-dot v-if="shown.now"></span>
-            <span class="binder__slug"><icon name="branch" :size="10" color="var(--mut)" />{{ shown.slug }}</span>
+            <span class="binder__slug" data-kw-binder-slug>{{ shown.slug }}</span>
           </div>
           <h2 class="binder__title" data-kw-binder-heading>{{ shown.title }}</h2>
         </div>
@@ -3952,7 +3971,7 @@ const app = createApp({
           <span class="binder__pct">{{ shown.pctLabel }}</span>
           <span class="binder__caret" :class="{ 'binder__caret--open': shown.open }"><icon name="arrowdown" :size="13" color="var(--mut)" /></span>
         </button>
-        <div class="binder__blurb" v-if="shown.blurb">{{ shown.blurb }}</div>
+        <div class="binder__blurb" data-kw-binder-blurb v-if="shown.blurb">{{ shown.blurb }}</div>
         <!-- The panel's summary, on ONE row: the bar, the count of runs
              through, and the per-state readings grouped in their own
              wrapper. Three children, the way the design writes it — the
@@ -8061,6 +8080,46 @@ def _px_length(value: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+_PX_NUMBER_RE = re.compile(r"(\d+(?:\.\d+)?)px")
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+_CH_RE = re.compile(r"(\d+(?:\.\d+)?)ch")
+
+
+def _px_number(value: str) -> float | None:
+    """A pixel length as a number, fractional steps included — 16.5px reads as
+    16.5. The same refusal as _px_length for anything that is not a plain pixel
+    literal: a var(), a calc(), a clamp(), a rem or a viewport unit reads as
+    None, so a step stated through a token whose value could be any expression
+    fails the check that reads it instead of being guessed at."""
+    m = _PX_NUMBER_RE.fullmatch(value.strip())
+    return float(m.group(1)) if m else None
+
+
+def _unitless(value: str) -> float | None:
+    """A bare number — the way a line-height is stated — or None for anything
+    carrying a unit, a var() or an expression."""
+    return float(value) if _NUMBER_RE.fullmatch(value.strip()) else None
+
+
+def _ch_measure(value: str) -> float | None:
+    """A measure stated in ch as a number, or None for anything else."""
+    m = _CH_RE.fullmatch(value.strip())
+    return float(m.group(1)) if m else None
+
+
+def _resolved(decls: list[dict[str, str]], prop: str) -> str:
+    """What `prop` resolves to across `decls` in cascade order — the last rule
+    that states it wins, the way the sheet's own cascade decides — or the empty
+    string when no rule states it. The reader a negative control APPENDING an
+    old value is judged through, so the control wins exactly as a real edit
+    would."""
+    value = ""
+    for block in decls:
+        if prop in block:
+            value = _norm(block[prop])
+    return value
+
+
 def _side_inset(decls: list[dict[str, str]], side: str) -> list[int | None]:
     """The three things that push content in from one edge — margin, padding and
     border width — as pixel integers, with None for any of them stated in
@@ -9654,6 +9713,220 @@ def _c_binder_headline_type_step(ctx):
             and set(roles) <= set(_VAR_DEF_RE.findall(css))
             and roles["--serif"] in ctx["vendored_weights"]
             and sizes == {str(ctx["headline_px"]) + "px"})
+
+
+# --- the binder head's type, at the sizes the design declares ----------------
+#
+# The design sets four things in the panel head that the page had left at its
+# own sizes: the summary is the panel's lede (16.5px / 1.6 / var(--mut) / 66ch,
+# export 302 and the same on 476, 528, 707, 887), the eyebrow and the slug both
+# sit on an 11px mono step (export 297, 299), the slug is bare text — no ground,
+# no padding, no icon — and a card's description is 13.5px / 1.55 / var(--mut)
+# (export 336, 357; 32 occurrences, no other size for the role). Each check
+# below reads the value the SHEET declares for the element, through the parser
+# and across every rule its classes reach, and compares it to the design's
+# number written here — not to a constant the stylesheet also interpolates, so
+# moving the two together cannot keep a check green. A step stated through a
+# token or an expression reads as unusable and fails. Every negative control
+# appends the value the page shipped BEFORE this item, so each check is known
+# to fail on the old page and not merely on a missing rule.
+#
+# KARTA-SME-OVERRIDE(hvue.4): these five checks read declared values — a font
+# size, a line height, a colour role, a measure, a gap — rather than structure
+# alone. The item's oracle asks for exactly that (assertions 0-5: "each value
+# read as a resolvable number or a named role from the sheet", "checked against
+# the value the sheet actually declares"), and a type-scale item has no
+# structural proxy for a size. The reads go through _decls_for/_resolved over
+# every rule the element's classes reach, never through a literal text match,
+# so a restyle that keeps the step passes however it is written.
+
+_HEAD_TYPE_HOOKS = ("data-kw-binder-eyebrow", "data-kw-binder-slug")
+
+
+def _one_tag(page: str, hook: str) -> str | None:
+    """The single element carrying `hook`, or None when the page renders none
+    or more than one — the precondition every head-type check shares."""
+    tags = _tags_with(page, hook)
+    return tags[0] if len(tags) == 1 else None
+
+
+def _colour_role(css: str, decls: list[dict[str, str]]) -> str | None:
+    """The ONE palette role an element's colour resolves to, or None when the
+    colour is not a single var() the sheet defines. A literal, an ink at an
+    opacity, or a token the palette never names all read as None."""
+    roles = _VAR_REF_RE.findall(_resolved(decls, "color"))
+    if len(roles) != 1 or roles[0] not in _VAR_DEF_RE.findall(css):
+        return None
+    return roles[0]
+
+
+@_covers("binder-summary-is-the-panels-lede", kind="rendered",
+         hook="data-kw-binder-blurb",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-blurb", "page"),
+                 lambda c: {"css": _restyled(c["css"], ".binder__blurb",
+                                             "font-size:13px")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__blurb",
+                                             "color:var(--ink); opacity:.82")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__blurb",
+                                             "max-width:none")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__blurb",
+                                             "font-size:var(--lede)")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__blurb",
+                                             "line-height:1.5")}])
+def _c_binder_summary_lede(ctx):
+    """The binder summary resolves to the design's lede: a 16.5px step at
+    line-height 1.6, the muted palette role as its colour — the role itself,
+    with no opacity laid over it — and a measure bounded in ch. The size and
+    the measure are read as numbers, the colour as a role the sheet defines; a
+    size stated through a token fails because a token's value could be any
+    expression, and the page's old 13px / full ink at .82 / unbounded width
+    each fail on their own."""
+    page, css = ctx["page"], ctx["css"]
+    blurb = _one_tag(page, "data-kw-binder-blurb")
+    if not blurb:
+        return False
+    decls = _rules_for_tag(css, blurb)
+    measure = _ch_measure(_resolved(decls, "max-width"))
+    return (_px_number(_resolved(decls, "font-size")) == 16.5
+            and _unitless(_resolved(decls, "line-height")) == 1.6
+            and _colour_role(css, decls) == "--mut"
+            and not _resolved(decls, "opacity")
+            and measure is not None and 0 < measure <= 75)
+
+
+@_covers("panel-eyebrow-and-slug-sit-on-the-11px-mono-step", kind="rendered",
+         hook="data-kw-binder-slug",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-slug", "page"),
+                 lambda c: {"css": _restyled(c["css"], ".binder__eyebrow",
+                                             "font-size:9px")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__slug",
+                                             "font-size:10px")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__slug",
+                                             "font-family:var(--sans)")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__eyebrow",
+                                             "font-size:var(--eyebrow)")}])
+def _c_panel_eyebrow_and_slug_step(ctx):
+    """The eyebrow and the slug both resolve to an 11px step on the mono role
+    — the family through the role token the sheet already defines, bound to a
+    vendored weight, and the size as a number read off each element's own
+    rules. The page's old 9px eyebrow and 10px slug each fail alone, as does
+    a size stated through a token."""
+    page, css = ctx["page"], ctx["css"]
+    tags = [_one_tag(page, hook) for hook in _HEAD_TYPE_HOOKS]
+    if not all(tags):
+        return False
+    roles = ctx["type_roles"]
+    if "--mono" not in roles or roles["--mono"] not in ctx["vendored_weights"]:
+        return False
+    for tag in tags:
+        classes = _attrs(tag).get("class", "").split()
+        if {r for cls in classes for r in _role_of(css, cls)} != {"--mono"}:
+            return False
+        if _px_number(_resolved(_rules_for_tag(css, tag), "font-size")) != 11:
+            return False
+    return True
+
+
+@_covers("panel-slug-is-bare-text", kind="rendered",
+         hook="data-kw-binder-slug",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-slug", "page"),
+                 lambda c: {"css": _restyled(
+                     c["css"], ".binder__slug",
+                     "padding:2px 6px; background:var(--surface-2)")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__slug",
+                                             "padding-left:6px")},
+                 lambda c: {"page": (lambda p, t: p.replace(
+                     t, t + '<icon name="branch" :size="10" color="var(--mut)" />',
+                     1))(c["page"], _one_tag(c["page"], "data-kw-binder-slug"))}])
+def _c_panel_slug_bare(ctx):
+    """The slug renders as bare text: its rules declare no ground and no
+    padding on any side, and its element holds no child element — the icon the
+    page used to open it with is gone. The chip the page shipped (a 2px 6px
+    inset on a surface ground) fails, a single padded side fails, and an icon
+    put back inside the span fails."""
+    page, css = ctx["page"], ctx["css"]
+    slug = _one_tag(page, "data-kw-binder-slug")
+    if not slug:
+        return False
+    decls = _rules_for_tag(css, slug)
+    if any(_resolved(decls, prop) for prop in
+           ("background", "background-color", "background-image")):
+        return False
+    if any(_box_side(decls, "padding", side) for side in _BOX_STEPS):
+        return False
+    return _start_tags(_subtree(page, slug)) == [slug]
+
+
+@_covers("card-description-on-the-designs-body-step", kind="rendered",
+         hook="data-kw-item-desc",
+         breaks=[lambda c: _renamed(c, "data-kw-item-desc", "page"),
+                 lambda c: {"css": _restyled(c["css"], ".item__desc",
+                                             "font-size:11.5px")},
+                 lambda c: {"css": _restyled(c["css"], ".item__desc",
+                                             "line-height:1.5")},
+                 lambda c: {"css": _restyled(c["css"], ".item__desc",
+                                             "color:var(--ink); opacity:.66")},
+                 lambda c: {"css": _restyled(c["css"], ".item__desc",
+                                             "display:block")},
+                 lambda c: {"css": _restyled(c["css"], ".item__desc",
+                                             "font-size:var(--body)")}])
+def _c_card_description_step(ctx):
+    """A card's description resolves to 13.5px at line-height 1.55 in the muted
+    palette role — the role itself, with no opacity over it, because the ink at
+    .66 the page used to ship composites differently over every tinted card
+    state while the role is constant — and it keeps its two-line clamp: the
+    -webkit-box display, a clamp of 2, hidden overflow. The old 11.5px / 1.5 /
+    ink-at-.66 each fail alone, and so does losing the clamp's box."""
+    page, css = ctx["page"], ctx["css"]
+    desc = _one_tag(page, "data-kw-item-desc")
+    if not desc:
+        return False
+    decls = _rules_for_tag(css, desc)
+    return (_px_number(_resolved(decls, "font-size")) == 13.5
+            and _unitless(_resolved(decls, "line-height")) == 1.55
+            and _colour_role(css, decls) == "--mut"
+            and not _resolved(decls, "opacity")
+            and _resolved(decls, "display") == "-webkit-box"
+            and _resolved(decls, "-webkit-line-clamp") == "2"
+            and _resolved(decls, "overflow") == "hidden")
+
+
+@_covers("masthead-row-holds-eyebrow-and-slug-apart", kind="rendered",
+         hook="data-kw-binder-masthead",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-masthead", "page"),
+                 lambda c: {"css": _restyled(c["css"], ".binder__mast-top",
+                                             "gap:0")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__eyebrow",
+                                             "min-width:0")},
+                 lambda c: {"css": _restyled(c["css"], ".binder__slug",
+                                             "margin-left:0")}])
+def _c_masthead_row_holds_apart(ctx):
+    """With the slug's chip gone, the row's own layout is what keeps the eyebrow
+    and the slug apart, and it must do so at ANY width — which is how the
+    narrowest the page supports is covered without naming one. Read off the
+    row's declarations: the row is a flex row with a gap stated as a whole
+    number of pixels greater than zero; the slug is pushed to the far edge by
+    an auto margin, so the distance between the two is never less than that
+    gap; and neither child states a zero min-width, so neither can be squeezed
+    beneath its own words and paint its text across the gap. The eyebrow the
+    page shipped carried min-width:0 and fails here on its own; so does a
+    zero gap, and a slug left sitting beside the eyebrow."""
+    page, css = ctx["page"], ctx["css"]
+    mast = _one_tag(page, "data-kw-binder-masthead")
+    eyebrow, slug = (_one_tag(page, h) for h in _HEAD_TYPE_HOOKS)
+    if not (mast and eyebrow and slug):
+        return False
+    rows = _containers_between(page, mast, eyebrow)
+    if len(rows) != 1 or slug not in _subtree(page, rows[0]):
+        return False
+    row = _rules_for_tag(css, rows[0])
+    gap = _px_length(_resolved(row, "gap"))
+    if _resolved(row, "display") != "flex" or not gap:
+        return False
+    children = [_rules_for_tag(css, t) for t in (eyebrow, slug)]
+    if any(_ZERO_RE.fullmatch(_resolved(d, "min-width")) for d in children):
+        return False
+    return _resolved(children[1], "margin-left") == "auto"
 
 
 # --- the outline: one heading for the view, one per binder beneath it -------
@@ -14684,7 +14957,7 @@ def _run_self_test() -> int:
             (f"{theme}: new-design timeline markers", "showDelivered" in h and "Delivered" in h
                 and "Now" in h and "RUNNING" in h),
             (f"{theme}: leads with the human binder title", "Edit the thing" in h and "binder__title" in h),
-            (f"{theme}: keeps the slug as a chip, not the headline", "binder__slug" in h and "s-edit" in h),
+            (f"{theme}: keeps the slug beside the headline, not as it", "binder__slug" in h and "s-edit" in h),
             (f"{theme}: renders the plain-language binder summary", "Rewire callers onto the new thing." in h),
             (f"{theme}: leads with the work-item title + plain-language summary",
                 "Wire the API" in h and "item__title" in h and "Send the edit request from the client." in h),
