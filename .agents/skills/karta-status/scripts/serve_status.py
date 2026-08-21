@@ -958,10 +958,10 @@ BROWSER_CHECKLIST: list[dict[str, str]] = [
             "only defined tokens — none of which can tell you the state ARRIVED "
             "on the new design rather than being left behind, which is the one "
             "thing this whole sweep exists to catch"},
-    {"key": "sticky-header-and-rail-anchors-land-clear",
-     "walk": "Scroll a long binder. The page header stays put, a wave step "
-             "header stacks UNDER it rather than through it, and clicking a "
-             "rail entry lands the binder below the header, not behind it.",
+    {"key": "sticky-header-and-wave-step-stack-clear",
+     "walk": "Scroll a long binder. The page header stays put and a wave step "
+             "header stacks UNDER it rather than through it; clicking a rail "
+             "card picks a binder (the ring moves) and scrolls nothing.",
      "why": "sticky offsets are arithmetic in the sheet; whether the two "
             "stacked bars actually clear each other is a layout result"},
     {"key": "name-underline-draws",
@@ -1073,14 +1073,19 @@ RAIL_NARROW_PX = 880
 # here — it comes from the existing --serif role token.
 HEADLINE_PX = 40
 
-# The current binder's ring, in px. The design rings its one in-flight card
+# The selected binder's ring, in px. The design rings exactly one map card
 # twice — a border and an outline of the SAME width, the outline standing off by
 # its own offset — and declares no animation on either, so the ring is drawn and
-# not moved. Both numbers are stated once here and interpolated into the sheet;
-# the self-test re-renders the sheet at a second pair and watches both rule
-# values follow, so a literal typed into the rule stays where it was and fails.
-NOW_RING_PX = 2
-NOW_RING_OFFSET_PX = 3
+# not moved. That card is the one the panel SHOWS: the design's ringed card is
+# also its only in-flight card, so the export settles nothing about which state
+# the ring marks, and this page decides it — the ring is selection's, and in
+# flight keeps the marks the legend names for it (the breathing gutter dot, the
+# sole progress bar, the --now-deep figure). Both numbers are stated once here
+# and interpolated into the sheet; the self-test re-renders the sheet at a
+# second pair and watches both rule values follow, so a literal typed into the
+# rule stays where it was and fails.
+SELECTED_RING_PX = 2
+SELECTED_RING_OFFSET_PX = 3
 
 # The collapsed work-item card's LEAD row, as the design sets it: a capitalised
 # mono state label at 10px / 600 / .14em tracking, then a mono 11px meta span
@@ -1173,12 +1178,13 @@ MAIN_TO_CARD_LEVELS = 6
 # so what RENDERS is 71 — a computed total, never a number the design declared,
 # and never written into this sheet as if it were one.
 #
-# Four offsets hang off this bar, and every one of them re-derives from this
+# Three offsets hang off this bar, and every one of them re-derives from this
 # constant rather than repeating it: the map rail's sticky top, the wave step
-# header's sticky top, the binder anchor's scroll-margin and the rail's
-# max-height. The sheet is built through `_css_from()`, so the self-test renders
-# it a second time at a DIFFERENT bar height and proves all four moved with it —
-# a literal typed into any of them stays put and fails.
+# header's sticky top and the rail's max-height. (A fourth, the binder card's
+# scroll-margin, went with the rail's anchor jump: the map picks a binder now,
+# it does not scroll to one.) The sheet is built through `_css_from()`, so the
+# self-test renders it a second time at a DIFFERENT bar height and proves all
+# three moved with it — a literal typed into any of them stays put and fails.
 BAR_HEIGHT_PX = 70
 
 # The binder panel body's padding, in px. It is named because the wave step
@@ -1291,7 +1297,7 @@ _RADIUS_CONTAINERS: tuple[tuple[str, str], ...] = (
     (".band", "panel"),
     (".binder", "panel"),
     (".item", "card"),
-    (".rail__pick", "card"),
+    (".rail__card", "card"),
     (".item__detail", "disclosure"),
     (".band__cmd", "chip"),
     (".band__copy", "chip"),
@@ -1636,25 +1642,34 @@ body{
 .rail__dot--later{ border:2px dashed var(--wait); }
 .rail__stem{ flex:1; width:2px; background:var(--line-2); margin-top:4px; }
 .rail__body{ flex:1; min-width:0; padding-bottom:14px; }
-/* The card is an ANCHOR to the binder's own card in the main column, not a
-   scripted jump: no listener, no handler, and it still works in a saved copy. */
+/* The card is a bordered, rounded ground wrapping the control — two elements,
+   the way the design draws them, because selection marks each differently:
+   the ring lands on the card, the soft ground on the button inside it. */
+.rail__card{
+  border:1px solid var(--line); background:var(--surface);
+  border-radius:__RADCARD__px; overflow:hidden;
+}
+/* The control is a BUTTON that picks the binder the panel shows — not an
+   anchor into it, since the page shows one binder at a time and there is
+   nothing to jump to. No ground at rest; the page's second surface on hover. */
 .rail__pick{
   display:flex; flex-direction:column; gap:5px; width:100%; min-width:0;
-  text-align:left; text-decoration:none; color:inherit;
-  border:1px solid var(--line); background:var(--surface);
-  border-radius:__RADCARD__px; padding:11px 13px;
+  text-align:left; color:inherit; font:inherit; cursor:pointer;
+  border:0; background:transparent; padding:11px 13px;
 }
-.rail__pick:hover{ background:var(--surface-2); border-color:var(--accent-line); }
-/* The one card that is CURRENT. The design rings it twice — a border and an
+.rail__pick:hover{ background:var(--surface-2); }
+/* The one card that is SELECTED. The design rings it twice — a border and an
    outline of the same width, the outline standing off — and declares no
-   animation on either, so this reads as current by being drawn heavier, not by
-   moving. Both widths and the offset come from the constants above; nothing
-   here is a literal. */
-.rail__pick--now{
-  background:var(--now-soft);
-  border:__NOWRING__px solid var(--now);
-  outline:__NOWRING__px solid var(--now-deep); outline-offset:__NOWRINGOFF__px;
+   animation on either, so this reads as picked by being drawn heavier, not by
+   moving; the button inside takes the soft ground. Both widths and the offset
+   come from the constants above; nothing here is a literal. Selected is not
+   in-flight: that binder keeps its breathing gutter dot, its sole progress bar
+   and its --now-deep figure, and the two marks can land on different cards. */
+.rail__card--selected{
+  border:__SELRING__px solid var(--now);
+  outline:__SELRING__px solid var(--now-deep); outline-offset:__SELRINGOFF__px;
 }
+.rail__pick--selected, .rail__pick--selected:hover{ background:var(--now-soft); }
 .rail__line{ display:flex; align-items:center; gap:8px; min-width:0; }
 .rail__name{
   font-family:var(--serif); font-size:17px; line-height:1.15;
@@ -1792,12 +1807,10 @@ body{
 .phase__empty{ font-size:12px; color:var(--mut); opacity:.5; }
 .phase__binders{ display:flex; flex-direction:column; gap:14px; }
 
-/* a binder card. `scroll-margin-top` is what makes a rail card's anchor jump
-   land BELOW the sticky header instead of under it — CSS, not a scroll handler. */
+/* a binder card */
 .binder{
   border:1px solid var(--line); background:var(--bg);
   border-radius:__RADPANEL__px;
-  scroll-margin-top:calc(__BARH__px + 18px);
 }
 .binder--now{ border-color:var(--now); }
 .binder--done{ border-color:var(--green); }
@@ -2131,14 +2144,14 @@ def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None,
     """The stylesheet with every value this file names interpolated into it.
 
     The header bar's height is a PARAMETER and not a constant read in place, for
-    one reason: four offsets hang off that bar — the rail's sticky top, the wave
-    step header's sticky top, the binder anchor's scroll-margin and the rail's
-    max-height — and the only way to prove they derive from it rather than
-    happening to agree with it is to render the sheet again at a different bar
-    height and watch all four move. That second render is what the self-test
-    does; a literal typed into any of the four stays where it was and fails.
+    one reason: three offsets hang off that bar — the rail's sticky top, the
+    wave step header's sticky top and the rail's max-height — and the only way
+    to prove they derive from it rather than happening to agree with it is to
+    render the sheet again at a different bar height and watch all three move.
+    That second render is what the self-test does; a literal typed into any of
+    the three stays where it was and fails.
 
-    The current card's ring pair is a parameter for the same reason and no
+    The selected card's ring pair is a parameter for the same reason and no
     other: a literal `2px` typed into the rule would match the constant exactly
     and no amount of reading the sheet could tell the two apart. Re-render at a
     different pair and a real derivation follows while a literal does not.
@@ -2149,16 +2162,16 @@ def _css_from(bar_px: int, ring_px: int = None, ring_offset_px: int = None,
 
     Both default to the shipped constants, so every caller but that one check
     reads the sheet the page actually serves."""
-    ring_px = NOW_RING_PX if ring_px is None else ring_px
+    ring_px = SELECTED_RING_PX if ring_px is None else ring_px
     radii = _radius_steps() if radii is None else radii
-    ring_offset_px = (NOW_RING_OFFSET_PX if ring_offset_px is None
+    ring_offset_px = (SELECTED_RING_OFFSET_PX if ring_offset_px is None
                       else ring_offset_px)
     return (_CSS_TEMPLATE
             .replace("__DARK__", _DARK_VARS)
             .replace("__LIGHT__", _LIGHT_VARS)
             .replace("__NARROW__", str(RAIL_NARROW_PX))
-            .replace("__NOWRINGOFF__", str(ring_offset_px))
-            .replace("__NOWRING__", str(ring_px))
+            .replace("__SELRINGOFF__", str(ring_offset_px))
+            .replace("__SELRING__", str(ring_px))
             .replace("__HEADLINE__", str(HEADLINE_PX))
             .replace("__CARDSTATE__", str(CARD_STATE_PX))
             .replace("__CARDTRACK__", CARD_STATE_TRACKING)
@@ -2543,6 +2556,35 @@ def rail_groups(binders: list[dict], show_delivered: bool) -> list[dict]:
             "cards": [] if hidden else [_rail_card(b, key) for b in rows],
         })
     return groups
+
+
+def rail_selection(binders: list[dict], show_delivered: bool,
+                   picked: str | None = None) -> str | None:
+    """Python mirror of the page's railSelectionOf(): which binder the map has
+    picked, and so which one the panel shows.
+
+    An explicit pick stands while the binder it names is still in the feed.
+    Otherwise the default is DERIVED, never typed: the in-flight binder when the
+    state has one, else the first card the rail's own group order yields — read
+    off rail_groups() itself, so the map and the default can never disagree.
+    When the only cards are withheld (every binder delivered, the toggle off)
+    the default falls through to the same order with the Delivered cards shown,
+    so the panel still has a binder to show. None only when there are none."""
+    # MIRROR: change together with railSelectionOf() in _APP_JS and the rail self-test.
+    slugs = [b.get("slug") for b in binders or []]
+    if picked and picked in slugs:
+        return picked
+
+    def first(groups):
+        for g in groups:
+            if g["cards"]:
+                return g["cards"][0]["slug"]
+        return None
+
+    shown = rail_groups(binders, show_delivered)
+    now = [g for g in shown if g["key"] == "now"]
+    return (first(now) or first(shown)
+            or first(rail_groups(binders, True)))
 
 
 # ---------------------------------------------------------------------------
@@ -3151,6 +3193,26 @@ function railGroupsOf(binders, showDelivered) {
   });
 }
 
+// Which binder the map has picked — the one the panel shows. An explicit pick
+// stands while its binder is still in the feed; otherwise the default is
+// DERIVED, never typed: the in-flight binder when there is one, else the first
+// card the rail's own group order yields, read off railGroupsOf itself so the
+// map and the default can never disagree. When every card is withheld (all
+// delivered, toggle off) it falls through to the same order with Delivered
+// shown, so the panel still has a binder. Null only when there are none.
+// MIRROR: change together with rail_selection() in serve_status.py and the rail self-test.
+function railSelectionOf(binders, showDelivered, picked) {
+  const slugs = (binders || []).map(b => b.slug);
+  if (picked && slugs.indexOf(picked) >= 0) return picked;
+  const first = (groups) => {
+    for (const g of groups) if (g.cards.length) return g.cards[0].slug;
+    return null;
+  };
+  const shown = railGroupsOf(binders, showDelivered);
+  return first(shown.filter(g => g.key === 'now')) || first(shown)
+    || first(railGroupsOf(binders, true));
+}
+
 // Group a binder's items into dependency-depth waves — ported verbatim from the
 // design's wavesOf(). depth = longest dep chain; items at one depth = one wave;
 // waves serial between, parallel within. Each item's `deps` is _enrich's depends_on.
@@ -3377,6 +3439,9 @@ const app = createApp({
       lastPollAt: Date.now(),
       now: Date.now(),
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
+      // The slug the reader clicked in the map, or null for "no pick yet" — the
+      // binder actually shown is selectedSlug, which derives the default.
+      pickedSlug: null,
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
       // WHICH copy control is currently confirming, not WHETHER one is. A
@@ -3448,6 +3513,7 @@ const app = createApp({
       return n + (n === 1 ? ' binder' : ' binders') + ' · ' + RAIL.hint;
     },
     railGroups() { return railGroupsOf(this.binders, this.showDelivered); },
+    selectedSlug() { return railSelectionOf(this.binders, this.showDelivered, this.pickedSlug); },
     legend() { return RAIL.legend; },
 
     // classify each binder into a phase over the engine's derived order:
@@ -3589,6 +3655,7 @@ const app = createApp({
       };
     },
 
+    pick(slug) { this.pickedSlug = slug; },
     toggleShowDelivered() {
       this.showDelivered = !this.showDelivered;
       try { localStorage.setItem('karta-show-delivered', this.showDelivered ? '1' : '0'); } catch (e) {}
@@ -3797,7 +3864,7 @@ const app = createApp({
     <aside class="rail" data-kw-rail v-if="hasBinders" aria-label="karta's map">
       <div class="rail__head">
         <span class="rail__title" data-kw-rail-title>{{ railTitle }}</span>
-        <span class="rail__hint">{{ railHint }}</span>
+        <span class="rail__hint" data-kw-rail-hint>{{ railHint }}</span>
       </div>
 
       <div class="rail__groups">
@@ -3815,20 +3882,22 @@ const app = createApp({
             <span v-else class="rail__gcount">{{ g.count }}</span>
           </div>
 
-          <div class="rail__row" data-kw-rail-card :data-kw-rail-card-slug="c.slug" v-for="c in g.cards" :key="c.slug">
+          <div class="rail__row" data-kw-rail-card :data-kw-rail-card-slug="c.slug" :data-kw-rail-selected="c.slug === selectedSlug ? 'true' : null" v-for="c in g.cards" :key="c.slug">
             <span class="rail__gutter">
               <span class="rail__dot" data-kw-rail-dot :data-kw-rail-dot-key="g.key" :class="g.dotClass"></span>
               <span class="rail__stem"></span>
             </span>
             <div class="rail__body">
-              <a class="rail__pick" :class="{ 'rail__pick--now': c.now }" :href="'#binder-' + c.slug">
-                <span class="rail__line">
-                  <span class="rail__name">{{ c.title }}</span>
-                  <span class="rail__pct" data-kw-rail-progress :class="{ 'rail__pct--now': c.now }">{{ c.progress }}</span>
-                </span>
-                <span class="rail__slug">{{ c.slug }}</span>
-                <span class="rail__bar" data-kw-rail-bar v-if="c.now"><span class="rail__fill" data-kw-rail-fill :style="{ width: c.pctW }"></span><span class="rail__hatch" data-kw-rail-hatch :style="{ left: c.pctW }"></span></span>
-              </a>
+              <div class="rail__card" :class="{ 'rail__card--selected': c.slug === selectedSlug }">
+                <button type="button" class="rail__pick" :class="{ 'rail__pick--selected': c.slug === selectedSlug }" :data-kw-pick="c.slug" @click="pick(c.slug)" :aria-pressed="c.slug === selectedSlug ? 'true' : 'false'">
+                  <span class="rail__line">
+                    <span class="rail__name">{{ c.title }}</span>
+                    <span class="rail__pct" data-kw-rail-progress :class="{ 'rail__pct--now': c.now }">{{ c.progress }}</span>
+                  </span>
+                  <span class="rail__slug">{{ c.slug }}</span>
+                  <span class="rail__bar" data-kw-rail-bar v-if="c.now"><span class="rail__fill" data-kw-rail-fill :style="{ width: c.pctW }"></span><span class="rail__hatch" data-kw-rail-hatch :style="{ left: c.pctW }"></span></span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -8427,11 +8496,12 @@ def _c_header_sticky_bar(ctx):
     return False
 
 
-# The four offsets that hang off the header bar, as (selector, property). Named
-# here rather than typed into the check so adding a fifth is one edit and the
-# check that proves they all move with the bar picks it up.
+# The three offsets that hang off the header bar, as (selector, property). Named
+# here rather than typed into the check so adding a fourth is one edit and the
+# check that proves they all move with the bar picks it up. (The binder card's
+# scroll-margin used to be the fourth; it went with the rail's anchor jump.)
 _BAR_DERIVED = ((".rail", "top"), (".rail", "max-height"),
-                (".step", "top"), (".binder", "scroll-margin-top"))
+                (".step", "top"))
 
 # The header controls THIS PAGE carries and the design was never asked to model:
 # its header holds exactly one interactive control. These are preserved, not
@@ -8481,9 +8551,6 @@ def _c_page_opens_with_the_bar(ctx):
                  lambda c: {"css": c["css"].replace(
                      "top:%dpx; z-index:3" % BAR_HEIGHT_PX, "top:78px; z-index:3")},
                  lambda c: {"css": c["css"].replace(
-                     "scroll-margin-top:calc(%dpx + 18px)" % BAR_HEIGHT_PX,
-                     "scroll-margin-top:88px")},
-                 lambda c: {"css": c["css"].replace(
                      "max-height:calc(100vh - %dpx - 34px)" % BAR_HEIGHT_PX,
                      "max-height:calc(100vh - 104px)")},
                  lambda c: {"css": _restyled(c["css"], ".hdr-right",
@@ -8496,9 +8563,9 @@ def _c_bar_height_named_once(ctx):
 
     Two different things are proven here and neither implies the other. That the
     height is stated once is read off the sheet: exactly one rule in it declares
-    that height, and it is one of the bar's own. That the four offsets DERIVE
+    that height, and it is one of the bar's own. That the three offsets DERIVE
     from it is proven by rendering the whole sheet a second time at a different
-    bar height and reading the same four again — each one has to have moved, and
+    bar height and reading the same three again — each one has to have moved, and
     moved by exactly what the bar moved by. A literal typed into any of them
     reads correctly at the sheet's own height and stays put in the second
     render, which is precisely the drift a text comparison cannot see.
@@ -9948,17 +10015,19 @@ def _c_wave_lane_accessible_label(ctx):
          breaks=[lambda c: {"css": c["css"].replace(".step{", ".step-x{")},
                  lambda c: {"css": c["css"].replace(
                      "background:var(--bg); border-bottom:1px solid var(--line);\n}",
-                     "border-bottom:1px solid var(--line);\n}")}])
+                     "border-bottom:1px solid var(--line);\n}")},
+                 lambda c: {"css": _restyled(c["css"], ".binder",
+                                             "scroll-margin-top:88px")}])
 def _c_wave_step_sticky(ctx):
     """The step header parks directly under the page header — the same offset
     the map rail sticks at, so the two agree — and paints its own ground,
     because a header stuck over scrolling cards with a transparent background is
-    unreadable. The binder's own anchor offset is left alone, so a rail card's
-    jump still lands clear of the header it scrolls beneath."""
+    unreadable. Nothing else is parked against the bar: the binder card's
+    scroll-margin went with the rail's anchor jump, and no rule in the sheet
+    declares one for a jump that no longer exists."""
     step = _decls_for(ctx["css"], ".step")
     rail = _decls_for(ctx["css"], ".rail")
-    binder = _decls_for(ctx["css"], ".binder")
-    if not step or not rail or not binder:
+    if not step or not rail:
         return False
     stuck = [d for d in step if _norm(d.get("position", "")) == "sticky"]
     if not stuck:
@@ -9970,7 +10039,7 @@ def _c_wave_step_sticky(ctx):
         return False
     if not any(d.get("background") for d in stuck):
         return False
-    return any(d.get("scroll-margin-top") for d in binder)
+    return not any("scroll-margin-top" in d for _sel, d in _css_rules(ctx["css"]))
 
 
 @_covers("wave-header-bleeds-to-the-panel-edge", kind="rendered",
@@ -10284,9 +10353,8 @@ def _c_rail_group_order(ctx):
                      dict(g, cards=list(g["cards"]) * 2) for g in rail_groups(b, s)]}])
 def _c_rail_binder_cards(ctx):
     """Every binder in the feed gets ONE card, under the group its phase maps to
-    and never under two. Each card carries its progress, and each is a plain
-    anchor into that binder's own card below — no click handler, so the map
-    still navigates in a saved file:// copy."""
+    and never under two. Each card carries its progress; the control inside it
+    is the button that picks the binder (rail-card-control-is-a-button)."""
     page = ctx["page"]
     tags = _tags_with(page, "data-kw-rail-card")
     if len(tags) != 1:
@@ -10553,25 +10621,34 @@ def _c_state_readings_are_labels(ctx):
                  lambda c: {"css": c["css"].replace(
                      "outline:2px solid var(--now-deep);",
                      "outline:2px solid var(--now-deep); animation:karta-ring 2s linear infinite;")},
-                 lambda c: {"css_from": lambda b, r=None, o=None: _css_from(b)},
+                 lambda c: {"css_from": lambda b, r=None, o=None, radii=None: _css_from(b, radii=radii)},
                  lambda c: {"css": c["css"].replace(
-                     "border:2px solid var(--now);", "border:1px solid var(--now);")}])
+                     "border:2px solid var(--now);", "border:1px solid var(--now);")},
+                 lambda c: {"css": _restyled(c["css"], ".rail__pct--now",
+                                             "outline:2px solid var(--now-deep)")},
+                 lambda c: {"palette": {k: v for k, v in c["palette"].items()
+                                        if k != "--now-deep"}}])
 def _c_current_binder_ring_pair(ctx):
-    """The card for the binder in flight is ringed twice — a border and an
-    outline of the same width, the outline standing off by its own offset — and
-    neither moves. The design declares no animation on either, so "this one is
-    current" is said by being drawn heavier; the motion in this map is the
-    gutter dot beside it, which already breathes and is nobody's business here.
+    """The card for the binder the panel shows — the SELECTED one, the one that
+    is current for the reader — is ringed twice: a border and an outline of the
+    same width, the outline standing off by its own offset, and neither moves.
+    The design declares no animation on either, so "this is the one you are
+    looking at" is said by being drawn heavier; the motion in this map is the
+    gutter dot beside the in-flight binder, which already breathes and is a
+    different claim (selection-and-in-flight-are-two-marks).
 
     Proven to DERIVE, not merely to agree: re-render the sheet at a different
     pair and both widths and the offset follow. A literal typed into the rule
-    stays where it was and fails, which is the only way to tell the two apart."""
+    stays where it was and fails, which is the only way to tell the two apart.
+    Both colours resolve through the existing token set — the ring names
+    palette roles, never a new token — and no other rail selector carries an
+    outline, so the ring is selection's alone."""
     css = ctx["css"]
 
     def ring(sheet):
         # the re-rendered sheet still carries its comments; the shipped one in
         # the context does not, so both are read through the same stripper.
-        decls = _decls_for(_strip_css_comments(sheet), ".rail__pick--now")
+        decls = _decls_for(_strip_css_comments(sheet), ".rail__card--selected")
         if not decls:
             return None
         border = [_px_length(_border_side_width([d], "top")) for d in decls
@@ -10587,15 +10664,250 @@ def _c_current_binder_ring_pair(ctx):
         return border[-1], outline[-1], offset[-1]
 
     shipped = ring(css)
-    ring_px, offset_px = ctx["now_ring"]["px"], ctx["now_ring"]["offset_px"]
+    ring_px = ctx["selected_ring"]["px"]
+    offset_px = ctx["selected_ring"]["offset_px"]
     if shipped != (ring_px, ring_px, offset_px):
         return False
     moved = ring(ctx["css_from"](ctx["bar_height_px"], ring_px + 3, offset_px + 4))
     if moved != (ring_px + 3, ring_px + 3, offset_px + 4):
         return False
     others = [sel for sel, d in _css_rules(css)
-              if "outline" in d and ".rail__" in sel and "--now" not in sel]
-    return not others
+              if "outline" in d and ".rail__" in sel and "--selected" not in sel]
+    if others:
+        return False
+    named = {v for d in _decls_for(css, ".rail__card--selected")
+             for prop in ("border", "outline")
+             for v in _VAR_REF_RE.findall(d.get(prop, ""))}
+    return bool(named) and named <= set(ctx["palette"])
+
+
+# --- the map is a selector: a button picks the binder the panel shows ---------
+#
+# The rail card's control used to be an anchor into the binder's own card in the
+# main column, which worked only because the panel rendered every binder at
+# once. The design's map picks: each card's control is a button carrying the
+# binder's slug, the picked card is ringed and its button tinted, and the panel
+# (the next item) shows that one binder. Selection and in-flight are two states
+# that can land on one card or on two, so they keep two sets of marks.
+
+@_covers("rail-card-control-is-a-button", kind="rendered", hook="data-kw-pick",
+         breaks=[lambda c: _renamed(c, "data-kw-pick", "page"),
+                 lambda c: _retagged(c, "data-kw-pick", "a", "page"),
+                 lambda c: {"page": c["page"].replace(' @click="pick(c.slug)"', "")},
+                 lambda c: {"page": c["page"].replace(
+                     '<button type="button" class="rail__pick"',
+                     '<button class="rail__pick"')},
+                 lambda c: {"page": c["page"].replace(
+                     '<span class="rail__slug">{{ c.slug }}</span>',
+                     '<a class="rail__slug" :href="\'#binder-\' + c.slug">{{ c.slug }}</a>')}])
+def _c_rail_card_control_is_a_button(ctx):
+    """Every rail card's control is a real button — type=button, so a form can
+    never submit it — carrying the binder's slug and wired to the pick. No rail
+    card renders an anchor into a page fragment: the jump that anchor made
+    landed on a binder card the panel no longer renders for every binder."""
+    page = ctx["page"]
+    picks = _tags_with(page, "data-kw-pick")
+    cards = _tags_with(page, "data-kw-rail-card")
+    if len(picks) != 1 or len(cards) != 1:
+        return False
+    attrs = _attrs(picks[0])
+    if (_tag_name(picks[0]) != "button" or attrs.get("type") != "button"
+            or attrs.get(":data-kw-pick") != "c.slug"
+            or "pick(c.slug)" not in attrs.get("@click", "")):
+        return False
+    card = _subtree(page, cards[0])
+    if picks[0] not in card:
+        return False
+    for tag in _start_tags(card):
+        if _tag_name(tag) != "a":
+            continue
+        for name, value in _attrs(tag).items():
+            if name.lstrip(":").lower() == "href" and "#" in value:
+                return False
+    return True
+
+
+@_covers("rail-picks-exactly-one-binder", kind="rendered",
+         hook="data-kw-rail-selected",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-selected", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     ":data-kw-rail-selected=\"c.slug === selectedSlug ? 'true' : null\"",
+                     ":data-kw-rail-selected=\"c.now ? 'true' : null\"")},
+                 lambda c: {"rail_selection": lambda b, s, p=None: None},
+                 lambda c: {"rail_selection": lambda b, s, p=None: (b or [{}])[0].get("slug")},
+                 lambda c: {"rail_selection": lambda b, s, p=None: rail_selection(b, True, p)},
+                 lambda c: {"rail_selection": lambda b, s, p=None: rail_selection(b, s)},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "railSelectionOf(this.binders, this.showDelivered, this.pickedSlug)",
+                     "this.binders[0].slug")}])
+def _c_rail_picks_exactly_one(ctx):
+    """Exactly one rail card is the picked one, in every state the map can be
+    in — and the default is DERIVED, never typed. The hook rides the card and
+    is gated on the selection; the selection itself is driven by direct call
+    over the Python mirror of railSelectionOf(): the in-flight binder when the
+    feed has one, wherever the feed lists it; otherwise the first card the
+    rail's own group order yields — with the Delivered cards withheld or shown,
+    whichever the reader chose — and, when every card is withheld, the first of
+    the shown order rather than nothing. An explicit pick stands while its
+    binder is in the feed and falls back to the default once it is not."""
+    page, app = ctx["page"], ctx["app_src"]
+    tags = _tags_with(page, "data-kw-rail-selected")
+    if len(tags) != 1 or tags != _tags_with(page, "data-kw-rail-card"):
+        return False
+    gate = _attrs(tags[0]).get(":data-kw-rail-selected", "")
+    if "c.slug" not in gate or "selectedSlug" not in gate or "c.now" in gate:
+        return False
+    if "railSelectionOf(this.binders, this.showDelivered, this.pickedSlug)" not in app:
+        return False
+    select, groups = ctx["rail_selection"], ctx["rail_groups"]
+    live = list(ctx["state"]["binders"])
+    idle = [dict(live[0], slug="s-idle-%d" % i, status="not_started")
+            for i in range(2)]
+    shipped = [dict(live[0], slug="s-done-%d" % i, status="merged")
+               for i in range(2)]
+
+    def rendered(binders, shown):
+        return [c["slug"] for g in groups(binders, shown) for c in g["cards"]]
+
+    for binders in (live + idle, idle + live, shipped + idle + live):
+        for shown in (False, True):
+            if select(binders, shown) != live[0]["slug"]:
+                return False
+    for binders in (idle, shipped + idle, idle + shipped):
+        for shown in (False, True):
+            picked, cards = select(binders, shown), rendered(binders, shown)
+            if picked != cards[0] or cards.count(picked) != 1:
+                return False
+    if select(shipped, False) != rendered(shipped, True)[0]:
+        return False
+    if select(idle, False, idle[1]["slug"]) != idle[1]["slug"]:
+        return False
+    if select(idle, False, "s-gone") != idle[0]["slug"]:
+        return False
+    return select([], False) is None
+
+
+@_covers("selection-and-in-flight-are-two-marks", kind="behaviour",
+         breaks=[lambda c: {"css": _restyled(c["css"], ".rail__pct--now",
+                                             "outline:2px solid var(--now-deep)")},
+                 lambda c: {"css": _restyled(c["css"], ".rail__dot--now",
+                                             "border:2px solid var(--now)")},
+                 lambda c: {"css": c["css"].replace(".rail__card--selected{",
+                                                    ".rail__card--now{")},
+                 lambda c: {"page": c["page"].replace(
+                     "'rail__card--selected': c.slug === selectedSlug",
+                     "'rail__card--selected': c.now")},
+                 lambda c: {"page": c["page"].replace(
+                     "'rail__pct--now': c.now", "'rail__pct--now': c.slug === selectedSlug")}])
+def _c_selection_and_in_flight_are_two_marks(ctx):
+    """Selected and in flight are two claims — "the one you are looking at" and
+    "the one being built" — and one card can carry both, one, or neither. So
+    each keeps its own modifiers: selection gates the ring on the card and the
+    soft ground on the button, in flight gates the --now-deep figure (and, by
+    the group table, the breathing gutter dot). The two sets are separate
+    classes gated on separate expressions, and they differ in what they RENDER
+    — resolved through the palette, not compared as rule text — with no ring on
+    any in-flight modifier, so two marks on two cards stay tellable apart."""
+    page, css, palette = ctx["page"], ctx["css"], ctx["palette"]
+    cards = _tags_with(page, "data-kw-rail-card")
+    if len(cards) != 1:
+        return False
+    gated = {}
+    for tag in _start_tags(_subtree(page, cards[0])):
+        gated.update(_class_binding(_attrs(tag)))
+    selected = [cls for cls, expr in gated.items() if "selectedSlug" in expr]
+    flight = [cls for cls, expr in gated.items() if expr == "c.now"]
+    flight.append("rail__dot--" + "now")
+    if len(selected) < 2 or len(flight) < 2:
+        return False
+    if any("selectedSlug" in e and "c.now" in e for e in gated.values()):
+        return False
+
+    def rendered(cls):
+        out = {}
+        for d in _decls_for(css, "." + cls):
+            for prop, value in d.items():
+                out[prop] = _VAR_REF_RE.sub(
+                    lambda m: palette.get(m.group(1), {}).get("light", m.group(0)),
+                    _norm(value))
+        return out
+
+    picks, flights = [rendered(c) for c in selected], [rendered(c) for c in flight]
+    if any(not r for r in picks) or any(not r for r in flights):
+        return False
+    if any(prop.startswith(("outline", "border")) for r in flights for prop in r):
+        return False
+    return all(set(p.items()) - set(f.items()) for p in picks for f in flights)
+
+
+@_covers("rail-button-ground-follows-selection", kind="behaviour",
+         breaks=[lambda c: {"css": c["css"].replace(
+                     "border:0; background:transparent; padding:11px 13px;",
+                     "border:0; background:var(--surface); padding:11px 13px;")},
+                 lambda c: {"css": c["css"].replace(
+                     ".rail__pick:hover{ background:var(--surface-2); }",
+                     ".rail__pick:hover{ background:var(--surface); }")},
+                 lambda c: {"css": c["css"].replace(
+                     ".rail__pick--selected, .rail__pick--selected:hover{ background:var(--now-soft); }",
+                     ".rail__pick--selected, .rail__pick--selected:hover{ background:var(--surface-2); }")},
+                 lambda c: {"palette": {k: v for k, v in c["palette"].items()
+                                        if k != "--now-soft"}}])
+def _c_rail_button_ground_follows_selection(ctx):
+    """The button inside the picked card takes the design's soft ground; the
+    button inside every other card has NO ground at rest — transparent, stated,
+    since a bare button brings the platform's own — and the page's second
+    surface on hover. All three read off the sheet by selector and resolve
+    through the existing palette roles."""
+    css, palette, page = ctx["css"], ctx["palette"], ctx["page"]
+    picks = _tags_with(page, "data-kw-pick")
+    if len(picks) != 1:
+        return False
+    attrs = _attrs(picks[0])
+    base = attrs.get("class", "").split()
+    chosen = [cls for cls, e in _class_binding(attrs).items() if "selectedSlug" in e]
+    if len(base) != 1 or len(chosen) != 1:
+        return False
+
+    def ground(selector):
+        vals = [_norm(d["background"]) for d in _decls_for(css, selector)
+                if "background" in d]
+        return vals[-1] if vals else ""
+
+    rest = ground("." + base[0])
+    hover = _VAR_REF_RE.findall(ground("." + base[0] + ":hover"))
+    picked = _VAR_REF_RE.findall(ground("." + chosen[0]))
+    return (rest == "transparent"
+            and hover == ["--surface-2"] and picked == ["--now-soft"]
+            and {"--surface-2", "--now-soft"} <= set(palette))
+
+
+@_covers("rail-hint-counts-the-binders", kind="behaviour",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-hint", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     "{{ railHint }}", "5 binders · click to drill in")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "const n = this.binders.length;", "const n = 5;")},
+                 lambda c: {"retired_wording": {
+                     k: v for k, v in c["retired_wording"].items()
+                     if v != c["rail_hint"]}}])
+def _c_rail_hint_counts_the_binders(ctx):
+    """The map header's hint names picking, not jumping, and is derived: the
+    count in front of the fixed phrase is the feed's binder count, never a
+    typed number, and the phrase it replaced is on the retired list so a
+    forward-only reading cannot let "jump" back in. A regression guard on
+    wording the previous binder landed, held here because this is the item
+    that made the hint true."""
+    page, app = ctx["page"], ctx["app_src"]
+    hint = _tags_with(page, "data-kw-rail-hint")
+    rail = _tags_with(page, "data-kw-rail")
+    if len(hint) != 1 or not rail or hint[0] not in _subtree(page, rail[0]):
+        return False
+    if "railHint" not in _text_in(page, "data-kw-rail-hint"):
+        return False
+    body = _js_block(app, "    railHint() {")
+    if "this.binders.length" not in body or "RAIL.hint" not in body:
+        return False
+    return ctx["rail_hint"] in ctx["retired_wording"].values()
 
 
 @_covers("container-corners-are-the-designs-four-steps", kind="behaviour",
@@ -13810,11 +14122,13 @@ def _coverage_context() -> dict:
                            "label_tracking": WAVE_HEAD_LABEL_TRACKING,
                            "pos_px": WAVE_HEAD_POS_PX},
         "inset_vectors": _INSET_VECTORS, "inset_reader": _side_inset,
-        "rail_groups": rail_groups, "rail_legend": _RAIL_LEGEND,
+        "rail_groups": rail_groups, "rail_selection": rail_selection,
+        "rail_legend": _RAIL_LEGEND,
         "rail_hint": RAIL_HINT, "rail_show_label": RAIL_SHOW_LABEL_FMT,
         "rail_hide_label": RAIL_HIDE_LABEL, "foot_line": FOOT_LINE,
         "retired_wording": _RETIRED_WORDING,
-        "now_ring": {"px": NOW_RING_PX, "offset_px": NOW_RING_OFFSET_PX},
+        "selected_ring": {"px": SELECTED_RING_PX,
+                          "offset_px": SELECTED_RING_OFFSET_PX},
         "radii": _radius_steps(), "radius_containers": _RADIUS_CONTAINERS,
         "round_dots": _ROUND_DOTS, "round_pills": _ROUND_PILLS,
         "band_cmd_edge": BAND_CMD_EDGE,
