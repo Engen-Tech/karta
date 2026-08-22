@@ -1178,9 +1178,15 @@ MAIN_TO_CARD_LEVELS = 4
 # declares `height:70px` on its header's inner row and confirms that number nine
 # times over by sticking every one of its wave headers at `top:70px`
 # (docs/designs/karta-watch-1440x900-light.html, the header row and the wave
-# header inside each panel). The bar's own 1px bottom border sits on top of it,
-# so what RENDERS is 71 — a computed total, never a number the design declared,
-# and never written into this sheet as if it were one.
+# header inside each panel). The two pages render that number differently, and
+# the 2026-08-22 comparison measured both — see "The header bar's height" in
+# docs/conventions/watch-design-fidelity.md: the design keeps its 1px bottom
+# border on a separate outer element around the 70px row (export 111-112), so
+# its bar renders 71 tall; this page puts the height and the border on ONE
+# border-box element, `.top--shell`, so the border is the bottom row of the 70
+# and the bar renders 70 tall. 71 is a total that exists only in the design —
+# never a number the design declared, and never written into this sheet as if
+# it were one.
 #
 # Three offsets hang off this bar, and every one of them re-derives from this
 # constant rather than repeating it: the map rail's sticky top, the wave step
@@ -8794,9 +8800,14 @@ def _c_bar_height_named_once(ctx):
     reads correctly at the sheet's own height and stays put in the second
     render, which is precisely the drift a text comparison cannot see.
 
-    The rendered total is the bar plus its 1px bottom border, and that total is a
-    consequence rather than a number the design declared — so the sheet may not
-    state it anywhere, and the check fails if it does."""
+    What RENDERS differs between the two pages, and the 2026-08-22 comparison
+    measured both: the design's bar renders 71 tall, because its 1px bottom
+    border sits on an outer element around the 70px row (export 111-112); this
+    page's renders 70, because `.top--shell` is a border-box element carrying
+    the height and the border together, so the 1px rule is the last row of the
+    70. Neither 71 nor any other bar-plus-border total is a number the design
+    declared — so the sheet may not state one anywhere, and the check fails if
+    it does."""
     page, css, bar = ctx["page"], ctx["css"], ctx["bar_height_px"]
     tops = _tags_with(page, "data-kw-top")
     if len(tops) != 1:

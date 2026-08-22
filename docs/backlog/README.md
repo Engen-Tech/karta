@@ -104,7 +104,7 @@ count its own finding 1 contradicts.
 
 **Carry the other five open findings with it.** The waiver on the accepted `design-fidelity-gate`
 merge says findings 2-6 are scheduled here; naming them is what makes that claim checkable. All are
-in [`docs/conventions/watch-design-fidelity.md`](../conventions/watch-design-fidelity.md#findings-from-the-latest-run),
+in [`docs/conventions/watch-design-fidelity.md`](../conventions/watch-design-fidelity.md#findings-from-the-2026-08-18-run),
 and four of the five sit in the panel this entry rebuilds:
 - the binder summary set at 13px full-strength ink across the panel's width, against the design's
   16.5px muted lede held to 66ch (export 302)
