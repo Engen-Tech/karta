@@ -57,8 +57,9 @@ ago** — read from its newest commit. The stamp is simply absent if git can't a
 
 The landing is set in the same colours, type and motion as the repo pages it links to, so moving
 between them doesn't feel like changing product. A repo with work in flight pulses; a broken one
-flashes its alarm colour; and if you have asked your system for reduced motion, both settle to a
-still state that still reads. It refreshes the same way too — see below.
+flashes its alarm colour. If you have asked your system for reduced motion, neither goes still: the
+pulse keeps breathing, and the flash softens into the same slow breathing instead of a hard on/off
+blink — a status page that stops moving reads as broken. It refreshes the same way too — see below.
 
 ## Getting around
 
