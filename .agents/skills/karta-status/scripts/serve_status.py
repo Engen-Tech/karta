@@ -1337,7 +1337,7 @@ _ROUND_DOTS: tuple[str, ...] = (
 )
 _ROUND_PILLS: tuple[str, ...] = (
     ".hctl--icon", ".branch-chip", ".shell__home", ".rail__gtoggle",
-    ".rail__bar", ".rail__fill",
+    ".rail__bar", ".rail__fill", ".rail__pick .rail__halt",
 )
 _ROUND_DOT_VALUE = "50%"
 _ROUND_PILL_PX = 99
@@ -1707,6 +1707,25 @@ body{
 .rail__slug{
   font-family:var(--mono); font-size:10px; color:var(--mut-2);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* The halt badge: the pill the design sets beside a halted binder's slug,
+   reading "<n> halted" (export 194), drawn on the halt role in its paired
+   foreground, at the slug's own mono step. Rendered only when the count is
+   non-zero — a card with no halt has no node here, not an empty one, so the
+   slug row keeps no gap for it. It WEARS the page's alarm class instead of
+   animating itself: the blink is the sheet's one hard keyframe, and the
+   reduced-motion soften at the foot of this sheet reaches it for free — no
+   second keyframe, no second branch, no opinion of its own about motion.
+   The one thing that class says that is wrong for a filled pill is colour: it
+   pins the halt role — right for a glyph drawn IN that colour, wrong for text
+   drawn ON it — and under reduced motion pins it at !important. The compound
+   selector and the !important below are what outrank that pin in BOTH
+   branches, so the text stays legible on its ground; nothing about motion is
+   decided here. */
+.rail__pick .rail__halt{
+  font-family:var(--mono); font-size:10px; flex:none;
+  background:var(--halt); color:var(--on-halt) !important;
+  border-radius:99px; padding:1px 7px;
 }
 /* The progress bar, drawn on the CURRENT card and on no other — the design
    carries exactly one bar in the whole map, and a bar under every card is most
@@ -2570,8 +2589,22 @@ def _rail_done(binder: dict) -> int:
     return sum(1 for it in detail if it.get("status") in ("done", "built"))
 
 
+def _rail_halted(binder: dict) -> int:
+    """How many of a binder's runs have halted — the same two sources as
+    _rail_done, read for the one state the engine names "failed". The card
+    already receives these states; this is derived from them, not fetched."""
+    # MIRROR: change together with haltedCountOf() in _APP_JS.
+    items = binder.get("items") or {}
+    detail = items.get("detail") or []
+    if not detail:
+        return items.get("failed") or 0
+    return sum(1 for it in detail if it.get("status") == "failed")
+
+
 def _rail_card(binder: dict, key: str) -> dict:
-    """One rail card: the dot's phase, the headline, the slug, the progress."""
+    """One rail card: the dot's phase, the headline, the slug, the progress,
+    and how many of its runs have halted (0 draws no badge)."""
+    # MIRROR: change together with railCard() in _APP_JS and the rail self-test.
     total = (binder.get("items") or {}).get("total") or 0
     done = _rail_done(binder)
     return {
@@ -2580,6 +2613,7 @@ def _rail_card(binder: dict, key: str) -> dict:
         "progress": "%d/%d" % (done, total),
         "pctW": "%d%%" % (round(done / total * 100) if total else 0),
         "now": key == "now",
+        "halted": _rail_halted(binder),
     }
 
 
@@ -3212,8 +3246,18 @@ function titleCase(slug) {
     .map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
+// How many of a binder's runs have halted — the same two sources as
+// doneCountOf, read for the one state the engine names "failed".
+// MIRROR: change together with _rail_halted() in serve_status.py.
+function haltedCountOf(b) {
+  const d = (b.items && b.items.detail) || [];
+  if (!d.length) return (b.items && b.items.failed) || 0;
+  return d.filter(x => x.status === 'failed').length;
+}
 // One rail card: the headline (slug-derived when the binder carries no title),
-// the slug, and how far its runs have got.
+// the slug, how far its runs have got, and how many have halted — derived from
+// the item states the card already carries; 0 draws no badge at all.
+// MIRROR: change together with _rail_card() in serve_status.py and the rail self-test.
 function railCard(b, key) {
   const total = (b.items && b.items.total) || 0;
   const done = doneCountOf(b);
@@ -3223,6 +3267,7 @@ function railCard(b, key) {
     progress: done + '/' + total,
     pctW: (total ? Math.round(done / total * 100) : 0) + '%',
     now: key === 'now',
+    halted: haltedCountOf(b),
   };
 }
 
@@ -3956,7 +4001,7 @@ const app = createApp({
                     <span class="rail__name">{{ c.title }}</span>
                     <span class="rail__pct" data-kw-rail-progress :class="{ 'rail__pct--now': c.now }">{{ c.progress }}</span>
                   </span>
-                  <span class="rail__slug">{{ c.slug }}</span>
+                  <span class="rail__line"><span class="rail__slug">{{ c.slug }}</span><span class="rail__halt karta-alarm" data-kw-rail-halt v-if="c.halted">{{ c.halted }} halted</span></span>
                   <span class="rail__bar" data-kw-rail-bar v-if="c.now"><span class="rail__fill" data-kw-rail-fill :style="{ width: c.pctW }"></span><span class="rail__hatch" data-kw-rail-hatch :style="{ left: c.pctW }"></span></span>
                 </button>
               </div>
@@ -11698,6 +11743,197 @@ def _c_rail_bar_fill_and_hatch(ctx):
             and any(gradient in d.get("background-image", "") for d in hatch_css)
             and any(_norm(d.get("position", "")) == "absolute" for d in hatch_css)
             and any(_norm(d.get("position", "")) == "relative" for d in bar_css))
+
+
+# --- the halt badge on a rail card ------------------------------------------
+# The design puts a pill reading "<n> halted" beside the slug of a binder with a
+# halted item (export 194), blinking on the alarm keyframe and softening with
+# it under reduced motion (export 96). The page's rail card rendered no badge
+# on any branch. The pinned fixture derives every item as pending and can show
+# neither branch, so the count is driven through the Python mirror of railCard
+# over states built here; the template is read for the node, its gate and the
+# field it renders; and the sheet is read for the motion — the badge's resolved
+# animation compared to the shared alarm rule's, never to a value of its own.
+
+_HALT_BADGE_SELECTOR = ".rail__pick .rail__halt"
+
+
+def _with_halts(live: list[dict], n: int, total: int = 4) -> list[dict]:
+    """The live fixture's binder with `n` of `total` runs halted — the state the
+    pinned fixture cannot produce, built for the badge checks."""
+    detail = ([{"id": "h%d" % i, "status": "failed"} for i in range(n)]
+              + [{"id": "p%d" % i, "status": "ready"} for i in range(total - n)])
+    return [dict(live[0], items={"total": total, "done": 0, "built": 0,
+                                 "failed": n, "building": 0,
+                                 "ready": total - n, "blocked": 0,
+                                 "detail": detail})]
+
+
+def _badge_rules(block: str, page: str) -> list[dict[str, str]]:
+    """Every declaration block in `block` that reaches the halt badge, in
+    cascade order: the rules its classes carry, read the way every other
+    element's are (_rules_for_tag), then its own compound rule, which the
+    sheet states after the class rules and a control appends after them too.
+    Resolved through _resolved, the reader the rest of the suite uses."""
+    tags = _tags_with(page, "data-kw-rail-halt")
+    if len(tags) != 1:
+        return []
+    return _rules_for_tag(block, tags[0]) + _decls_for(block, _HALT_BADGE_SELECTOR)
+
+
+@_covers("rail-halt-badge-counts-the-halted-items", kind="rendered",
+         hook="data-kw-rail-halt",
+         breaks=[lambda c: _renamed(c, "data-kw-rail-halt", "page"),
+                 # the gate dropped: an empty badge on every card, taking the
+                 # slug row's gap
+                 lambda c: {"page": c["page"].replace(
+                     'data-kw-rail-halt v-if="c.halted"', "data-kw-rail-halt")},
+                 # gated on the wrong field — the current binder, not a halt
+                 lambda c: {"page": c["page"].replace(
+                     'data-kw-rail-halt v-if="c.halted"',
+                     'data-kw-rail-halt v-if="c.now"')},
+                 # the badge showing progress instead of the count
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="c.halted">{{ c.halted }} halted',
+                     'v-if="c.halted">{{ c.progress }} halted')},
+                 # the mirror typing the count rather than deriving it
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, cards=[dict(card, halted=1) for card in g["cards"]])
+                     for g in rail_groups(b, s)]},
+                 # the mirror counting the wrong state — the runs through,
+                 # read back off the card's own progress
+                 lambda c: {"rail_groups": lambda b, s: [
+                     dict(g, cards=[dict(card, halted=int(card["progress"].split("/")[0]))
+                                    for card in g["cards"]])
+                     for g in rail_groups(b, s)]}])
+def _c_rail_halt_badge_counts(ctx):
+    """A rail card whose binder has halted items carries the badge with the
+    count; a card whose binder has none carries no badge node at all. The node
+    sits inside the card's control, is gated on the card's own halt count, and
+    renders that count — read off the template, not the fixture, because the
+    pinned fixture derives every item as pending. Both branches are driven
+    through the mirror of the page's card derivation over states built here:
+    no halts, one, three — the count is the number of runs in the halted state,
+    derived from the item states the card already receives, and nothing else."""
+    page = ctx["page"]
+    badge = _tags_with(page, "data-kw-rail-halt")
+    card = _tags_with(page, "data-kw-rail-card")
+    pick = _tags_with(page, "data-kw-pick")
+    if len(badge) != 1 or len(card) != 1 or len(pick) != 1:
+        return False
+    if _attrs(badge[0]).get("v-if") != "c.halted":
+        return False
+    if badge[0] not in _subtree(page, pick[0]):
+        return False
+    if "c.halted" not in _text_in(page, "data-kw-rail-halt"):
+        return False
+    live = ctx["state"]["binders"]
+    for n in (0, 1, 3):
+        cards = [c for g in ctx["rail_groups"](_with_halts(live, n), True)
+                 for c in g["cards"]]
+        if len(cards) != 1 or cards[0].get("halted") != n:
+            return False
+    # a thin archived row carries its counts but no detail: the carried count
+    thin = [dict(live[0], status="merged",
+                 items={"total": 3, "done": 1, "failed": 2, "detail": []})]
+    cards = [c for g in ctx["rail_groups"](thin, True) for c in g["cards"]]
+    return len(cards) == 1 and cards[0].get("halted") == 2
+
+
+@_covers("rail-halt-badge-wears-the-one-alarm-keyframe", kind="behaviour",
+         breaks=[# a second keyframe in the alarm's family
+                 lambda c: {"css": c["css"] + "\n@keyframes karta-alarm-pill{ to{ opacity:.3; } }"},
+                 # the badge animating itself instead of wearing the class
+                 lambda c: {"page": c["page"].replace(
+                     'class="rail__halt karta-alarm"', 'class="rail__halt"'),
+                            "css": _restyled(c["css"], _HALT_BADGE_SELECTOR,
+                                             "animation:karta-alarm 1.1s steps(1,end) infinite")},
+                 # the class dropped and nothing put in its place
+                 lambda c: {"page": c["page"].replace(
+                     'class="rail__halt karta-alarm"', 'class="rail__halt"')},
+                 # the badge's own rule declaring a motion beside the class
+                 lambda c: {"css": _restyled(c["css"], _HALT_BADGE_SELECTOR,
+                                             "animation:karta-breathe 2s ease-in-out infinite")}])
+def _c_rail_halt_badge_one_alarm_keyframe(ctx):
+    """The badge's motion is the page's existing alarm treatment, not a second
+    one. The sheet defines exactly one keyframe in the alarm's family — the one
+    the motion registry names — the badge wears that keyframe's class, and the
+    badge's own rule declares no animation of its own in either branch."""
+    css, page, alarm = ctx["css"], ctx["page"], ctx["alarm_keyframe"]
+    names = [prelude.split()[-1] for prelude, _ in _css_sections(css)
+             if prelude.startswith("@keyframes")]
+    if [n for n in names if "alarm" in n] != [alarm]:
+        return False
+    badge = _tags_with(page, "data-kw-rail-halt")
+    if len(badge) != 1 or alarm not in _attrs(badge[0]).get("class", "").split():
+        return False
+    own = (_decls_for(css, _HALT_BADGE_SELECTOR)
+           + _decls_for(_reduced_block(css), _HALT_BADGE_SELECTOR))
+    return bool(own) and not any(d.get("animation", "").strip() for d in own)
+
+
+@_covers("rail-halt-badge-softens-with-the-alarm", kind="behaviour",
+         breaks=[# the badge frozen under reduced motion while the alarm softens
+                 lambda c: {"css": c["css"].replace(
+                     _reduced_block(c["css"]), _reduced_block(c["css"])
+                     + "\n  " + _HALT_BADGE_SELECTOR + "{ animation:none !important; }")},
+                 # a pace of its own — right keyframe, not the alarm's timing
+                 lambda c: {"css": c["css"].replace(
+                     _reduced_block(c["css"]), _reduced_block(c["css"])
+                     + "\n  " + _HALT_BADGE_SELECTOR
+                     + "{ animation:karta-breathe 2s ease-in-out infinite !important; }")},
+                 # the alarm's own reduced-motion rule gone
+                 lambda c: {"css": _drop_reduced_rule(c["css"], ".karta-alarm")},
+                 # the class dropped: nothing reaches the badge any more
+                 lambda c: {"page": c["page"].replace(
+                     'class="rail__halt karta-alarm"', 'class="rail__halt"')}])
+def _c_rail_halt_badge_softens_with_alarm(ctx):
+    """Under the reduced-motion branch the badge carries the same treatment as
+    every other alarm element on the page: its resolved animation, read off
+    the branch through the cascade for the rules that reach it, equals the
+    shared alarm rule's — compared, never asserted as a value of this item's
+    own, so the badge cannot drift from whatever doctrine the alarm rule
+    states. The rest branch is held the same way, so the blink outside the
+    preference is the alarm's too."""
+    css, page = ctx["css"], ctx["page"]
+    reduced = _reduced_block(css)
+    want_reduced = _resolved(_decls_for(reduced, ".karta-alarm"), "animation")
+    want_rest = _resolved(_decls_for(css, ".karta-alarm"), "animation")
+    return (bool(want_reduced) and bool(want_rest)
+            and _resolved(_badge_rules(reduced, page), "animation") == want_reduced
+            and _resolved(_badge_rules(css, page), "animation") == want_rest)
+
+
+@_covers("rail-halt-badge-on-the-halt-role", kind="behaviour",
+         breaks=[lambda c: {"css": _restyled(c["css"], _HALT_BADGE_SELECTOR,
+                                             "background:var(--halt-soft)")},
+                 lambda c: {"css": _restyled(c["css"], _HALT_BADGE_SELECTOR,
+                                             "color:var(--halt) !important")},
+                 # a token of its own for the pill
+                 lambda c: {"css": _restyled(c["css"], _HALT_BADGE_SELECTOR,
+                                             "background:var(--halt-pill)"),
+                            "palette": dict(c["palette"], **{
+                                "--halt-pill": {"light": "#900", "dark": "#c33"}})},
+                 # the pairing read from the metadata, not typed here
+                 lambda c: {"state_meta": dict(
+                     c["state_meta"],
+                     failed=dict(c["state_meta"]["failed"], on="var(--ink)"))}])
+def _c_rail_halt_badge_on_halt_role(ctx):
+    """The badge's ground is the halt role and its text the foreground the
+    metadata pairs with that role — the same pair the halted card's solid bar
+    wears — with no token introduced for it: every colour the rule names is one
+    the palette already defines."""
+    css, palette, failed = ctx["css"], ctx["palette"], ctx["state_meta"]["failed"]
+    rules = _decls_for(css, _HALT_BADGE_SELECTOR)
+    if not rules:
+        return False
+    ground = _norm(rules[-1].get("background", ""))
+    text = _norm(rules[-1].get("color", ""))
+    named = {ref for d in rules for v in d.values() for ref in _VAR_REF_RE.findall(v)
+             if not ref.startswith("--mono")}
+    return (ground == failed.get("color") and text == failed.get("on")
+            and ground != text
+            and named <= set(palette))
 
 
 @_covers("design-wording-lands-where-the-design-puts-it", kind="behaviour",

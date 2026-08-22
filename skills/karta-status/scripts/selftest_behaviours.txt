@@ -392,6 +392,25 @@ selection-and-in-flight-are-two-marks
 rail-button-ground-follows-selection
 rail-hint-counts-the-binders
 
+# A halt shows on the map card, without a click. The design sets a pill
+# reading "<n> halted" beside the slug of a binder with a halted item; the page
+# rendered no badge on any branch. The first holds the node and its count: it
+# sits inside the card's control, is gated on the card's own halt count so a
+# card with no halt carries no node at all, renders that count, and the count
+# is derived through the card's own derivation from the item states it already
+# receives — driven over states built for the check, since the pinned fixture
+# derives every item as pending. The second holds the motion to the page's one
+# alarm keyframe: the badge wears the alarm class and declares none of its own.
+# The third reads the badge's resolved animation under reduced motion and at
+# rest and finds it equal to the shared alarm rule's, compared and never typed,
+# so the badge cannot drift from the doctrine the alarm rule states. The last
+# holds the colours: the halt role and the foreground the metadata pairs with
+# it, with no token introduced.
+rail-halt-badge-counts-the-halted-items
+rail-halt-badge-wears-the-one-alarm-keyframe
+rail-halt-badge-softens-with-the-alarm
+rail-halt-badge-on-the-halt-role
+
 # The panel is one binder. The map picks, and the main column shows that
 # binder's card and nothing else — no phase grouping around it, no head, no
 # count, no empty-group row, no wrapper between the frame and the card, and no
