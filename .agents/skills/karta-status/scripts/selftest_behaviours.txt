@@ -361,10 +361,17 @@ delivered-toggle-announces-in-words
 # leaves the pill set for the step the design actually gives it. The third
 # holds the command chip's edge at the 28% the design draws it at, still drawn
 # by the band's own token rather than by a literal that would stop following
-# the theme.
+# the theme. The first check reads a radius per corner, not per bare length, so
+# the binder card's footer strip — a solid last child that rounds its own two
+# bottom corners at the panel step less the border — is pinned and re-rendered
+# with the rest; the second names the map's progress track and its fill among
+# the pills, so squaring the track fails. The fourth holds the general form of
+# the corner defect the fidelity record found: no rounded container on the page
+# ends in an opaque last child that sits square inside its curve.
 container-corners-are-the-designs-four-steps
 round-shapes-keep-their-shape
 command-chip-edge-at-the-designs-strength
+no-opaque-last-child-sits-square-in-a-rounded-container
 
 # The map is a selector. The rail card's control was an anchor into the
 # binder's own card in the main column, which only worked because the panel

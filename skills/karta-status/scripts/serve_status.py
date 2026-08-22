@@ -1307,11 +1307,29 @@ _RADIUS_CONTAINERS: tuple[tuple[str, str], ...] = (
     (".band__copy", "chip"),
 )
 
-# The shapes that were already round and stay exactly as they are: seven dots at
-# 50%, one more the summary line added, one more the shown binder's in-flight
-# mark added, and the four pills at 99px that remain once the Copy button leaves
-# that set for the chip step above. Named rather than counted, so a dot quietly
-# becoming a pill fails instead of balancing out.
+# Which container sits on a step's corners at the BOTTOM only. The binder card's
+# footer strip is its last child and carries a solid fill, and the card cannot
+# clip it (the sticky wave headers inside would stop sticking), so the strip
+# rounds its own bottom corners at the card's step less the border it sits
+# inside — a pair the sheet states as a four-value shorthand. The same table
+# idea as above, so the check reads the expected pair from here rather than
+# restating it, and a second capped container would be one more row.
+_RADIUS_BOTTOM_CAPS: tuple[tuple[str, str], ...] = (
+    (".bmeta", "panel"),
+)
+
+# The shapes that are round and stay exactly as they are: seven dots at 50%,
+# one more the summary line added, one more the shown binder's in-flight mark
+# added, and the six pills at 99px — the four that remain once the Copy button
+# leaves that set for the chip step above, plus the map's progress track and
+# its fill, which the design draws fully rounded (export 196, 197) and this
+# page shipped square. Named rather than counted, so a dot quietly becoming a
+# pill fails instead of balancing out.
+#
+# 99px and not half the track's height: the design states 99px, and a radius
+# tied to the 4px height would stop being a pill the moment the height moved.
+# The browser clamps any radius past half the box to exactly half, which is
+# what makes a large literal the height-independent spelling of "a pill".
 _ROUND_DOTS: tuple[str, ...] = (
     ".brand__dot", ".shell__feed-dot", ".rail__dot", ".rail__mot--pulse",
     ".rail__mot--breathe", ".rail__mot--spin", ".rail__mot--still",
@@ -1319,6 +1337,7 @@ _ROUND_DOTS: tuple[str, ...] = (
 )
 _ROUND_PILLS: tuple[str, ...] = (
     ".hctl--icon", ".branch-chip", ".shell__home", ".rail__gtoggle",
+    ".rail__bar", ".rail__fill",
 )
 _ROUND_DOT_VALUE = "50%"
 _ROUND_PILL_PX = 99
@@ -1697,12 +1716,18 @@ body{
 
    `display:block` on both is load-bearing in the literal sense: a span left
    inline takes no width at all, so a fill bound to a percentage measured zero
-   and every bar painted as one flat track whatever the binder's progress. */
+   and every bar painted as one flat track whatever the binder's progress.
+
+   Both ends are a pill, the way the design draws them (export 196, 197): the
+   track at 99px, and the fill at 99px too, since the track's own clip rounds
+   only the outer corners and a square fill end would still show where the
+   fill stops short. The hatch past it is clipped by the track and needs no
+   radius of its own. */
 .rail__bar{
   display:block; position:relative;
-  height:4px; background:var(--line); overflow:hidden;
+  height:4px; background:var(--line); overflow:hidden; border-radius:99px;
 }
-.rail__fill{ display:block; height:100%; background:var(--now); }
+.rail__fill{ display:block; height:100%; background:var(--now); border-radius:99px; }
 .rail__hatch{
   position:absolute; right:0; top:0; bottom:0;
   background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px);
@@ -8015,6 +8040,48 @@ def _containers_between(doc: str, outer: str, inner: str) -> list[str]:
     return stack
 
 
+def _child_tags(doc: str, outer: str) -> list[str]:
+    """The start tags of `outer`'s DIRECT children, in source order — the boxes
+    one level in, counted the way _containers_between counts: a void element
+    opens nothing, a Vue `template` paints nothing (so what it wraps are still
+    `outer`'s own children), and an end tag closes the nearest matching start."""
+    block = _subtree(doc, outer)
+    stack: list[str] = []
+    out: list[str] = []
+    for m in re.finditer(r"<(/?)([a-zA-Z][\w-]*)([^<>]*)>", block[len(outer):]):
+        closing, name, rest = m.group(1), m.group(2).lower(), m.group(3)
+        if closing:
+            for i in range(len(stack) - 1, -1, -1):
+                if _tag_name(stack[i]).lower() == name:
+                    del stack[i:]
+                    break
+        else:
+            if not stack and name != "template":
+                out.append(m.group(0))
+            if name not in _NON_NESTING and not rest.rstrip().endswith("/"):
+                stack.append(m.group(0))
+    return out
+
+
+_CONDITIONAL_ATTRS = ("v-if", "v-else-if", "v-else", "v-show")
+
+
+def _trailing_children(doc: str, outer: str) -> list[str]:
+    """Every child of `outer` that can render LAST, innermost-last first: the
+    final child in source order, and — for as long as that child is conditional
+    (a v-if, v-else, v-show) and so may be absent — the one before it too,
+    stopping at the first child that is always there. A footer guarded by a
+    v-if is the last child when it renders and its elder sibling is the last
+    child when it does not, and a question about "the last child" has to be
+    asked of both."""
+    out: list[str] = []
+    for child in reversed(_child_tags(doc, outer)):
+        out.append(child)
+        if not any(a in _attrs(child) for a in _CONDITIONAL_ATTRS):
+            break
+    return out
+
+
 def _rules_for_tag(css: str, tag: str) -> list[dict[str, str]]:
     """Every declaration block the stylesheet gives `tag`'s classes, in sheet
     order — what the element actually resolves to, rather than one rule of it."""
@@ -8083,6 +8150,29 @@ _PX_RE = re.compile(r"(\d+)px")
 # a CSS zero, in the unitless spelling and in every unit — zero is zero in all
 # of them, so it costs nothing whichever way it was written
 _ZERO_RE = re.compile(r"0[a-z%]*")
+
+
+def _radius_corners(value: str) -> tuple[int, int, int, int] | None:
+    """A border-radius declaration as its four corners in whole pixels —
+    top-left, top-right, bottom-right, bottom-left, the order CSS states them —
+    with a one-to-four value shorthand expanded. The shorthand fills in exactly
+    as a box shorthand does (one value for all four, two for the diagonals,
+    three for top-left / the other diagonal / bottom-right), so the same
+    expander reads it. None for a radius stated in anything that is not a bare
+    pixel length in every corner — a percentage, a var(), an elliptical pair
+    with a slash — and for no radius at all, so a caller cannot mistake an
+    unreadable corner for a square one.
+
+    This is the reader that sees a bottom-only pair. A single bare length was
+    the only shape the shape check used to read, so a container whose corners
+    were written as a shorthand was skipped outright and went unguarded."""
+    value = _norm(value)
+    if not value or "/" in value:
+        return None
+    corners = [_px_length(part) for part in _box_shorthand(value)]
+    if len(corners) != 4 or any(c is None for c in corners):
+        return None
+    return (corners[0], corners[1], corners[2], corners[3])
 
 
 def _px_length(value: str) -> int | None:
@@ -11310,7 +11400,17 @@ def _c_rail_hint_counts_the_binders(ctx):
                  lambda c: {"css": _restyled(c["css"], ".item__detail",
                                              "border-radius:12px")},
                  lambda c: {"css_from":
-                            lambda b, r=None, o=None, radii=None: _css_from(b)}])
+                            lambda b, r=None, o=None, radii=None: _css_from(b)},
+                 # the footer strip's derived pair swapped for the literal it
+                 # renders to at the shipped step — the exact swap that passed
+                 # before the check read a shorthand at all
+                 lambda c: {"css_from": lambda b, r=None, o=None, radii=None:
+                            _restyled(_strip_css_comments(_css_from(b, r, o, radii)),
+                                      ".bmeta", "border-radius:0 0 %dpx %dpx" % (
+                                          (RADIUS_PANEL_PX - PANEL_BORDER_PX,) * 2))},
+                 lambda c: {"css": _restyled(c["css"], ".bmeta",
+                                             "border-radius:0 0 %dpx %dpx" % (
+                                                 (RADIUS_PANEL_PX,) * 2))}])
 def _c_container_corner_steps(ctx):
     """Every container the design gives a rectangular corner has one, on the
     step the design gives it, and nothing else on the page has one at all.
@@ -11328,30 +11428,48 @@ def _c_container_corner_steps(ctx):
     Proven to DERIVE, not merely to agree: re-render the whole sheet at four
     different steps and every container has to follow. A literal typed into a
     rule reads correctly at the shipped numbers and stays put in the second
-    render, which is exactly the drift reading the sheet once cannot see."""
-    css, steps = ctx["css"], ctx["radii"]
+    render, which is exactly the drift reading the sheet once cannot see.
+
+    Read per CORNER, not per bare length. The binder card's footer strip caps
+    the card's bottom with a solid fill and so carries the panel step, less the
+    border it sits inside, on its bottom two corners only — a four-value
+    shorthand. A reader that took one bare length skipped that declaration
+    outright, so the pair could be typed as a literal and nothing noticed; this
+    one reads the four corners, expects the pair from the cap table and the
+    panel frame rather than from a number typed here, and re-renders it with
+    the rest. Every radius the sheet declares now lands in one of three sets —
+    a stepped container, a bottom cap, or a round shape — and a corner in none
+    of them fails."""
+    css, steps, frame = ctx["css"], ctx["radii"], ctx["panel_frame"]
 
     def corners(sheet):
         # the re-rendered sheet still carries its comments; the shipped one in
         # the context does not, so both are read through the same stripper.
         found: dict = {}
         for sel, value in _radius_declarations(_strip_css_comments(sheet)):
-            px = _px_length(value)
-            if px is None or px == _ROUND_PILL_PX:
+            four = _radius_corners(value)
+            if four is None or set(four) == {_ROUND_PILL_PX}:
                 continue        # a dot or a pill, not a rectangular step
-            found.setdefault(sel, set()).add(px)
+            found.setdefault(sel, set()).add(four)
         return found
 
-    want = {sel: {steps[name]} for sel, name in ctx["radius_containers"]}
-    if corners(css) != want:
+    def expected(radii):
+        want = {sel: {(radii[name],) * 4} for sel, name in ctx["radius_containers"]}
+        for sel, name in ctx["radius_caps"]:
+            inner = max(0, radii[name] - frame["border_px"])
+            want[sel] = {(0, 0, inner, inner)}
+        return want
+
+    if corners(css) != expected(steps):
         return False
-    if len({next(iter(v)) for v in want.values()}) != 4:
+    if len({steps[name] for _sel, name in ctx["radius_containers"]}) != 4:
         return False
-    if any(_px_length(value) == 2 for _sel, value in _radius_declarations(css)):
+    if any(2 in (_radius_corners(value) or ())
+           for _sel, value in _radius_declarations(css)):
         return False
     probe = {name: px + 5 * (i + 1) for i, (name, px) in enumerate(steps.items())}
     moved = corners(ctx["css_from"](ctx["bar_height_px"], radii=probe))
-    return moved == {sel: {probe[name]} for sel, name in ctx["radius_containers"]}
+    return moved == expected(probe)
 
 
 @_covers("round-shapes-keep-their-shape", kind="behaviour",
@@ -11360,7 +11478,13 @@ def _c_container_corner_steps(ctx):
                  lambda c: {"css": _restyled(c["css"], ".band__copy",
                                              "border-radius:99px")},
                  lambda c: {"css": _restyled(c["css"], ".rail__gtoggle",
-                                             "border-radius:8px")}])
+                                             "border-radius:8px")},
+                 # the track squared again, and its fill pinned to a radius
+                 # that is a pill only at the shipped 4px height
+                 lambda c: {"css": _restyled(c["css"], ".rail__bar",
+                                             "border-radius:0")},
+                 lambda c: {"css": _restyled(c["css"], ".rail__fill",
+                                             "border-radius:2px")}])
 def _c_round_shapes_keep_their_shape(ctx):
     """Giving the page its corners back moves nothing that was already round.
     Every dot is still a circle and every pill is still a pill, named one by one
@@ -11369,7 +11493,14 @@ def _c_round_shapes_keep_their_shape(ctx):
 
     ONE declaration leaves the pill set, and it is checked by name: the band's
     Copy button, which the design declares at the same step as the command chip
-    beside it and never declares as a pill. Putting it back on 99px fails."""
+    beside it and never declares as a pill. Putting it back on 99px fails.
+
+    TWO declarations join it: the map's progress track and its fill, which the
+    design draws fully rounded and this page shipped square. They are held at
+    the pill value by name, so squaring the track fails, and so does a radius
+    tied to the track's height — 2px is a pill at 4px tall and a rounded
+    rectangle at any other height, and the pill value is the one spelling that
+    stays a pill whatever the height."""
     css = ctx["css"]
     dots, pills = set(), set()
     for sel, value in _radius_declarations(css):
@@ -11383,6 +11514,80 @@ def _c_round_shapes_keep_their_shape(ctx):
     return bool(button) and {_px_length(_norm(d["border-radius"]))
                              for d in button
                              if "border-radius" in d} == {ctx["radii"]["chip"]}
+
+
+@_covers("no-opaque-last-child-sits-square-in-a-rounded-container",
+         kind="behaviour",
+         breaks=[# the instance the fidelity record found: the footer strip
+                 # square again inside the binder card's curve
+                 lambda c: {"css": _restyled(c["css"], ".bmeta", "border-radius:0")},
+                 # the right pair on the wrong corners
+                 lambda c: {"css": _restyled(c["css"], ".bmeta",
+                                             "border-radius:%dpx %dpx 0 0" % (
+                                                 (RADIUS_PANEL_PX - PANEL_BORDER_PX,) * 2))},
+                 # the strip flush with the corner but translucent — fine — and
+                 # then its fill made opaque in ONE palette
+                 lambda c: {"palette": dict(c["palette"], **{"--surface-2": dict(
+                     c["palette"]["--surface-2"], light="rgba(0,0,0,.5)")}),
+                            "css": _restyled(c["css"], ".bmeta", "border-radius:0")},
+                 # a different rounded container — a work-item card, which has
+                 # no padding to hold a child off its corners — gaining a square
+                 # opaque footer, so the rule is proven to walk every container
+                 lambda c: {"page": _capped(c["page"], "data-kw-item", "kw-cap"),
+                            "css": c["css"] + "\n.kw-cap{ background:var(--surface); }"}])
+def _c_no_opaque_last_child_sits_square(ctx):
+    """The general form of the defect the fidelity record names: no rounded
+    container on the page ends in an opaque-filled last child whose own bottom
+    corners are square. A container that does not clip paints its curve, and a
+    solid child flush with that curve paints straight through it — so the
+    question the record asks is not "does the container declare a radius?" but
+    "does any opaque last child sit square inside it?", asked of every element
+    the page renders rather than of the one strip that was caught.
+
+    Per element, read off the sheet: a box whose resolved radius rounds either
+    bottom corner and whose overflow does not clip is a rounded container. Each
+    child that can render last — the final one, and its elder siblings for as
+    long as the final one is conditional — is read for the ground it paints; a
+    ground that is opaque in EITHER palette counts, a translucent or absent one
+    does not. A child reaches a bottom corner when nothing holds it off it: no
+    padding on the container's bottom or that side, no margin on the child's.
+    A child that reaches a corner must round that corner itself, by a pixel
+    radius or the dot value. Anything else is named, and one name fails.
+
+    A box that is clipped, inset, or translucent is not an offender, and that
+    is the limit: this proves the corner is not square, never that it follows
+    the parent's curve — the shape check pins the footer strip's exact pair."""
+    page, css, palette = ctx["page"], ctx["css"], ctx["palette"]
+    sides = ("right", "bottom", "left")
+
+    def opaque(ground):
+        return any(v and not _translucent(v)
+                   for v in (_ground_value(ground, palette, t) for t in ("light", "dark")))
+
+    def rounded_at(value, corner):
+        four = _radius_corners(value)
+        return value == _ROUND_DOT_VALUE or bool(four and four[corner] > 0)
+
+    offenders = []
+    for tag in _start_tags(page):
+        rules = _rules_for_tag(css, tag)
+        four = _radius_corners(_resolved(rules, "border-radius"))
+        if not four or not (four[2] or four[3]):
+            continue
+        if _resolved(rules, "overflow") in ("hidden", "clip"):
+            continue
+        pad = {s: _px_length(_box_side(rules, "padding", s)) for s in sides}
+        for child in _trailing_children(page, tag):
+            kid = _rules_for_tag(css, child)
+            if not opaque(_resolved(kid, "background")):
+                continue
+            gap = {s: _px_length(_box_side(kid, "margin", s)) for s in sides}
+            radius = _resolved(kid, "border-radius")
+            for side, corner in (("right", 2), ("left", 3)):
+                flush = not (pad["bottom"] or pad[side] or gap["bottom"] or gap[side])
+                if flush and not rounded_at(radius, corner):
+                    offenders.append(child)
+    return not offenders
 
 
 @_covers("command-chip-edge-at-the-designs-strength", kind="rendered",
@@ -12145,6 +12350,17 @@ def _rewrapped(page: str, hook: str, cls: str = "") -> str:
     block = _subtree(page, tag)
     box = '<div class="' + cls + '">' if cls else "<div>"
     return page.replace(block, box + block + "</div>", 1)
+
+
+def _capped(page: str, hook: str, cls: str) -> str:
+    """A page with one more box appended as the LAST child of `hook`'s element —
+    the control for a rounded container that quietly gained a square-cornered
+    footer. `cls` names the box's class so a rule can give it a fill."""
+    tag = _tags_with(page, hook)[0]
+    block = _subtree(page, tag)
+    end = block.rfind("</")
+    capped = block[:end] + '<div class="' + cls + '"></div>' + block[end:]
+    return page.replace(block, capped, 1)
 
 
 def _spaced_above(page: str, hook: str) -> str:
@@ -14925,6 +15141,7 @@ def _coverage_context() -> dict:
         "selected_ring": {"px": SELECTED_RING_PX,
                           "offset_px": SELECTED_RING_OFFSET_PX},
         "radii": _radius_steps(), "radius_containers": _RADIUS_CONTAINERS,
+        "radius_caps": _RADIUS_BOTTOM_CAPS,
         "round_dots": _ROUND_DOTS, "round_pills": _ROUND_PILLS,
         "band_cmd_edge": BAND_CMD_EDGE,
         "title_case": _title_case, "rail_title": RAIL_TITLE,
