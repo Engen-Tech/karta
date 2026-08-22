@@ -1784,9 +1784,13 @@ body{
    margin, no offset — so the binder cards inside it sit close to the main
    column's own edge the way the design's do. What it is here for is the context
    the design was never asked to model: which repository this is, and how many
-   binders it holds. */
+   binders it holds. It sits on the PAGE GROUND — the same role the column
+   around it paints — so it reads as a rule drawn on the page and not as a
+   surface of its own: the design puts nothing between the panel section and
+   the binder's white box that carries a competing surface (export 282), and a
+   frame on the page ground is the closest a frame can come to that. */
 .panel{
-  background:var(--surface); border:__PANELBORDER__px solid var(--line);
+  background:var(--bg); border:__PANELBORDER__px solid var(--line);
   padding:__PANELPAD__px;
 }
 .panel__head{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
@@ -1802,9 +1806,14 @@ body{
    four phase groups down its own column, every binder under its group with a
    head and a count above it and an empty row where a group held none; the
    design's main column carries no grouping at all (export 282-296), so the
-   card sits directly inside the frame now. */
+   card sits directly inside the frame now. It is on the SURFACE — white in
+   the light palette — the way the design's binder panel is (export 294), so
+   it advances off the frame's page ground rather than sinking into it; and
+   the soft state tints its header wears (13%-alpha colours) composite over
+   white, which is the base they were mixed for. The page shipped these two
+   roles the other way round, card on the ground and frame on the surface. */
 .binder{
-  border:1px solid var(--line); background:var(--bg);
+  border:1px solid var(--line); background:var(--surface);
   border-radius:__RADPANEL__px;
 }
 .binder--now{ border-color:var(--now); }
@@ -1929,13 +1938,17 @@ body{
 /* A wave's step header. Sticky at the same offset the map rail uses, so it
    parks directly under the page header instead of behind it; it paints its own
    ground and rules itself off, because a header stuck over scrolling cards with
-   a transparent background is unreadable. */
+   a transparent background is unreadable. The ground it paints is the CARD'S
+   OWN surface — the design gives the header the same surface value the panel
+   declares (export 318), so it reads as the card repainting itself while items
+   scroll under it — and it is the one box inside the card allowed to share
+   that ground, because it is the one box that sticks. */
 .step{
   position:sticky; top:__BARH__px; z-index:3;
   display:flex; align-items:center; gap:9px;
   margin:__WAVELEAD__px -__PANELBODYPAD__px __WAVETRAIL__px;
   padding:11px __PANELBODYPAD__px 9px;
-  background:var(--bg); border-bottom:1px solid var(--line);
+  background:var(--surface); border-bottom:1px solid var(--line);
 }
 .step__numeral{
   font-family:var(--serif); font-size:25px; line-height:1; font-weight:400;
@@ -1979,9 +1992,14 @@ body{
    state metadata as inline custom values rather than living here as six more
    selectors — so a state can never be added to the engine and render untreated.
    What DOES live here is the part that is a shape and not a colour: the border
-   weight the metadata names as a role, and the dashed edge waiting wears. */
+   weight the metadata names as a role, and the dashed edge waiting wears. The
+   card declares NO ground of its own: its fill is the state's tint, set inline
+   off the metadata, and a state with no tint shows the binder card's surface
+   through — exactly what the design's untinted card paints on its white panel
+   (export 383). It used to declare the surface to advance off the warm card;
+   with the binder card on the surface now, that would make it flat. */
 .item{
-  border:1px solid var(--line); background:var(--surface);
+  border:1px solid var(--line);
   border-radius:__RADCARD__px;
 }
 /* calm is the 1px default above; urgent is the card that wants to be looked at
@@ -10388,7 +10406,7 @@ def _c_wave_lane_accessible_label(ctx):
 @_covers("wave-step-header-sticks-under-the-page-header", kind="behaviour",
          breaks=[lambda c: {"css": c["css"].replace(".step{", ".step-x{")},
                  lambda c: {"css": c["css"].replace(
-                     "background:var(--bg); border-bottom:1px solid var(--line);\n}",
+                     "background:var(--surface); border-bottom:1px solid var(--line);\n}",
                      "border-bottom:1px solid var(--line);\n}")},
                  lambda c: {"css": _restyled(c["css"], ".binder",
                                              "scroll-margin-top:88px")}])
@@ -12352,6 +12370,196 @@ def _c_card_sits_one_level_shallower(ctx):
         return False
     return (len(_containers_between(page, main[0], cards[0]))
             == ctx["main_to_card_levels"])
+
+
+# --- the two surfaces: the card on the surface, the frame on the page ground --
+#
+# The design puts the binder panel on var(--surface) — white — straight on the
+# page's warm var(--bg), and nothing between the panel section and that box
+# carries a surface of its own (docs/designs/karta-watch-1440x900-light.html,
+# export 282, 294). The page had the same two tokens the other way round: the
+# frame on the surface and the card on the page ground, so the card receded
+# where the design's advances, and every soft state tint a binder header wears
+# — 13%-alpha colours — composited over warm instead of white and read khaki
+# rather than mint. No token moves. What the three checks below hold is WHICH
+# role each container resolves to, and what that means for what sits inside
+# the card. The design side of the first — the value the committed design file
+# declares for the role — is scripts/validate_plugin.py's read, which already
+# resolves that file by a repo-relative constant; it cannot live here, because
+# this self-test is contracted to need no repo and ships to installs that carry
+# no docs/ at all.
+
+_ONE_TOKEN_RE = re.compile(r"var\(\s*(--[a-z0-9-]+)\s*\)")
+_ALPHA_FN_RE = re.compile(r"(?:rgba|hsla)\(([^)]*)\)")
+
+
+def _ground_roles(css: str, tag: str) -> set[str]:
+    """The palette roles `tag`'s resolved background names — one for a ground
+    stated as a single token, none for transparent, none, or no ground."""
+    return set(_VAR_REF_RE.findall(_resolved(_rules_for_tag(css, tag), "background")))
+
+
+def _ground_value(value: str, palette: dict, theme: str) -> str:
+    """What a declared background paints in `theme`: a single palette token is
+    looked up, a literal is itself, and transparent / none / no ground is the
+    empty string. Anything else — two tokens, a gradient — reads as its own
+    text, so two such values compare equal only when they are the same
+    declaration."""
+    v = _norm(value)
+    m = _ONE_TOKEN_RE.fullmatch(v)
+    if m and m.group(1) in palette:
+        return palette[m.group(1)][theme].strip().lower()
+    return "" if v in ("", "transparent", "none") else v.lower()
+
+
+def _translucent(colour: str) -> bool:
+    """Whether a colour value carries an alpha below one — an rgba()/hsla() whose
+    fourth channel is under 1, or an 8-digit hex whose last byte is under ff.
+    An opaque colour, a token, or anything this cannot read is not translucent."""
+    c = colour.strip().lower()
+    m = _ALPHA_FN_RE.fullmatch(c)
+    if m:
+        parts = [x.strip() for x in m.group(1).replace("/", ",").split(",")]
+        try:
+            return len(parts) == 4 and float(parts[3]) < 1
+        except ValueError:
+            return False
+    return len(c) == 9 and c.startswith("#") and c[7:9] != "ff"
+
+
+@_covers("binder-card-on-the-surface-frame-on-the-page-ground", kind="rendered",
+         hook="data-kw-binder",
+         breaks=[lambda c: _renamed(c, "data-kw-binder", "page"),
+                 # the pre-item assignment, both halves at once
+                 lambda c: {"css": _restyled(_restyled(c["css"], ".binder",
+                                                       "background:var(--bg)"),
+                                             ".panel", "background:var(--surface)")},
+                 lambda c: {"css": _restyled(c["css"], ".binder", "background:var(--bg)")},
+                 lambda c: {"css": _restyled(c["css"], ".panel",
+                                             "background:var(--surface)")},
+                 # the right colour as a literal is not the role
+                 lambda c: {"css": _restyled(c["css"], ".binder", "background:#FFFFFF")},
+                 # the two roles collapsing onto one value in one theme
+                 lambda c: {"palette": dict(c["palette"], **{"--surface": dict(
+                     c["palette"]["--surface"], dark=c["palette"]["--bg"]["dark"])})}])
+def _c_card_on_surface_frame_on_ground(ctx):
+    """The binder card resolves to the surface role and the frame around it to
+    the page-ground role — each read as the ONE palette token its background
+    names, never as a literal — and in both palettes the two roles resolve to
+    different values, which is what makes the card advance off the frame
+    instead of sinking into it. The page shipped the same two tokens the other
+    way round, and that assignment is the first control. Which value the design
+    file declares for the surface role is the repo validator's read, not this
+    one's: this self-test needs no repo."""
+    page, css, palette = ctx["page"], ctx["css"], ctx["palette"]
+    card = _one_tag(page, "data-kw-binder")
+    frame = _one_tag(page, "data-kw-delivery-panel")
+    if not card or not frame:
+        return False
+    if _ground_roles(css, card) != {"--surface"} or _ground_roles(css, frame) != {"--bg"}:
+        return False
+    return all(_ground_value("var(--surface)", palette, t)
+               != _ground_value("var(--bg)", palette, t) for t in ("light", "dark"))
+
+
+@_covers("nothing-inside-the-binder-card-shares-its-ground", kind="rendered",
+         hook="data-kw-binder",
+         breaks=[lambda c: _renamed(c, "data-kw-binder", "page"),
+                 # the ground a work-item card used to declare, to advance off
+                 # the warm card — on the surface it is a card gone flat
+                 lambda c: {"css": c["css"] + "\n.item{ background:var(--surface); }"},
+                 lambda c: {"css": c["css"] + "\n.item__detail{ background:var(--surface); }"},
+                 # a literal that equals the surface in one palette only
+                 lambda c: {"css": c["css"] + "\n.bmeta{ background:#FFFFFF; }"},
+                 # a token whose value collides with the surface in one palette
+                 lambda c: {"palette": dict(c["palette"], **{"--surface-2": dict(
+                     c["palette"]["--surface-2"], dark=c["palette"]["--surface"]["dark"])})},
+                 # the one sanctioned repaint, no longer stuck: a plain box
+                 # sharing the ground is a box that went flat
+                 lambda c: {"css": _restyled(c["css"], ".step", "position:static")}])
+def _c_nothing_inside_shares_the_ground(ctx):
+    """Every element the card's subtree renders is read for the ground its
+    rules resolve to, and any that paints what the card paints — in EITHER
+    palette — is named, with one shape excepted: a box that STICKS. A sticky
+    header has to paint an opaque ground or the items scroll through it, and
+    the design gives that one the panel's own surface (export 318) —
+    wave-header-bleeds-to-the-panel-edge holds the relation — so a sticky box
+    is the only thing inside the card allowed to share its ground. Anything
+    else that matches has gone flat: it used the surface to advance off the
+    warm card and now sits on the surface. Compared per theme on the value a
+    token resolves to, so a literal that happens to equal the surface in one
+    palette is caught, and so is a token whose two values collide in one."""
+    page, css, palette = ctx["page"], ctx["css"], ctx["palette"]
+    card = _one_tag(page, "data-kw-binder")
+    if not card:
+        return False
+    card_bg = _resolved(_rules_for_tag(css, card), "background")
+    if not card_bg:
+        return False
+    card_paints = {t: _ground_value(card_bg, palette, t) for t in ("light", "dark")}
+    flat = []
+    for tag in _start_tags(_subtree(page, card))[1:]:
+        rules = _rules_for_tag(css, tag)
+        own = _resolved(rules, "background")
+        if not own or _norm(_resolved(rules, "position")) == "sticky":
+            continue
+        if any(_ground_value(own, palette, t) == card_paints[t] for t in card_paints):
+            flat.append(tag)
+    return not flat
+
+
+@_covers("binder-header-tints-composite-over-the-card-surface", kind="rendered",
+         hook="data-kw-binder-header",
+         breaks=[lambda c: _renamed(c, "data-kw-binder-header", "page"),
+                 # the pre-item card ground under the same tints
+                 lambda c: {"css": _restyled(c["css"], ".binder", "background:var(--bg)")},
+                 # an opaque box put between the tint and the card
+                 lambda c: {"page": _rewrapped(c["page"], "data-kw-binder-header", "kw-shim"),
+                            "css": c["css"] + "\n.kw-shim{ background:var(--bg); }"},
+                 # the header painting a ground of its own beneath the tint
+                 lambda c: {"css": _restyled(c["css"], ".binder__header",
+                                             "background:var(--surface-2)")},
+                 # a state tint that is not soft at all
+                 lambda c: {"css": _restyled(c["css"], ".binder__header--done",
+                                             "background:var(--green)")},
+                 # a soft token gone opaque in one palette
+                 lambda c: {"palette": dict(c["palette"], **{"--green-soft": dict(
+                     c["palette"]["--green-soft"], light="#D6E3D3")})}])
+def _c_header_tints_composite_over_surface(ctx):
+    """Every soft state tint a binder header can wear sits directly on the
+    card's surface. This proves the compositing BASE, not the tint: each tint
+    is one palette token whose value is translucent in both themes — an alpha
+    below one; the 13% --green-soft carries is the palette's to state and no
+    token changes here — so what it paints is decided by the ground beneath
+    it; and that ground is the card's surface, because the header's own rule
+    declares no ground, nothing between the header and the card declares one,
+    and the card resolves to the surface role. The page's warm card under the
+    same tints is the first control."""
+    page, css, palette = ctx["page"], ctx["css"], ctx["palette"]
+    card = _one_tag(page, "data-kw-binder")
+    header = _one_tag(page, "data-kw-binder-header")
+    if not card or not header or _ground_roles(css, card) != {"--surface"}:
+        return False
+    # the header's own rules (its static classes) and every box between it and
+    # the card: no ground of their own, in either theme
+    for tag in [header] + _containers_between(page, card, header):
+        own = _resolved(_rules_for_tag(css, tag), "background")
+        if any(_ground_value(own, palette, t) for t in ("light", "dark")):
+            return False
+    # the state tints: the classes the header takes on per state, each a soft
+    # token, translucent in both palettes
+    tints = [_resolved(_decls_for(css, "." + cls), "background")
+             for cls in _class_binding(_attrs(header))]
+    tints = [t for t in tints if t]
+    if not tints:
+        return False
+    for tint in tints:
+        m = _ONE_TOKEN_RE.fullmatch(_norm(tint))
+        if not m or m.group(1) not in palette:
+            return False
+        if not all(_translucent(palette[m.group(1)][theme]) for theme in ("light", "dark")):
+            return False
+    return True
 
 
 # --- the panel shows one binder: the map's pick, and no grouping around it ---

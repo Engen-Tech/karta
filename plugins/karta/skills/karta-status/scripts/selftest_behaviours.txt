@@ -417,3 +417,21 @@ panel-eyebrow-and-slug-sit-on-the-11px-mono-step
 panel-slug-is-bare-text
 card-description-on-the-designs-body-step
 masthead-row-holds-eyebrow-and-slug-apart
+
+# The two surfaces, the way the design assigns them. The binder card resolves
+# to the surface role and the frame around it to the page-ground role — each
+# read as the one token its background names, the two roles distinct in both
+# palettes, and the page's old assignment (card on the ground, frame on the
+# surface) failing as the first control. Nothing inside the card paints what
+# the card paints, in either palette, except the one box that sticks — the wave
+# step header, whose repaint of the card's surface the bleed behaviour above
+# already pins. And every soft state tint a binder header wears composites over
+# that surface: the tints are read as translucent tokens and the BASE beneath
+# them as the card, with no ground of its own on the header or between — the
+# base is what is proven, never the tint's value, which no item here changes.
+# The design side of the first — the value the design file itself declares for
+# the surface role — is read by scripts/validate_plugin.py, not by this
+# self-test, which needs no repo.
+binder-card-on-the-surface-frame-on-the-page-ground
+nothing-inside-the-binder-card-shares-its-ground
+binder-header-tints-composite-over-the-card-surface
