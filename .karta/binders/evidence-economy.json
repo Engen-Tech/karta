@@ -1,0 +1,407 @@
+{
+  "slug": "evidence-economy",
+  "title": "Verification gets a paper trail, and the build skill fits in one read again",
+  "summary": "A measured delivery showed karta spending sixty cents of every dollar on overhead: the two gate reviewers run one after the other, every oracle is re-executed with a model re-reading the full logs each time, nothing caps output anywhere, and the build skill's own instruction file has grown past the size the runtime can read — it silently truncates today. This binder makes the fixes in karta itself: a deterministic runner that executes an oracle once and leaves a small fixed-shape evidence record everyone else reads; merge re-validation that always re-executes but reads the capped record; mechanical checkers for empty diffs, malformed gate reports, and commit provenance so models stop doing clerical work; parallel gate dispatch; honest-oracle authoring rules; a restructured build skill that always loads whole; and the already-specced fixed-fixture cost benchmark so the next release can prove the overhead actually fell.",
+  "motivation": "The measured gringotts 2.21.0 delivery ran at overhead ratio 0.60 with 193.4M builder cache-read tokens, strictly serial gates, at least three oracle executions per item with full-log model re-reads, no output caps anywhere, and a karta-build SKILL.md at 79,919 bytes silently truncating at the 56,297-byte Read cap — every finding maps to a mechanical fix karta can make in its own repo.",
+  "scope": {
+    "included": [
+      "skills/karta-build/SKILL.md — restructured into a lean always-loaded core STRICTLY under 56,297 bytes plus five conditional annex files under skills/karta-build/references/ (UI/data phases, visual validation, greenfield/scaffold mode, the single-item hatch's terminal steps, resume/recovery details), with zero doctrine loss: every rule lands in core or in an annex whose load trigger the core states",
+      "skills/karta-build/scripts/run_oracle.py — a NEW stdlib deterministic oracle runner: executes one oracle command, judges success mechanically (exit 0 plus an optional expected-marker match), and emits a capped evidence record (command hash, resolved cwd, shell, environment fingerprint, exit status, expect result, decisive output capped at 1 KB head+tail) that it can attach as a git ref payload under the item's ref namespace",
+      "skills/karta-build/SKILL.md (floor + acceptance), skills/karta-deliver/SKILL.md (merge-time re-validation + merge queue), skills/_shared/verification-gate.md, and skills/_shared/integration-branch.md — rewired so floor, gate, and merge re-validation run through the runner and read the capped record instead of raw logs, and the merge queue runs the mechanical provenance check before merging",
+      "hooks/scripts/guard_gate_dispatch.py — a NEW PreToolUse Task|Agent sibling of the auditor-dispatch guard: refuses a gate-agent dispatch whose diff range is empty (today discovered post-hoc as a BLOCKED verdict, after two gate contexts spun up) and requires the dispatch brief to carry a deterministic diff-size stat line; wired into hooks/hooks.json, with one honest row added to the Codex parity table",
+      "skills/karta-verify/scripts/check_gate_report.py and skills/karta-deliver/scripts/check_item_provenance.py — NEW stdlib checkers that mechanize what today is prose-only: a returned gate report's Verdict line must agree with its envelope and the safety report must carry the mandatory stack-pack provenance line matching the binder's pinned packs; and every commit in an item's range must carry the item marker, with the accepted-ref and trailer rules of the integration-branch doctrine asserted from git itself",
+      "skills/karta-verify/SKILL.md — the two read-only gate agents are dispatched in parallel instead of serially (the measured run lost ~13 minutes to serialization), kickback re-dispatch briefs carry deterministic facts only and never the prior attempt's verdict prose, and the orchestrator runs the gate-report checker on every returned report before acting on it",
+      "skills/karta-plan/SKILL.md (Phase-2 synthesis rules), skills/karta-plan/scripts/validate_binder.py, and skills/karta-plan/references/binder-schema.json — honest-oracle authoring doctrine (success-only markers where feasible, absence assertions proved against a positive control, measured expectations rather than copied figures), an optional oracle expect field in the schema, and an advisory vacuous-oracle lint",
+      "benchmarks/perf/fixture-v1/ (frozen fixture: repo tarball with a pre-committed two-item binder, settings, runner, README), benchmarks/perf/mine_fixture.py (stream-json miner sharing lineage with mine_sessions.py), and benchmarks/probes/perf-fixture-cost-baseline.py (probe adapter in the sibling probes' JSON contract) — the already-specced but missing pieces of the fixed-fixture per-phase cost baseline, so the next release comparison is mechanical",
+      "The regenerated projections of every canonical skill file above — the .agents/ Codex skill mirrors and the plugins/karta marketplace install tree — kept generated-identical by the sync scripts in the same change"
+    ],
+    "excluded": [
+      "agents/karta-acceptance-reviewer.md and agents/karta-safety-auditor.md are NOT edited — the report grammar the new gate-report checker enforces (the `**Verdict:**` envelope-agreement rule and the mandatory `Stack-pack check:` provenance line) is already normative in both agent files; the checker mechanizes existing doctrine, it does not change it",
+      "hooks/scripts/guard_auditor_dispatch.py is NOT edited — the new dispatch guard is a sibling with an orthogonal concern (diff-range emptiness and size, both gate agents) and the auditor guard's fail-closed checklist logic stays exactly as delivered",
+      ".codex/hooks.json, .codex-plugin/hooks/, and plugins/karta/.codex-plugin/ are UNCHANGED — the Codex hook surface ships only the guards it can express (binder immutability, pack writes, the Stop gate); agent-dispatch inspection is 'Doctrine for now' on Codex per the parity table in docs/how-to/codex.md, and the new guard follows that precedent by registering on the Claude surface only, with the parity table saying so honestly",
+      "benchmarks/perf/mine_sessions.py is NOT edited — mine_fixture.py imports and reuses it per the spec's shared-lineage note ('if that ships first', and it shipped), never forks it; the committed miner-transcript fixture and every committed perf result stay byte-identical",
+      "benchmarks/claims.yaml and every committed baseline, finding, and gate result are NOT edited; the two docs touched (docs/how-to/codex.md gains one parity row) keep the live doc-truth parity ledger green, which the touching item's oracle runs",
+      "skills/karta-plan/references/binder-reference.md (and its per-skill copies) is NOT edited in this binder — the new optional oracle expect field is documented in the plan skill's own authoring rules and carried by the schema; promoting it into the field guide is deliberately deferred because the guide's four per-skill copies have no automated sync check and fanning a doc edit across them belongs to a dedicated pass (recorded as an open question for the human)",
+      "skills/karta-validate/SKILL.md is NOT edited — the visual gate's own flow is untouched; it is affected only through the byte-identical copy of verification-gate.md it carries, regenerated by the shared-copy sync",
+      "The mid-delivery interim state is benign: hooks run from the INSTALLED plugin, not this worktree, so wiring the new dispatch guard and the new brief requirements into the repo cannot brick this binder's own delivery; the guard and the brief doctrine that satisfies it ship in the same release",
+      "No consumer-repo behavior changes until upgrade: every new script is invoked by karta's own skills and hooks; the binder schema change is additive (an optional field plus an advisory warning), so existing binders validate unchanged"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Claude Code + Codex plugin repo: markdown doctrine (skills/, agents/) with generated projections, pure-stdlib Python tooling"
+  },
+  "env_contract": {
+    "command": "python3 scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring"
+  ],
+  "shared_terms": [
+    {
+      "id": "evidence-ref-namespace",
+      "canonical": "refs/karta/<slug>/item-<id>/evidence",
+      "items": [
+        "oracle-runner",
+        "evidence-wiring"
+      ]
+    },
+    {
+      "id": "decisive-output-field",
+      "canonical": "decisive_output",
+      "items": [
+        "oracle-runner",
+        "evidence-wiring"
+      ]
+    },
+    {
+      "id": "commit-marker-grammar",
+      "canonical": "[karta:item-<id>]",
+      "items": [
+        "report-provenance-checkers",
+        "evidence-wiring"
+      ]
+    },
+    {
+      "id": "stack-pack-provenance-line",
+      "canonical": "Stack-pack check:",
+      "items": [
+        "report-provenance-checkers",
+        "verify-economy"
+      ]
+    },
+    {
+      "id": "diff-size-stat-line",
+      "canonical": "Diff-size:",
+      "items": [
+        "dispatch-guard",
+        "verify-economy"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "slim-build-core",
+      "title": "The build skill fits in one read again",
+      "summary": "The build skill's 79,919-byte instruction file — which today silently truncates at the runtime's 56,297-byte read cap, dropping its own tail doctrine — is restructured into a lean always-loaded core strictly under that cap plus five conditional annex reference files, with every rule landing in core or in an annex whose load trigger the core states.",
+      "estimate": "L",
+      "depends_on": [],
+      "contract": "One canonical file restructured plus five NEW annex files, plus mirrors. (1) THE PROBLEM IS LIVE: skills/karta-build/SKILL.md is 79,919 bytes and the host Read tool caps a single read at 56,297 bytes, so every session that loads the skill silently drops the tail — a real degradation, not a style preference. (2) THE SPLIT (phase-label rule first: the Roots table in docs/conventions/phase-labels.md pins every `build:*` label definition to skills/karta-build/SKILL.md and the parity probe's Lane G enforces it, so ANNEXES DEFINE NO `build:*` LABELS — every label definition line stays in core at the load-trigger point and annexes only cross-reference labels; karta-build's Phases 3 and 8 are reserved placeholders that carry no label and stay as reserved markers in core; every section not explicitly assigned to an annex below stays in core): the core SKILL.md keeps everything always-on — frontmatter, the mutation guard, project configuration, Phase 0 classify, Phase 1 gate (including RUN_MODE), Phase 2 sanity, Phase 4 implement (minus the greenfield block), Phase 5 floor, the stack-pack steps (4c-ter and 6-sme: the strings 'the composed Review checklist' and 'resolve_pack_checklist.py' MUST remain in core), Phase 6 acceptance loop (minus visual-oracle specifics), Phase 9 commit + secret scan + the mode table (with the `[karta:item-<id>]` marker rule and its trailer alternative staying in core verbatim), Phase 10 report, and the always-applicable gotchas. Five NEW annexes under skills/karta-build/references/ take the conditional doctrine: build-ui-data.md (the conditional UI/data annex settings, DTCG token resolution, and the whole Phase 5b data-layer conformance loop), build-visual-validation.md (the visual-oracle acceptance path, dev-server work, and Phase 7 teardown), build-greenfield.md (greenfield/scaffold mode, the lockfile decision, and the tool-version-pinning rules), build-single-item-hatch.md (the 9c-single terminal sequence: self-merge, shared-terms check, doc-gardner, kaizen, binder archive), and build-resume.md (the worktree clobber-guard recovery and every resume-specific rule). (3) ZERO DOCTRINE LOSS: every normative sentence in today's file lands in core or in exactly one annex — moved, not paraphrased away; nothing is deleted on the theory that it was redundant. For each annex the core states a one-line LOAD TRIGGER at the point where the old text stood (e.g. 'when the item carries a UI/data surface, read references/build-ui-data.md before Phase 5b'; 'when RUN_MODE is single-item, read references/build-single-item-hatch.md before 9c'), written as a backticked references/ path so validate_plugin.py's existing path check verifies each annex exists. (4) HEADROOM: target roughly 48 KB for the core so routine doctrine growth does not immediately re-breach the cap; the hard gate is strictly under 56,297 bytes — and EACH ANNEX also stays strictly under that same cap, so no annex reintroduces silent truncation one level down. (5) STABILITY FOR THE NEXT ITEM: the evidence-wiring item (this binder) edits the core's Phase 5 floor and Phase 6 acceptance paragraphs after this item lands — keep both phases in core and keep their section anchors (`build:floor`, `build:acceptance`) unchanged. (6) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so the .agents/ and plugins/karta mirrors of the core and all five annexes regenerate byte-identically; validate_plugin.py --self-test fails otherwise. Out of scope: any behavioral change to what the doctrine says (this item relocates; the evidence-wiring item rewrites), the shared _shared/ references (owned by evidence-wiring), and scripts.",
+      "touches": [
+        "skills/karta-build/SKILL.md",
+        "skills/karta-build/references/build-ui-data.md",
+        "skills/karta-build/references/build-visual-validation.md",
+        "skills/karta-build/references/build-greenfield.md",
+        "skills/karta-build/references/build-single-item-hatch.md",
+        "skills/karta-build/references/build-resume.md",
+        ".agents/skills/karta-build/SKILL.md",
+        ".agents/skills/karta-build/references/build-ui-data.md",
+        ".agents/skills/karta-build/references/build-visual-validation.md",
+        ".agents/skills/karta-build/references/build-greenfield.md",
+        ".agents/skills/karta-build/references/build-single-item-hatch.md",
+        ".agents/skills/karta-build/references/build-resume.md",
+        "plugins/karta/skills/karta-build/SKILL.md",
+        "plugins/karta/skills/karta-build/references/build-ui-data.md",
+        "plugins/karta/skills/karta-build/references/build-visual-validation.md",
+        "plugins/karta/skills/karta-build/references/build-greenfield.md",
+        "plugins/karta/skills/karta-build/references/build-single-item-hatch.md",
+        "plugins/karta/skills/karta-build/references/build-resume.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; test $(wc -c < skills/karta-build/SKILL.md) -lt 56297; for a in build-ui-data build-visual-validation build-greenfield build-single-item-hatch build-resume; do test -f \"skills/karta-build/references/$a.md\"; test $(wc -c < \"skills/karta-build/references/$a.md\") -lt 56297; grep -qF -- \"references/$a.md\" skills/karta-build/SKILL.md; done; grep -qF -- \"[karta:item-\" skills/karta-build/SKILL.md; grep -qF -- \"the composed Review checklist\" skills/karta-build/SKILL.md; grep -qF -- \"resolve_pack_checklist.py\" skills/karta-build/SKILL.md; grep -qiF -- \"greenfield\" skills/karta-build/references/build-greenfield.md; grep -qF -- \"single-item hatch\" skills/karta-build/references/build-single-item-hatch.md; grep -qF -- \"data-layer\" skills/karta-build/references/build-ui-data.md; grep -qiF -- \"teardown\" skills/karta-build/references/build-visual-validation.md; grep -qiF -- \"clobber\" skills/karta-build/references/build-resume.md' && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the core skills/karta-build/SKILL.md is strictly under 56,297 bytes — the host Read cap — so the always-loaded doctrine can never again silently truncate",
+          "all five annex files exist under skills/karta-build/references/ and the core names each one by its backticked references/ path at its load-trigger point, so validate_plugin's path check and a plain grep both prove the wiring",
+          "the always-on doctrine stayed in core: the commit-marker grammar, the composed-checklist stack-pack steps, and the resolver invocation are still present in the core file",
+          "the moved doctrine landed: the greenfield annex carries the scaffold-mode rules, the hatch annex carries the single-item terminal sequence, the UI/data annex carries the data-layer conformance loop",
+          "sync_codex_skills.py --check reports no drift across the .agents and plugins/karta mirrors of the core and all five annexes, and validate_plugin --self-test passes with all [PASS]",
+          "every annex is itself under the read cap, all five annexes carry their moved doctrine's distinctive content, no annex defines a build:* phase label, and the live doc-truth parity ledger still reports pass (Lane G pins build:* label definitions to the core file)"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "blast-radius:the-largest-doctrine-file-in-the-repo-is-restructured-end-to-end-and-the-same-file-is-edited-again-by-the-evidence-wiring-item-in-the-next-wave",
+          "removal:relocating-eighty-kilobytes-of-normative-doctrine-risks-silent-loss-of-a-rule-that-only-fires-in-a-conditional-path"
+        ]
+      }
+    },
+    {
+      "id": "oracle-runner",
+      "title": "One oracle execution leaves a small mechanical evidence record",
+      "summary": "A new self-tested stdlib script runs an oracle command once, judges success mechanically from the exit status plus an optional expected marker, and writes a capped evidence record — command hash, resolved working directory, shell, environment fingerprint, exit status, expect result, and at most one kilobyte of decisive output — which it can attach to the item's git ref namespace for later consumers.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Create skills/karta-build/scripts/run_oracle.py — pure stdlib on the house pattern (argparse, `--self-test` with [PASS]/[FAIL] lines and an N/N summary, exit 0/1), homed beside scan_secrets.py so validate_plugin.py's skills-scripts discovery pass self-tests it on every floor run. (1) CLI: `python3 skills/karta-build/scripts/run_oracle.py [--cwd DIR] [--expect SUBSTRING | --expect-re REGEX] [--attach-ref REFNAME] [--repo DIR] [--out FILE] <command>` — one positional shell string executed as ['sh','-c', command] in the resolved cwd (default: the current directory), matching the binder oracle idiom of one shell string. --expect and --expect-re are mutually exclusive; both match against the COMBINED stdout+stderr. (2) SUCCESS is mechanical: exit status 0 AND (no expect given, or the expect matched). A `--timeout SECONDS` flag (default 600) bounds the run: on expiry the child process group is killed, success is false, the runner exits 1, and the record carries timed_out true — a hung oracle must never hang the floor or the merge queue. Exit code: 0 on success, 1 on oracle failure, 2 on usage or internal error — so the runner can wrap a floor command and the caller trusts the exit code alone. (3) THE EVIDENCE RECORD is a single JSON object on stdout (any human-facing summary goes to stderr; --out additionally writes the record to a file) with EXACTLY these eleven top-level keys: `command` (the string), `command_sha256`, `cwd` (resolved absolute), `shell` (the literal 'sh -c'), `env_fingerprint`, `exit_status`, `expect`, `decisive_output`, `success`, `timed_out` (boolean), `head_sha` (the `git rev-parse HEAD` of the resolved cwd's repository, or null outside a repository — binding the record to the tree it ran on). `env_fingerprint` = {path_sha256: hex digest of the PATH value, path_entries: entry count, runtimes: {python: the interpreter version; add other runtimes only when trivially resolvable, never by spawning installers}}. `expect` = null when no expectation was given, else {mode: 'substring'|'regex', pattern, matched}. `decisive_output` = {total_bytes, head, tail} where the UTF-8 byte length of head plus tail is AT MOST 1024 — head and tail of the combined output, truncated on character boundaries; the full output is never stored. The docstring names the cap and states the design intent: downstream consumers read this record INSTEAD of raw logs. (4) REF ATTACHMENT: with --attach-ref, after the run the record is written as a git blob (`git hash-object -w --stdin`) and the ref is pointed at it (`git update-ref <ref>`), in --repo (default: cwd's repo). The docstring and --help text carry the canonical namespace verbatim: an item's evidence lives at refs/karta/<slug>/item-<id>/evidence — the exact string 'refs/karta/<slug>/item-<id>/evidence' MUST appear in this file (shared term). Attachment failures are loud errors (exit 2), never silent. (5) SELF-TEST, hermetic: (a) a passing command yields success true, exit_status 0; (b) a failing command yields success false and runner exit 1; (c) an expect that matches vs one that does not flips success; (d) --expect-re works and rejects an invalid regex loudly; (e) a command producing far more than 1 KB of output yields decisive_output with head+tail at most 1024 bytes and an accurate total_bytes; (f) the record carries exactly the eleven keys above; (f2) a command that sleeps past a short --timeout yields timed_out true, success false, runner exit 1; (g) in a temp git repo, --attach-ref leaves a ref whose blob round-trips (git cat-file) to the same JSON. (6) CONSUMERS COME LATER: this item wires nothing into any skill — the evidence-wiring item owns the doctrine. Add no third-party dependency; match the non-executable mode of sibling scripts (invoked via `python3 <path>`). (7) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so the .agents and plugins/karta mirrors regenerate byte-identically.",
+      "touches": [
+        "skills/karta-build/scripts/run_oracle.py",
+        ".agents/skills/karta-build/scripts/run_oracle.py",
+        "plugins/karta/skills/karta-build/scripts/run_oracle.py"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; grep -qF -- \"refs/karta/<slug>/item-<id>/evidence\" skills/karta-build/scripts/run_oracle.py; grep -qF -- \"decisive_output\" skills/karta-build/scripts/run_oracle.py; out=$(python3 skills/karta-build/scripts/run_oracle.py --expect \"OK-MARKER\" \"echo OK-MARKER\"); printf \"%s\" \"$out\" | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d[\\\"exit_status\\\"]==0 and d[\\\"success\\\"] is True and d[\\\"expect\\\"][\\\"matched\\\"] is True; assert set(d)=={\\\"command\\\",\\\"command_sha256\\\",\\\"cwd\\\",\\\"shell\\\",\\\"env_fingerprint\\\",\\\"exit_status\\\",\\\"expect\\\",\\\"decisive_output\\\",\\\"success\\\",\\\"timed_out\\\",\\\"head_sha\\\"}; assert d[\\\"env_fingerprint\\\"][\\\"path_entries\\\"]>0; assert \\\"runtimes\\\" in d[\\\"env_fingerprint\\\"] and \\\"python\\\" in d[\\\"env_fingerprint\\\"][\\\"runtimes\\\"]; assert d[\\\"timed_out\\\"] is False\"; big=$(python3 skills/karta-build/scripts/run_oracle.py \"seq 1 20000\"); printf \"%s\" \"$big\" | python3 -c \"import sys,json; d=json.load(sys.stdin); o=d[\\\"decisive_output\\\"]; assert o[\\\"total_bytes\\\"]>100000; assert len(o[\\\"head\\\"].encode())+len(o[\\\"tail\\\"].encode())<=1024\"; if python3 skills/karta-build/scripts/run_oracle.py \"exit 3\" >/dev/null 2>&1; then exit 1; fi; if python3 skills/karta-build/scripts/run_oracle.py --expect \"ABSENT-MARKER\" \"echo other\" >/dev/null 2>&1; then exit 1; fi' && python3 skills/karta-build/scripts/run_oracle.py --self-test && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the runner file carries the canonical evidence-ref namespace string and the decisive-output field name verbatim (both shared terms), so doctrine and code cannot drift apart",
+          "a live known-pass run (echo with a matching expect marker) emits a record with exactly the eleven contract keys, success true, exit status 0, a matched expect, a populated environment fingerprint including the python runtime, and timed_out false",
+          "a live oversized run (seq to 20000) proves the cap: total_bytes exceeds 100 KB while head plus tail stay within 1024 bytes — the record, not the log, is what survives",
+          "a live known-fail run (exit 3) and a live expect-miss run (marker absent) both make the runner itself exit nonzero, so a wrapping caller can trust the exit code alone",
+          "the runner's --self-test passes all hermetic cases including the temp-repo ref attachment round-trip, sync_codex_skills.py --check reports no mirror drift, and validate_plugin --self-test passes with all [PASS] — the skills-scripts discovery pass now self-tests this runner on every floor run"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "capability:a-new-git-ref-write-surface-and-an-evidence-record-that-floor-gate-and-merge-doctrine-will-be-rewired-to-trust",
+          "contract:the-eleven-key-record-shape-and-the-1kb-decisive-output-cap-are-the-interface-three-later-items-consume"
+        ]
+      }
+    },
+    {
+      "id": "dispatch-guard",
+      "title": "An empty diff is refused before two reviewer contexts spin up",
+      "summary": "A new hook script refuses a gate-agent dispatch whose diff range is empty — today that is discovered only after both reviewer agents have spun up and one returns a blocked verdict — and requires every gate dispatch brief to carry a deterministic diff-size line so an oversized diff is visible before anyone reads it.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "One NEW hook script, one hook registration, one honest doc row. (1) Create hooks/scripts/guard_gate_dispatch.py — pure stdlib on the house hook pattern (payload JSON on stdin, exit 0 allows, exit 2 denies with the reason on stderr; `--self-test` with [PASS]/[FAIL] lines), a SIBLING of guard_auditor_dispatch.py, which is NOT edited. (2) RECOGNITION: a Task|Agent dispatch whose agent-identity field (the same key set the sibling scans) names `karta-acceptance-reviewer` OR `karta-safety-auditor`. Unrecognized shapes always pass. Like the sibling, the guard is FAIL-CLOSED on its recognized shape: an internal error while checking a recognized dispatch denies. (3) CHECKS on a recognized dispatch: (a) parse the diff range from the prompt (a `<rev>..<rev>` token; resolve git commands with `git -C` against the worktree path named in the brief when present, else the payload cwd); no parseable range denies — the verify skill already mandates the range as a required input, so its absence is a malformed brief, not a novel style. (b) EMPTY RANGE DENIES: when `git diff --quiet <range>` reports no changes, deny with a reason naming the two known causes (a whiff, or work already present on the tip) — this moves the existing empty-diff-is-BLOCKED doctrine from post-hoc gate verdict to pre-dispatch refusal, saving two reviewer contexts per occurrence. (c) DIFF-SIZE LINE REQUIRED: the brief must carry a line matching the grammar `Diff-size: <files> files, <bytes> bytes` (the exact string 'Diff-size:' MUST appear in this file — shared term); absence denies, with the guard printing the recomputed stat (files from `git diff --name-only | wc -l`, bytes from `git diff | wc -c`) in its stderr so the orchestrator can fix the brief in one step. The guard RECOMPUTES both numbers from git and DENIES on a numeric mismatch with the brief's line — a fictional stat is a brief defect, denied with the recomputed truth on stderr, distinct from the missing-line denial. The numbers are deterministic git output and the doctrine (the verify-economy item) names the same two commands, so orchestrator and guard agree by construction. (4) WIRE-UP: register the guard in hooks/hooks.json under the PreToolUse `Task|Agent` matcher as a second entry alongside guard_auditor_dispatch.py, same timeout idiom, and extend the manifest's description sentence to name it. validate_plugin.py's hook discovery pass then self-tests it automatically. (5) CODEX PARITY STAYS HONEST: add ONE row to the parity table in docs/how-to/codex.md — label it verbatim 'Gate dispatches carry a real, sized diff', Claude Code column 'Enforced, fail-closed (plugin hook)', Codex column the same 'Doctrine for now' posture as the auditor-dispatch row (Codex agent-dispatch inspection is not shipped). No .codex or .codex-plugin manifest changes — the precedent is the auditor guard, which registers on the Claude surface only. (6) SELF-TEST, hermetic (temp git repos, synthetic payloads): unrecognized passes; recognized with a non-empty range and a well-formed Diff-size line passes; empty range denies; missing range denies; missing Diff-size line denies; a well-formed Diff-size line whose numbers mismatch the recomputed truth denies; internal git failure on a recognized shape denies. (7) NO-BRICK NOTE: hooks run from the installed plugin, so this repo-side wiring cannot affect the delivery that lands it; the brief requirement and the brief-writing doctrine (the verify-economy item) ship in the same release.",
+      "touches": [
+        "hooks/scripts/guard_gate_dispatch.py",
+        "hooks/hooks.json",
+        "docs/how-to/codex.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; grep -qF -- \"guard_gate_dispatch.py\" hooks/hooks.json; grep -qF -- \"Diff-size:\" hooks/scripts/guard_gate_dispatch.py; grep -qF -- \"Gate dispatches carry a real, sized diff\" docs/how-to/codex.md; echo \"{}\" | python3 hooks/scripts/guard_gate_dispatch.py; if printf \"%s\" \"{\\\"cwd\\\": \\\".\\\", \\\"tool_name\\\": \\\"Task\\\", \\\"tool_input\\\": {\\\"subagent_type\\\": \\\"karta-safety-auditor\\\", \\\"prompt\\\": \\\"worktree .; binder .karta/binders/x.json; item item-a; diff range HEAD..HEAD. Diff-size: 0 files, 0 bytes\\\"}}\" | python3 hooks/scripts/guard_gate_dispatch.py 2>/dev/null; then exit 1; fi' && python3 hooks/scripts/guard_gate_dispatch.py --self-test && python3 benchmarks/probes/parity-doc-truth-ledger.py --target . | python3 -c \"import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['status']=='pass' else 1)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "hooks/hooks.json registers the new guard on the PreToolUse Task|Agent matcher alongside the auditor-dispatch guard, and the guard file carries the exact diff-size line grammar prefix (shared term)",
+          "a live unrecognized payload passes (exit 0) and a live recognized safety-auditor dispatch carrying a well-formed Diff-size line but naming the empty range HEAD..HEAD in this very repo is denied (nonzero) — the empty-diff refusal specifically is proven against real git, not conflated with the missing-line denial",
+          "the guard's --self-test passes all hermetic cases: unrecognized pass, well-formed pass, empty-range deny, missing-range deny, missing diff-size-line deny, mismatched diff-size-numbers deny, fail-closed internal-error deny",
+          "docs/how-to/codex.md carries the new parity row verbatim and the live doc-truth parity ledger still reports pass, so the honest-parity story is updated, not regressed",
+          "validate_plugin --self-test passes with all [PASS] — its hook discovery pass now self-tests the new guard on every floor run"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:a-new-pretooluse-hook-on-the-gate-dispatch-path-a-defect-here-blocks-every-acceptance-and-safety-dispatch-until-fixed",
+          "contract:the-diff-size-line-grammar-is-a-new-requirement-on-every-gate-dispatch-brief-and-must-ship-in-the-same-release-as-the-doctrine-that-writes-it"
+        ]
+      }
+    },
+    {
+      "id": "report-provenance-checkers",
+      "title": "Gate reports and commit provenance get mechanical checkers",
+      "summary": "Two new self-tested stdlib scripts turn prose-only rules into commands: one validates a returned gate report (its verdict line must agree with the envelope, and a safety report must carry the mandatory stack-pack provenance line matching the binder's pinned packs), the other asserts from git itself that every commit in an item's range carries the item marker and that any accepted-item state obeys the trailer and reachability rules.",
+      "estimate": "L",
+      "depends_on": [],
+      "contract": "Two NEW scripts, each homed with its consumer skill so validate_plugin.py's skills-scripts discovery pass self-tests both on every floor run; both pure stdlib, argparse, `--self-test` with [PASS]/[FAIL] lines, exit 0 clean / 1 findings / 2 usage; both are built here and INVOKED BY DOCTRINE in the evidence-wiring and verify-economy items — this item wires nothing into any SKILL.md. (A) skills/karta-verify/scripts/check_gate_report.py. CLI: `--agent acceptance|safety --envelope pass|concerns|blocked --report FILE --binder FILE [--item ID]`. Checks: (1) the report contains exactly one `**Verdict:**` line and its value maps to the envelope by the tables already normative in the agent files (acceptance: CONFORMANT→pass, DEVIATION→concerns, SPEC-SUSPECT or BLOCKED→blocked; safety: PASS→pass, VIOLATION→concerns, BLOCKED→blocked — exactly the mapping the safety agent file itself states as normative; a verdict line outside an agent's normative set (CONFORMANT in a safety report, PASS in an acceptance report) is itself a finding, never a mapped row) — a divergence is a finding, mirroring the agents' own 'a divergence halts the pipeline' rule; (2) for --agent safety, the mandatory provenance line is present in its exact grammar — the string 'Stack-pack check:' MUST appear in this file (shared term) — and is consistent with the binder: the pinned id list in the line equals the binder's sme[] as a set; 'skipped' is legitimate only when sme[] is empty or absent; pinned-but-unresolved must read 'blocked', never 'skipped'. The checker validates the REPORT AGAINST THE RULES THE AGENT FILES ALREADY STATE; agents/karta-acceptance-reviewer.md and agents/karta-safety-auditor.md are not edited. Findings print one line each; exit 1 on any. (B) skills/karta-deliver/scripts/check_item_provenance.py. CLI: `--repo DIR --item ID --range A..B [--slug SLUG] [--check-accepted]`. Checks: (1) MARKER: every commit in the range carries the commit marker for the item — the grammar string '[karta:item-<id>]' MUST appear verbatim in this file's docstring (shared term) — satisfied by the bracket marker in the subject OR the `Karta-Item: item-<id>` trailer, exactly the two forms integration-branch.md sanctions; any unmarked or wrong-item commit is a finding naming the sha. (2) ACCEPTED-STATE RULES with --check-accepted and --slug: if `refs/karta/<slug>/item-<id>/accepted` exists, assert its companion done merge is FIRST-PARENT-REACHABLE on `karta/<slug>/integration` and carries the `Karta-Accepted` and `Karta-Accept-Reason` trailers; a trailer-bearing merge off the first-parent chain, or an accepted ref with no reachable done merge, is a finding — mechanizing the resume-honoring rule that today lives only in prose. (3) The script only READS git (rev-list, log, cat-file, merge-base --is-ancestor equivalents via rev-list --first-parent); it never writes a ref. SELF-TEST, hermetic in temp git repos: a marked range passes; a subject-marker and a trailer-marker commit both count; an unmarked commit is a finding with its sha; a wrong-item marker is a finding; a synthetic accepted ref with a first-parent-reachable trailered merge passes while a side-branch trailered merge is a finding. (C) MIRRORED SURFACE: both scripts gain .agents and plugins/karta mirrors via python3 scripts/sync_codex_skills.py (these are the first files under skills/karta-verify/scripts/ and skills/karta-deliver/scripts/ — the sync writers create the directories). Match the non-executable mode of sibling scripts. Add no third-party dependency.",
+      "touches": [
+        "skills/karta-verify/scripts/check_gate_report.py",
+        ".agents/skills/karta-verify/scripts/check_gate_report.py",
+        "plugins/karta/skills/karta-verify/scripts/check_gate_report.py",
+        "skills/karta-deliver/scripts/check_item_provenance.py",
+        ".agents/skills/karta-deliver/scripts/check_item_provenance.py",
+        "plugins/karta/skills/karta-deliver/scripts/check_item_provenance.py"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; grep -qF -- \"Stack-pack check:\" skills/karta-verify/scripts/check_gate_report.py; grep -qF -- \"[karta:item-<id>]\" skills/karta-deliver/scripts/check_item_provenance.py; rpt=$(mktemp); printf \"%s\\n\" \"**Verdict:** PASS\" \"Stack-pack check: skipped — pinned: []; resolved: []; items judged: 0\" > \"$rpt\"; bnd=$(mktemp); python3 -c \"import json,sys; json.dump({\\\"slug\\\":\\\"t\\\",\\\"title\\\":\\\"t\\\",\\\"summary\\\":\\\"t\\\",\\\"motivation\\\":\\\"t\\\",\\\"scope\\\":{\\\"included\\\":[\\\"x\\\"]},\\\"env_contract\\\":{\\\"command\\\":\\\"true\\\",\\\"supports_isolation\\\":False},\\\"work_items\\\":[{\\\"id\\\":\\\"a\\\",\\\"title\\\":\\\"A\\\",\\\"summary\\\":\\\"s\\\",\\\"oracle\\\":{\\\"type\\\":\\\"smoke\\\"}}]},open(sys.argv[1],\\\"w\\\"))\" \"$bnd\"; python3 skills/karta-verify/scripts/check_gate_report.py --agent safety --envelope pass --binder \"$bnd\" --report \"$rpt\"; if python3 skills/karta-verify/scripts/check_gate_report.py --agent safety --envelope blocked --binder \"$bnd\" --report \"$rpt\" >/dev/null 2>&1; then exit 1; fi; alien=$(mktemp); printf \"%s\\n\" \"**Verdict:** CONFORMANT\" \"Stack-pack check: skipped — pinned: []; resolved: []; items judged: 0\" > \"$alien\"; if python3 skills/karta-verify/scripts/check_gate_report.py --agent safety --envelope pass --binder \"$bnd\" --report \"$alien\" >/dev/null 2>&1; then exit 1; fi; tr=$(mktemp -d); git -C \"$tr\" init -q; git -C \"$tr\" -c user.email=t@t -c user.name=t commit -q --allow-empty -m \"base\"; git -C \"$tr\" -c user.email=t@t -c user.name=t commit -q --allow-empty -m \"feat: x [karta:item-a]\"; python3 skills/karta-deliver/scripts/check_item_provenance.py --repo \"$tr\" --item a --range HEAD~1..HEAD; git -C \"$tr\" -c user.email=t@t -c user.name=t commit -q --allow-empty -m \"unmarked change\"; if python3 skills/karta-deliver/scripts/check_item_provenance.py --repo \"$tr\" --item a --range HEAD~1..HEAD >/dev/null 2>&1; then exit 1; fi' && python3 skills/karta-verify/scripts/check_gate_report.py --self-test && python3 skills/karta-deliver/scripts/check_item_provenance.py --self-test && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "both checkers carry their canonical grammar strings verbatim (the stack-pack provenance line prefix, the commit-marker grammar — both shared terms)",
+          "a live probe proves the gate-report checker three ways: a well-formed safety report with a matching envelope passes, the same report against a mismatched envelope is a nonzero finding, and a safety report carrying an acceptance verdict (CONFORMANT) is a nonzero finding — the normative set includes safety BLOCKED→blocked exactly as the agent file states",
+          "a live probe in a scratch git repo proves the provenance checker both ways: a marker-carrying range passes and an unmarked commit in range is a nonzero finding naming the problem",
+          "both scripts' --self-test suites pass all hermetic cases including the trailer-marker form and the first-parent-reachability rule for accepted refs",
+          "sync_codex_skills.py --check reports no drift across the four new mirror copies, and validate_plugin --self-test passes with all [PASS] — the skills-scripts discovery pass self-tests both checkers from now on"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:the-checkers-mechanize-report-and-provenance-grammar-already-normative-in-the-agent-files-and-integration-branch-doctrine-without-changing-either"
+        ]
+      }
+    },
+    {
+      "id": "honest-oracle-authoring",
+      "title": "Planned oracles must be provable, not just runnable",
+      "summary": "The planning skill's synthesis rules gain honest-oracle doctrine — prefer a success-only marker, prove any absence assertion against a positive control, and measure expectations rather than copying supplied figures — while the binder schema gains an optional expected-marker field and the validator gains an advisory lint that names vacuous oracles.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Three canonical files plus mirrors, all in the planning skill's own tree. (1) skills/karta-plan/SKILL.md, Phase 2 (`plan:synthesize`): add an 'Authoring honest oracles' rule block stating, with these exact fragments present verbatim: (a) an oracle command should emit and check a 'success-only marker' where feasible — a string that appears only on genuine success (and may be recorded in the oracle's optional `expect` field) — because judging by the absence of error text mistakes silence for health; (b) an absence-asserting oracle (grep -v, 'no longer contains', a zero count) must be provable against a 'positive control' — the plan states how the same check fails on a tree that still has the retired thing, otherwise a typo in the pattern passes forever; (c) never copy a supplied figure into an expectation — 'never copy a supplied figure' appears verbatim — measure the real value at plan time and record the measured number with its source. Keep every edit outside any integrity-pinned span (the matching-rule span in this file is not touched; verify with the pinned-span check if in doubt). (2) skills/karta-plan/references/binder-schema.json: in the check-oracle branch, add an optional `\"expect\"` string property (the success marker or pattern the command's output must contain) — additive only; `additionalProperties` handling stays as it is; no existing binder becomes invalid. (3) skills/karta-plan/scripts/validate_binder.py: (a) the schema addition flows through _load_schema untouched — add self-test cases proving an oracle with `expect` validates and a non-string `expect` fails; (b) add an ADVISORY vacuous-oracle lint on the pattern of the existing warning helpers (printed as `warning:` lines, never affecting the exit code): warn when a check oracle's command is vacuous — matching a bare `true`, `:`, or a lone `echo ...` with no other command in the string — and warn when a check oracle carries assertions but neither a command nor an opt-out (nothing runnable backs the assertions); include the word 'vacuous' in the warning text so a human and a grep can find it; (c) extend --self-test with cases for both warnings firing and for a normal compound command NOT warning. (4) MIRRORED SURFACE: run python3 scripts/sync_codex_skills.py so the .agents and plugins/karta mirrors of all three files regenerate. Out of scope: the shared binder field guide (binder-reference.md) and its per-skill copies — documenting `expect` there is deliberately deferred (see the binder's excluded list); run_oracle.py's --expect flag (the oracle-runner item) is the execution-side twin but no file is shared between the two items.",
+      "touches": [
+        "skills/karta-plan/SKILL.md",
+        ".agents/skills/karta-plan/SKILL.md",
+        "plugins/karta/skills/karta-plan/SKILL.md",
+        "skills/karta-plan/scripts/validate_binder.py",
+        ".agents/skills/karta-plan/scripts/validate_binder.py",
+        "plugins/karta/skills/karta-plan/scripts/validate_binder.py",
+        "skills/karta-plan/references/binder-schema.json",
+        ".agents/skills/karta-plan/references/binder-schema.json",
+        "plugins/karta/skills/karta-plan/references/binder-schema.json"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"success-only marker\" \"positive control\" \"never copy a supplied figure\"; do grep -qF -- \"$s\" skills/karta-plan/SKILL.md; done; grep -qF -- \"\\\"expect\\\"\" skills/karta-plan/references/binder-schema.json; b=$(mktemp); python3 -c \"import json,sys; json.dump({\\\"slug\\\":\\\"t\\\",\\\"title\\\":\\\"t\\\",\\\"summary\\\":\\\"t\\\",\\\"motivation\\\":\\\"t\\\",\\\"scope\\\":{\\\"included\\\":[\\\"x\\\"]},\\\"env_contract\\\":{\\\"command\\\":\\\"true\\\",\\\"supports_isolation\\\":False},\\\"work_items\\\":[{\\\"id\\\":\\\"a\\\",\\\"title\\\":\\\"A\\\",\\\"summary\\\":\\\"s\\\",\\\"oracle\\\":{\\\"type\\\":\\\"smoke\\\",\\\"command\\\":\\\"pytest -q\\\",\\\"expect\\\":\\\"MARKER\\\"}}]},open(sys.argv[1],\\\"w\\\"))\" \"$b\"; python3 skills/karta-plan/scripts/validate_binder.py --binder \"$b\" | grep -qF \"VALID.\"; v=$(mktemp); python3 -c \"import json,sys; json.dump({\\\"slug\\\":\\\"t\\\",\\\"title\\\":\\\"t\\\",\\\"summary\\\":\\\"t\\\",\\\"motivation\\\":\\\"t\\\",\\\"scope\\\":{\\\"included\\\":[\\\"x\\\"]},\\\"env_contract\\\":{\\\"command\\\":\\\"true\\\",\\\"supports_isolation\\\":False},\\\"work_items\\\":[{\\\"id\\\":\\\"a\\\",\\\"title\\\":\\\"A\\\",\\\"summary\\\":\\\"s\\\",\\\"oracle\\\":{\\\"type\\\":\\\"smoke\\\",\\\"command\\\":\\\"true\\\"}}]},open(sys.argv[1],\\\"w\\\"))\" \"$v\"; python3 skills/karta-plan/scripts/validate_binder.py --binder \"$v\" | grep -qi \"vacuous\"' && python3 skills/karta-plan/scripts/validate_binder.py --self-test && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the planning skill's synthesis rules carry all three honest-oracle fragments verbatim: the success-only marker preference, the positive-control requirement for absence assertions, and the never-copy-a-supplied-figure rule",
+          "a live probe proves the schema addition end to end: a synthesized binder whose check oracle carries an expect string validates as VALID through the real validator",
+          "a live probe proves the lint: a binder whose oracle command is a bare true draws a warning containing the word vacuous, while the validator still exits 0 — the lint is advisory, exactly like the existing warning helpers",
+          "validate_binder.py --self-test passes with the new cases: expect accepted, non-string expect rejected, both vacuous warnings firing, and a normal compound command drawing no warning",
+          "sync_codex_skills.py --check reports no drift across the three files' mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:the-binder-schema-gains-one-additive-optional-field-and-an-advisory-warning-no-existing-binder-changes-validity"
+        ]
+      }
+    },
+    {
+      "id": "fixture-harness",
+      "title": "The fixed-fixture cost benchmark becomes runnable",
+      "summary": "The already-specced but never-built pieces of the per-phase cost baseline land: a frozen tiny fixture (a minimal repo tarball with a pre-committed two-item binder, a settings allowlist, a runner, and a README recording the pin mechanism), a stream-json miner that reuses the existing session miner, and a probe adapter in the sibling probes' JSON contract.",
+      "estimate": "L",
+      "depends_on": [],
+      "contract": "Read benchmarks/perf/perf-fixture-cost-baseline.md FIRST — it is the spec and this item builds exactly its named inputs, changing the spec file only in frontmatter. (1) benchmarks/perf/fixture-v1/ — four files per the spec's procedure step 1: repo.tar.gz (a frozen, tiny karta-testbed-shape repo with its own git history and a pre-committed .karta/binders/bench.json holding one S unit-oracle item and one M integration-oracle item, no UI fields — the binder must pass this repo's validate_binder.py before freezing), settings.json (the permission allowlist the headless delivery needs), runner.sh (POSIX sh, parameterized by plugin tag and repeat index, implementing procedure steps 2-4 verbatim: mktemp run root, tar extract, plugin pin per the README mechanism, the timed headless invocation writing stream-json), and README.md recording the pin mechanism and the immutability rule (fixture bytes never change; a schema-breaking release mints fixture-v2 and RESETS the baseline). The tarball is committed binary content; keep the inner repo minimal (a few files) so the tarball stays small. (2) benchmarks/perf/mine_fixture.py — stdlib, argparse, `--self-test`: given one or more stream-json .jsonl session files, emit per run exactly the spec's step-6 metric set: spawned-context count per item, per-phase turn counts, verify-retry count, merge-time re-validation count, per-phase output tokens, wall minutes, resolved model-ID set, and claude CLI version. SHARED LINEAGE, not a fork: import benchmarks/perf/mine_sessions.py (which shipped first) for event parsing and phase classification the way the telemetry probe already loads it (importlib on the file path, cwd-independent); mine_sessions.py is NOT edited. --self-test validates the miner against the committed fixture transcript at benchmarks/perf/fixtures/miner-transcript/ where its events suffice, plus embedded synthetic events for the counts that fixture lacks; every case prints [PASS]/[FAIL]. (3) benchmarks/probes/perf-fixture-cost-baseline.py — a probe adapter exactly on the sibling pattern (perf-delivery-telemetry.py is the model): prints the standard contract {\"id\",\"status\":\"pass\"|\"fail\",\"partial\",\"implemented_checks\",\"findings\",\"metrics\"} to stdout and exits 0 whether pass or fail; GATING comes from deterministic local checks — fixture-v1 integrity (all four files present, the tarball lists .karta/binders/bench.json among its members, runner.sh parses under sh -n) and mine_fixture correctness on the committed transcript fixture; the quarterly A/B execution itself (a 90-minute timed delivery) is NOT run by the probe — it stays a manual cadence run, so `partial` is true and implemented_checks names only the fixture-integrity and miner lanes, honestly labeled like the sibling's deferred modes. --self-test covers the contract shape, a doctored-fixture fail flip, and the miner gating. (4) benchmarks/perf/perf-fixture-cost-baseline.md — flip frontmatter `probe_status: planned` to `probe_status: partial` (matching the sibling's honest labeling); the body is not edited. (5) Benchmarks are not mirrored — no sync step; the repo floor still applies. Add no third-party dependency anywhere.",
+      "touches": [
+        "benchmarks/perf/fixture-v1/repo.tar.gz",
+        "benchmarks/perf/fixture-v1/settings.json",
+        "benchmarks/perf/fixture-v1/runner.sh",
+        "benchmarks/perf/fixture-v1/README.md",
+        "benchmarks/perf/mine_fixture.py",
+        "benchmarks/probes/perf-fixture-cost-baseline.py",
+        "benchmarks/perf/perf-fixture-cost-baseline.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for f in repo.tar.gz settings.json runner.sh README.md; do test -f \"benchmarks/perf/fixture-v1/$f\"; done; tar -tzf benchmarks/perf/fixture-v1/repo.tar.gz | grep -q \"\\.karta/binders/bench\\.json\"; sh -n benchmarks/perf/fixture-v1/runner.sh; grep -qF -- \"stream-json\" benchmarks/perf/fixture-v1/runner.sh; fx=$(mktemp -d); tar -xzf benchmarks/perf/fixture-v1/repo.tar.gz -C \"$fx\"; python3 skills/karta-plan/scripts/validate_binder.py --binder \"$(find \"$fx\" -path \"*/.karta/binders/bench.json\")\" | grep -qF \"VALID.\"; grep -qF -- \"probe_status: partial\" benchmarks/perf/perf-fixture-cost-baseline.md' && python3 benchmarks/perf/mine_fixture.py --self-test && python3 benchmarks/probes/perf-fixture-cost-baseline.py --self-test && python3 benchmarks/probes/perf-fixture-cost-baseline.py --target . | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d['id']=='perf-fixture-cost-baseline' and d['status']=='pass' and d['partial'] is True and isinstance(d['implemented_checks'],list) and isinstance(d['findings'],list) and isinstance(d['metrics'],dict)\" && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "all four frozen fixture files exist, the runner parses under sh -n and produces the stream-json invocation the spec names, and the frozen binder EXTRACTED from the tarball passes this repo's live validate_binder.py — the fixture cannot rot silently at commit time",
+          "mine_fixture.py --self-test passes against the committed miner transcript plus synthetic events, proving the spec's full step-6 metric set (spawned contexts per item, per-phase turns, verify retries, merge re-validations, per-phase output tokens, model-ID set) is mined correctly by reusing the existing session miner, not forking it",
+          "the probe adapter's --self-test passes (contract shape, doctored-fixture fail flip, miner gating) and a live run against this repo emits the standard probe contract with status pass and partial true — the quarterly timed delivery stays manual and is honestly excluded from implemented_checks",
+          "the spec card's frontmatter now reads probe_status: partial, matching the sibling's honest labeling, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "capability:a-committed-binary-fixture-tarball-enters-the-repo-frozen-by-doctrine-and-checked-by-the-probe-for-integrity"
+        ]
+      }
+    },
+    {
+      "id": "evidence-wiring",
+      "title": "Floor, gate, and merge stop re-reading logs and read the evidence record",
+      "summary": "The build skill's floor and acceptance phases run oracle commands through the deterministic runner and read its capped record instead of raw output; the delivery orchestrator's merge-time re-validation always re-executes the same way — the stored command hash only surfaces binder-command drift, never skips execution — and runs the mechanical provenance check before every merge — with the canonical verification-gate and integration-branch doctrine updated where those rules live.",
+      "estimate": "L",
+      "depends_on": [
+        "slim-build-core",
+        "oracle-runner",
+        "report-provenance-checkers",
+        "dispatch-guard"
+      ],
+      "contract": "Two skill files and two canonical shared references, plus every byte-identical copy and mirror. (1) skills/karta-build/SKILL.md (the slimmed core from the earlier item; its byte cap still holds after these edits): in Phase 5 (`build:floor`) and Phase 6 (`build:acceptance`), oracle and floor COMMANDS are executed through the runner — `python3 skills/karta-build/scripts/run_oracle.py --cwd <the item's resolved execution context per the binder field guide's Execution-context rules: the oracle's own cwd when set, else the worktree root> [--expect <oracle.expect>] '<command>'` — and the implementer reads the emitted evidence record (success, exit_status, and the capped decisive_output field) instead of scrolling raw logs; state plainly that on failure the record's decisive_output head+tail is the debugging entry point and the full log is re-examined only inside the worktree when the capped output is genuinely insufficient — never pasted into a dispatch or report. On a clean floor the worker attaches the record with --attach-ref at the item's namespace (write the exact string 'refs/karta/<slug>/item-<id>/evidence'). The exact field name 'decisive_output' must appear in this file (shared term). (2) skills/karta-deliver/SKILL.md, the serial merge queue (`deliver:waveloop` Step 3) and lifecycle: (a) merge-time re-validation runs the item oracle through the same runner and reads the record — the orchestrator never reads full oracle logs; (b) MERGE RE-VALIDATION ALWAYS RE-EXECUTES — state it plainly, and the exact lowercase fragment 'always re-executes' must appear in the file (the oracle greps it case-sensitively): the runner re-runs the oracle against the merged tip every time; there is no skip-on-match, because a matching command hash says nothing about the composed tree, which is what merge-time re-validation exists to test. The stored evidence record (git cat-file on 'refs/karta/<slug>/item-<id>/evidence') serves exactly two purposes here: its 'command_sha256' — write the exact string 'command_sha256' — is compared against the hash of the binder oracle's command as a DRIFT CHECK (a mismatch means the binder's command changed since the item built — surfaced, never silently accepted), and a missing or unreadable evidence ref is noted and re-validation proceeds by execution as ever — read failure never blocks the re-run; (c) BEFORE EVERY MERGE the queue runs `python3 skills/karta-deliver/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <integration-tip>..<item-tip>` — WITHOUT --check-accepted, because the accepted ref and done merge are written only after a merge lands, so pre-merge is the wrong lifecycle point for that flag — and a nonzero result halts that item's merge with the findings; provenance moves from prose to a command. The --check-accepted form runs at the two points where accepted state actually exists: resume/frontier reconstruction (before skipping an item as done) and immediately after the orchestrator writes an accepted ref. (3) skills/_shared/verification-gate.md (canonical): the Floor section and 'When the oracle command overlaps the floor' are updated to say the command runs through the deterministic runner, that what travels between phases is the capped evidence record — naming 'decisive_output' and the evidence ref namespace verbatim — and that the record, not raw log re-reading, is what merge re-validation consumes; add one sentence noting the pre-dispatch guard now refuses an empty diff range before either gate agent spins up (the empty-diff-is-BLOCKED section keeps governing the case that still reaches the gate — on hosts with no hook surface, Codex today, it remains the only catch); amend the Advisory-hooks paragraph to draw the line it already implies: PROJECT-wired hooks stay advisory, while karta's own plugin dispatch guards (the auditor-dispatch and gate-dispatch guards) are sanctioned fail-closed preflights that refuse a malformed or empty dispatch before a gate context spins up — they refuse briefs, they never judge diffs, so the gate stays the one authority on the work itself; and note that in full mode the two gate agents are dispatched in parallel (the verify skill carries the currency rules). (4) skills/_shared/integration-branch.md (canonical): the Serial merge queue section gains the provenance-check step (name check_item_provenance.py and its halt-on-findings behavior) and the Tagging and ref scheme's per-item ref list gains the evidence ref — 'refs/karta/<slug>/item-<id>/evidence → the capped oracle evidence record blob for the item's last validated run'. (5) COPIES AND MIRRORS: every skills/*/references/ copy of the two shared files (verification-gate.md in karta-build, karta-verify, karta-deliver, karta-validate; integration-branch.md in karta-build, karta-deliver) is regenerated byte-identical (scripts/check_shared_copies.py must pass), then python3 scripts/sync_codex_skills.py regenerates the .agents and plugins/karta mirrors of every touched file. ANNEX ROUTING: the data-layer conformance loop relocated to skills/karta-build/references/build-ui-data.md by the restructure item runs its check commands through the same runner and reads the same capped record — edit that annex so UI/data items get the identical evidence trail, and state in the core that ANY gate-agent dispatch brief karta-build itself composes (the behavioral-floor path) carries the same 'Diff-size: <files> files, <bytes> bytes' line the guard requires. Out of scope: karta-verify/SKILL.md (the verify-economy item owns it), the runner and checkers themselves (delivered by their own items), and any hooks file.",
+      "touches": [
+        "skills/karta-build/SKILL.md",
+        ".agents/skills/karta-build/SKILL.md",
+        "plugins/karta/skills/karta-build/SKILL.md",
+        "skills/karta-deliver/SKILL.md",
+        ".agents/skills/karta-deliver/SKILL.md",
+        "plugins/karta/skills/karta-deliver/SKILL.md",
+        "skills/_shared/verification-gate.md",
+        "skills/karta-build/references/verification-gate.md",
+        ".agents/skills/karta-build/references/verification-gate.md",
+        "plugins/karta/skills/karta-build/references/verification-gate.md",
+        "skills/karta-verify/references/verification-gate.md",
+        ".agents/skills/karta-verify/references/verification-gate.md",
+        "plugins/karta/skills/karta-verify/references/verification-gate.md",
+        "skills/karta-deliver/references/verification-gate.md",
+        ".agents/skills/karta-deliver/references/verification-gate.md",
+        "plugins/karta/skills/karta-deliver/references/verification-gate.md",
+        "skills/karta-validate/references/verification-gate.md",
+        ".agents/skills/karta-validate/references/verification-gate.md",
+        "plugins/karta/skills/karta-validate/references/verification-gate.md",
+        "skills/_shared/integration-branch.md",
+        "skills/karta-build/references/integration-branch.md",
+        ".agents/skills/karta-build/references/integration-branch.md",
+        "plugins/karta/skills/karta-build/references/integration-branch.md",
+        "skills/karta-deliver/references/integration-branch.md",
+        ".agents/skills/karta-deliver/references/integration-branch.md",
+        "plugins/karta/skills/karta-deliver/references/integration-branch.md",
+        "skills/karta-build/references/build-ui-data.md",
+        ".agents/skills/karta-build/references/build-ui-data.md",
+        "plugins/karta/skills/karta-build/references/build-ui-data.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; grep -qF -- \"run_oracle.py\" skills/karta-build/SKILL.md; grep -qF -- \"decisive_output\" skills/karta-build/SKILL.md; grep -qF -- \"refs/karta/<slug>/item-<id>/evidence\" skills/karta-build/SKILL.md; test $(wc -c < skills/karta-build/SKILL.md) -lt 56297; grep -qF -- \"run_oracle.py\" skills/karta-deliver/SKILL.md; grep -qF -- \"check_item_provenance.py\" skills/karta-deliver/SKILL.md; grep -qF -- \"command_sha256\" skills/karta-deliver/SKILL.md; grep -qF -- \"always re-executes\" skills/karta-deliver/SKILL.md; if grep -qF -- \"--check-accepted\" skills/karta-deliver/SKILL.md; then grep -qF -- \"resume\" skills/karta-deliver/SKILL.md; fi; grep -qF -- \"run_oracle.py\" skills/karta-build/references/build-ui-data.md; grep -qF -- \"run_oracle.py\" skills/_shared/verification-gate.md; grep -qF -- \"decisive_output\" skills/_shared/verification-gate.md; grep -qF -- \"refs/karta/<slug>/item-<id>/evidence\" skills/_shared/verification-gate.md; grep -qF -- \"check_item_provenance.py\" skills/_shared/integration-branch.md; grep -qF -- \"refs/karta/<slug>/item-<id>/evidence\" skills/_shared/integration-branch.md' && python3 scripts/check_shared_copies.py && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the build core routes floor and acceptance commands through the runner, names the capped record field and the evidence ref namespace verbatim (shared terms), and STILL fits strictly under the 56,297-byte read cap after these edits",
+          "the delivery skill's merge queue always re-executes through the runner (the exact fragment appears), uses the stored command hash only as a drift check, runs the provenance checker without the accepted-state flag before every merge, and scopes the accepted-state check to resume and post-merge where the refs exist",
+          "the canonical verification-gate doctrine says the record — not raw log re-reading — is what travels between phases, and notes the new pre-dispatch empty-diff refusal; the canonical integration-branch doctrine lists the evidence ref in the per-item ref scheme and the provenance check in the serial merge queue",
+          "check_shared_copies.py reports IN SYNC — all six per-skill copies of the two shared files are byte-identical to their canonicals — and sync_codex_skills.py --check reports no mirror drift",
+          "validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:the-floor-gate-and-merge-doctrine-is-rewired-to-trust-a-capped-mechanical-record-in-place-of-model-log-reading-an-error-here-weakens-the-verification-path",
+          "blast-radius:twenty-nine-files-across-four-skills-and-two-canonical-shared-references-and-the-build-core-is-edited-for-the-second-time-in-this-binder"
+        ]
+      }
+    },
+    {
+      "id": "verify-economy",
+      "title": "The two gate reviewers run at the same time and get only facts",
+      "summary": "The verification orchestrator dispatches the acceptance reviewer and the safety auditor in parallel — both are read-only and independent, and the measured run lost about thirteen minutes to running them one after the other — while kickback re-dispatch briefs carry deterministic facts only, never the prior attempt's verdict prose, and every returned report is checked mechanically before the orchestrator acts on it.",
+      "estimate": "M",
+      "depends_on": [
+        "oracle-runner",
+        "dispatch-guard",
+        "report-provenance-checkers",
+        "evidence-wiring"
+      ],
+      "contract": "One canonical file, skills/karta-verify/SKILL.md, plus its two mirrors — nothing else. (1) PARALLEL DISPATCH: in full mode, Phase 1 (acceptance) and Phase 2 (boundary) are dispatched IN PARALLEL — one message, two independent read-only dispatches — replacing today's 'the two agents run sequentially in the common path' rule; state the words 'in parallel' plainly. The aggregate table, both caps (2 acceptance, 3 safety, independent), and every verdict rule are UNCHANGED: aggregation simply waits for both envelopes. Rewrite the ordering-dependent sentences accordingly: an acceptance SPEC-SUSPECT or BLOCKED still halts the item — the boundary result arriving alongside it is recorded in the report but triggers no kickback once the item is halted. VERDICT CURRENCY INVARIANT (state it in these words): a verdict is bound to the diff-range hash it reviewed; the aggregate table may only ever combine two verdicts bound to the same, final diff-range hash. When a kickback changes the range, every verdict bound to the old hash is stale — re-dispatch each stale agent on the new range (in parallel again when both are stale). CAP COUNTING: an agent's cap counts only the dispatches that follow its OWN non-passing verdict; a re-dispatch caused purely by verdict-currency refresh — the agent's own prior verdict was passing, a peer's kickback changed the range — does NOT count toward that agent's cap, so a safety-driven kickback chain can never exhaust the acceptance cap of an item acceptance never faulted (and vice versa). State the acknowledged cost plainly: a range-changing kickback re-dispatches EVERY stale agent — up to two dispatches per kickback where the serial flow re-dispatched one — so the parallel saving lives on clean items, which the measured delivery shows are the common case. The safety-auditor's stack-pack checklist resolution (unchanged mechanics, including the composed-checklist resolver) happens before the parallel dispatch since its output rides in the dispatch brief. (2) BRIEF CONTENT: every gate dispatch brief carries the deterministic diff-size stat line in the guard's grammar — 'Diff-size: <files> files, <bytes> bytes', computed with git diff --name-only piped to a line count and git diff piped to a byte count over the item's range (the exact string 'Diff-size:' must appear in this file — shared term; the pre-dispatch guard denies a brief without it). (3) FRESH-EYES KICKBACK: a re-dispatch brief after a kickback carries 'deterministic facts only' (exact fragment) — the run_oracle evidence record for the corrected build (its JSON, already capped), the failing assertion ids, and the diff-range hash (git rev-parse of both endpoints) — and 'never the prior attempt' (exact fragment) 's verdict prose: no quoted findings, no prior narrative, so the re-review is a fresh reading of the corrected diff rather than a debate with the earlier report. (4) MECHANICAL REPORT CHECK: on EVERY returned report, before acting on its verdict, the orchestrator runs `python3 skills/karta-verify/scripts/check_gate_report.py --agent <acceptance|safety> --envelope <verdict> --report <file> --binder <path>` and treats a nonzero result as a malformed report — re-dispatch that agent once for a well-formed report rather than acting on a report whose Verdict line disagrees with its envelope or whose safety report lacks the mandatory provenance line; if the re-dispatched report ALSO fails the checker, halt the item with a call to action naming the malformed field — never loop ('Stack-pack check:' — the exact string must appear in this file, shared term). (5) Keep everything else byte-conservative: Phase 0, the resolving-the-gate-agents rules, boundary-only mode, the empty-diff BLOCKED doctrine, and the read-only posture are unchanged except where the ordering sentences require the rewrite. MIRRORED SURFACE: python3 scripts/sync_codex_skills.py regenerates the two mirrors. Out of scope: the checker itself (delivered), verification-gate.md (the evidence-wiring item owns it), the agents' files, and hooks.",
+      "touches": [
+        "skills/karta-verify/SKILL.md",
+        ".agents/skills/karta-verify/SKILL.md",
+        "plugins/karta/skills/karta-verify/SKILL.md"
+      ],
+      "oracle": {
+        "type": "smoke",
+        "command": "sh -c 'set -e; for s in \"in parallel\" \"check_gate_report.py\" \"Diff-size:\" \"Stack-pack check:\" \"deterministic facts only\" \"never the prior attempt\" \"bound to the same\" \"does NOT count toward\"; do grep -qF -- \"$s\" skills/karta-verify/SKILL.md; done; if grep -qF -- \"run sequentially in the common path\" skills/karta-verify/SKILL.md; then exit 1; fi' && python3 scripts/sync_codex_skills.py --check && python3 scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the verify skill dispatches both gate agents in parallel in full mode and the old sequential-dispatch sentence is gone, while the aggregate table and both independent caps are unchanged",
+          "every gate dispatch brief carries the diff-size stat line in the guard's exact grammar, so the pre-dispatch guard and the brief-writing doctrine agree byte-for-byte on the shared prefix",
+          "kickback re-dispatch briefs are limited to deterministic facts and never carry the prior attempt's verdict prose; the verdict-currency invariant and its cap-counting rule (a currency refresh never burns the refreshed agent's cap) are stated in the required fragments",
+          "the orchestrator runs the gate-report checker on every returned report before acting on it and treats a nonzero result as a malformed report, with the safety provenance-line requirement named",
+          "sync_codex_skills.py --check reports no drift across the two mirrors, and validate_plugin --self-test passes with all [PASS]"
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract:the-gate-flow-ordering-doctrine-changes-from-serial-to-parallel-and-kickback-semantics-gain-a-verdict-currency-invariant-a-stale-verdict-now-re-dispatches-its-agent",
+          "novelty:parallel-gate-dispatch-is-a-new-pattern-for-the-verify-orchestrator-and-trades-one-possible-extra-safety-dispatch-on-kickback-items-for-the-measured-thirteen-minute-serial-loss-on-clean-items"
+        ]
+      }
+    }
+  ]
+}
