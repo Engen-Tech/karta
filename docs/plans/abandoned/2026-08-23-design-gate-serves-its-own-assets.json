@@ -1,0 +1,306 @@
+{
+  "slug": "design-gate-serves-its-own-assets",
+  "title": "The design gate loads the design",
+  "summary": "karta's visual gate serves a design out of the design file's own folder, so a design whose fonts and images live anywhere else loads none of them — and nothing notices. The gate hands the comparison a design rendered in fallback fonts, marked ready, and every type and spacing difference it then finds is reported as the app's fault. This binder lets the caller name the folder the design is served from, and makes a design that did not fully load stop the comparison instead of quietly poisoning it.",
+  "motivation": "karta-validate is the framework's visual acceptance gate — the gate every `oracle.type: visual` item is routed to — and it has two defects that compound into a fidelity tool that invents findings.\n\n**Defect 1: the design server cannot reach the design's own files.** `serve_design.py:73` sets the document root to the design file's own directory: `handler = functools.partial(QuietHandler, directory=str(design_file.parent))`. Python's `SimpleHTTPRequestHandler` will not serve above its document root — a deliberate stdlib property, and not one to defeat. This repository's committed design, `docs/designs/karta-watch-1440x900-light.html`, points two levels up for every asset it uses: eight woff2 faces at `../../skills/karta-status/assets/fonts/` (design lines 36, 39, 42, 45, 48, 51, 54, 57) and the mascot at `../../skills/karta-status/assets/mascot.png` (design line 114). Served karta's way, the page returns 200 and every one of those nine files returns 404. All nine exist on disk. The export points outside its own folder on purpose, so the committed design shares the repository's real font binaries instead of duplicating eight woff2 files into `docs/designs/`. karta's rooting assumes a self-contained export — SKILL.md:70 says it serves the parent 'so relative `fonts/`, `assets/`, and `uploads/` paths work' — and offers no way to widen the root.\n\n**Defect 2: nothing notices, and this is the serious one.** `capture_view.py:287` is the whole readiness rule: `result[\"compare_ready\"] = result[\"APP_HEALTH\"] != \"DEGRADED_AUTH\"`. The only health concept in the file is app-side, and the only thing it detects is a login screen. There is no design-side health at all. The design's failed requests and console errors do reach the artifact — `capture_view.py:190-191` stores both for the design capture, and both were measured to carry the failure: the failed subresources are listed one per line, and the console field reads nine errors against zero in a healthy run — and nothing ever reads either field. So karta marks a design rendered in fallback fonts `compare_ready: true` and asks a worker to compare typography against it.\n\n**Why that manufactures findings rather than failing.** Two measurements taken for this plan explain the shape of the damage, and both are counter-intuitive enough to be worth writing down. First, `getComputedStyle(document.body).fontFamily` reads `\"IBM Plex Sans\", system-ui, sans-serif` whether the faces loaded or not — computed style reports the declared stack, never the face actually used. So the one property the comparison worker reads that would name the problem (`capture_view.py:32`) is identical in a healthy and a broken run. What differs is everything derived from the face's metrics: text widths, line boxes, bounding boxes, wrap points. The worker sees matching font families and mismatched geometry and reports app drift, which is the most plausible reading of the evidence it was given. Second, `document.fonts.status` reads `loaded` and `document.fonts.size` reads 8 with all eight faces 404ing — the face set settles once every face has finished trying, success or not — so the obvious health signal is not one. Any check built on it would report healthy on a completely broken design.\n\n**This changes behaviour for every consumer repository, not just this one.** karta-validate ships in the plugin. A change that makes the gate refuse to compare is a change that can block someone else's delivery, so the refusal has to be precise: it fires on a genuinely failed design subresource and never on a design that loaded fine. That bar is not theoretical. A healthy run of this repository's own design was measured to contain one 404 — `favicon.ico`, which the browser requests on its own and the design never references. A naive 'any failed request blocks' rule would refuse every design in every repository on the first day. That case is a required fixture here, not a nicety.\n\n**What it has already cost this repository.** The last two fidelity gates — `drill-in-fidelity-gate` in `watch-drill-in`, and every item in `watch-column-fidelity` — are unit-typed and drive a browser by hand rather than use karta's own visual gate, and both binders say the rooting bug is why. The framework's fidelity gate is unusable in the repository that ships it. One finding taken while planning sharpens that: this repository's browser tool, `playwright-cli`, refuses the `file:` scheme outright — `Error: Access to \"file:\" protocol is blocked` — so the workaround those binders reach for (open the design over `file://`) does not work through the tool karta actually drives. Serving the design over HTTP is not a convenience; it is the only route, which makes the server's root the whole path.\n\n**Item mapping, written down so a gap reads as an absence.** Defect 1 is `design-root-is-explicit` alone. Defect 2 splits in two because the artifact and the report fail differently and are owned by different canonical files: `design-health-blocks-comparison` gives the capture a design-side health verdict and wires it into `compare_ready`, and `refusal-is-in-the-report` gives the comparison worker and the report schema the matching refusal state and rewrites the SKILL.md prose that encoded the wrong assumption. `design-loads-end-to-end` answers to no defect: it is the proof, in a real browser, against this repository's own committed design, that the whole chain works and that its refusal can still fire.\n\n**No waiver is parked anywhere in this binder, and none is owed.** Every item's `design_reference` is the literal `none`, honestly: not one item renders or compares a design view. The single item that opens a browser measures whether the design's own files reached it, which is a fact about the server, not a judgement about fidelity. There is therefore no item that names a real design view while carrying a non-visual oracle — the combination the sibling design-reference-gate binder exists to reject.",
+  "after": [],
+  "scope": {
+    "included": [
+      "skills/karta-validate/scripts/serve_design.py — a --root argument, the design URL made relative to that root, a hard check that the design file lives inside it, the new metadata field, and four self-test cases. Plus its two generated Codex mirrors",
+      "skills/karta-validate/scripts/capture_view.py — a design-side health verdict read from the page's own resource timing, the new DESIGN_HEALTH field beside the existing APP_HEALTH (capture_view.py:257), a compare_ready rule that reads both sides (capture_view.py:287), the new blocked status, the refusal text as a module constant in the shape PLAYWRIGHT_CLI_MISSING_HELP already uses (capture_view.py:64-74), and a pure self-test over a classifier function. Plus its two generated Codex mirrors",
+      "skills/karta-validate/SKILL.md — five regions: Phase 1's serve description (:59-75, where :70 states the assumption that caused this), Phase 2's artifact contents list and its auth-aware gate block (:98-114), Phase 3's blocked-report template (:116-140), the report format's STATUS enum and health lines (:157-188), and two Gotchas (:202, :204). Plus its two generated Codex mirrors",
+      "docs/conventions/design-server-root.md — NEW. The convention this repository now holds for serving a design whose files live outside its own folder, and the record of the end-to-end run and its deliberately mis-rooted control run",
+      "the floor, unchanged but relied on: scripts/validate_plugin.py:94 calls _check_skill_scripts (:1033-1040), which runs --self-test for every skills/*/scripts/*.py. Both scripts this binder edits are already swept, so a new self-test case is in the floor the moment it is written, with no wiring"
+    ],
+    "excluded": [
+      "docs/conventions/watch-design-fidelity.md:28 — which today instructs the reader NOT to put the design behind serve_design.py, naming this exact defect, and which this binder makes stale (and whose 'open the design file directly — a file:// path' advice was measured not to work through playwright-cli at all). It is left alone on purpose: four items across two live binders — watch-drill-in's live-controls-recorded and drill-in-fidelity-gate, watch-column-fidelity's geometry-harness and measured-fidelity-gate — already list that file in their touches. Editing it here would trade this binder's independence for one paragraph. The correction is owed once those land, and doc-gardner's pointer sweep is the likeliest place it gets made",
+      "any comparison of an app against a design. The one browser item here serves the design and measures what the design loaded; it never opens an app and records that it did not. The only app in this repository is the watch page, which watch-drill-in and watch-column-fidelity are both actively changing — comparing it here would report their in-flight state as this binder's findings and would couple a binder whose whole point is to run beside them",
+      "a visual-typed oracle on any item. A visual oracle routes to karta-validate (karta-build/SKILL.md:478), whose Phase 1 mandatorily serves the design through the very script under repair, and whose comparison worker is handed only the capture JSON — 'it has not seen the app code, design files, or pipeline state' (karta-validate/SKILL.md:118). It could not disposition an assertion about the artifact's own health field",
+      "the staging-copy option for defect 1 — resolving the design's referenced assets and copying them into a self-contained temporary directory. It needs a parser for every way an HTML or CSS file names a file (src, srcset, url(), @import, inline style, and anything a script builds at runtime), and it would still miss the last of those. It turns a one-line rooting bug into a reference parser to maintain",
+      "auto-deriving the root from the design's own contents — rooting at the nearest common ancestor of the design file and every path it references. It is the most convenient option and the reason it is refused is exactly that: a design file's contents would choose how much of the filesystem gets served, with no bound anyone stated, and a stray ../../../../ would climb as far as it asked",
+      "declaring node in runtime_contract. Only the browser item needs it, on_unavailable is halt, and declaring it would stop the three items that need nothing but Python on a host with no node. capture_view.py already hard-gates on playwright-cli with an actionable two-step install CTA it raises itself (capture_view.py:64-80), which is the precise failure the browser item should get",
+      "the app-side auth gate. DEGRADED_AUTH, its detection (capture_view.py:46-61, :161-176) and its report block (SKILL.md:120-140) are the working precedent this binder models the new state on, and not one of their behaviours changes",
+      "a theme input for karta-validate, and any change to what the comparison worker compares. This binder changes whether a comparison is allowed to start, never how one is judged",
+      "detecting that a design has drifted from whatever it was exported from. That is the sibling design-reference-gate binder's design-pin-check, and the two do not overlap: a pin proves the bytes are the ones that were recorded, this binder proves the browser actually received them"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Python stdlib scripts (PEP 723, uv-run) plus skill doctrine, shipped as a Claude Code plugin and a Codex CLI plugin"
+  },
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [
+      "--session <name> (capture_view.py) — the playwright-cli browser session the capture drives; it defaults to the single fixed name 'karta-validate' (capture_view.py:237). It is a session name, not a TCP port, so it cannot collide on the network; it exists so two runs driving browsers at the same time do not share one browser and read each other's viewport and console. Only design-loads-end-to-end opens a browser in this binder, so at most one item needs it — it is named here because it is the parameter to set if that stops being true",
+      "--metadata-out <path> (serve_design.py) — where the design server writes its metadata. It defaults to one fixed path, <tempdir>/karta-validate/design-server.json (serve_design.py:64-69), which two concurrent runs would overwrite for one another. The design server's own TCP port needs no isolation at all: it binds 127.0.0.1 on an OS-assigned port (serve_design.py:74)",
+      "--out <path> and --artifacts-dir <dir> (capture_view.py) — the capture JSON and the screenshot/snapshot directory, defaulting to 'karta-validate-capture.json' and '.karta-validate' relative to the current directory (capture_view.py:232-233). Two runs in one worktree would overwrite each other's artifact"
+    ]
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "shared_terms": [
+    {
+      "id": "design-health-key",
+      "canonical": "DESIGN_HEALTH",
+      "items": [
+        "design-health-blocks-comparison",
+        "refusal-is-in-the-report",
+        "design-loads-end-to-end"
+      ]
+    },
+    {
+      "id": "design-degraded-value",
+      "canonical": "DEGRADED_ASSETS",
+      "items": [
+        "design-health-blocks-comparison",
+        "refusal-is-in-the-report",
+        "design-loads-end-to-end"
+      ]
+    },
+    {
+      "id": "blocked-status-value",
+      "canonical": "blocked_design_assets",
+      "items": [
+        "design-health-blocks-comparison",
+        "refusal-is-in-the-report",
+        "design-loads-end-to-end"
+      ]
+    },
+    {
+      "id": "refusal-line",
+      "canonical": "The design did not fully load — one or more of the design's own files failed to fetch, so it rendered in fallback fonts and every type, size and spacing reading would be wrong. Fix the design server's root so the design's own files resolve, then re-run.",
+      "items": [
+        "design-health-blocks-comparison",
+        "refusal-is-in-the-report"
+      ]
+    },
+    {
+      "id": "root-outside-message",
+      "canonical": "The design file is not inside the served root. Pass a --root that contains it, or drop --root to serve the design file's own folder.",
+      "items": [
+        "design-root-is-explicit",
+        "refusal-is-in-the-report"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "design-root-is-explicit",
+      "title": "Let the caller say which folder the design is served from",
+      "summary": "Add a --root argument to the design server so a design whose fonts and images live outside its own folder can actually load them, with the served root bounded by a directory a person named.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "serve_design.py gains one optional argument, --root <dir>. With it, the HTTP document root is that directory and the design URL becomes the design file's path relative to it, quoted per path segment (today the URL is built from the bare filename at serve_design.py:76). Without it, the root stays the design file's own parent (serve_design.py:73) and nothing about a stock export changes. The JSON metadata the script prints and writes (serve_design.py:85-95) gains a design_root field, so the capture artifact and any report built from it can state which root a run used instead of leaving it to be guessed.",
+        "consumes": "the caller's design path and, optionally, the caller's root. It reads no git state, resolves nothing from the design file's contents, and starts no browser.",
+        "decided": "an explicit --root is the option taken, over the two alternatives, and the reason is who chooses the root. With --root, a person names one directory and the stdlib handler still refuses everything above it — the flag widens a stated window, it does not remove one. Auto-deriving the root from the nearest common ancestor of the design file and the paths it references would be more convenient and would need no caller change, and that is exactly the problem: the design file's own contents would decide how much of the filesystem is served, and a design carrying ../../../../ would climb as far as it asked with nobody having agreed to it. Copying referenced assets into a staging directory keeps the root narrow but needs a parser for every way HTML and CSS name a file — src, srcset, url(), @import, inline style — and still cannot see a URL a script builds at runtime; it trades a one-line rooting bug for a reference parser to maintain.",
+        "bounded": "three things keep this from being an open file server, and all three are already true or added here. The server binds 127.0.0.1 on an OS-assigned port (serve_design.py:74), so it is not reachable off the host. SimpleHTTPRequestHandler collapses .. before resolving and will not serve above its document root, which is the property this item widens deliberately rather than defeats. And the root is rejected unless the resolved design file lives inside the resolved root, so a caller cannot point the root at one tree and the design at another and end up serving both.",
+        "regression_risk": "the design URL is the one output everything downstream depends on — every later step navigates to it — and this item changes how it is built. A stock self-contained export must produce a byte-identical URL to today's, which is what the first self-test case pins. Two smaller edges: a design path given as a directory is resolved by resolve_design_file (serve_design.py:32-46) before the root check, so the check must run on the RESOLVED file rather than the caller's argument, or a directory argument that happens to sit outside the root would be rejected for the wrong reason; and a root and a design file that resolve through different symlinks must be compared after resolution, not as written. The existing HTTP-200 readiness check (serve_design.py:80-83) must keep firing on the new relative URL, or a wrong relative path would present as a working server and fail only later in the browser.",
+        "preserves": "every existing behaviour with no --root: the same document root, the same URL, the same metadata keys, the same 200 check, the same standalone-non-print preference in resolve_design_file, and the same SystemExit messages for a missing path and a non-HTML file. A consumer repository with a self-contained export sees no difference of any kind.",
+        "house_rules": "hmin.1 wants one runnable check for new branching logic and house.2 wants a --self-test on every script under skills/*/scripts/; both are already satisfied by this script's existing --self-test mode (serve_design.py:106-125), which the floor runs unprompted through _check_skill_scripts (validate_plugin.py:1033-1040). house.4 wants a companion case that actually fails, which is why the out-of-root rejection and the without---root 404 are assertions here and not prose. The self-test stays stdlib-only and opens no browser, because it runs inside the commit floor."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-validate/scripts/serve_design.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "with no --root, a self-contained export whose asset sits beside it serves both at HTTP 200, and the design URL is byte-identical to the one today's code produces for the same input — the stock path is unchanged, not merely working",
+          "with --root at a directory two levels above the design file, the design page returns 200 AND a file two levels up from the design, addressed the way the design addresses it, returns 200",
+          "the same nested layout WITHOUT --root returns 404 for that same two-levels-up file while the design page still returns 200 — the negative control that proves the flag is what changed the outcome rather than the fixture",
+          "a --root that does not contain the resolved design file exits non-zero, and the message is the one this binder pins as a shared term, so a caller reads the same sentence the skill's prose quotes",
+          "the root check runs against the file resolve_design_file selected, not the caller's argument, so passing a DIRECTORY that sits inside the root is accepted and its chosen HTML file is served",
+          "the design URL under --root is the design file's path relative to the root with each segment URL-quoted, and it round-trips: fetching exactly the URL the script printed returns 200 for a design whose directory name contains a space",
+          "the printed and written metadata carries design_root alongside the existing design_file, design_dir, design_url, host, port and metadata keys, and no existing key is renamed or dropped",
+          "the HTTP-200 readiness check still runs on the relative URL and still exits non-zero when the page does not return 200, so a mis-built relative path fails at the server rather than in the browser",
+          "the self-test opens no browser and reaches no network beyond 127.0.0.1, because the floor runs it on every commit"
+        ]
+      },
+      "touches": [
+        "skills/karta-validate/scripts/serve_design.py",
+        ".agents/skills/karta-validate/scripts/serve_design.py",
+        "plugins/karta/skills/karta-validate/scripts/serve_design.py"
+      ],
+      "shared_resources": [
+        "skills/karta-validate/scripts/serve_design.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "capability or resource escalation — this item widens what an HTTP server will hand out. It is loopback-only on an OS-assigned port and bounded by a directory the caller names, and the item states all three bounds, but a reviewer should read the root check itself rather than take the description for it",
+          "contract mutation — the design URL's shape changes from a bare filename to a root-relative path whenever --root is passed. Every downstream step navigates to that URL",
+          "scope of impact — karta-validate ships in the plugin, so this reaches every consumer repository. The first assertion exists to pin that a stock self-contained export is unaffected",
+          "not-computed:sensitive — this repository configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      }
+    },
+    {
+      "id": "design-health-blocks-comparison",
+      "title": "A design that did not load stops the comparison",
+      "summary": "Give the capture a design-side health verdict the way it already has an app-side one, and make compare_ready false when the design's own files failed to load.",
+      "estimate": "L",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "a design-side health concept in capture_view.py, mirroring the app-side one exactly. The design capture gains a health value of OK or DEGRADED_ASSETS and a list of the files that failed, each with the status it returned. The artifact gains a top-level DESIGN_HEALTH beside the existing APP_HEALTH (capture_view.py:257). compare_ready (capture_view.py:287) becomes true only when BOTH sides are healthy. STATUS (capture_view.py:288) gains blocked_design_assets alongside captured and blocked_auth. The refusal sentence lives as a module constant in the shape PLAYWRIGHT_CLI_MISSING_HELP already uses (capture_view.py:64-74) and is written into the artifact, so the report in the sibling item quotes one source rather than restating it.",
+        "consumes": "the design page's own resource timing, read in-page through the existing eval_json helper (capture_view.py:114-126). No new external dependency, no new subprocess, no new flag.",
+        "decided": "the signal is performance.getEntriesByType('resource') and each entry's responseStatus, read in the page as a third eval constant beside STYLE_JS (capture_view.py:16-43) and AUTH_JS (:46-61). The obvious alternative is to parse what the script already stores — the requests and console text at capture_view.py:190-191, which were both measured to carry the failures, one 404 per line and a nine- against-zero error count. It is refused because that is a human-readable format karta does not own: SKILL.md:21 states plainly that this skill 'does not patch, wrap, bypass, or maintain Playwright CLI behavior', and building a gate on the wording of its output would make a phrasing change upstream into a silent gate failure here. Resource timing is structured data produced by the page's own browser API.",
+        "precision": "three rules keep the refusal from firing on a design that loaded fine, and all three come from real measurements rather than caution. One: a healthy run of this repository's own design was measured to contain a 404 for favicon.ico — a request the browser makes on its own that no design references — so browser-originated requests the document does not reference must not count, and favicon.ico is the fixture that proves it. Two: an entry with no usable status (a cross-origin resource reporting 0, an opaque response) is not a failure; only a 4xx or 5xx status is. Three: document.fonts is not the signal. It was measured reading status 'loaded' and size 8 with all eight faces 404ing, because the face set settles once every face has finished trying, success or not — a check built on it would report healthy on a completely broken design. The item states this in a comment where the classifier is written, because it is the most attractive wrong answer available.",
+        "both_sides": "DEGRADED_ASSETS and DEGRADED_AUTH can hold at once, and the outcome is stated here so it is not decided by branch order. Both health fields are recorded, so neither is hidden; STATUS is blocked_design_assets when the design failed, whatever the app did, because a design that did not load invalidates the reference itself and fixing the app's session would not make the comparison meaningful. The app-side path is otherwise untouched: the auth detection, its early return (capture_view.py:161-176) and its DEGRADED_AUTH value all behave exactly as today.",
+        "regression_risk": "this is the item that can block a delivery in a repository that has nothing to do with karta's development. A false DEGRADED_ASSETS turns a working visual gate into a hard stop, and the person hitting it has no way to tell a real broken design from a bug here. That asymmetry sets the bar: the fixtures must include a healthy design carrying an unrelated browser 404 and prove it passes, not just a broken one and prove it fails. Two smaller edges: an artifact consumer reading only APP_HEALTH must keep working, so DESIGN_HEALTH is additive and no existing key changes meaning; and a design that legitimately references nothing at all produces an empty entry list, which is healthy, not suspicious.",
+        "preserves": "every existing artifact key and value, the auth path end to end, the playwright-cli install CTA and its self-test coverage (capture_view.py:203-225), the two existing eval constants, and the exit behaviour on error and on close failure (capture_view.py:289-309).",
+        "house_rules": "the classification is written as a pure function over a list of entries plus the design server's origin, so the self-test can drive it with fixtures and no browser — which it must, because the floor runs this script's --self-test on every commit through _check_skill_scripts (validate_plugin.py:1033-1040). That also satisfies hmin.1's one-runnable-check for the new branching. house.4's companion failing case is not one assertion here but three: the broken design, the healthy design carrying an unrelated 404, and the compare_ready truth table over all four health combinations."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-validate/scripts/capture_view.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "a fixture of resource entries that all returned 200 classifies as OK, and so does an empty entry list — a design that references nothing is healthy, not suspicious",
+          "a fixture whose entries are all 200 EXCEPT a browser-originated favicon.ico 404 classifies as OK. This is the case measured in a healthy run of this repository's real design, and a classifier that fails it would refuse every design in every consumer repository",
+          "a fixture with one 404 on a file the document references classifies as DEGRADED_ASSETS and names that file and its status, so the report can say which file rather than that something failed",
+          "an entry with no usable status — a cross-origin or opaque response reporting 0 — is not counted as a failure",
+          "compare_ready is asserted over all four combinations of the two health values: true only when the app is not DEGRADED_AUTH and the design is not DEGRADED_ASSETS, false in the other three",
+          "when only the design failed, STATUS is blocked_design_assets; when only the app failed, STATUS is blocked_auth exactly as today; when both failed, STATUS is blocked_design_assets and BOTH health values are still recorded in the artifact so neither is hidden",
+          "the artifact carries DESIGN_HEALTH as a top-level key beside APP_HEALTH, and every key present in today's artifact is still present with the same meaning — a consumer reading only APP_HEALTH is unaffected",
+          "the refusal sentence exists as a single module constant, is written into the artifact, and is byte-identical to the one the report template in refusal-is-in-the-report carries — declared as a shared term so the two cannot drift apart",
+          "the self-test runs the classifier directly with fixture data and opens no browser and reaches no network, because the commit floor runs it",
+          "the app-side auth path is unchanged: the same detection, the same early return with its screenshot, the same DEGRADED_AUTH value, and the same existing self-test assertions still pass untouched"
+        ]
+      },
+      "touches": [
+        "skills/karta-validate/scripts/capture_view.py",
+        ".agents/skills/karta-validate/scripts/capture_view.py",
+        "plugins/karta/skills/karta-validate/scripts/capture_view.py"
+      ],
+      "shared_resources": [
+        "skills/karta-validate/scripts/capture_view.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract mutation — compare_ready changes meaning for every caller of this script, in every repository that installs the plugin. An item that used to be compared can now be refused",
+          "scope of impact — a false refusal blocks someone else's delivery with no way for them to tell a real broken design from a bug here. That is why two of the ten assertions are about a HEALTHY design passing rather than a broken one failing",
+          "explicit open question — the precedence when both sides are degraded is decided in this item's contract rather than inherited from anywhere. It is written down so a reviewer can disagree with the choice rather than discover it in a branch",
+          "capability or resource escalation — a new evaluated script runs inside the captured page. It reads only the page's own resource timing and returns names and status codes",
+          "not-computed:sensitive — this repository configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      }
+    },
+    {
+      "id": "refusal-is-in-the-report",
+      "title": "Say the refusal out loud, the way the auth refusal is already said",
+      "summary": "Wire the new design-health state through the skill's capture phase, its comparison worker and its report format, and correct the prose that told the server to root at the design file's own folder.",
+      "estimate": "M",
+      "depends_on": [
+        "design-root-is-explicit",
+        "design-health-blocks-comparison"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "five corrections to skills/karta-validate/SKILL.md, all modelled on the blocked_auth precedent already in the file rather than on a new shape. Phase 1 (:59-75) documents --root and replaces :70's claim that the script 'serves from the design file's parent directory so relative fonts/, assets/, and uploads/ paths work' — the sentence that encoded the assumption this binder exists to undo — with what is now true, and quotes the out-of-root message verbatim the way :52 already quotes the no-HTML-found message. Phase 2's artifact list (:98-105) gains DESIGN_HEALTH, and a design-health gate block sits beside the auth-aware gate block (:107-114) in the same two-line form. Phase 3 gains a blocked_design_assets report block modelled line for line on the blocked_auth one (:120-140): the status, the refusal sentence as SUMMARY, the failed files named, and 'Not evaluated.' under each of the four finding sections. The report format (:157-188) gains blocked_design_assets in the STATUS enum (:160) and a DESIGN_HEALTH line beside APP_HEALTH (:164). Two Gotchas change: :202's 'HTTP server directory matters' is rewritten to say what actually matters and how to widen it, and a new one states that a design's own broken files stop the comparison rather than being compared through.",
+        "consumes": "the field names, the status value and the refusal sentence that design-health-blocks-comparison emits, and the argument name and out-of-root message that design-root-is-explicit emits. All five are declared as shared terms, so the prose and the code cannot drift apart silently.",
+        "acceptance": "one point decided here because it is the difference between a refusal and a failure: a blocked_design_assets report emits no ACCEPTANCE line at all, exactly as blocked_auth does not (SKILL.md:185-188). It must never emit ACCEPTANCE: pass — nothing was checked — and it should not emit ACCEPTANCE: fail either, because a fail routes the item back to karta-build for self-correction (SKILL.md:208) and there is nothing in the app for a builder to correct. The item is blocked on a server root, and the caller fixes that and re-runs.",
+        "regression_risk": "prose is the only thing this item changes, so nothing here fails a test on its own — which is precisely the risk. A status value or field name written one character differently from what the script emits produces a skill that describes a state the artifact never sets, and no check in this repository would notice; that is what the three shared-term declarations exist to catch at deliver time. The second risk is subtraction: :70 and :202 are being corrected, not deleted, and the self-contained-export case they describe is still the default, so a rewrite that only says 'pass --root' would leave a stock consumer with worse instructions than they have today.",
+        "preserves": "every other phase, the whole auth path in prose, the two-pass comparison method (:142-155), the evidence and severity rules, the ACCEPTANCE semantics for a normal run, and the six other Gotchas. Phase ids and step labels (validate:prereq, validate:serve, validate:capture, validate:compare, validate:cleanup) are untouched — docs/conventions/phase-labels.md:31 points at this file for them, and house.3 forbids leaving a stale pointer behind.",
+        "mirrors": "SKILL.md is canonical; .agents/skills/karta-validate/SKILL.md and plugins/karta/skills/karta-validate/SKILL.md are byte-identical generated copies. Per house.1 the regenerated mirrors ship in the same change, produced by uv run scripts/sync_codex_skills.py and never hand-edited. This item touches no references/ file, so no skills/_shared copy moves and check_shared_copies.py has nothing new to cover."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "Phase 1 documents --root, and the sentence at :70 claiming the parent directory makes relative paths work is gone — replaced by what is now true, with the self-contained-export default still described as the default rather than dropped",
+          "Phase 1 quotes the out-of-root message byte-identically to the one serve_design.py raises, in the same quoting form :52 already uses for the no-HTML-found message",
+          "Phase 2's artifact contents list names DESIGN_HEALTH, and a design-health gate block sits beside the auth-aware gate block in the same two-line form, naming DEGRADED_ASSETS and compare_ready: false",
+          "Phase 3 carries a blocked_design_assets report block with the same section set as the blocked_auth block: a STATUS line, the refusal sentence as SUMMARY, both health lines, and 'Not evaluated.' under DISCREPANCIES, TOKEN_DRIFT, MISSING_ELEMENTS and EXTRA_ELEMENTS",
+          "that block names the files that failed, so a reader learns which files rather than that something failed",
+          "the report format's STATUS enum includes blocked_design_assets, and the format carries a DESIGN_HEALTH line beside the existing APP_HEALTH line",
+          "the skill states that a blocked_design_assets report emits no ACCEPTANCE line, and states why a fail would be the wrong verdict: a fail routes the item back to karta-build to self-correct, and there is nothing in the app to correct",
+          "the 'HTTP server directory matters' gotcha no longer tells the reader to serve the design file's parent as though that always works, and a gotcha states that a design whose own files failed to load stops the comparison instead of being compared through",
+          "the refusal sentence, DESIGN_HEALTH, DEGRADED_ASSETS and blocked_design_assets each appear byte-identically to the strings capture_view.py emits — four of the binder's five shared terms, so a one-character drift fails at deliver rather than shipping a skill describing a state that is never set",
+          "both generated mirrors are regenerated in the same change and sync_codex_skills.py --check is clean, and no phase id or step label named by docs/conventions/phase-labels.md moved"
+        ]
+      },
+      "touches": [
+        "skills/karta-validate/SKILL.md",
+        ".agents/skills/karta-validate/SKILL.md",
+        "plugins/karta/skills/karta-validate/SKILL.md"
+      ],
+      "shared_resources": [
+        "skills/karta-validate/SKILL.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "scope of impact — SKILL.md is the instruction set every agent running the visual gate reads, in every repository that installs the plugin. Prose here is behaviour",
+          "contract mutation — the report schema gains a status value and a health line, which any caller parsing the report sees",
+          "explicit open question — skills/karta-validate/SKILL.md is also edited by the sibling design-reference-gate binder's design-pin-check item, which adds a hard gate to the prerequisites phase. The two edit different regions and neither is sequenced after the other here, so whichever lands second merges the file by hand",
+          "not-computed:sensitive — this repository configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      }
+    },
+    {
+      "id": "design-loads-end-to-end",
+      "title": "Prove it in a browser against this repository's own design, and write down what it showed",
+      "summary": "Run the fixed scripts against the committed design, record that all nine of its files reached the browser, run the same design mis-rooted on purpose to show the refusal still fires, and write both runs down.",
+      "estimate": "M",
+      "depends_on": [
+        "design-root-is-explicit",
+        "design-health-blocks-comparison"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "docs/conventions/design-server-root.md — a short convention document with two parts. First, the rule this repository now holds: a committed design may reference files outside its own folder, and the way to serve it is the design server's --root, with the exact commands. Second, the record of two dated runs taken with the shipped scripts — the real one and a deliberately mis-rooted control — with the readings each produced.",
+        "consumes": "the committed design at docs/designs/karta-watch-1440x900-light.html, the eight woff2 faces and the mascot it references under skills/karta-status/assets/, and the two scripts the earlier items fix. Every one of those already exists; this item creates no fixture.",
+        "why_not_visual": "the oracle type is unit on purpose and changing it to visual would break this item, so the reasoning is recorded rather than left to be re-derived. A visual oracle routes to karta-validate (karta-build/SKILL.md:478), whose Phase 1 mandatorily serves the design through serve_design.py — the script under repair — and whose comparison worker is handed only the capture JSON and 'has not seen the app code, design files, or pipeline state' (karta-validate/SKILL.md:118). Every assertion below is about what a recorded document says, which is not in a capture JSON. A visual oracle would also need an app to compare against, and the only app here is the watch page that two other live binders are changing right now — it would report their in-flight state as this binder's findings. Under unit, the browser runs happen exactly as the document describes and karta-verify dispositions the assertions against the diff, which is where the evidence lands.",
+        "why_not_a_script": "no new script. serve_design.py's self-test already proves an HTTP 200 at the server, and that is the right thing for the commit floor to run — it is pure and fast. What it cannot prove is the rest of the chain: that a browser resolved the relative URL the same way, that woff2 came back with a type the browser accepted, and that the health verdict reads OK on a real page. A third script driving a browser would either sit outside the floor and run only when someone remembered it, or sit inside it and put a browser in every commit. A recorded run is the honest shape for a one-time proof, and it is the shape this repository already uses for exactly this (watch-drill-in's drill-in-fidelity-gate).",
+        "diagnosis": "how a failure is read, by symptom, written into the document so the next person does not re-derive it. DEGRADED_ASSETS on the correctly-rooted run means the root or the relative URL is wrong — design-root-is-explicit, and the metadata's design_root and design_url say which. All nine files at 200 but the health verdict still not OK means the classifier is counting something it should not — design-health-blocks-comparison, and the recorded entry list names it. The control run NOT producing blocked_design_assets means the health verdict is computed but not wired into compare_ready, which is the original defect intact behind a new field. And a 200 on every file with the text still measuring like a fallback face means the browser fetched the fonts but did not use them — a different bug from this binder's, and the run must say so rather than record a pass.",
+        "regression_risk": "a recorded run is evidence with a date on it, not a check that keeps running, and the document must say so plainly instead of reading like a guarantee. The failure mode to avoid is a document that records only the healthy run: nine 200s prove the chain works and prove nothing about whether the refusal can still fire, which is why the mis-rooted control run is required rather than optional. The second is a run that quietly used a hand-built URL instead of the one the script printed — it would pass every assertion here while testing something other than the shipped code.",
+        "preserves": "the committed design and every asset it references are read, never edited. No script, skill or mirror changes in this item; its whole diff is one new document.",
+        "not_shown": "stated up front rather than at the end. This run never opens an app, so nothing in it says anything about the watch page's fidelity to its design — that belongs to watch-drill-in and watch-column-fidelity and is not touched here. It is taken at one viewport in one theme. And it proves nothing about a design in any other repository; what it proves is that the mechanism works on the one design this repository has.",
+        "prerequisite": "playwright-cli must be on PATH. It is not declared in runtime_contract, because on_unavailable is halt and that would stop the three items here that need nothing but Python. capture_view.py already raises its own two-step install CTA when the binary is missing (capture_view.py:64-80), which is the precise, actionable failure this item should get on a host without it."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-validate/scripts/serve_design.py --self-test && uv run skills/karta-validate/scripts/capture_view.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the recorded run serves docs/designs/karta-watch-1440x900-light.html through the shipped serve_design.py with --root at the repository root, and records the design_root and design_url the script's own metadata printed — not a hand-built URL, because a hand-built one would test something other than the shipped code",
+          "the run drives the shipped capture_view.py, and the recorded artifact carries DESIGN_HEALTH: OK and compare_ready: true",
+          "all nine files the design references are listed by name with the HTTP status each returned — the eight woff2 faces at design lines 36, 39, 42, 45, 48, 51, 54 and 57, and the mascot at design line 114 — and every one is 200",
+          "the run records a signal that tells a face the browser USED from one it merely fetched, names which signal it used, and reports what that signal read in both runs. The document states why the obvious signal is not usable: document.fonts.status was measured reading 'loaded' with all eight faces 404ing, and getComputedStyle reports the declared family stack either way",
+          "a second, deliberately mis-rooted control run is recorded in the same document — the same design served the old way, rooted at its own folder — showing DESIGN_HEALTH: DEGRADED_ASSETS, compare_ready: false, STATUS: blocked_design_assets, and the nine files that 404ed. Without this the healthy run shows the chain works and shows nothing about whether the refusal can still fire",
+          "the document records the one 404 that appears in BOTH runs — favicon.ico, which the browser requests on its own and the design never references — and states that the health verdict must not count it, because a rule that did would refuse every design in every consumer repository",
+          "the document records that playwright-cli refuses the file: scheme, quoting the error, and states the consequence: serving the design over HTTP is the only route to opening it in this repository's browser tool, so the server's root is the whole path rather than a convenience",
+          "the document names what the run did not show — it never opened an app, so it says nothing about the watch page's fidelity; it was taken at one viewport in one theme; and it proves the mechanism on this repository's one design, not on designs generally",
+          "the document carries the diagnosis routes by symptom, so a later failure is read rather than re-derived: DEGRADED_ASSETS on the good run points at the root or the relative URL, nine 200s with a non-OK verdict points at the classifier, a control run that does not block points at compare_ready, and 200s with fallback-shaped text points at a different bug than this binder's",
+          "the document states that it is a dated record and not a check that keeps running, and gives the exact commands so anyone can take the run again"
+        ]
+      },
+      "touches": [
+        "docs/conventions/design-server-root.md"
+      ],
+      "shared_resources": [],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "capability or resource escalation — this item starts a server and drives a browser, which no deterministic check in this repository does. It reads only the committed design and the assets that design references",
+          "explicit open question — whether the proof belongs in this binder at all was weighed: the item that fixes the gate being gated by the gate would be circular. It is not, because this item never runs the visual gate and never compares an app to a design; it measures whether the design's own files reached the browser. The reasoning is in the contract so a reviewer can disagree with it",
+          "scope of impact — docs/conventions/watch-design-fidelity.md:28 currently tells readers to avoid serve_design.py for exactly this defect and goes stale when this lands. It is deliberately not edited here because four items across two live binders already own that file; the correction is owed once they land",
+          "not-computed:sensitive — this repository configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      }
+    }
+  ]
+}

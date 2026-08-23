@@ -1,0 +1,843 @@
+{
+  "slug": "watch-column-fidelity",
+  "title": "The page fills its column, and a browser proves it",
+  "summary": "The watch page's main column is sized by what it holds instead of by the page it sits on, so at 1440 it under-fills by 191px, re-flows the whole page when one card opens, and below the single-column step it spills past its own gutters and gains a sideways scrollbar. This binder fixes that and the five smaller layout gaps the last comparison recorded, and it builds the thing the repo has been missing all along: a way to measure the rendered page in a real browser, so a geometry claim is proven rather than read off the stylesheet.",
+  "motivation": "A person opened the pinned-fixture page and called it completely broken. Every check the page has says it is fine, and both statements are true: the page's 258-check self-test reads DECLARED stylesheet values, and the defect is not in any declaration. `body{display:flex;flex-direction:column;align-items:center}` (serve_status.py:1449-1456) is a legal declaration. An app root with no width (`<div id=\"app\"></div>` at serve_status.py:4337, mounted at :4179) is a legal absence. Together, in a COLUMN flexbox where `align-items` governs the horizontal axis, they size the root shrink-to-fit — so `.wrap{width:100%;max-width:1040px}` (:1481) and `.wrap--repo{max-width:1440px}` (:1485) resolve against a content-sized parent and the cap never binds. A declaration check cannot catch an emergent-layout defect. That is the gap this binder closes, and closing it is why the harness lands first and everything else depends on it.\n\nEight findings own an item each, and the mapping is written down so a gap shows as an absence rather than turning up at a gate. The six the 2026-08-22 run recorded as open: finding 1, the content-sized column, is `column-fills-its-page`; finding 2, the binder card's square progress track, is `binder-track-pill`; findings 3 and 4, the bold eyebrow and the untracked next-action sentence, are both `head-type-weight-and-tracking` — two single declarations in the same head region, honest to take together; finding 5, the tighter spacing scale, is `main-column-spacing-scale`; finding 6, the small type at the card's foot and in its detail, is `card-foot-and-detail-type`. Two more the run could not see, because it was taken at 1440 only and named `any width other than 1440` as unshown: the sideways scrollbar below the single-column step, and the header's repo name spilling instead of truncating, are both `narrow-widths-do-not-spill`. Two items answer to no finding: `geometry-harness` is the measurement the rest depend on, and `measured-fidelity-gate` records the run. Both are named in scope.included rather than inherited from the run.\n\nOne consequence to state up front, because it is the point rather than a side effect: with real measurement the waiver count should fall. The previous binder parked seven `visual_check_waiver`s because nothing in it could observe a painted result. This one carries two, and both are judgements about how a whole reads rather than claims a measurement could settle. An item here whose claim the harness can measure and that waives anyway would be exactly the regression this binder exists to end.\n\nHow this binder is gated, stated once because it is the whole point. Every item's oracle is type unit, dispositioned by karta-verify against the diff — the visual gate is not used, because karta-validate's serve_design.py hard-roots at the design file's parent and 404s this repo's eight woff2 faces and its mascot, which is why the previous binder's closing item was unit-typed too. What is different here is the command seven of the eight oracles run: measure_page.py --check <group> (geometry-harness, the instrument itself, runs --self-test instead — pointing --check at the item that builds it would make it ungateable on a browserless machine, where the harness exits 3 and the && chain fails), which opens the served page in a real browser and compares measured geometry against the values that item pins, before the floor runs at all. The page's 258 existing checks all read declared stylesheet values, and the defect this binder starts from — a column flexbox whose align-items sizes the app to its content — is a legal declaration in every one of them. A declaration check cannot see an emergent layout defect. That is the gap, and closing it is item one.",
+  "after": [
+    "watch-drill-in"
+  ],
+  "scope": {
+    "included": [
+      "skills/karta-status/scripts/measure_page.py — NEW. The measurement harness every other item's oracle runs: it boots serve_status.py on a caller-given port rooted at a caller-given fixture, drives playwright-cli to reach named viewports and named states, reads getComputedStyle and getBoundingClientRect, and prints one JSON artifact. Plus its two generated Codex mirrors",
+      "the floor rule, decided here rather than discovered: the harness's `--self-test` is pure — no browser, no network — and belongs in the floor, which scripts/validate_plugin.py picks up for free because _check_skill_scripts already sweeps every skills/*/scripts/*.py (validate_plugin.py:1348-1354). The BROWSER measurement is not in the floor. `uv run scripts/validate_plugin.py --self-test` must stay green on a machine with no playwright-cli and no browser installed. When the browser is absent, a measurement run prints one loud SKIPPED line naming every viewport and state it did not take and exits 3 — a code that is neither 0 nor 1 — because a check that quietly passes when it could not run is the one shape this repo refuses",
+      "skills/karta-status/scripts/serve_status.py — the stylesheet and the self-test, plus its two generated Codex mirrors. Six items edit it, so all six declare it as a shared resource and the orchestrator serializes them",
+      "skills/karta-status/scripts/selftest_behaviours.txt and its two mirrors — the committed floor anchor. Every declaration-level check this binder adds is named there. No behaviour is retired by this binder; if any item finds it must retire one, it records it two-way in _RETIRED_BEHAVIOURS (serve_status.py:7971-7978) the way watch-drill-in did",
+      "docs/conventions/watch-design-fidelity.md — the harness gets a section in the runbook, and the closing item records this binder's comparison run there",
+      "the runtime floor moves: node joins python in runtime_contract, because playwright-cli needs it. @playwright/cli 0.1.15 declares engines.node >=18 in its own package.json, and the toolchain on the planning host is v24.18.0. The repo pins no Node version anywhere — no .nvmrc, no package.json, no .tool-versions — so the floor is read from the tool's own engines field, not from a pin file this repo does not have. karta-build preflights that declaration and halts on a mismatch, which is the right answer here: every item's oracle runs the harness, so a machine with no Node cannot build any of them"
+    ],
+    "excluded": [
+      "type: visual oracles. Every oracle here is type: unit, dispositioned by karta-verify against the diff. karta-validate's serve_design.py hard-roots at the design file's own parent (karta-validate/scripts/serve_design.py:73, no root flag), so it 404s this repo's eight woff2 faces and the mascot and poisons every px-level type reading. watch-drill-in's closing item had to be unit-typed for exactly that reason and wrote the reasoning into its verification_honesty; the same reasoning is restated in this binder's gate rather than assumed to carry over",
+      "the design's second breakpoint. Below 640px the design drops its gutters to 18px and steps every binder headline from 40px to 32px (export 102-105); the page's second breakpoint is 560px and moves the wave grid to one column (serve_status.py:2228-2230). The two do not correspond, and reconciling them is the responsive binder's work. This binder touches narrow widths only where the page overflows its own padding box — a defect at any breakpoint, not a difference of opinion about where the steps go",
+      "the dark theme. Every measurement here is taken at ?theme=light against the light-theme capture, the way the runbook pins it",
+      "the 27 design tokens. No token value is added, changed or removed. Where an item changes which role a rule resolves to — the wave step header's rule from --line to --line-2 — it changes the reference, never the value",
+      "the multi-repo hub landing. A different page with no counterpart in the design, and it shares .wrap but not .wrap--repo",
+      "the delivery frame around the binder card, which stays booked as intended difference 3 in the fidelity record, and the header's full-bleed, which is the deliberate behaviour serve_status.py:1545-1553 documents. Neither is a finding. Once the column fills correctly the bleed and the gutter have to agree, and that agreement gets an assertion — but the bleed itself stays",
+      "the stack. Vue stays the one vendored runtime, the page stays a global-build Options API app with a string template, and no build step is introduced. The harness is a stdlib Python script that shells out; it adds no Python dependency and no front-end dependency"
+    ]
+  },
+  "design_facts": {
+    "source": "docs/designs/karta-watch-1440x900-light.html",
+    "stack": "Python stdlib http.server + vendored Vue 3 SPA, shipped as a Claude Code / Codex plugin skill"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "env_contract": {
+    "command": "uv run --script skills/karta-status/scripts/serve_status.py --root docs/designs/fixtures/watch-fidelity-state --port 8700",
+    "supports_isolation": true,
+    "isolation_params": [
+      "--port <n> — the loopback port the server binds. 8700 is pinned rather than the script's own default 8765, because the multi-repo hub derives its port as 8765 + uid % 1000 (serve_status.py:230-238) and collides with the default outright on a uid-1000 host; --ensure then respawns the hub and the command fails with Errno 98. A wave run may substitute its own port here. It must NOT pass that value to the harness: measure_page.py starts its own server on its own free port (--port 0) and never reuses a server it did not start, so handing it the env's held port is Errno 98",
+      "--root <dir> — pass only the pinned value docs/designs/fixtures/watch-fidelity-state; a wave must not substitute its own. It points the page at the committed fixture the fidelity runbook names (docs/conventions/watch-design-fidelity.md:17), which is what fixes the shape the page derives — one binder, one wave, one card — across runs. A wave that injects its own --root un-pins the fixture and the comparison stops being repeatable",
+      "KARTA_WATCH_STATE_DIR — overrides the multi-repo hub's own store directory (state.json, state.lock, a token file). Worth setting so a run never touches the real per-user store; it carries no binder or wave state and cannot point the page at a fixture",
+      "--port <n> (harness) — the harness starts its own serve_status.py on its own free port and is never handed the env_contract's port — --port defaults to 0, meaning OS-assigned, and that is the only value a wave should let it take. Passing it the env's held port is Errno 98. It never assumes 8765 and never reuses a server it did not start, because a server left over from another wave may be rooted at a different fixture"
+    ]
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      },
+      {
+        "name": "node",
+        "version": ">=18"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "shared_terms": [
+    {
+      "id": "harness-script-path",
+      "canonical": "skills/karta-status/scripts/measure_page.py",
+      "items": [
+        "geometry-harness",
+        "measured-fidelity-gate"
+      ]
+    },
+    {
+      "id": "browser-skip-status",
+      "canonical": "SKIPPED — no browser: playwright-cli is not on PATH, so no rendered geometry was measured and nothing below is proven",
+      "items": [
+        "geometry-harness",
+        "measured-fidelity-gate"
+      ]
+    },
+    {
+      "id": "measured-not-declared",
+      "canonical": "measured with measure_page.py",
+      "items": [
+        "column-fills-its-page",
+        "narrow-widths-do-not-spill",
+        "main-column-spacing-scale",
+        "card-foot-and-detail-type",
+        "measured-fidelity-gate",
+        "head-type-weight-and-tracking",
+        "binder-track-pill"
+      ]
+    }
+  ],
+  "token_manifest": {
+    "mechanism": "CSS custom properties emitted by serve_status.py, one block per theme",
+    "source_of_truth": "docs/designs/karta-watch-1440x900-light.html — the committed export; every claim below cites the line it is read from as 'export <n>'. Each row's traced_by names '<item-id>:<0-based assertion index>' — the grammar scripts/check_fact_traces.py pins and then checks, and an untraced row fails the repo's floor rather than reading as a nit. A fact with no assertion that depends on it carries an explicit untraced_reason instead; one row — design-narrow-gutters — carries one.",
+    "no_new_tokens": "no token is added, changed or removed by this binder. main-column-spacing-scale changes which role the wave step header's rule resolves to (--line to --line-2), never what either role resolves to.",
+    "measured_not_declared": "every geometry row below is checked by a browser measurement in the item that owns it, not by reading the stylesheet. That is the difference this binder makes: the previous binders proved a declaration, and the defect that prompted this one lives entirely between the declarations and the render.",
+    "design_fact_table": [
+      {
+        "id": "column-measure-1376",
+        "claim": "the design's content column is 1376px at a 1440px viewport — a wrapper capped at max-width:1440px with margin:0 auto and 32px gutters inside the cap, so 1440 less 64",
+        "export": "export 140",
+        "kind": "declared",
+        "traced_by": [
+          "column-fills-its-page:2",
+          "column-fills-its-page:3"
+        ]
+      },
+      {
+        "id": "page-gutter-32",
+        "claim": "the gutter is 32px a side, and it is stated on the same box that carries the cap rather than on an ancestor — the wrapper's padding is 26px 32px 64px",
+        "export": "export 140",
+        "kind": "declared",
+        "traced_by": [
+          "column-fills-its-page:2",
+          "column-fills-its-page:4"
+        ]
+      },
+      {
+        "id": "design-column-centering",
+        "claim": "the design centres its column with margin:0 auto on a capped wrapper inside a full-width min-height:100vh block. Nothing in the design centres the page with a column flexbox and align-items:center — the mechanism that sizes this page's root to its content",
+        "export": "export 109 with 140",
+        "kind": "declared",
+        "traced_by": [
+          "column-fills-its-page:5"
+        ]
+      },
+      {
+        "id": "design-header-bleed",
+        "claim": "the design's sticky header is full-bleed and its inner box repeats the wrapper exactly — max-width:1440px, margin:0 auto, padding:0 32px, height:70px — so header content lines up with column content at 1376, and the 1px bottom border sits on the outer element, which is why the design's header renders 71px where this page's renders 70",
+        "export": "export 111-112",
+        "kind": "declared",
+        "traced_by": [
+          "column-fills-its-page:3",
+          "column-fills-its-page:4"
+        ]
+      },
+      {
+        "id": "design-narrow-single-column",
+        "claim": "the design's single-column step is max-width:880px, which is the same value this page uses (RAIL_NARROW_PX = 880, serve_status.py:1067) — so every width from 880 down is the same intended layout on both sides and is comparable without reconciling breakpoints",
+        "export": "export 98-101",
+        "kind": "declared",
+        "traced_by": [
+          "narrow-widths-do-not-spill:2"
+        ]
+      },
+      {
+        "id": "design-narrow-gutters",
+        "claim": "below 640px the design drops its gutters to 18px a side and steps every binder headline from 40px to 32px",
+        "export": "export 102-105",
+        "kind": "declared",
+        "untraced_reason": "this binder fixes an overflow defect measured between 760 and 900, which sits above the design's 640 step, and the page's own second breakpoint is 560 rather than 640. Adopting the design's second breakpoint is the responsive binder's work and is named in scope.excluded; no assertion here depends on this fact, and pretending one did would make the trace lie."
+      },
+      {
+        "id": "main-column-gap-22",
+        "claim": "the main column's gap between the next-action band and the panel below it is 22px",
+        "export": "export 280",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:4"
+        ]
+      },
+      {
+        "id": "band-sentence-tracking",
+        "claim": "the next-action sentence is 24px Newsreader at line-height 1.28 tracked -.01em — minus 0.24px at that size",
+        "export": "export 285",
+        "kind": "declared",
+        "traced_by": [
+          "head-type-weight-and-tracking:2"
+        ]
+      },
+      {
+        "id": "binder-head-padding",
+        "claim": "the binder panel's head is ONE block at padding 26px 30px 22px with a 1px --line bottom rule",
+        "export": "export 295",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:0"
+        ]
+      },
+      {
+        "id": "eyebrow-weight-400",
+        "claim": "the panel eyebrow declares no font-weight at all, so it resolves to 400 — regular — at 11px mono, .16em tracking, uppercase, in --now-deep. --now-deep is the design panel's in-flight phase colour, not a fixed eyebrow colour: the page binds the eyebrow's colour per phase from _PHASE_META (serve_status.py:791), so the colour a run measures depends on the state the fixture derives",
+        "export": "export 297",
+        "kind": "declared",
+        "traced_by": [
+          "head-type-weight-and-tracking:0",
+          "head-type-weight-and-tracking:1"
+        ]
+      },
+      {
+        "id": "binder-track-pill-99",
+        "claim": "the binder panel's own progress track and its fill are both border-radius:99px — fully rounded ends on the track that renders at rest, not only on the map's",
+        "export": "export 304, 305",
+        "kind": "declared",
+        "traced_by": [
+          "binder-track-pill:0"
+        ]
+      },
+      {
+        "id": "binder-track-clips",
+        "claim": "the track is 6px tall on a --line ground with overflow:hidden and min-width:200px, so a fill at any width is clipped to the rounded end rather than painting past it",
+        "export": "export 304",
+        "kind": "declared",
+        "traced_by": [
+          "binder-track-pill:1"
+        ]
+      },
+      {
+        "id": "panel-body-padding",
+        "claim": "the panel body is padding 22px 30px 28px, a flex column at gap 16px",
+        "export": "export 318",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:1"
+        ]
+      },
+      {
+        "id": "step-header-rule",
+        "claim": "the wave step header rules itself off with 1px solid --line-2, not --line; it is sticky at top:70px with margin 22px -30px 14px and padding 11px 30px 9px, so its negative margin is the panel body's own side padding",
+        "export": "export 320",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:6"
+        ]
+      },
+      {
+        "id": "card-grid-gap-14",
+        "claim": "the work-item card grid's gap is 14px",
+        "export": "export 327",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:2"
+        ]
+      },
+      {
+        "id": "card-inner-padding",
+        "claim": "a work-item card's inner padding is 15px 16px, inside a 1px --line edge at a 12px corner",
+        "export": "export 329",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:3"
+        ]
+      },
+      {
+        "id": "rail-sticky-offset",
+        "claim": "the map rail sticks at top:96px with max-height:calc(100vh - 122px) — 778px at a 900px viewport. Both numbers derive from the design's own construction: 96 is the 70px header plus the wrapper's 26px top padding, and 122 is that 96 plus the same 26",
+        "export": "export 142 with 140",
+        "kind": "declared",
+        "traced_by": [
+          "main-column-spacing-scale:5"
+        ]
+      },
+      {
+        "id": "check-type-label",
+        "claim": "the check type reads at 11px mono in --mut-2, on a foot button of its own beneath the card body with a 9px top margin",
+        "export": "export 338",
+        "kind": "declared",
+        "traced_by": [
+          "card-foot-and-detail-type:0",
+          "card-foot-and-detail-type:1"
+        ]
+      },
+      {
+        "id": "detail-grid-shape",
+        "claim": "the opened detail is a two-column grid of 96px and 1fr at gap 9px 14px",
+        "export": "export 358",
+        "kind": "declared",
+        "traced_by": [
+          "card-foot-and-detail-type:4"
+        ]
+      },
+      {
+        "id": "detail-label-type",
+        "claim": "the detail grid's labels are 10px mono at .14em tracking, uppercase, in --mut-2, with 2px of top padding",
+        "export": "export 359",
+        "kind": "declared",
+        "traced_by": [
+          "card-foot-and-detail-type:2"
+        ]
+      },
+      {
+        "id": "detail-value-type",
+        "claim": "the detail grid's values are 13.5px at line-height 1.55 in --ink",
+        "export": "export 360",
+        "kind": "declared",
+        "traced_by": [
+          "card-foot-and-detail-type:3"
+        ]
+      }
+    ]
+  },
+  "work_items": [
+    {
+      "id": "geometry-harness",
+      "title": "Measure the rendered page in a real browser",
+      "summary": "Add a script that boots the page against the pinned fixture, drives playwright-cli to read computed styles and box rectangles at named viewports and named states, and prints one JSON artifact — so every later item can prove a geometry claim by measuring it instead of by reading the stylesheet.",
+      "estimate": "L",
+      "depends_on": [],
+      "design_reference": "none",
+      "component_map": [
+        {
+          "design": "no design counterpart — this is the instrument, not a surface. What it exists to observe is the design's own geometry, read from docs/designs/karta-watch-1440x900-light.html",
+          "implementation": "NEW file skills/karta-status/scripts/measure_page.py. It starts serve_status.py the way the runbook does (docs/conventions/watch-design-fidelity.md:17-25), waits for the page to answer, then shells out to playwright-cli (open / goto / resize / click / eval) and reads getComputedStyle and getBoundingClientRect off the live DOM"
+        },
+        {
+          "design": "the runbook already names the two clicks as protocol: click the binder header to open the panel, then expand one card's disclosure (docs/conventions/watch-design-fidelity.md:33-38)",
+          "implementation": "the harness names those as its three states rather than leaving them to a caller's improvisation. The fixture binder derives as next and the page opens only the current binder's panel at rest (serve_status.py:3671), so the work-item cards are absent from the DOM until the first click — a probe against a card taken at rest reads nothing, and must report an unreached state rather than an empty value"
+        },
+        {
+          "design": "not applicable",
+          "implementation": "the floor picks the script up with no validator edit: _check_skill_scripts sweeps every skills/*/scripts/*.py and runs its --self-test (scripts/validate_plugin.py:1348-1354), and _run_self_test fails distinctly on a script that does not expose --self-test at all (validate_plugin.py:1297-1330). So the pure self-test is in the floor from the moment the file lands, and nothing wires it there by hand"
+        }
+      ],
+      "contract": {
+        "exposes": "one stdlib-only script in the house pattern (inline PEP 723 metadata, argparse, a --self-test mode printing [PASS]/[FAIL] lines) that measures the rendered page and prints one JSON artifact on stdout. Named viewports, three named states (at rest, after the binder-panel click, after one card's disclosure click), and a probe grammar of selector plus the computed properties and rect fields to read. Plus a section in the fidelity runbook naming the script by path, the command, the three state names and the skip line. And the mode every other item in this binder gates on: --check <group>, which takes the measurements, compares them against a named group of expected values carried inside the script itself, prints one line per comparison, and exits 0 when they all hold and 1 when any does not. The groups are not written here — each later item adds its own, named for that item, in the same commit as the fix it proves, so the expectation and the change arrive together and karta-verify sees both in one diff. --port defaults to 0, meaning an OS-assigned free port, so a run can never collide with the wave env on 8700 or the multi-repo hub's derived port. And --check all, which runs every named group in one invocation and exits 1 if any group fails or names nothing — the mode the closing gate uses to re-prove every earlier group on the assembled tip.",
+        "consumes": "serve_status.py as a subprocess, playwright-cli as a subprocess, and the committed fixture. It imports neither and edits nothing.",
+        "regression_risk": "the sharp edge here is a check that goes green when it could not run. If the browser is missing and the harness exits 0 with an empty artifact, every later item's oracle passes while proving nothing — which is worse than the declaration-only floor this binder is replacing, because it would look like measurement. So the skip path is the one behaviour with its own assertion, its own exit code and its own negative case. The mirror-image risk is a harness whose self-test needs a browser: that would drag the whole floor into needing one, and `uv run scripts/validate_plugin.py --self-test` would stop being runnable on a plain machine. Both directions are asserted, in opposite senses.",
+        "preserves": "the floor stays browser-free. python stays the only runtime scripts/ and skills/*/scripts/ need for `--self-test`; node and playwright-cli are needed only by a measurement run, which the floor never makes. The runtime_contract declares node because every OTHER item's oracle runs a measurement, and karta-build's halt on a missing runtime is the honest outcome for those items — not for the floor."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --self-test && env PATH=\"$(dirname \"$(command -v uv)\"):/usr/bin:/bin\" uv run scripts/validate_plugin.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the harness boots serve_status.py on the caller's --port rooted at the caller's --root, waits for the page to answer, drives playwright-cli to set each named viewport and reach each named state, and prints ONE JSON artifact on stdout carrying every probe's getComputedStyle values and getBoundingClientRect box — one artifact for the whole run, not one per probe, so a later item quotes a single document",
+          "the three states are the two clicks the runbook already calls protocol, named the same way in the artifact: at rest, after the binder-panel click, after one work-item card's disclosure click. A state the run could not reach is reported as unreached with the reason, never as an empty reading — the fixture binder derives as next and the cards are absent from the DOM until the first click (serve_status.py:3671), so an unreached state is a normal outcome and has to be legible as one",
+          "when playwright-cli is not on PATH the harness prints the line `SKIPPED — no browser: playwright-cli is not on PATH, so no rendered geometry was measured and nothing below is proven` byte-for-byte, names every viewport and state it did not take, and exits 3 — a code distinct from both 0 (measured) and 1 (ran and something failed). It never prints a measurement it did not take, and it never exits 0 on that path",
+          "--check <group> is the gate the rest of this binder hangs on: it runs the measurement, compares each reading against that group's expected value, prints one line per comparison naming the selector, the property, the expected and the measured value, and exits 1 on any mismatch — never 0 with a printed complaint. An unknown group name exits 1 rather than passing vacuously, and a group whose expectations are empty exits 1 for the same reason. The no-browser skip of the assertion above outranks it: without playwright-cli the run exits 3 and no comparison is claimed either way",
+          "--self-test runs with no browser and no network: it covers the artifact assembly, the probe grammar, the skip path and the three exit codes over embedded fixtures, prints [PASS]/[FAIL] lines, and exits 0 on a machine with no playwright-cli and no browser installed. The same is proven for the whole floor by running `uv run scripts/validate_plugin.py --self-test` with playwright-cli removed from PATH, which must stay green. That claim is proven the only way it can be: the floor is re-run once with playwright-cli removed from PATH — uv and python still resolvable, the browser not — and it passes. Running it on the ordinary host PATH proves nothing about a browserless machine, because the browser is there",
+          "every rule the self-test asserts ships with a companion case that fails it (house.4): a probe naming a selector the page does not have fails; a malformed probe spec fails; a run whose server never answers fails with a named reason instead of an empty artifact; and the skip path is exercised against a fixture PATH that has no playwright-cli on it",
+          "the harness writes nothing into the repo. It prints to stdout; its only side effects are the server subprocess it starts and the playwright-cli session it opens, and it stops both. A run that leaves either alive fails its own teardown check, which is asserted rather than assumed",
+          "the script is stdlib-only with inline PEP 723 metadata, argparse and --self-test, matching the house pattern, and it reaches serve_status.py and playwright-cli through subprocess rather than importing either — the page's own module must stay importable-free of a browser dependency",
+          "the fidelity runbook gains a section naming skills/karta-status/scripts/measure_page.py by path, the command that runs it, the three state names and the skip line, so a reader with no browser learns from the runbook what a skipped run does not prove rather than only from the script's output",
+          "the regenerated Codex mirrors of measure_page.py under .agents/skills/karta-status/scripts/ and plugins/karta/skills/karta-status/scripts/ are byte-identical to the canonical file"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py",
+        "docs/conventions/watch-design-fidelity.md"
+      ],
+      "shared_resources": [
+        "docs/conventions/watch-design-fidelity.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "capability or resource escalation — a new script that starts a server subprocess and drives a browser. Nothing else in this repo does either, and it is picked up by the floor automatically because _check_skill_scripts sweeps skills/*/scripts/*.py (validate_plugin.py:1348-1354), so the pure-self-test rule is not optional",
+          "contract mutation — the runtime_contract gains node, so karta-build's preflight halts on a machine without it. That is the intended outcome for the seven items whose oracles measure, and it is written down here rather than left to be met at a halt. Needed by the seven items whose oracles drive playwright-cli, NOT by geometry-harness, whose own oracle is python-only (measure_page.py --self-test plus the floor). Because runtime_contract is binder-wide, on_unavailable: halt stops the whole binder on a node-less machine including that one item — a real over-reach, accepted deliberately: seven of eight items cannot be gated there, so a run that built only the instrument and halted would be a worse outcome than halting at preflight with the reason named. The version floor is playwright-cli's own engines field as installed on the planning host (0.1.15), not a repo pin; a different playwright-cli may want a different node, and an item that hits that states it rather than widening this silently",
+          "explicit — this is the architectural half of the binder and the one item most reasonably cut into its own. Everything else depends on it, so if it is cut, the rest of the binder has to fall back to declaration checks and the defect class stays invisible",
+          "scope of impact — this item and measured-fidelity-gate both edit docs/conventions/watch-design-fidelity.md, so both declare it as a shared resource and the wave scheduler keeps them apart"
+        ]
+      }
+    },
+    {
+      "id": "column-fills-its-page",
+      "title": "Make the column fill the page instead of its contents",
+      "summary": "Give the app root a real width so the content column is sized by the page rather than by what it happens to hold, take the design's 32px gutter so the column measures 1376 at a 1440 viewport, and keep the header's full-bleed agreeing with the gutter after it moves.",
+      "estimate": "M",
+      "depends_on": [
+        "geometry-harness"
+      ],
+      "design_reference": "the whole view at 1440x900 in light theme (export 109, 111-112, 140)",
+      "component_map": [
+        {
+          "design": "the wrapper is a grid held at max-width:1440px with margin:0 auto and padding:26px 32px 64px (export 140), sized by the viewport and never by what it holds; the block around it is a plain full-width min-height:100vh div (export 109)",
+          "implementation": "body is a column flexbox with align-items:center and padding:0 34px 56px (serve_status.py:1449-1456), and the app root `<div id=\"app\"></div>` (serve_status.py:4337, mounted at :4179) carries no width rule anywhere in the sheet. In a COLUMN flexbox align-items governs the horizontal axis, so the root is sized shrink-to-fit: getComputedStyle(#app).flex reads `0 1 auto`, measured in the browser"
+        },
+        {
+          "design": "not applicable — the design has no cap that fails to bind",
+          "implementation": ".wrap{width:100%;max-width:1040px} (serve_status.py:1481) and .wrap--repo{max-width:1440px} (:1485) resolve 100% against a content-sized parent, so the cap never binds. Measured on the pinned fixture: 1181px at rest at a 1440 viewport against 1372px available, rising to 1372px once the panel is open — opening one card re-flows the whole page. Measured on the live repo page at the same viewport: 1295px. It is not a fixture artefact; the fixture just shows it worst"
+        },
+        {
+          "design": "the design's header repeats the wrapper: full-bleed sticky outer, inner box at max-width:1440px, margin:0 auto, padding:0 32px, height:70px, border on the outer (export 111-112)",
+          "implementation": ".top--shell bleeds the other way — margin:0 -34px with padding:0 34px over the body's own padding (serve_status.py:1545-1553). The two 34s are literals that have to move together with the body's, and the comment above the rule is where the deliberate bleed is documented. That bleed is intended and stays; what has to hold after this item is that the negative margin, the padding and the body gutter are all the same number"
+        }
+      ],
+      "contract": {
+        "exposes": "a content column sized by the page: the same width at rest and with the panel open, at the design's 1376 measure at a 1440 viewport, with the gutter stated once as a named constant that the body rule and the header's bleed both read.",
+        "consumes": "the harness from geometry-harness — every width claim here is measured with measure_page.py, not read off the sheet.",
+        "regression_risk": "this is the change the run's own text warns about: a change here moves every width below it, which is why every later item measures against a corrected column and depends on this one. Two specific hazards. First, the gutter moving 34 to 32 widens the column by 4px at every width below the cap, so a later item that measured against 34px gutters would read 4px of drift as its own defect — the new numbers are stated here rather than left to be discovered. Second, above a 1440 viewport the page and the design part company unless the cap is expressed the way the design expresses it: the design's 1440 cap CONTAINS its gutters, so its content stops at 1376, while this page's cap is on the content box and would let the column reach 1440. The item has to take a position on that and say which construction it took. This item's gate runs the browser: its oracle command calls measure_page.py --check column-fills-its-page before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. This item writes its own --check group into skills/karta-status/scripts/measure_page.py, so that file and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource — which also serializes every group-writing item against the others, so two of them cannot author groups into the same file at once.",
+        "preserves": "the header's full-bleed, which serve_status.py:1545-1553 documents as deliberate and which the fidelity record books as an intended difference — it is not a finding, and this item does not remove it. Also the hub landing, which shares .wrap but not .wrap--repo and must keep its own narrower measure."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check column-fills-its-page && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "at a 1440x900 viewport, on the pinned fixture at ?theme=light, the app root and the content column both render the full width available inside the body's gutters, at rest — measured with measure_page.py. Before this item the column measures 1181px against 1372px available; after it there is no under-fill at all",
+          "opening the binder panel does not re-flow the page: the harness reads the same column width at rest and after the panel click at 1440. Today those two readings are 1181 and 1372",
+          "the gutter is the design's 32px a side and the column measures 1376px at a 1440 viewport — the design's own content measure, a 1440 cap with 32px gutters inside it (export 140). The gutter is stated once as a named module constant and the sheet interpolates it; no literal 34 survives as a gutter anywhere in the sheet",
+          "above a 1440 viewport the column stops where the design's stops, at 1376 of content — measured at 1600. The item states which construction it took to get there, the design's own (gutters inside the capped box, export 140) or the cap lowered to 1376 with the gutters left on the body, and why. An unstated choice here is what lets the two pages diverge silently on a wide screen. Width alone is not enough at that viewport: the column's left and right coordinates are measured too and are equidistant from the viewport edges, and the header's rendered width equals the full 1600 while its inner box aligns to the column. Without those, a 1376 column pinned to the left with a 1440-wide bleed satisfies every number here and looks nothing like the design",
+          "the header's full-bleed still reaches both viewport edges after the gutter moves — measured at 1440 and at 1000, where the header's rendered width equals the viewport width. Its negative margin and its own padding read from the same named gutter constant as the body rule, so the three can no longer drift apart the way three literals could",
+          "the sheet's comment weighs both candidate fixes and names the one taken with its reason: `#app{width:100%;min-width:0}`, or `body{align-items:stretch}` with `.wrap{margin-inline:auto}`. Both were tested live in the page and both pin the column in the at-rest and panel-open states. Whichever is taken, the app root is no longer content-sized — it stretches to the body's content box instead of resolving to the shrink-to-fit `0 1 auto` it computes today. That comment carries the phrase `measured with measure_page.py` verbatim. It is the binder's measured-not-declared shared term, and check_shared_terms.py byte-greps each listed item's declared touches for it after the last one lands — so the phrase has to be written into a file the sheet items share, and this is the earliest of them to land. Every item listed under that term touches serve_status.py, so this one occurrence in the sheet clears the term for all of them at once",
+          "below the cap the column is the viewport less two gutters, and the new numbers are stated rather than discovered: 1136 at 1200, 1036 at 1100, 936 at 1000 — each 4px wider than today's 1132, 1032 and 932, because the gutter moved 2px a side. A later item reading 4px of difference is reading this change, not a defect",
+          "a declaration-level check in serve_status.py --self-test pins the RULE rather than the number: the app root is not left content-sized inside a column flexbox, and the gutter is one constant rather than three literals. The negative control removes the root's width and fails",
+          "the new behaviour names are added to skills/karta-status/scripts/selftest_behaviours.txt and its two mirrors, so the floor keeps them. No behaviour is retired by this item",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — serve_status.py is edited by six of this binder's eight items, so each is serialized behind the others by the shared_resources declaration. That is what forced watch-drill-in into seven mostly-single-item waves and it will do the same here: expect roughly eight waves, not two. Said here so the run does not discover it",
+          "scope of impact — this item moves every width on the page. Its own finding says a change to it moves every width below it, which is why the five later layout items depend on it rather than running beside it",
+          "explicit open question — two correct fixes exist and the item must choose. The choice is recorded in the sheet's comment, not only in the build report, because the next person to touch the body rule needs to know why it looks the way it does",
+          "explicit — the gutter change is a second decision riding in the same item. It is here rather than in its own item because changing the gutter without fixing the width does nothing observable, and both decisions move the same three declarations"
+        ]
+      }
+    },
+    {
+      "id": "narrow-widths-do-not-spill",
+      "title": "Stop the page overflowing its own gutters at narrow widths",
+      "summary": "Below its single-column step the page cannot shrink any further and spills past its own gutters, gaining a sideways scrollbar; and the header's repo name shrinks its box to nothing while keeping its full text, because it is never clipped. Fix both, and prove it at the width where the spill actually starts rather than at a width chosen from a different page.",
+      "estimate": "M",
+      "depends_on": [
+        "column-fills-its-page"
+      ],
+      "design_reference": "the single-column step at max-width:880px (export 98-101)",
+      "component_map": [
+        {
+          "design": "at max-width:880px the design collapses its split to one column and unsticks the rail (export 98-101) — the same 880 this page uses (RAIL_NARROW_PX = 880, serve_status.py:1067, applied at :2225-2227). The gutters stay 32px down to the design's 640 step",
+          "implementation": "measured on the pinned fixture: the page fits at 900, 800, 760 and 752, and spills at 700 — scrollWidth 726 against clientWidth 700, with the app root bottoming out at 684 in both the 752 and 700 readings. That floor is the point: the same shrink-to-fit root that under-fills a wide viewport cannot go below its own min-content width, so a narrow one makes it spill instead. The threshold sits near 752 on this fixture and moves with the checkout's directory name, which is why the item gates at 700"
+        },
+        {
+          "design": "the design's header repo name is a nowrap mono span inside a min-width:0 flex column (export 116-117)",
+          "implementation": ".shell__repo-name is white-space:nowrap with max-width:100% (serve_status.py:1584-1588) and carries neither overflow:hidden nor text-overflow:ellipsis, so the text is never clipped. The flex chain around it already collapses correctly — .shell{min-width:0} at :1557 and .shell__txt{min-width:0} at :1574 — and the measurements show it working: the name's client width falls 163, 63, 23, 15 across 900, 800, 760, 700 while its scroll width stays 180. The box shrinks; the text simply spills out of it. .rail__slug at :1714-1716 is the in-repo pattern for the missing pair, and .rail__body at :1674 for the min-width:0 that is already present here"
+        }
+      ],
+      "contract": {
+        "exposes": "a page that reflows rather than spills at every width from the single-column step down, and a header repo name that truncates rather than overflowing its box.",
+        "consumes": "the corrected column from column-fills-its-page, and the harness for every measurement.",
+        "regression_risk": "the honest uncertainty this item has to settle: fixing the column may not close the overflow on its own. A root that stretches instead of shrink-fitting still cannot go below the min-content width of what it holds, so the spill may simply move to whichever child is widest. The item must state which of the two it is — closed by the column fix, or still open and closed here — and back the statement with a measurement taken with the column fix in and this item's change out. Guessing either way, and being wrong, leaves a page that scrolls sideways on a laptop with a narrow window and a suite that says it does not. This item's gate runs the browser: its oracle command calls measure_page.py --check narrow-widths-do-not-spill before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. One attribution correction the build must not inherit: the sideways spill is not caused by the repo name. At the widths where it bites, the header's non-shrinking furniture sets the floor — .hdr-right{flex:none} (serve_status.py:1505) measuring 350.6px, plus .shell__brand at 88.9 and .shell__feed at 178. Clipping the name is worth doing on its own merits and will not by itself move the threshold; an item that clips the name and declares the spill closed has not checked. This item writes its own --check group into skills/karta-status/scripts/measure_page.py, so that file and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource — which also serializes every group-writing item against the others, so two of them cannot author groups into the same file at once.",
+        "preserves": "the 880px step itself, which both sides share, and the 560px wave-grid step (serve_status.py:2228-2230). Neither breakpoint moves here — this item fixes an overflow, it does not reconcile the two second breakpoints, which scope.excluded leaves to the responsive binder."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check narrow-widths-do-not-spill && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "at a 700px viewport the page no longer scrolls sideways — measured with measure_page.py against the pinned fixture: documentElement.scrollWidth equals clientWidth, and the app root renders no wider than the viewport less two gutters. The pre-fix reading on that same fixture is scrollWidth 726 against clientWidth 700, with the app root bottoming out at 684 and header.top--shell reaching 751.58. 700 is named because it is below the threshold and 760 is not: on this fixture the page still fits at 900, 800, 760 and 752. The baseline is stated as a fixture reading on purpose — the header prints the checkout's directory name (_repo_display_name, os.path.basename, serve_status.py:4188-4191), so the spill threshold moves with the folder the page is served from (~752 on this fixture, ~806 in the drill-in worktree, ~877 in a plain karta checkout). An earlier draft of this item quoted 738 against 692 at 760, which was read off the live repo page and is not reproducible by a fixture-rooted gate. Do not re-root the oracle at the repo to make it match",
+          "the item states plainly, in the sheet's comment and in its build report, whether column-fills-its-page closed the spill on its own or only moved it — and the statement cites the harness artifact it was read from, by run and by width, rather than asserting an unbacked conclusion. It does NOT require a --check group that reverts the previous item to measure the counterfactual: no group can hold two versions of the sheet at once, and pretending one could is how an assertion becomes unbuildable. What the group does carry is the post-fix reading at every width in this item's matrix; the counterfactual is prose, sourced to a named artifact, and says so",
+          "the same two readings — scroll width equals client width, and the column equals the viewport less two gutters — hold at 900, 850, 800, 760 and 700, spanning the single-column step both sides share (export 98-101; serve_status.py:1067) and reaching below the fixture's own spill threshold. Of those, only 700 fails before the fix; the other four already pass, and the group records that so a reader can tell which readings are guards and which is the repair",
+          ".shell__repo-name is contained and visibly truncated rather than spilling, measured at 900, 850, 800, 760 and 700: its computed overflow is hidden and its text-overflow is ellipsis, and its border box does not extend past .shell__txt's content box at any of those widths. The check is containment and clipping, NOT scrollWidth equalling clientWidth — clipping is a paint-time effect, so a correctly truncated element still measures scrollWidth 180 against a clientWidth of 63 or 15. That inequality is the truncation signal and the group asserts its presence, never its absence; an assertion demanding equality here cannot be satisfied by a correct fix",
+          "the truncation is done the way this page already does it, and the missing half is named precisely: the flex chain that holds the name already takes min-width:0 — .shell at serve_status.py:1557 and .shell__txt at :1574 — and it already works, since the name's box measures 163, 63, 23 and 15 at 900, 800, 760 and 700 while its text stays 180. What .shell__repo-name (:1584-1588) lacks is the clipping pair, overflow:hidden and text-overflow:ellipsis, beside the white-space:nowrap it already declares. The complete in-repo pattern is .rail__body{min-width:0} at :1674 TOGETHER WITH .rail__slug{overflow:hidden; text-overflow:ellipsis; white-space:nowrap} at :1714-1716 — copy both halves, and do not re-add a min-width:0 that is already there",
+          "a truncated name stays recoverable: the element carries its full text where a reader or a screen reader can still reach it, so nobody is shown a clipped name with no way to learn the rest",
+          "declaration checks with negative controls (house.4): removing overflow:hidden or text-overflow: ellipsis from .shell__repo-name fails the truncation check, and a fixture whose root can exceed the viewport at the narrow step fails the spill check. The control is on the clipping pair, not on min-width:0 — removing min-width:0 lets the box grow to 180 and would make a scrollWidth-versus-clientWidth reading pass, so a control built on it points the wrong way",
+          "the new behaviour names are added to selftest_behaviours.txt and its two mirrors. No behaviour is retired by this item",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — serve_status.py is edited by six of this binder's eight items, so each is serialized behind the others",
+          "explicit open question — whether the column fix already closes the overflow is not known at plan time. The item is written to settle it by measurement and to say which answer it found, rather than to assume one",
+          "explicit — this is the one item whose findings the previous run never saw. Its run was 1440-only and named any width other than 1440 as unshown, so these two are new evidence rather than carried findings, and the record has to say so"
+        ]
+      }
+    },
+    {
+      "id": "binder-track-pill",
+      "title": "Round the ends of the track that renders at rest",
+      "summary": "The binder card's own progress track still has square ends where the design's is a pill — round it and its fill, name both in the shape check's round list, and keep them clipped so a partial fill cannot paint past the rounded end.",
+      "estimate": "S",
+      "depends_on": [
+        "column-fills-its-page"
+      ],
+      "design_reference": "the binder panel's progress track (export 304-305)",
+      "component_map": [
+        {
+          "design": "the track is 6px tall on a --line ground at min-width:200px with overflow:hidden and border-radius:99px; its fill carries border-radius:99px too (export 304, 305)",
+          "implementation": ".binder__bar declares height, a hatched ground, flex and a min-width but no radius and no overflow (serve_status.py:1939-1943); .binder__fill declares none either (:1944). Both measured at border-radius:0px on the rendered page"
+        },
+        {
+          "design": "not applicable — the design has one round set and states each radius",
+          "implementation": "_ROUND_PILLS (serve_status.py:1344-1347) is the shape check's list of fully-rounded selectors and already holds .rail__bar and .rail__fill, which watch-drill-in's progress-track-pill added. The value is the literal 99px, as every other pill in the sheet is; _ROUND_PILL_PX (:1349) is the check-side constant that _ROUND_PILLS membership forces it to match. This is the other track — the one that renders at rest in the binder head — and it was out of that item's scope"
+        }
+      ],
+      "contract": {
+        "exposes": "the binder card's progress track and its fill fully rounded and clipped, with both selectors named in the shape check's round list so the two lists together still account for every radius the sheet declares.",
+        "consumes": "the existing _ROUND_PILL_PX constant and the round set watch-drill-in's progress-track-pill left in place.",
+        "regression_risk": "the shape check asserts the existing round set exactly, so changing the track without moving the check fails the build — which is the check working. This is a deliberate change with its own assertion moved in the same edit, not a value nudged past a check. Separately, the page's track carries a hatched background-image that the design's does not: rounding a hatched track without clipping it would leave the hatch square inside a rounded box, which is the same defect class as the strip that flattened the binder card's corner in the 2026-08-18 run. That is why the clipping is asserted rather than assumed. This item's gate runs the browser: its oracle command calls measure_page.py --check binder-track-pill before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. This item writes its own --check group into skills/karta-status/scripts/measure_page.py, so that file and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource — which also serializes every group-writing item against the others, so two of them cannot author groups into the same file at once.",
+        "preserves": "the track's hatched ground, its 6px height, its min-width:200px and the fill's width transition — this item changes the ends, not the bar."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check binder-track-pill && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the binder card's progress track and its fill both render fully-rounded ends at rest, read off the live page — against border-radius:0px on both today, and the design's 99px on track and fill (export 304, 305)",
+          "the track clips its fill the way the design's does (overflow:hidden, export 304), so a fill at any width — including the fixture's 0% and a full 100% — is held inside the rounded end and the hatched ground never paints square inside a rounded box",
+          "both selectors are named in _ROUND_PILLS (serve_status.py:1344-1347), so the shape check's round and rectangular lists together still account for every radius the sheet declares and neither track falls into neither list",
+          "both declarations are spelled the literal 99px the sheet's other pills use, not a radius derived from the 6px track height and not an interpolated token. _ROUND_PILL_PX (serve_status.py:1349) is the CHECK-side value, never a stylesheet one: its only three occurrences are that definition and two self-test predicates (:11507, :11565), _css_from (:2234-2290) carries no __RADPILL__ token, and :1335-1338 argues for the literal deliberately. What keeps the two tracks from drifting apart is membership, not interpolation — the shape check at :11563-11569 requires every element in _ROUND_PILLS to measure exactly _ROUND_PILL_PX, so adding this track to that set forces the value",
+          "the negative control squares either the track or its fill and fails (house.4)",
+          "the track's hatched repeating-linear-gradient ground, its 6px height and its min-width:200px are unchanged, and so is the fill's width transition",
+          "the item states whether the behaviour that covers the round set already names this pair or needs a new anchor line, and the anchor and its two mirrors are updated to match that answer. No behaviour is retired by this item",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — serve_status.py is edited by six of this binder's eight items, so each is serialized behind the others",
+          "explicit — this item edits an existing check in the same commit as the change that check would otherwise refuse. That is the sanctioned shape (move the assertion, never nudge the value past it), recorded here because a weakened check and a moved one look the same in a diff",
+          "explicit — this is the one finding carried unfixed from 2026-08-18. It survived a binder because a same-named item fixed the other track; the record now names both tracks separately so it cannot happen a third time"
+        ]
+      }
+    },
+    {
+      "id": "head-type-weight-and-tracking",
+      "title": "Set the eyebrow at regular and track the next-action sentence",
+      "summary": "Two single declarations in the page's head region are a step off the design: the binder eyebrow is bold where the design's is regular, and the next-action sentence carries no letter-spacing where the design's is tightened.",
+      "estimate": "S",
+      "depends_on": [
+        "column-fills-its-page"
+      ],
+      "design_reference": "the binder panel head (export 297) and the next-action band (export 285)",
+      "component_map": [
+        {
+          "design": "the panel eyebrow declares no font-weight at all, so it resolves to 400 — 11px mono, .16em tracking, uppercase (export 297)",
+          "implementation": ".binder__eyebrow is font-weight:600 (serve_status.py:1910-1913). Size, tracking and case already match; the weight is the whole gap. Measured on the rendered page: it reads heavier than the slug beside it (.binder__slug, serve_status.py:1919-1922), where the design's two sit at one weight"
+        },
+        {
+          "design": "the next-action sentence is 24px Newsreader at line-height 1.28 tracked -.01em — minus 0.24px at that size (export 285)",
+          "implementation": ".band__sentence declares face, size, line-height and colour but no letter-spacing (serve_status.py:1809-1812), so it resolves to normal. Face, size and line-height already match"
+        }
+      ],
+      "contract": {
+        "exposes": "the binder eyebrow at the design's regular weight and the next-action sentence at the design's tracking, with both pinned by a check.",
+        "consumes": "nothing beyond the sheet — neither value depends on another item's work.",
+        "regression_risk": "the eyebrow's weight is the only thing separating it from the slug on the same row, so dropping it to 400 removes a distinction a reader may have been using. The design's answer is that colour does that work, not weight: its eyebrow is --now-deep and its slug --mut-2. The item has to keep that colour difference intact while removing the weight difference, or the row goes flat. Nothing else in the sheet reads either declaration, so the scope of impact is these two rules. This item's gate runs the browser: its oracle command calls measure_page.py --check head-type-weight-and-tracking before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. This item writes its own --check group into skills/karta-status/scripts/measure_page.py, so that file and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource — which also serializes every group-writing item against the others, so two of them cannot author groups into the same file at once.",
+        "preserves": "the eyebrow's 11px size, .16em tracking, uppercase case and per-state colour binding, and the sentence's Newsreader face, 24px size and 1.28 line-height."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check head-type-weight-and-tracking && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the binder eyebrow renders at weight 400 — read off the live page, against 600 today (serve_status.py:1910-1913). The design's declares no weight and resolves to 400 (export 297), and the page's 11px size, .16em tracking and uppercase case are unchanged",
+          "the eyebrow and the slug beside it resolve to the same weight, which is the difference a reader actually sees, and they keep their different colours — the eyebrow's per-phase inline colour against the slug's --mut-2 —  so the row still separates the two without leaning on weight. The eyebrow's colour is bound per phase on the element, not declared in the sheet: serve_status.py:4053 binds :style=\"{ color: shown.color }\" from _PHASE_META at :791, where next is var(--steel); .binder__eyebrow at :1910 declares no colour at all. On the pinned fixture the binder derives as next, so the measured pair is rgb(63, 88, 120) against rgb(115, 79, 88). Pin those, and do NOT hardcode a colour onto .binder__eyebrow to make a fixed pair true — that would destroy the per-state binding this item's own contract.preserves protects, and paint every binder's eyebrow one phase's colour in a real repo, which a single-phase fixture can never catch",
+          "the next-action sentence carries the design's -.01em tracking, resolving to -0.24px at its 24px size (export 285), against letter-spacing:normal today (serve_status.py:1809-1812). Its Newsreader face, 24px size and 1.28 line-height are unchanged",
+          "declaration checks with negative controls (house.4): restoring weight 600 on the eyebrow fails, and removing the sentence's tracking fails",
+          "the new behaviour names are added to selftest_behaviours.txt and its two mirrors. No behaviour is retired by this item",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — serve_status.py is edited by six of this binder's eight items, so each is serialized behind the others",
+          "explicit — two findings share one item. They are two single declarations a few lines apart in the same head region, and splitting them would buy a wave and prove nothing extra; the record maps both to this id so neither can be closed by silence"
+        ]
+      }
+    },
+    {
+      "id": "main-column-spacing-scale",
+      "title": "Open the main column out to the design's spacing",
+      "summary": "Seven spacing values down the main column are tighter than the design's — the binder head, the panel body, the card grid, the card's inner padding, the gap between band and frame, the rail's sticky offset and cap, and the wave step header's rule — and together they are why the page reads denser than the design at the same width.",
+      "estimate": "L",
+      "depends_on": [
+        "column-fills-its-page"
+      ],
+      "design_reference": "the main column at 1440x900 (export 140, 142, 280, 295, 318, 320, 327, 329)",
+      "component_map": [
+        {
+          "design": "the binder panel's head is one block at padding 26px 30px 22px with a 1px --line bottom rule (export 295)",
+          "implementation": "the page splits that head into three: .binder__header at padding:14px 18px (serve_status.py:1872-1877), .binder__masthead at padding:14px 18px 12px (:1889) and .binder__blurb at padding:13px 18px 16px (:1926-1929). Three blocks together occupying the design's one, so the values cannot be copied across one for one — what has to match is the head region's measured outer padding"
+        },
+        {
+          "design": "the panel body is padding 22px 30px 28px, a flex column at gap 16px (export 318)",
+          "implementation": ".binder__waves is padding:0 __PANELBODYPAD__px __PANELBODYPAD__px with PANEL_BODY_PAD_PX = 18 (serve_status.py:1980-1982, constant at :1207). The wave step header's negative margin and padding read from the same constant (serve_status.py:1999-2000), so moving it moves the header's bleed with it — which is correct and is why the value must stay a constant rather than becoming three literals"
+        },
+        {
+          "design": "the card grid's gap is 14px (export 327); a work-item card's inner padding is 15px 16px (export 329); the main column's gap is 22px (export 280)",
+          "implementation": ".wave{display:grid;gap:11px} (serve_status.py:2017); .item__row padding:12px 14px (:2069); .main{gap:20px} (:1628). Each is a bare literal today"
+        },
+        {
+          "design": "the map rail sticks at top:96px with max-height:calc(100vh - 122px) — 778px at 900 (export 142). Both derive from the design's own construction: 96 is the 70px header plus the wrapper's 26px top padding (export 140), and 122 is 96 plus that same 26",
+          "implementation": ".rail is position:sticky;top:__BARH__px with max-height:calc(100vh - __BARH__px - 34px) — 70 and 796 at a 900 viewport (serve_status.py:1630-1633, BAR_HEIGHT_PX = 70 at :1198). Measured: content starts 90px from the top of the page against the design's 97px"
+        },
+        {
+          "design": "the wave step header rules itself off with 1px solid --line-2 (export 320)",
+          "implementation": ".step uses border-bottom:1px solid var(--line) (serve_status.py:2001). One token reference, not a token value — --line and --line-2 both already exist and neither changes"
+        }
+      ],
+      "contract": {
+        "exposes": "the main column at the design's spacing scale, with each of the seven values measured on the rendered page rather than read off the sheet, and every value that other rules depend on expressed as a named constant.",
+        "consumes": "the corrected column from column-fills-its-page — spacing measured against an under-filled column would be measuring the wrong page — and the harness for every reading.",
+        "regression_risk": "the panel body's padding is the risky one: the wave step header's negative margin and its own side padding both read from PANEL_BODY_PAD_PX (serve_status.py:1999-2000) so the header bleeds exactly to the body's edges. Moving the constant moves all three together, which is the point of it being a constant — but an item that replaced the constant with literals to hit the design's asymmetric 22px 30px 28px would break that link silently, and the header would stop meeting the panel's edges. The rail's sticky offset carries the same shape: it derives from BAR_HEIGHT_PX today and must keep deriving, from the bar height plus the column's top padding, rather than becoming a typed 96. And the binder head is three blocks against the design's one, so a value-for-value copy would over-pad it — what is being matched is the region's measured outer padding, not each block's declaration. This item's gate runs the browser: its oracle command calls measure_page.py --check main-column-spacing-scale before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. This item writes its own --check group into skills/karta-status/scripts/measure_page.py, so that file and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource — which also serializes every group-writing item against the others, so two of them cannot author groups into the same file at once.",
+        "preserves": "the 27 tokens (the step header's rule changes which role it references, never what either role resolves to), the header's bleed, the wave grid's auto-fit column rule, and the two breakpoints.",
+        "visual_check_waiver": {
+          "reason": "whether the column as a whole now reads at the design's rhythm rather than tighter is a judgement about how seven separate values add up, and no single measurement settles it. Each of the seven IS measured here — that half is not waived. What is waived is the aggregate impression the finding actually describes: none of these is large alone, together they are why the page reads denser. Only a person looking at both pages can say whether that is gone",
+          "covered_by": "measured-fidelity-gate"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check main-column-spacing-scale && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the binder head region's measured outer padding equals the design's 26px 30px 22px (export 295), against 14px 18px today (serve_status.py:1872-1877). The item states how it distributed that across the page's three blocks — the masthead, the toggle row and the lede — where the design has one, so the distribution is a recorded decision rather than an accident of which rule was edited",
+          "the panel body renders at the design's 22px 30px 28px with a 16px column gap (export 318), against 0 18px 18px today. The side value stays a named constant, and the wave step header's negative margin and side padding still read from it (serve_status.py:1999-2000), so the header keeps bleeding exactly to the body's edges — measured, not assumed",
+          "the work-item card grid's gap is 14px (export 327), against 11px today (serve_status.py:2017)",
+          "a work-item card's inner padding is 15px 16px (export 329), against 12px 14px today (serve_status.py:2069)",
+          "the main column's gap between the next-action band and the frame below it is 22px (export 280), against 20px today (serve_status.py:1628)",
+          "the map rail sticks at 96px with a 778px cap at a 900px viewport (export 142), against 70px and 796px today (serve_status.py:1630-1633). Content start is NOT a second, independent number to pin: on this page the rail's sticky top and the column's content start are the same quantity, the bar height plus the column's top padding, so a top padding of 26px gives 96 for both and 27px gives 97 for both. Pin the padding at 26 and take 96 for both readings. The design reads 97 for content start with the same 26px padding because its header renders 71px where this page's renders 70 — its 1px rule sits on the outer element (export 111-112) while this page's is the last row of a border-box 70 (BAR_HEIGHT_PX, serve_status.py:1198, :1552). That 1px is the header-height difference the 2026-08-22 run already recorded and wrote back into the sheet's own two statements; it is not a spacing defect and this item must not chase it by typing 97. Both numbers still derive from the bar-height constant plus the column's top padding rather than being typed, so they move if the bar does",
+          "the wave step header rules itself off with --line-2 rather than --line (export 320, against serve_status.py:2001). No token value changes — only which existing role this one rule references",
+          "all seven values above are read off the rendered page at 1440x900 on the pinned fixture, measured with measure_page.py, and the readings are recorded. Each probe names the state it is taken in, because five of the seven targets do not exist in the DOM at rest: the binder head's padding and the column's band-to-frame gap are read at rest, and the panel body's padding, the wave step header's rule, the card grid's gap and the card's inner padding are read after the binder-panel click, with the rail's sticky offset and cap read at rest. A probe that looks for .step or .item before the click finds nothing and fails a correct implementation. Reading any of them back out of the stylesheet would prove nothing this binder does not already have",
+          "declaration checks with negative controls for every value that is or becomes a named constant (house.4), including one that removes the link between the panel body's padding and the step header's bleed and fails; and the new behaviour names are added to selftest_behaviours.txt and its two mirrors, with no behaviour retired",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — serve_status.py is edited by six of this binder's eight items, so each is serialized behind the others",
+          "scope of impact — seven values across five regions of the column in one item. It is one item because the finding is one finding: none of these is large alone, and the reason to move them is that together they change how the column reads. Splitting them into seven items would buy seven serialized waves and lose the reason",
+          "explicit — the binder head is three blocks on this page against the design's one, so this item cannot copy a value across. What it matches is the region's measured outer padding, and how it distributes that is a decision it has to record"
+        ]
+      }
+    },
+    {
+      "id": "card-foot-and-detail-type",
+      "title": "Step the card's small type up to the design's",
+      "summary": "The check-type label at the card's foot and the label and value type inside its opened detail are all a step below the design's, and the detail grid is laid out differently too — bring them up, and measure them, because the last run could see none of this.",
+      "estimate": "M",
+      "depends_on": [
+        "column-fills-its-page"
+      ],
+      "design_reference": "a work-item card's foot and its opened detail (export 338, 358-360)",
+      "component_map": [
+        {
+          "design": "the check type reads at 11px mono in --mut-2, on a foot button of its own beneath the card body with a 9px top margin (export 338)",
+          "implementation": ".item__oracle is 9px sans in --mut, sitting inside the card row beside the chevron (serve_status.py:2117-2120, rendered at :4121). The PLACEMENT is a decision this repo already took and already checks by name — check-type-sits-in-the-disclosure-label (serve_status.py:13982-13998) — because on this page the disclosure button is the whole card row. The type step is the gap; the placement is not"
+        },
+        {
+          "design": "the detail grid's labels are 10px mono at .14em uppercase in --mut-2 with 2px of top padding (export 359); its values are 13.5px at line-height 1.55 in --ink (export 360)",
+          "implementation": ".detail__label is 9px mono at 1.5px (serve_status.py:2153-2156); .detail__value is 11.5px at line-height 1.5 (:2157-2160). Beneath them sit .detail__value--mono at 10.5px (:2161), .detail__name at 9.5px (:2164), .detail__empty at 10px (:2165) and the chip pair at 9.5px and 8.5px (:2168-2169) — a scale that has to stay coherent when the top of it moves"
+        },
+        {
+          "design": "the detail grid is 96px and 1fr at gap 9px 14px (export 358)",
+          "implementation": ".detail is grid-template-columns:max-content minmax(0,1fr) at gap:5px 12px (serve_status.py:2152). max-content grows the label column to whatever the longest label needs; a fixed 96px does not, so a longer label would truncate or wrap where it does not today"
+        }
+      ],
+      "contract": {
+        "exposes": "the card's foot label and the opened detail's labels, values, columns and gap at the design's steps, every one measured on the rendered page after the two clicks the runbook names.",
+        "consumes": "the corrected column from column-fills-its-page, and the harness — which is the only reason this item is checkable at all, since its whole surface is behind two clicks and, at 1440x900, below the fold.",
+        "regression_risk": "two real hazards. The design's fixed 96px label column replaces a max-content column that today grows to fit; if any label this page renders is wider than 96px at 10px mono it will wrap or truncate where it never did, so the item has to enumerate the labels the page actually renders and check them against that width rather than adopting the number blind. And the detail's type scale has six more steps under the value step — the mono value variant, the entry name, the empty state and the chip pair. Moving the value from 11.5 to 13.5 while leaving the mono variant at 10.5 would put the two out of relation; the item either moves them in step or says why each one stays. This item's gate runs the browser: its oracle command calls measure_page.py --check card-foot-and-detail-type before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. This item writes its own --check group into skills/karta-status/scripts/measure_page.py, so that file and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource — which also serializes every group-writing item against the others, so two of them cannot author groups into the same file at once.",
+        "preserves": "the check type's placement inside the card row, which this repo committed to deliberately and checks by name (check-type-sits-in-the-disclosure-label, serve_status.py:13982-13998). This item changes the type step, not where the label lives — and it says so, so a later reader does not read the unchanged placement as an oversight. The detail stays the bordered, rounded disclosure box the sheet already draws on its disclosure radius step (_RADIUS_CONTAINERS, serve_status.py:1306-1314). The design's 1px top rule with 12px of clearance belongs to its HALTED card variant (--halt-line); its other two detail grids (export 493, 898) use neither. No top rule is wanted here, and its absence is a decision rather than an oversight.",
+        "visual_check_waiver": {
+          "reason": "whether the detail still reads as subordinate to the card body once its labels and values step up — rather than competing with the title above them — is a hierarchy judgement a size measurement cannot settle. It is also the part of the page hardest to see: at 1440x900 the opened detail sat below the fold in the 2026-08-22 run, which is why every reading of it in that record is measured and none is seen",
+          "covered_by": "measured-fidelity-gate"
+        }
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check card-foot-and-detail-type && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the check-type label renders at 11px mono in --mut-2 (export 338), against 9px sans in --mut today (serve_status.py:2117-2120) — measured with measure_page.py after the binder-panel click",
+          "the label stays inside the card row beside the chevron, where this repo deliberately put it and already checks it by name (check-type-sits-in-the-disclosure-label, serve_status.py:13982-13998); the design puts it on a foot button of its own (export 338) and that difference is unchanged and stated, so the placement is not read later as an oversight",
+          "the detail grid's labels render at 10px mono with .14em tracking, uppercase, in --mut-2 (export 359), against 9px at 1.5px today (serve_status.py:2153-2156)",
+          "the detail grid's values render at 13.5px at line-height 1.55 (export 360), against 11.5px today (serve_status.py:2157-2160)",
+          "the detail grid is 96px and 1fr at gap 9px 14px (export 358), against max-content and minmax(0,1fr) at 5px 12px today (serve_status.py:2152). The item lists every label the page actually renders and shows that none exceeds 96px at 10px mono — a fixed column that truncates a real label would be a new defect traded for an old one",
+          "the six smaller steps beneath the value — the mono value variant at 10.5px, the entry name at 9.5px, the empty state at 10px and the chip pair at 9.5px and 8.5px (serve_status.py:2161-2169) — are either moved in step with the value or explicitly left, each with its reason. A value column stepped up while its own mono variant is not is a new inconsistency, not a fix",
+          "every reading above names the state it is taken in, and the item records that it reached them. The check-type label sits in the card row and is read after ONE click, the binder-panel click; the detail grid's shape, labels and values are behind the card's own disclosure and are read after TWO, the runbook's second click (docs/conventions/watch-design-fidelity.md:33-38). The panel and the disclosure are both closed at rest on the pinned fixture, so a run that never clicks measures nothing here while appearing to pass — and a run that demands two clicks for the foot label looks for it in a state it is already past",
+          "declaration checks with negative controls for each value (house.4), and the new behaviour names added to selftest_behaviours.txt and its two mirrors, with no behaviour retired",
+          "the regenerated Codex mirrors of serve_status.py and selftest_behaviours.txt are byte-identical to the canonical files"
+        ]
+      },
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "scope of impact — serve_status.py is edited by six of this binder's eight items, so each is serialized behind the others",
+          "explicit — this item's whole surface is behind two clicks and below the fold at the compared viewport, so it is the item that most depends on the harness existing. Without measurement it would be checkable only by reading the sheet, which is the exact gap this binder was written to close",
+          "explicit open question — the design's fixed 96px label column replaces a column that grows to fit. Whether every label this page renders fits is an open question at plan time, and the item settles it by enumeration rather than by adopting the number blind"
+        ]
+      }
+    },
+    {
+      "id": "measured-fidelity-gate",
+      "title": "Compare the page against the design and record the measured run",
+      "summary": "Run the comparison the runbook describes, at every width this binder touched rather than at 1440 alone, with every geometry number taken by the harness — and write down what it found, what it could not show, and whether the waiver count fell.",
+      "estimate": "M",
+      "depends_on": [
+        "narrow-widths-do-not-spill",
+        "binder-track-pill",
+        "head-type-weight-and-tracking",
+        "main-column-spacing-scale",
+        "card-foot-and-detail-type"
+      ],
+      "design_reference": "the whole view at 1440x900 in light theme, and the same view at 1200, 1000, 900, 850, 800 and 760",
+      "component_map": [
+        {
+          "design": "the committed export, served over http from the REPOSITORY ROOT — two levels above its own parent — because it references its eight woff2 faces and its mascot as ../../skills/karta-status/assets/..., which resolve only from a root at or above that. Two routes are closed and this item must take neither: file:// is refused outright by playwright-cli, the browser this binder's harness drives ('Access to \"file:\" protocol is blocked'); and karta-validate's serve_design.py roots at the design file's own parent (skills/karta-validate/scripts/serve_design.py:73), where all nine of those requests 404. Serving from the repo root is a plain static server this item stands up itself, which keeps the binder independent of the repair planned in design-gate-serves-its-own-assets",
+          "implementation": "docs/conventions/watch-design-fidelity.md is where the run is recorded. The 2026-08-22 record is the template: what matched, the box count, the findings re-checked by name, the waiver table, what the fixture could not show, and a verdict derived from the readings"
+        },
+        {
+          "design": "not applicable",
+          "implementation": "every geometry number in this record comes from skills/karta-status/scripts/measure_page.py. The previous record's numbers came from a browser too, but from an ad-hoc script written for that run; this one runs the committed harness, so the next run reproduces it by running the same command rather than by rewriting the instrument"
+        }
+      ],
+      "contract": {
+        "exposes": "a dated comparison run in the fidelity record, taken with the four constants the runbook pins plus the six extra widths this binder touched, listing every difference it found and classifying each as intended, already-booked, or an open finding; a waiver table; and a plain statement of what the run could not show.",
+        "consumes": "the committed design file, the committed fixture, the runbook's four constants and the harness — all of which exist by the time this item runs.",
+        "regression_risk": "the pinned fixture derives every item as pending, so a halt badge, an in-flight ring, a running spinner and a part-filled progress bar cannot appear in it at all. This binder's track item is partly invisible for that reason — the fill renders at 0% — and the gate must name what it could not see rather than passing over it. The other recurring hazard is the previous run's near-miss: it folded a real defect into an already-booked difference and returned a pass. So a difference found here that is on neither closed list is written down as an open finding, and never promoted upward to make the run pass. This item's gate runs the browser: its oracle command calls measure_page.py --check measured-fidelity-gate before the floor, so the numbers below are read off a rendered page rather than off the sheet. Two consequences to plan for. The group is this item's to write — the fix and the expectation land in one commit, and an item that changes a value without moving its group fails its own gate. And on a machine with no playwright-cli the harness exits 3 with its skip line, which is not a pass: the item cannot be gated there and must halt for a human rather than merge on a floor that never looked at the page. One more sharp edge, measured rather than assumed: playwright-cli blocks the file: protocol, so the route watch-drill-in's gate took — opening the export directly off disk — is not available to this binder's harness. The design side must be served. That is why this item stands up its own static server at the repository root rather than reusing the wave env, which is rooted at the fixture, or serve_design.py, which cannot reach the assets until it is repaired. This item writes its own --check group into measure_page.py, so the harness and both its Codex mirrors are declared in touches and the canonical file is declared as a shared resource. This item is itself listed under the measured-not-declared shared term, and satisfies it in the fidelity runbook it writes.",
+        "preserves": "the runbook's four constants and both of its closed lists — the three intended differences and the eight weighed live-page controls. Neither list grows here.",
+        "verification_honesty": "the oracle type is unit on purpose, and turning it to visual would break this item — the same reasoning watch-drill-in's gate recorded, restated because it has to hold for this binder on its own evidence and not by inheritance. karta-build routes a visual oracle to karta-validate for acceptance, and karta-validate's comparison worker sees only a capture JSON: it has not seen the app code, the design file or the pipeline state. Most of what this item produces is a committed prose record — the run, the waiver table, the closed lists, the unshown list — and none of that is in a capture JSON. Worse, karta-validate's Phase 1 mandatorily serves the design through serve_design.py, which hard-roots at the design file's own parent with no root flag, so it 404s all eight woff2 faces and the mascot silently and poisons every px-level type reading this run takes. Under unit, the browser run still happens exactly as the runbook describes — the wave's own env_contract serves the page at 127.0.0.1:8700 and the design is served over http from the repository root, because playwright-cli refuses the file: protocol outright and serve_design.py cannot reach the design's own assets — and karta-verify dispositions each assertion against the diff, which is where the run's evidence lands. What this gate cannot settle, and must say so rather than implying otherwise: it is one person's reading of two screenshots plus one harness artifact, and the two waivers it covers are judgements it records rather than measurements it takes."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-status/scripts/measure_page.py --root docs/designs/fixtures/watch-fidelity-state --check all && uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the comparison runs against the committed design file at docs/designs/karta-watch-1440x900-light.html served over http from the repository root so its ../../skills/karta-status/assets/ references resolve, and never behind karta-validate's serve_design.py, which roots at the design file's own parent (serve_design.py:73) and silently 404s all eight woff2 faces and the mascot — nor over file://, which playwright-cli refuses outright — with the page served against the pinned fixture at ?theme=light on port 8700, at 1440x900. The record names all four constants and confirms every face resolved",
+          "the run proves the design actually loaded before it compares anything: all eight woff2 faces (ibm-plex-mono 400/500/600, ibm-plex-sans 400/500/600, newsreader 400/500) and the mascot answer 200, and the record states that count. A run where any of them 404s is recorded as no run at all and this item fails — never a comparison against a design rendered in fallback faces, which is the exact defect design-gate-serves-its-own-assets exists to end and which this item must not reproduce locally while that repair is pending. document.fonts.status is not the check: it reads 'loaded' with every face missing",
+          "every geometry number in the record is measured with measure_page.py — skills/karta-status/scripts/measure_page.py, the committed harness — and the record says so in those words, the same phrase the sheet's own comments carry, so a reader can tell a measured number from a declared one at a glance. A number in the record that no harness run produced is a failure of this item, because the whole point of the binder is that a geometry claim is measured rather than asserted. The gate starts that repo-root server itself as part of the run rather than assuming one is up, and the nine asset probes are part of its own --check group rather than a step a human is trusted to have taken. The artifact carries an identity — the run's tip sha, its timestamp and the matrix it covered — and the record names that identity, so a number in the prose can be traced to the run it came from instead of being taken on faith",
+          "the run is taken at 1600, 1440, 1200, 1100, 1000, 900, 850, 800, 760, 752 and 700 — 752 included because it is the fixture's own spill threshold, the one width where the pre-fix and post-fix pages differ by a hair rather than by a lot, so a regression that moves the threshold a few tens of pixels shows here and is invisible at 760 and 700 — one canonical matrix covering every width any item in this binder pins, including 700, the width narrow-widths-do-not-spill actually repairs, and 1600, the width column-fills-its-page uses to prove the cap. A matrix that omits the repair width lets a later item reintroduce the spill with this gate still green, and the record reports the column width and whether the document scrolls sideways at each. The 2026-08-22 run was 1440-only and named any width other than 1440 as unshown; this record closes that gap and says it is closing it",
+          "each of the eight findings this binder answers is re-checked by name and reported as fixed or still open — the six the 2026-08-22 run recorded, plus the sideways scrollbar and the spilling repo name that run could not see. A finding cannot be closed by silence",
+          "the record lists every visual_check_waiver in this binder — there are two — and for each gives the measurement or screenshot that discharged it, or the honest statement that it is not observable with the reason. It compares the count against the previous binder's seven and says whether it fell and why. An item whose claim the harness can measure and that carries a waiver anyway is recorded as a defect of this binder, not as an accepted gap",
+          "the record names what this run could not show and records no verdict on any of it: the halt badge and its blink, the in-flight ring and the masthead dot, the running spinner, a part-filled progress bar, the binder header's state tints, the hover treatments, the reduced-motion branch, the dark theme, and any width outside the matrix this run took",
+          "the verdict is derived from what was measured and seen and nothing else, and is recorded even when it is a fail. A difference on neither closed list is written down as an open finding rather than promoted into the intended list — the move the 2026-08-18 run nearly made and the one this document exists to prevent",
+          "the header measuring wider than the content column is recorded as the deliberate full-bleed that serve_status.py:1545-1553 documents, not as a finding; and the record states, measured, that the bleed and the gutter now agree — the header reaches both viewport edges and its inner content lines up with the column",
+          "the record keeps seen and measured apart the way the previous one does, saying for every claim which kind it is, so a later reader can tell what was looked at from what was read off the DOM",
+          "if playwright-cli is unavailable when this item runs, the item halts and reports the harness's line `SKIPPED — no browser: playwright-cli is not on PATH, so no rendered geometry was measured and nothing below is proven` rather than recording a run. A fidelity record written without a browser would be exactly the quiet green this binder exists to end",
+          "this item's group is a regression guard over the whole matrix, not a set of novel readings, and it says so rather than claiming coverage it adds. Every width in the matrix is re-measured here on the assembled tip — including the ones earlier items already pinned: 1600 by column-fills-its-page, 1136/1036/936 at 1200/1100/1000 by the same item, and 700 by narrow-widths-do-not-spill. Re-running a reading an earlier item established is the point, because the tip has moved since that item was gated",
+          "the regenerated Codex mirrors of measure_page.py under .agents/skills/karta-status/scripts/ and plugins/karta/skills/karta-status/scripts/ are byte-identical to the canonical file. This item edits no other skill file, so nothing else in it forces sync_codex_skills.py — and the third leg of its own oracle, validate_plugin.py --self-test, fails on stale mirrors. Every number the record states is read from the harness artifact of that same run, not retyped from an earlier reading or from another item's expectations, and the record says which run it came from. A recorded number with no artifact behind it is the failure this binder exists to end, and it would be this item committing it",
+          "the closing gate runs EVERY named group on the assembled tip, not only its own — measure_page.py --check all — and all of them pass there. This is the assertion that makes the binder's greens mean something at the end: its items are serialized against each other but not dependency-ordered, so a stylesheet change landing after an earlier item's group went green can invalidate that green with nothing to catch it. --check all is that catch. An unknown or empty group inside the sweep exits 1 rather than being skipped"
+        ]
+      },
+      "touches": [
+        "docs/conventions/watch-design-fidelity.md",
+        "skills/karta-status/scripts/measure_page.py",
+        ".agents/skills/karta-status/scripts/measure_page.py",
+        "plugins/karta/skills/karta-status/scripts/measure_page.py"
+      ],
+      "shared_resources": [
+        "docs/conventions/watch-design-fidelity.md",
+        "skills/karta-status/scripts/measure_page.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated",
+          "capability or resource escalation — this item serves the page and drives a browser. Unlike the previous binder's gate, it drives it through the committed harness rather than an ad-hoc script, so the run is reproducible by command",
+          "scope of impact — this item and geometry-harness both edit docs/conventions/watch-design-fidelity.md, so both declare it as a shared resource; the dependency chain already keeps them in different waves",
+          "explicit — this item adds no page code. Its product is a committed record plus the one --check group its own gate reads, which is why its oracle leads with --check measured-fidelity-gate before the floor, and why karta-verify dispositions its assertions against both the prose the diff adds and that group"
+        ]
+      }
+    }
+  ]
+}

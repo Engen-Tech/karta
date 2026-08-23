@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F6EFEE; --surface:#FFFFFF; --surface-2:#FBF6F4;
+  --ink:#2E0B12; --mut:#5C3742; --mut-2:#734F58;
+  --line:#DFCBC6; --line-2:#C7A2A6;
+  --accent:#B7364A; --accent-deep:#8E2436; --accent-line:#D9AEB6;
+  --now:#330D15; --now-soft:rgba(51,13,21,.065);
+  --green:#4A7544; --green-soft:rgba(74,117,68,.13);
+  --steel:#3F5878; --steel-soft:rgba(63,88,120,.085);
+  --wait:#74581F; --band:#330D15;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#E9DFDD;color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+a{color:var(--accent-deep);text-decoration:none}
+a:hover{color:var(--accent)}
+::selection{background:var(--accent);color:#fff}
+@keyframes kwBreathe{0%,100%{opacity:.45}50%{opacity:1}}
+@keyframes kwRing{0%{box-shadow:0 0 0 0 var(--now-soft)}70%,100%{box-shadow:0 0 0 9px transparent}}
+@keyframes kwDraw{from{stroke-dashoffset:240}to{stroke-dashoffset:0}}
+
+/* ---- canvas frames ---- */
+.frame{position:absolute;width:1440px;display:flex;flex-direction:column;gap:13px}
+.flabel{display:flex;align-items:baseline;gap:14px;cursor:grab;padding-left:2px}
+.ftitle{font-family:'Newsreader',serif;font-size:23px;line-height:1.1;letter-spacing:-.01em;color:var(--ink);flex:none}
+.fcost{font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.4;color:var(--mut-2)}
+.fcost b{font-weight:600;color:var(--accent-deep)}
+.screen{width:1440px;height:900px;background:var(--bg);border:1px solid var(--line-2);border-radius:10px;overflow:hidden;position:relative;box-shadow:0 3px 14px rgba(46,11,18,.09)}
+
+/* ---- shared atoms ---- */
+.mono{font-family:'IBM Plex Mono',monospace}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}
+.dot--ring{width:7px;height:7px;background:var(--now);animation:kwRing 1.9s ease-out infinite}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut);background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:5px 11px;flex:none}
+
+/* ---- header ---- */
+.hd{height:70px;display:flex;align-items:center;gap:18px;padding:0 32px;border-bottom:1px solid var(--line);background:var(--bg)}
+.brandrow{display:flex;align-items:center;gap:11px;flex:none}
+.wordmark{font-family:'Newsreader',serif;font-weight:500;font-size:21px;letter-spacing:-.01em;color:var(--ink)}
+.vrule{width:1px;height:26px;background:var(--line-2);flex:none}
+.repobox{display:flex;flex-direction:column;gap:2px;min-width:0}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);line-height:1}
+.reponame{position:relative;display:inline-block;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:15px;color:var(--accent-deep);line-height:1.15;white-space:nowrap}
+.squiggle{position:absolute;left:0;bottom:-4px;width:100%;height:7px;overflow:visible}
+.livetag{display:flex;align-items:center;gap:7px;margin-left:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut);flex:none}
+.spacer{flex:1}
+.hdchips{display:flex;align-items:center;gap:8px;flex:none}
+
+/* ---- split ---- */
+.split{display:grid;grid-template-columns:296px 1fr;gap:24px;align-items:start;padding:22px 32px 0}
+
+/* ---- rail ---- */
+.rail{display:flex;flex-direction:column;gap:14px;padding:5px 6px 14px;min-width:0}
+.railhd{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.rlabel{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--now)}
+.rmeta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)}
+.groups{display:flex;flex-direction:column}
+.grouphd{display:flex;align-items:center;gap:8px;padding:0 0 8px}
+.glabel{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:500}
+.rule{flex:1;height:1px;background:var(--line)}
+.rulenow{flex:1;height:2px;background:linear-gradient(to right,var(--now),transparent);opacity:.55}
+.gcount{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)}
+.showbtn{display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut);background:transparent;border:1px solid var(--line-2);border-radius:99px;padding:3px 9px;cursor:pointer}
+.showbtn:hover{border-color:var(--now);color:var(--now)}
+.entry{display:flex;gap:12px}
+.gutter{flex:none;width:11px;display:flex;flex-direction:column;align-items:center;padding-top:16px}
+.node{width:11px;height:11px;border-radius:50%;flex:none}
+.nodenow{background:var(--now);animation:kwRing 1.9s ease-out infinite}
+.nodenext{border:2px solid var(--steel);background:var(--bg)}
+.nodelater{border:2px dashed var(--wait);background:var(--bg)}
+.tail{flex:1;width:2px;background:var(--line-2);margin-top:4px}
+.tailnow{flex:1;width:2px;margin-top:4px;background:var(--now);opacity:.55}
+.ebody{flex:1;min-width:0;padding-bottom:14px}
+.bcard{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.bcardnow{border:2px solid var(--now);border-radius:12px;overflow:hidden;background:var(--surface)}
+.binner{display:flex;flex-direction:column;gap:5px;padding:12px 14px}
+.binnernow{background:var(--now-soft)}
+.brow{display:flex;align-items:center;gap:8px}
+.btitle{font-family:'Newsreader',serif;font-size:17px;line-height:1.15;color:var(--ink);flex:1;min-width:0}
+.bcount{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);flex:none}
+.bcountnow{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--now);flex:none}
+.bslug{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)}
+.bar{display:block;height:4px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:3px}
+.fill{display:block;height:100%;border-radius:99px;background:var(--now)}
+.empty{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);opacity:.72;padding-top:14px}
+
+/* ---- main column ---- */
+.main{min-width:0;display:flex;flex-direction:column;gap:22px}
+.wrap{border:1px solid var(--line);border-radius:16px;background:var(--surface-2);padding:0 14px 14px}
+.wraphd{display:flex;flex-direction:column;gap:3px;padding:12px 4px 11px}
+.wrapline{display:flex;align-items:baseline;gap:7px}
+.wrapkick{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}
+.wrapslug{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:var(--accent-deep)}
+.wrapsub{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.phead{padding:26px 30px 22px;border-bottom:1px solid var(--line)}
+.prow{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.pkick{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--now)}
+.pslug{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto}
+.h1{font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.06;letter-spacing:-.02em;color:var(--ink)}
+.psum{display:flex;align-items:center;gap:14px;margin-top:22px;flex-wrap:wrap}
+.pbar{flex:1;min-width:200px;height:6px;background:var(--line);border-radius:99px;overflow:hidden}
+.pfill{display:block;height:100%;width:100%;background:var(--now);border-radius:99px}
+.pmerged{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);flex:none}
+.pchips{display:flex;align-items:center;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);flex:none}
+.pchip{display:inline-flex;align-items:center;gap:5px}
+.pbody{padding:0 30px 28px;display:flex;flex-direction:column}
+.wavebar{display:flex;align-items:center;gap:12px;background:var(--surface);margin:20px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)}
+.wnum{font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums}
+.wlabel{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+.wstep{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none}
+.lanes{display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none}
+.lane{height:2px;width:100%;background:var(--now);border-radius:2px}
+.lanesteps{display:inline-flex;flex-direction:column;gap:2px;width:32px;flex:none}
+.lanesteps .lane{height:3px;width:33.3%}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
+.card{border:1px solid var(--line);border-radius:12px;padding:15px 16px;background:var(--green-soft)}
+.chead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.state{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--green)}
+.cmeta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto}
+.ctitle{font-family:'Newsreader',serif;font-size:19px;line-height:1.2;color:var(--ink);margin-bottom:6px}
+.cdesc{font-size:13.5px;line-height:1.55;color:var(--mut);text-wrap:pretty}
+.cfoot{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.cslug{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)}
+
+/* the caliper note — sits under the main column, marking what the nesting costs */
+.caliper{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--accent-deep);padding:12px 32px 0 353px}
+.calbar{height:1px;background:var(--accent-line);flex:none}
+.calmut{color:var(--mut-2)}
+</style>
+</helmet>
+
+<div class="frame" style="left:80px;top:80px">
+  <div class="flabel" data-drags-parent="1">
+    <span class="ftitle">Option 1 — wrapper stays, spine goes</span>
+    <span class="fcost">no spine · slim hub wrapper · panel indent <b>15px</b> a side · cards <b>15px</b> narrower — shipped nesting: 72px indent / 94px card width</span>
+  </div>
+  <div class="screen" data-screen-label="Option 1 — wrapper stays, spine goes">
+
+    <header class="hd">
+      <div class="brandrow">
+        <img src="assets/mascot-cut.png" alt="" width="34" height="34" style="display:block">
+        <span class="wordmark">karta</span>
+      </div>
+      <span class="vrule"></span>
+      <div class="repobox">
+        <span class="eyebrow">Repo</span>
+        <span class="reponame">karta
+          <svg viewBox="0 0 220 14" preserveAspectRatio="none" class="squiggle"><path d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-dasharray="240" style="animation:kwDraw 1.1s .2s ease-out both"></path></svg>
+        </span>
+      </div>
+      <div class="livetag"><span class="dot" style="background:var(--green);animation:kwBreathe 2s ease-in-out infinite"></span>live from git — read-only</div>
+      <div class="spacer"></div>
+      <div class="hdchips">
+        <span class="chip">19 binders · 18 delivered</span>
+        <span class="chip">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>main
+        </span>
+        <span class="chip">karta/watch-redesign/integration</span>
+      </div>
+    </header>
+
+    <div class="split">
+
+      <aside class="rail">
+        <div class="railhd">
+          <span class="rlabel">Karta's Map</span>
+          <span class="rmeta">19 binders · click any to drill in</span>
+        </div>
+        <div class="groups">
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--green)">Delivered</span>
+            <span class="rule"></span>
+            <button type="button" class="showbtn" aria-pressed="false">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg><span>show 18</span>
+            </button>
+          </div>
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--now)">Now</span>
+            <span class="rulenow"></span>
+            <span class="gcount">1</span>
+          </div>
+          <div class="entry">
+            <div class="gutter"><span class="node nodenow"></span><span class="tailnow"></span></div>
+            <div class="ebody">
+              <div class="bcardnow">
+                <div class="binner binnernow">
+                  <span class="brow">
+                    <span class="btitle">Rebuild the status page on the new design</span>
+                    <span class="bcountnow">13/13</span>
+                  </span>
+                  <span class="bslug">watch-redesign</span>
+                  <span class="bar"><span class="fill" style="width:100%"></span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--steel)">Next</span>
+            <span class="rule"></span>
+            <span class="gcount">1</span>
+          </div>
+          <div class="entry">
+            <div class="gutter"><span class="node nodenext"></span><span class="tail"></span></div>
+            <div class="ebody">
+              <div class="bcard">
+                <div class="binner">
+                  <span class="brow">
+                    <span class="btitle">Chase the last pixels of the new design</span>
+                    <span class="bcount">0/6</span>
+                  </span>
+                  <span class="bslug">watch-fidelity</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--wait)">Later</span>
+            <span class="rule"></span>
+            <span class="gcount">0</span>
+          </div>
+          <div class="entry">
+            <div class="gutter"><span class="node nodelater"></span></div>
+            <div class="ebody"><span class="empty">— nothing parked yet</span></div>
+          </div>
+
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="wrap">
+          <div class="wraphd">
+            <span class="wrapline"><span class="wrapkick">Delivery /</span><span class="wrapslug">watch-redesign</span></span>
+            <span class="wrapsub">19 binders · 18 delivered</span>
+          </div>
+
+          <section class="panel">
+            <div class="phead">
+              <div class="prow">
+                <span class="pkick">In flight</span>
+                <span class="dot dot--ring"></span>
+                <span class="pslug">watch-redesign</span>
+              </div>
+              <h1 class="h1">Rebuild the status page on the new design</h1>
+              <div class="psum">
+                <span class="pbar"><span class="pfill"></span></span>
+                <span class="pmerged">13 of 13 merged</span>
+                <span class="pchips">
+                  <span class="pchip"><span class="dot" style="background:var(--green)"></span>13 passed</span>
+                  <span class="pchip"><span class="dot" style="background:var(--steel)"></span>2 waves</span>
+                  <span class="pchip"><span class="dot" style="background:var(--now)"></span>ready to land</span>
+                </span>
+              </div>
+            </div>
+            <div class="pbody">
+
+              <div class="wavebar">
+                <span class="wnum">01</span>
+                <span class="lanes" role="img" aria-label="2 runs at once"><span class="lane"></span><span class="lane"></span></span>
+                <span class="wlabel">2 parallel</span>
+                <span class="spacer"></span>
+                <span class="wstep">step 1 of 13</span>
+              </div>
+              <div class="cards">
+                <div class="card">
+                  <div class="chead">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                    <span class="state">Passed</span>
+                    <span class="cmeta">shell · M</span>
+                  </div>
+                  <div class="ctitle">Carry the missing binder fields through to the page</div>
+                  <p class="cdesc">Thread wave lane, oracle type and merge state out of the deriver so the panel can draw them without a second read of git.</p>
+                  <div class="cfoot">
+                    <code class="cslug">item-fields</code>
+                    <code class="cslug">refs/karta/watch-redesign/item-fields/done</code>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="chead">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                    <span class="state">Passed</span>
+                    <span class="cmeta">shell · M</span>
+                  </div>
+                  <div class="ctitle">Redraw the rail as Karta's Map</div>
+                  <p class="cdesc">Group every binder by phase, and mark the one in flight so the reader finds it without hunting.</p>
+                  <div class="cfoot">
+                    <code class="cslug">item-rail</code>
+                    <code class="cslug">refs/karta/watch-redesign/item-rail/done</code>
+                  </div>
+                </div>
+              </div>
+
+              <div class="wavebar">
+                <span class="wnum">02</span>
+                <span class="lanesteps" role="img" aria-label="3 runs, one after another"><span class="lane" style="margin-left:0"></span><span class="lane" style="margin-left:33.3%"></span><span class="lane" style="margin-left:66.7%"></span></span>
+                <span class="wlabel">1 serial</span>
+                <span class="spacer"></span>
+                <span class="wstep">step 3 of 13</span>
+              </div>
+              <div class="cards">
+                <div class="card">
+                  <div class="chead">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                    <span class="state">Passed</span>
+                    <span class="cmeta">shell · M</span>
+                  </div>
+                  <div class="ctitle">Fold the wave header into one sticky lane bar</div>
+                  <p class="cdesc">One bar per wave, carrying its number, its lane shape and how far into the binder the wave sits.</p>
+                  <div class="cfoot">
+                    <code class="cslug">item-waves</code>
+                    <code class="cslug">refs/karta/watch-redesign/item-waves/done</code>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </section>
+        </div>
+      </main>
+
+    </div>
+
+    <div class="caliper">
+      <span class="calbar" style="width:15px"></span><span>15px — what the wrapper costs on each side</span><span class="calmut">· cards land at 474px</span>
+    </div>
+
+  </div>
+</div>
+
+<div class="frame" style="left:1680px;top:80px">
+  <div class="flabel" data-drags-parent="1">
+    <span class="ftitle">Option 2 — full-width panel</span>
+    <span class="fcost">no spine · no wrapper · panel indent <b>0px</b> · cards <b>full width</b> — hub context lives in the header and the rail</span>
+  </div>
+  <div class="screen" data-screen-label="Option 2 — full-width panel">
+
+    <header class="hd">
+      <div class="brandrow">
+        <img src="assets/mascot-cut.png" alt="" width="34" height="34" style="display:block">
+        <span class="wordmark">karta</span>
+      </div>
+      <span class="vrule"></span>
+      <div class="repobox">
+        <span class="eyebrow">Repo</span>
+        <span class="reponame">karta
+          <svg viewBox="0 0 220 14" preserveAspectRatio="none" class="squiggle"><path d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-dasharray="240" style="animation:kwDraw 1.1s .2s ease-out both"></path></svg>
+        </span>
+      </div>
+      <div class="livetag"><span class="dot" style="background:var(--green);animation:kwBreathe 2s ease-in-out infinite"></span>live from git — read-only</div>
+      <div class="spacer"></div>
+      <div class="hdchips">
+        <span class="chip">19 binders · 18 delivered</span>
+        <span class="chip">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>main
+        </span>
+        <span class="chip">karta/watch-redesign/integration</span>
+      </div>
+    </header>
+
+    <div class="split">
+
+      <aside class="rail">
+        <div class="railhd">
+          <span class="rlabel">Karta's Map</span>
+          <span class="rmeta">19 binders · click any to drill in</span>
+        </div>
+        <div class="groups">
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--green)">Delivered</span>
+            <span class="rule"></span>
+            <button type="button" class="showbtn" aria-pressed="false">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg><span>show 18</span>
+            </button>
+          </div>
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--now)">Now</span>
+            <span class="rulenow"></span>
+            <span class="gcount">1</span>
+          </div>
+          <div class="entry">
+            <div class="gutter"><span class="node nodenow"></span><span class="tailnow"></span></div>
+            <div class="ebody">
+              <div class="bcardnow">
+                <div class="binner binnernow">
+                  <span class="brow">
+                    <span class="btitle">Rebuild the status page on the new design</span>
+                    <span class="bcountnow">13/13</span>
+                  </span>
+                  <span class="bslug">watch-redesign</span>
+                  <span class="bar"><span class="fill" style="width:100%"></span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--steel)">Next</span>
+            <span class="rule"></span>
+            <span class="gcount">1</span>
+          </div>
+          <div class="entry">
+            <div class="gutter"><span class="node nodenext"></span><span class="tail"></span></div>
+            <div class="ebody">
+              <div class="bcard">
+                <div class="binner">
+                  <span class="brow">
+                    <span class="btitle">Chase the last pixels of the new design</span>
+                    <span class="bcount">0/6</span>
+                  </span>
+                  <span class="bslug">watch-fidelity</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grouphd">
+            <span class="glabel" style="color:var(--wait)">Later</span>
+            <span class="rule"></span>
+            <span class="gcount">0</span>
+          </div>
+          <div class="entry">
+            <div class="gutter"><span class="node nodelater"></span></div>
+            <div class="ebody"><span class="empty">— nothing parked yet</span></div>
+          </div>
+
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <div class="phead">
+            <div class="prow">
+              <span class="pkick">In flight</span>
+              <span class="dot dot--ring"></span>
+              <span class="pslug">watch-redesign</span>
+            </div>
+            <h1 class="h1">Rebuild the status page on the new design</h1>
+            <div class="psum">
+              <span class="pbar"><span class="pfill"></span></span>
+              <span class="pmerged">13 of 13 merged</span>
+              <span class="pchips">
+                <span class="pchip"><span class="dot" style="background:var(--green)"></span>13 passed</span>
+                <span class="pchip"><span class="dot" style="background:var(--steel)"></span>2 waves</span>
+                <span class="pchip"><span class="dot" style="background:var(--now)"></span>ready to land</span>
+              </span>
+            </div>
+          </div>
+          <div class="pbody">
+
+            <div class="wavebar">
+              <span class="wnum">01</span>
+              <span class="lanes" role="img" aria-label="2 runs at once"><span class="lane"></span><span class="lane"></span></span>
+              <span class="wlabel">2 parallel</span>
+              <span class="spacer"></span>
+              <span class="wstep">step 1 of 13</span>
+            </div>
+            <div class="cards">
+              <div class="card">
+                <div class="chead">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                  <span class="state">Passed</span>
+                  <span class="cmeta">shell · M</span>
+                </div>
+                <div class="ctitle">Carry the missing binder fields through to the page</div>
+                <p class="cdesc">Thread wave lane, oracle type and merge state out of the deriver so the panel can draw them without a second read of git.</p>
+                <div class="cfoot">
+                  <code class="cslug">item-fields</code>
+                  <code class="cslug">refs/karta/watch-redesign/item-fields/done</code>
+                </div>
+              </div>
+              <div class="card">
+                <div class="chead">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                  <span class="state">Passed</span>
+                  <span class="cmeta">shell · M</span>
+                </div>
+                <div class="ctitle">Redraw the rail as Karta's Map</div>
+                <p class="cdesc">Group every binder by phase, and mark the one in flight so the reader finds it without hunting.</p>
+                <div class="cfoot">
+                  <code class="cslug">item-rail</code>
+                  <code class="cslug">refs/karta/watch-redesign/item-rail/done</code>
+                </div>
+              </div>
+            </div>
+
+            <div class="wavebar">
+              <span class="wnum">02</span>
+              <span class="lanesteps" role="img" aria-label="3 runs, one after another"><span class="lane" style="margin-left:0"></span><span class="lane" style="margin-left:33.3%"></span><span class="lane" style="margin-left:66.7%"></span></span>
+              <span class="wlabel">1 serial</span>
+              <span class="spacer"></span>
+              <span class="wstep">step 3 of 13</span>
+            </div>
+            <div class="cards">
+              <div class="card">
+                <div class="chead">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                  <span class="state">Passed</span>
+                  <span class="cmeta">shell · M</span>
+                </div>
+                <div class="ctitle">Fold the wave header into one sticky lane bar</div>
+                <p class="cdesc">One bar per wave, carrying its number, its lane shape and how far into the binder the wave sits.</p>
+                <div class="cfoot">
+                  <code class="cslug">item-waves</code>
+                  <code class="cslug">refs/karta/watch-redesign/item-waves/done</code>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+      </main>
+
+    </div>
+
+    <div class="caliper">
+      <span>0px — the panel is flush with the rail gap</span><span class="calmut">· cards land at 489px</span>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script
+  type="text/x-dc"
+  data-dc-script
+  data-props='{}'
+>
+  class Component extends DCLogic {
+    renderVals() { return {}; }
+  }
+</script>
+</body>
+</html>
