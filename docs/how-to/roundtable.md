@@ -1,14 +1,15 @@
 # Roundtable edict (house-only)
 
-> **Currently switched off.** `.karta/roundtable.json` carries `enabled: false`, so the roundtable
-> tool is not called and neither enforced *review* gate fires. The landing gate in the same hook is
-> a different thing and stays on — see [The landing gate](#the-landing-gate). The review
-> requirement itself still stands —
-> it is met today by the multi-lens panel in `scripts/review/binder_review_panel.js`. See
-> "Review before commit" in [AGENTS.md](../../AGENTS.md) for the current rule and for what the
-> switch-off trades away. **A panel result is not a roundtable record and must never be filed as
-> one:** every lens is the same model wearing a different hat, so it cannot meet `min_providers`.
-> Everything below describes the machinery for when it is turned back on.
+> **Switched on.** `.karta/roundtable.json` carries `enabled: true`, restored 2026-08-23 once the
+> multi-provider environment came back. Both enforced *review* gates fire: a binder commit and an
+> integration-branch merge each need a fresh record of that exact content, committed with it. The
+> landing gate in the same hook is a different thing and never read that switch — see
+> [The landing gate](#the-landing-gate). The multi-lens panel in
+> `scripts/review/binder_review_panel.js` still runs alongside, because it opens the source and runs
+> the commands where an external panel reads only what you paste it. **A panel result is not a
+> roundtable record and must never be filed as one:** every lens is the same model wearing a
+> different hat, so it cannot meet `min_providers`. See "Review before commit" in
+> [AGENTS.md](../../AGENTS.md).
 
 karta's own binders and deliveries may not land without a recorded multi-model review. This is a house rule for the karta repo building itself; consumer repos never carry it. This guide is how you run the review and file its result.
 
@@ -44,7 +45,7 @@ Everything is governed by `.karta/roundtable.json`:
 }
 ```
 
-- `enabled: false`, or an absent file, turns every gate off. The switch is absolute, matching the doc-gardner and kaizen opt-in pattern.
+- `enabled: true` arms both review gates; `enabled: false`, or an absent file, turns every gate off. The switch is absolute, matching the doc-gardner and kaizen opt-in pattern. It is `true` in this repo today.
 - `tool` is the roundtable tool to run (default `roundtable-critique`).
 - `providers: []` means the panel default.
 - `min_providers` (default 2) is the floor that keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it.

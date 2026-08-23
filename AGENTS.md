@@ -52,22 +52,27 @@ karta's own binders and deliveries get a multi-perspective review before they la
 
 ### What runs today
 
-`.karta/roundtable.json` carries `enabled: false`. The roundtable tool is not called, and **both of its enforced review gates are inert** — the hook reads that switch and exits 0. A third gate in the same hook, the landing gate, is not a review gate and never reads that switch; see "Two human approvals" below. The review is now the multi-lens panel:
+`.karta/roundtable.json` carries `enabled: true`, restored on 2026-08-23 after the multi-provider environment came back (a connectivity probe that day returned seven providers, all `ok`, against a `min_providers` floor of 2). **Both enforced review gates fire again**: a commit staging `.karta/binders/<slug>.json` and a `git merge` landing a `karta/*/integration` branch each need a fresh record of that exact content, committed alongside it. A third gate in the same hook, the landing gate, is not a review gate and never reads that switch; see "Two human approvals" below.
+
+Two reviews now run, and they are not the same thing. Only the first is enforced.
+
+| Review | What it is | Enforced? |
+|-|-|-|
+| Roundtable | several *different* models answering the same prompt, recorded under `.karta/roundtable/` | yes — the gate blocks the commit without a fresh record |
+| Multi-lens panel | six adversarial lenses, all the *same* model, each finding re-verified against the repo | no — run it because it is worth running |
 
 ```
 Workflow({ scriptPath: 'scripts/review/binder_review_panel.js',
            args: { binder: '<slug>', focus: '<optional extra lens>' } })
 ```
 
-Six adversarial lenses over one shared ground-truth read, each finding re-verified against the repo before it counts. What it has over an external panel is access: every lens opens the actual source and runs the actual commands, so a finding either cites a `file:line` or it does not survive the verify phase.
+The panel stayed after the switch flipped because it does something the roundtable cannot: every lens opens the actual source and runs the actual commands, so a finding either cites a `file:line` or it does not survive the verify phase. An external panel reads what you paste it. Use both on anything whose numbers matter — the roundtable for independent judgement, the panel for findings that had to be proven against the tree.
 
-**A panel result is never a roundtable record.** Every lens is the same model wearing a different hat, so it cannot meet the `min_providers` floor. Never pipe it to `scripts/roundtable/run_review.py --record`, and never file it under `.karta/roundtable/`. The two are different kinds of evidence and conflating them would make the audit trail lie.
+**A panel result is never a roundtable record.** Every lens is the same model wearing a different hat, so it cannot meet the `min_providers` floor. Never pipe it to `scripts/roundtable/run_review.py --record`, and never file it under `.karta/roundtable/`. The two are different kinds of evidence and conflating them would make the audit trail lie. This rule did not relax when the switch came back on — it is the reason the switch matters.
 
-### What this trades away
+### What the off period cost, kept for the record
 
-Say it plainly, because it cuts against karta's own doctrine of enforced checks over skippable prose: the roundtable edict was *enforced* — a PreToolUse hook blocked the commit until a fresh record of that exact content existed. With the switch off, nothing blocks. The review now depends on whoever is at the keyboard choosing to run it, which is exactly the strength the old prose-only disclosure had, and it was not enough.
-
-Two routes back to enforcement, neither built: restore a working multi-provider environment and set `enabled: true`; or teach `scripts/hooks/roundtable_gate.py` to also accept a committed panel record as its own clearly-labelled kind that never claims to be multi-model.
+Say it plainly, because it cuts against karta's own doctrine of enforced checks over skippable prose. While `enabled` was false nothing blocked, and the review depended on whoever was at the keyboard choosing to run it — exactly the strength the old prose-only disclosure had, and it was not enough. Binders were reviewed in that window, but by choice rather than by gate. The switch being back on is what makes "every binder is reviewed" a fact about the repo rather than a habit of its maintainer.
 
 ### Two human approvals, and only one of them is enforced
 
@@ -108,9 +113,9 @@ Switched off, not removed — still present and still correct. The gate was dete
 | Verify (a built diff) | none | helper-available (advisory) |
 | Standalone (ad hoc) | none | helper-available (advisory) |
 
-Plan-commit and deliver-merge have a real commit to block, so those are the two that were gated. Verify and standalone have no commit or stop moment to hang an edict on, so they got the same one-command helper with no hard gate. With the switch off, all four are advisory.
+Plan-commit and deliver-merge have a real commit to block, so those are the two that are gated. Verify and standalone have no commit or stop moment to hang an edict on, so they get the same one-command helper with no hard gate.
 
-#### Running it, once it is back on
+#### Running it
 
 The tool per point is configured in `.karta/roundtable.json` (default `roundtable-critique`). A script cannot run roundtable — it is an MCP tool the agent calls. So the flow is two steps:
 
@@ -131,7 +136,7 @@ A PreToolUse hook sees a command before it runs, so it can only match command te
 
 #### Escape hatch
 
-When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With `enabled: false` the hatch is moot: nothing is gated, so there is nothing to escape.
+When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With the switch back on the hatch is live again and it is the only way past a review gate, so reach for it deliberately and say why in the commit — an unexplained `KARTA_SKIP_ROUNDTABLE=1` is a review that did not happen.
 
 Full operator guide: [docs/how-to/roundtable.md](docs/how-to/roundtable.md).
 
