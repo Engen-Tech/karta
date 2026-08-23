@@ -170,6 +170,31 @@ check.
 
 ---
 
+## 8. the merge gates fire on `git merge-base` — *Ready* (filed 2026-08-23)
+
+**What.** `scripts/hooks/roundtable_gate.py:80` matches the git verb with `\bmerge\b`. A word
+boundary sits between `merge` and the `-` in `merge-base`, so `git merge-base`, `git merge-tree`
+and `git merge-file` — all read-only, none able to move a ref — are blocked by both the
+integration-merge gate and the landing gate.
+
+**How it surfaced.** Two consecutive read-only ancestry checks during a binder review were refused,
+one by each gate, both with a message about who decides a delivery ships. Neither command lands
+anything.
+
+**Fix.** `merge(?![-\w])` in place of the trailing `\b`. Measured against the matcher: keeps all
+three true positives (`--no-ff`, `--squash`, bare `git merge`), drops all three false positives.
+
+**Why it is worth doing.** The gate's own doctrine argues the *ref* match is anchored rather than
+searched because a gate that refuses commands merely quoting a merge blocks its own maintenance.
+That reasoning was never applied to the *verb*. A gate that blocks harmless commands trains people
+to reach for `KARTA_SKIP_ROUNDTABLE=1` by reflex, which costs the audit trail more than the blocked
+command costs anyone's time. A second, smaller finding — the matcher cannot be exercised from a
+shell command containing its own trigger — is documented but needs doctrine, not code.
+
+Full writeup, reproduction and the truth table: [`landing-gate-verb-match/BUG.md`](landing-gate-verb-match/BUG.md).
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
