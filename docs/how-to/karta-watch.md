@@ -73,6 +73,11 @@ line under the header — it lists every other opted-in repo, never the one you 
 On the repo page itself the vocabulary stays calm: a work item waiting on a dependency shows a
 steel **WAITING** chip — waiting its turn is normal flow, not an alarm.
 
+**show delivered** hides fully-delivered binders from the map. Pick a binder that the toggle
+then hides, and the panel falls back to a default pick — the in-flight binder if there is one,
+otherwise the first binder still showing. Turning the toggle back on does not restore the hidden
+pick. A pick that stays on the map the whole time is never disturbed by the toggle.
+
 ## Choosing when the page refreshes
 
 Every refresh derives the state fresh from git, and on a large repo that is real work — up to
