@@ -15539,8 +15539,11 @@ def _c_font_manifest_variation_agreement(ctx):
     This checks a VARIATION-AXIS TABLE, never an optical size, and the limit is
     deliberate, not an oversight: an fvar entry's recorded length pins the
     table's SIZE, and nothing about which axis tags produced it. fvar is 16
-    bytes plus 20 per axis plus one record per named instance (4 bytes per axis,
-    or 6 when the optional postScriptNameID is present) — so an 84-byte fvar is
+    bytes plus 20 per axis plus one record per named instance, and an instance
+    record is 4 + 4*axisCount bytes, or 6 + 4*axisCount when the optional
+    postScriptNameID is present — the fixed 4 is easy to drop and an earlier
+    draft of this line did, which broke the arithmetic the next sentence rests
+    on — so an 84-byte fvar is
     equally consistent with two axes and two instances, or one axis and six.
     Reading an axis tag or a named instance's coordinates needs the table's
     CONTENTS, which are Brotli-compressed and outside this reader's reach (the

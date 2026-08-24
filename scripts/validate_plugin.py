@@ -474,7 +474,10 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
     Complete: a fontTools version, an upstream commit, and a source file plus
     digest per face. Consistent: the commit appears in every family's source
     URL, two faces cut from the same source file record the same digest, and a
-    family with a VARIABLE face declares the axes it carries and pins none —
+    family with a VARIABLE face carries a non-empty `axes` map and pins none.
+    That is a DECLARATION being present, never a declaration being true: no
+    axis tag or range here is compared against the file, because that needs
+    Brotli. Read it as "the record was filled in", not "the record is right" —
     a pinned axis is exactly what a variable face was not instanced to, so a
     pin left behind describes the flattened cut it replaced.
 
@@ -522,8 +525,11 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
         if variable and entry.get("pinned_axes"):
             errors.append(f"{label}/manifest.json: family '{family}' ships a "
                           "variable face while still declaring pinned_axes "
-                          f"({entry['pinned_axes']}) — a pin is what a variable "
-                          "face was NOT instanced to")
+                          f"({entry['pinned_axes']}) — pinning an axis is how "
+                          "instancer REMOVES it, so a face that still ships "
+                          "that axis cannot have been pinned on it, and the "
+                          "leftover pin describes the flattened cut this "
+                          "replaced")
         if variable and not entry.get("axes"):
             errors.append(f"{label}/manifest.json: family '{family}' ships a "
                           "variable face but records no axes")
