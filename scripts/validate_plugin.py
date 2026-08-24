@@ -545,7 +545,11 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
             errors.append(f"{label}/manifest.json: face '{name}' records no "
                           "well-formed source_sha256")
             continue
-        if digests.setdefault(source, digest) != digest:
+        # Only dedup on a real source. A face with no source_file already
+        # errored above; keying it as "" makes two such faces look like they
+        # disagree about a shared source file, which is a second error about
+        # a relationship that does not exist.
+        if source and digests.setdefault(source, digest) != digest:
             errors.append(f"{label}/manifest.json: face '{name}' records a "
                           f"source_sha256 for '{source}' that disagrees with "
                           "another face cut from the same file")

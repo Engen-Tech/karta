@@ -15193,9 +15193,10 @@ def _woff2_table_directory(data: bytes) -> list[tuple[str, int]]:
     Gets the per-tag transform rule right, which is the one place a plausible
     parser silently desynchronises. The flags byte's top two bits are the
     transform version (0..3). For 'glyf' and 'loca', version 3 is the null
-    transform (origLength only) and every other version means transformed (a
-    second UIntBase128 — the transform length — follows), but only version 0
-    is defined; versions 1 and 2 are reserved. For 'hmtx', version 0 is the
+    transform (origLength only) and version 0 means transformed (a second
+    UIntBase128 — the transform length — follows). Versions 1 and 2 are
+    reserved and RAISE; an earlier draft of this sentence said "every other
+    version means transformed", which described a reader this is not. For 'hmtx', version 0 is the
     null transform and version 1 means transformed; versions 2 and 3 are
     reserved. For every other table, version 0 is the null transform and every
     other version is reserved — none of them means "transformed, generically".
@@ -15207,7 +15208,17 @@ def _woff2_table_directory(data: bytes) -> list[tuple[str, int]]:
     desynchronising every tag reported after it.
 
     Raises ValueError on a bad signature, a truncated header, a truncated or
-    malformed directory entry, or an undefined transform version."""
+    malformed directory entry, or an undefined transform version.
+
+    Enumerate that list rather than leaving "malformed" to stand for whatever
+    a reader hopes, because one spec rule is deliberately NOT enforced: WOFF2
+    requires glyf and loca to share a transform state, and a transformed loca
+    to carry a transform length of zero. This reads each entry independently
+    and checks neither. It cannot desynchronise the parse — every entry is
+    self-describing and origLength is read before any transform length — so a
+    mismatched pair still yields correct tags and lengths, and the invalid
+    font is reported rather than refused. Closing it means tracking state
+    across entries, which is past what this reader is for."""
     if len(data) < _WOFF2_HEADER_SIZE:
         raise ValueError("WOFF2: truncated header")
     if data[:4] != _WOFF2_SIGNATURE:
@@ -15560,8 +15571,11 @@ def _c_font_manifest_variation_agreement(ctx):
     stdlib has no Brotli — see the note at VENDORED_FACES, serve_status.py:
     110-124). What this behaviour catches is the regression it was written for:
     a re-vendor that drops an axis without saying so changes the recorded
-    length, so a silent flattening fails here and a declared one has to edit
-    `fvar_length` to land. Say what that edit is and is not: it is a SHRUNK
+    length. Do not round that up to "a silent flattening fails here" — the
+    next paragraph says a collapsed axis is exactly a silent flattening that
+    passes, so the categorical version contradicts it. What fails is the
+    measured mutation: this upstream, this recipe, opsz pinned, 84 to 56. A
+    declared one has to edit `fvar_length` to land. Say what that edit is and is not: it is a SHRUNK
     INTEGER, 84 to 56, and nothing forces the `axes` map beside it to be
     corrected — so a re-vendor that updates the length and leaves `axes` still
     claiming opsz passes both gates with a manifest that now lies. An earlier
@@ -15607,11 +15621,19 @@ def _c_font_manifest_variation_agreement(ctx):
         fvar_length = entry.get("fvar_length")
         if not fvar_length or tags["fvar"] != fvar_length:
             return False
-        # A variable face MUST name the variation tables its cut carries.
-        # Defaulting to [] here would skip every sibling-table check for a
-        # face that simply forgot to declare them — fvar of the right size
-        # and nothing else verified, which is the hole this assertion exists
-        # to close. An undeclared list is a failure, not an empty one.
+        # A variable face must declare a NON-EMPTY variation_tables list, and
+        # every table it declares must be present at a non-zero length. Say
+        # the weaker thing, because that is what this does: it holds the file
+        # to the manifest's own list, never to a complete one. A face
+        # declaring only ["fvar"] passes while gvar, HVAR and avar go
+        # unchecked — partial omission is NOT caught here, and closing it
+        # would mean this check deciding which tags a variable font must
+        # carry, which OpenType does not fix and assertion 10 deliberately
+        # left to the item that ships the cut.
+        #
+        # What the non-empty rule does close: defaulting to [] skipped every
+        # sibling check for a face that declared nothing at all, so fvar of
+        # the right size was the whole of the verification.
         declared = entry.get("variation_tables")
         if not declared:
             return False
