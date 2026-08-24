@@ -2670,16 +2670,25 @@ def rail_selection(binders: list[dict], show_delivered: bool,
     """Python mirror of the page's railSelectionOf(): which binder the map has
     picked, and so which one the panel shows.
 
-    An explicit pick stands while the binder it names is still in the feed.
+    An explicit pick stands while the card it names is ON THE RAIL — in the
+    feed, and not withheld by the Delivered toggle. One rule covers both ways a
+    picked binder can vanish: leaving the feed and being filtered out of it fall
+    back identically, so the map can never draw zero picked cards while the
+    panel goes on showing the vanished binder.
+
     Otherwise the default is DERIVED, never typed: the in-flight binder when the
     state has one, else the first card the rail's own group order yields — read
     off rail_groups() itself, so the map and the default can never disagree.
     When the only cards are withheld (every binder delivered, the toggle off)
     the default falls through to the same order with the Delivered cards shown,
-    so the panel still has a binder to show. None only when there are none."""
+    so the panel still has a binder to show. None only when there are none.
+
+    Pure, so this is only half the behaviour: the pick itself is state the page
+    holds, and a fallback alone would last only until the next toggle handed the
+    hidden slug back. rail_pick_after_filter() below is the other half."""
     # MIRROR: change together with railSelectionOf() in _APP_JS and the rail self-test.
-    slugs = [b.get("slug") for b in binders or []]
-    if picked and picked in slugs:
+    shown = rail_groups(binders, show_delivered)
+    if picked and any(c["slug"] == picked for g in shown for c in g["cards"]):
         return picked
 
     def first(groups):
@@ -2688,10 +2697,32 @@ def rail_selection(binders: list[dict], show_delivered: bool,
                 return g["cards"][0]["slug"]
         return None
 
-    shown = rail_groups(binders, show_delivered)
     now = [g for g in shown if g["key"] == "now"]
     return (first(now) or first(shown)
             or first(rail_groups(binders, True)))
+
+
+def rail_pick_after_filter(binders: list[dict], show_delivered: bool,
+                           picked: str | None = None) -> str | None:
+    """Python mirror of the page's pickAfterFilter(): the pick the page KEEPS
+    once the Delivered toggle has moved.
+
+    rail_selection() above is pure and the pick is not — it is component state,
+    written when the reader clicks a card. So the fallback needs a partner: the
+    toggle DROPS a pick the filter has just hidden, and the drop defers to
+    rail_selection() rather than deciding for itself, so there is no second rule
+    to drift from the first. A pick the selector no longer honours is a pick the
+    page no longer keeps.
+
+    Narrow by construction. A pick the filter never hid — a live binder, say —
+    is still honoured by the selector, so the toggle leaves it alone. The
+    accepted cost runs the other way: switching Delivered back ON does not bring
+    a dropped pick back. It is gone, and the reader picks again."""
+    # MIRROR: change together with pickAfterFilter() in _APP_JS and the rail self-test.
+    kept = rail_selection(binders, show_delivered, picked)
+    if picked and kept != picked:
+        return None
+    return picked
 
 
 # ---------------------------------------------------------------------------
@@ -3314,23 +3345,40 @@ function railGroupsOf(binders, showDelivered) {
 }
 
 // Which binder the map has picked — the one the panel shows. An explicit pick
-// stands while its binder is still in the feed; otherwise the default is
-// DERIVED, never typed: the in-flight binder when there is one, else the first
-// card the rail's own group order yields, read off railGroupsOf itself so the
-// map and the default can never disagree. When every card is withheld (all
-// delivered, toggle off) it falls through to the same order with Delivered
-// shown, so the panel still has a binder. Null only when there are none.
+// stands while the card it names is ON THE RAIL: in the feed, and not withheld
+// by the Delivered toggle. One rule for both ways a pick can vanish, so the map
+// can never draw zero picked cards while the panel shows the vanished binder.
+// Otherwise the default is DERIVED, never typed: the in-flight binder when there
+// is one, else the first card the rail's own group order yields, read off
+// railGroupsOf itself so the map and the default can never disagree. When every
+// card is withheld (all delivered, toggle off) it falls through to the same
+// order with Delivered shown, so the panel still has a binder. Null only when
+// there are none. Pure — pickAfterFilter below drops the hidden pick out of
+// state, without which this fallback would last only until the next toggle.
 // MIRROR: change together with rail_selection() in serve_status.py and the rail self-test.
 function railSelectionOf(binders, showDelivered, picked) {
-  const slugs = (binders || []).map(b => b.slug);
-  if (picked && slugs.indexOf(picked) >= 0) return picked;
+  const shown = railGroupsOf(binders, showDelivered);
+  if (picked && shown.some(g => g.cards.some(c => c.slug === picked))) return picked;
   const first = (groups) => {
     for (const g of groups) if (g.cards.length) return g.cards[0].slug;
     return null;
   };
-  const shown = railGroupsOf(binders, showDelivered);
   return first(shown.filter(g => g.key === 'now')) || first(shown)
     || first(railGroupsOf(binders, true));
+}
+
+// The pick the page KEEPS once the Delivered toggle has moved. railSelectionOf
+// is pure and pickedSlug is state: leave the hidden slug sitting in state and
+// the next toggle hands it straight back, so the fallback above would be
+// transient. The drop defers to railSelectionOf — a pick the selector no longer
+// honours is one the page no longer keeps — so there is no second rule to
+// drift. A pick the filter never hid survives untouched; a pick it hid does not
+// come back when Delivered is switched on again.
+// MIRROR: change together with rail_pick_after_filter() in serve_status.py and the rail self-test.
+function pickAfterFilter(binders, showDelivered, picked) {
+  const kept = railSelectionOf(binders, showDelivered, picked);
+  if (picked && kept !== picked) return null;
+  return picked;
 }
 
 // Group a binder's items into dependency-depth waves — ported verbatim from the
@@ -3560,7 +3608,10 @@ const app = createApp({
       now: Date.now(),
       showDelivered: localStorage.getItem('karta-show-delivered') === '1',
       // The slug the reader clicked in the map, or null for "no pick yet" — the
-      // binder actually shown is selectedSlug, which derives the default.
+      // binder actually shown is selectedSlug, which derives the default. Back
+      // to null when the Delivered toggle hides the picked card: the two writes
+      // below (pick, toggleShowDelivered) are the only ones there are, and
+      // neither stashes an old pick to restore later.
       pickedSlug: null,
       theme: localStorage.getItem('karta-theme')
         || window.__KARTA_THEME__ || 'dark',
@@ -3771,6 +3822,9 @@ const app = createApp({
     pick(slug) { this.pickedSlug = slug; },
     toggleShowDelivered() {
       this.showDelivered = !this.showDelivered;
+      // a pick this toggle has just hidden is DROPPED here rather than left in
+      // state for the next toggle to hand back — see pickAfterFilter.
+      this.pickedSlug = pickAfterFilter(this.binders, this.showDelivered, this.pickedSlug);
       try { localStorage.setItem('karta-show-delivered', this.showDelivered ? '1' : '0'); } catch (e) {}
     },
     toggleTheme() {
@@ -11286,8 +11340,10 @@ def _c_rail_picks_exactly_one(ctx):
     feed has one, wherever the feed lists it; otherwise the first card the
     rail's own group order yields — with the Delivered cards withheld or shown,
     whichever the reader chose — and, when every card is withheld, the first of
-    the shown order rather than nothing. An explicit pick stands while its
-    binder is in the feed and falls back to the default once it is not."""
+    the shown order rather than nothing. An explicit pick stands while the card
+    it names is on the rail and falls back to the default once it is not —
+    rail-hidden-pick-falls-back-to-the-default drives the filtered-out half of
+    that rule, this one the rest."""
     page, app = ctx["page"], ctx["app_src"]
     tags = _tags_with(page, "data-kw-rail-selected")
     if len(tags) != 1 or tags != _tags_with(page, "data-kw-rail-card"):
@@ -11323,6 +11379,116 @@ def _c_rail_picks_exactly_one(ctx):
     if select(idle, False, "s-gone") != idle[0]["slug"]:
         return False
     return select([], False) is None
+
+
+@_covers("rail-hidden-pick-falls-back-to-the-default", kind="behaviour",
+         breaks=[lambda c: {"rail_selection": lambda b, s, p=None: (
+             p if p and p in [x.get("slug") for x in b or []]
+             else rail_selection(b, s))},
+                 lambda c: {"rail_selection": lambda b, s, p=None: (
+                     rail_selection(b, s, p)
+                     if p is None or rail_selection(b, s, p) == p
+                     else next((x.get("slug") for x in b or []
+                                if x.get("status") == "in_flight"),
+                               (b or [{}])[0].get("slug")))}])
+def _c_rail_hidden_pick_falls_back(ctx):
+    """A pick the Delivered toggle HIDES falls back, and falls back to the
+    page's own default. Picking a delivered binder and then withholding the
+    Delivered cards used to leave the map with no picked card at all while the
+    panel went on rendering the hidden binder — one state, two answers.
+
+    Driven by direct call over the Python mirror, in feeds whose default comes
+    from different places: the in-flight binder in one, the rail's own group
+    order in another. That spread is the point of the second control below — a
+    fallback that names the in-flight binder itself agrees with the real default
+    for as long as there IS one, and only a feed without one tells them apart.
+    The fallback here is the same call the no-pick path makes, so a later change
+    to the default moves both together or fails here."""
+    select, groups = ctx["rail_selection"], ctx["rail_groups"]
+    live = list(ctx["state"]["binders"])
+    shipped = [dict(live[0], slug="s-done-%d" % i, status="merged")
+               for i in range(2)]
+    idle = [dict(live[0], slug="s-idle-%d" % i, status="not_started")
+            for i in range(2)]
+    hidden = shipped[0]["slug"]
+
+    def rendered(binders, shown):
+        return [c["slug"] for g in groups(binders, shown) for c in g["cards"]]
+
+    for binders in (shipped + live, shipped + idle, shipped + idle + live):
+        cards = rendered(binders, False)
+        if hidden in cards or hidden not in rendered(binders, True):
+            return False          # the fixture must actually withhold the pick
+        picked = select(binders, False, hidden)
+        if picked != select(binders, False, None):
+            return False          # the fallback IS the no-pick default
+        if cards.count(picked) != 1:
+            return False          # exactly one rendered card — zero was the bug
+        if select(binders, True, hidden) != hidden:
+            return False          # and shown again, an explicit pick still wins
+    return True
+
+
+@_covers("rail-toggle-drops-a-pick-the-filter-hides", kind="behaviour",
+         breaks=[lambda c: {"rail_pick_after_filter": lambda b, s, p=None: p},
+                 lambda c: {"rail_pick_after_filter": lambda b, s, p=None: None},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this.pickedSlug = pickAfterFilter(this.binders, "
+                     "this.showDelivered, this.pickedSlug);", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "this.pickedSlug = pickAfterFilter(this.binders, "
+                     "this.showDelivered, this.pickedSlug);",
+                     "this.pickedSlug = pickAfterFilter(this.binders, "
+                     "this.showDelivered, this.pickedSlug) || this._lastPick;")}])
+def _c_rail_toggle_drops_hidden_pick(ctx):
+    """The fallback above is pure, and the pick is not: it is component state.
+    So the toggle DROPS a pick it has just hidden, and this is the half a
+    fallback alone cannot deliver — leave the hidden slug in state and the next
+    toggle hands it straight back, with every function-level assertion still
+    green. Its first control is exactly that implementation.
+
+    Switching Delivered back ON therefore does not restore the dropped pick.
+    That is a real loss of the reader's intent, accepted deliberately when this
+    resolution was chosen over keeping the hidden card drawn, and asserted here
+    as the required behaviour so a well-meant restore fails rather than passing
+    as an improvement. The last control is one such restore.
+
+    The drop is narrow: a pick the filter never hid is untouched, which the
+    second control (clear on every toggle) proves is being checked. And the page
+    is held to the same rule the mirror states — the toggle runs the drop, the
+    two writes of pickedSlug are the only ones there are, and neither the toggle
+    nor the field keeps a second copy to restore from."""
+    select, keep, app = (ctx["rail_selection"], ctx["rail_pick_after_filter"],
+                         ctx["app_src"])
+    live = list(ctx["state"]["binders"])
+    shipped = [dict(live[0], slug="s-done-%d" % i, status="merged")
+               for i in range(2)]
+    idle = [dict(live[0], slug="s-idle-%d" % i, status="not_started")
+            for i in range(2)]
+    binders = shipped + live + idle
+    alive, done, other = live[0]["slug"], shipped[0]["slug"], idle[1]["slug"]
+
+    pick = keep(binders, False, done)          # picked delivered, then hid it
+    if pick is not None or select(binders, False, pick) != alive:
+        return False
+    pick = keep(binders, True, pick)           # Delivered switched back on
+    if pick is not None or select(binders, True, pick) != alive:
+        return False
+
+    pick = keep(binders, False, other)         # a pick the filter never hid
+    if pick != other or select(binders, False, pick) != other:
+        return False
+    pick = keep(binders, True, pick)
+    if pick != other or select(binders, True, pick) != other:
+        return False
+
+    toggle = _js_block(app, "    toggleShowDelivered() {")
+    return bool(toggle) and (
+        "this.pickedSlug = pickAfterFilter(this.binders, this.showDelivered, "
+        "this.pickedSlug);" in toggle
+        and toggle.count("this.pickedSlug") == 2
+        and app.count("this.pickedSlug =") == 2
+        and app.count("pickedSlug:") == 1)
 
 
 @_covers("selection-and-in-flight-are-two-marks", kind="behaviour",
@@ -13810,7 +13976,10 @@ def _c_halted_count_mirror(ctx):
 
 @_covers("rail-selection-mirror-matches-its-twin", kind="behaviour",
          breaks=[lambda c: {"app_src": c["app_src"].replace(
-             ".indexOf(picked) >= 0", "")},
+             "c.slug === picked", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "  if (picked && shown.some(g => g.cards.some(c => "
+                     "c.slug === picked))) return picked;\n", "")},
                  lambda c: {"app_src": c["app_src"].replace(
                      ".filter(g => g.key === 'now')", "")},
                  lambda c: {"app_src": c["app_src"].replace(
@@ -13827,20 +13996,59 @@ def _c_rail_selection_mirror(ctx):
     Deliberately not a whole-line match on the explicit-pick guard or the
     fallback return — either would break under a harmless line rewrap, which
     is the brittleness regression_risk warns against. Deliberately not
-    prefixed with the local variable each fragment reads off, either — `slugs`
-    and `shown` are locals a rename can touch without changing what either
-    fragment means. See verification_honesty for what this check does and
-    does not claim about the edits that produced the final text it reads."""
+    prefixed with the local variable each fragment reads off, either — `shown`
+    is a local a rename can touch without changing what either fragment means.
+    See verification_honesty for what this check does and does not claim about
+    the edits that produced the final text it reads.
+
+    The pick fragment moved with the twin: the shipped copy now honours a pick
+    against the cards the rail RENDERS (`c.slug === picked`) rather than against
+    the feed, so deleting that line — the second control — still turns this
+    red rather than quietly re-opening the hole this check was added to close."""
     app = ctx["app_src"]
     opener = "function railSelectionOf(binders, showDelivered, picked) {"
     body = _js_block(app, opener)
     if not body:
         return False
     anchored = _js_first_after_brace(
-        body, opener, "const $VAR$ = (binders || []).map(b => b.slug);")
+        body, opener, "const $VAR$ = railGroupsOf(binders, showDelivered);")
     return (anchored
-            and ".indexOf(picked) >= 0" in body
+            and "c.slug === picked" in body
             and ".filter(g => g.key === 'now')" in body)
+
+
+@_covers("rail-pick-drop-mirror-matches-its-twin", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             "  if (picked && kept !== picked) return null;\n", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "const kept = railSelectionOf(binders, showDelivered, "
+                     "picked);", "const kept = picked;")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "function pickAfterFilter(binders, showDelivered, picked) {",
+                     "function pickAfterFilter(binders, showDelivered, picked) "
+                     "{ return picked;")}])
+def _c_rail_pick_drop_mirror(ctx):
+    """The page ships its own copy of pickAfterFilter, the twin of the Python
+    rail_pick_after_filter() that drops a pick the Delivered toggle has hidden.
+    Guarded the way the twins above are: the fragments carrying its decision,
+    present somewhere in the extracted body span, plus the first statement
+    anchored immediately after the opening brace.
+
+    The anchor is the deferral itself — the shipped copy asks railSelectionOf
+    whether the pick still stands rather than deciding on its own — so the
+    second control, a `kept` that answers without consulting the selector,
+    fails here even though the drop below it survives untouched."""
+    app = ctx["app_src"]
+    opener = "function pickAfterFilter(binders, showDelivered, picked) {"
+    body = _js_block(app, opener)
+    if not body:
+        return False
+    anchored = _js_first_after_brace(
+        body, opener,
+        "const $VAR$ = railSelectionOf(binders, showDelivered, picked);")
+    return (anchored
+            and "kept !== picked" in body
+            and "return null;" in body)
 
 
 @_covers("item-detail-hooks-are-registered", kind="behaviour",
@@ -15472,6 +15680,7 @@ def _coverage_context() -> dict:
                            "pos_px": WAVE_HEAD_POS_PX},
         "inset_vectors": _INSET_VECTORS, "inset_reader": _side_inset,
         "rail_groups": rail_groups, "rail_selection": rail_selection,
+        "rail_pick_after_filter": rail_pick_after_filter,
         "rail_legend": _RAIL_LEGEND,
         "rail_hint": RAIL_HINT, "rail_show_label": RAIL_SHOW_LABEL_FMT,
         "rail_hide_label": RAIL_HIDE_LABEL, "foot_line": FOOT_LINE,
