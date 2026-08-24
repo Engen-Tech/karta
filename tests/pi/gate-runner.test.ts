@@ -15,6 +15,7 @@ import {
 import {
   executeGateOnEvidence,
   parseGateVerdict,
+  promptGateForVerdict,
   type GateModelInvoker,
 } from "../../extensions/pi/gate-runner.ts";
 
@@ -352,6 +353,11 @@ test("verdict parser rejects prose, wrong hashes, unknown keys, and unsafe paths
   assert.equal(parseGateVerdict(JSON.stringify(valid), expected).verdict, "pass");
   assert.throws(() => parseGateVerdict(`result: ${JSON.stringify(valid)}`, expected), /exactly one JSON/);
   assert.throws(
+    () => parseGateVerdict("The verdict is pass. No blocking issues.", expected),
+    /last assistant text: "The verdict is pass/,
+  );
+  assert.throws(() => parseGateVerdict("   ", expected), /last assistant text: <empty>/);
+  assert.throws(
     () => parseGateVerdict(JSON.stringify({ ...valid, evidenceHash: "e".repeat(64) }), expected),
     /does not match/,
   );
@@ -427,4 +433,48 @@ test("provider preflight failure prevents gate model invocation", async () => {
   } finally {
     await cleanup();
   }
+});
+
+class FakeGatePrompter {
+  readonly calls: string[] = [];
+  #responses: string[];
+  #last = "";
+  constructor(responses: string[]) {
+    this.#responses = responses;
+  }
+  async prompt(message: string): Promise<void> {
+    this.calls.push(message);
+    this.#last = this.#responses.shift() ?? "";
+  }
+  getLastAssistantText(): string {
+    return this.#last;
+  }
+}
+
+const validVerdict = JSON.stringify({ schema: "karta-gate-verdict-v1", verdict: "pass" });
+
+test("a gate reviewer ending on prose gets exactly one verdict-repair turn", async () => {
+  const proseFirst = new FakeGatePrompter([
+    "After review the item conforms to its acceptance oracle. Verdict: pass.",
+    validVerdict,
+  ]);
+  const recovered = await promptGateForVerdict(proseFirst, "GATE PROMPT");
+  assert.equal(recovered, validVerdict);
+  assert.equal(proseFirst.calls.length, 2);
+  assert.equal(proseFirst.calls[0], "GATE PROMPT");
+  assert.match(proseFirst.calls[1], /ONLY the single JSON gate-verdict object/);
+});
+
+test("a gate reviewer that returns the verdict first is not re-prompted", async () => {
+  const cleanFirst = new FakeGatePrompter([validVerdict, "unused"]);
+  const result = await promptGateForVerdict(cleanFirst, "GATE PROMPT");
+  assert.equal(result, validVerdict);
+  assert.deepEqual(cleanFirst.calls, ["GATE PROMPT"]);
+});
+
+test("a prose-wrapped verdict object is not accepted without repair — gate strictness holds", async () => {
+  const wrapped = new FakeGatePrompter([`result: ${validVerdict}`, validVerdict]);
+  const result = await promptGateForVerdict(wrapped, "GATE PROMPT");
+  assert.equal(result, validVerdict);
+  assert.equal(wrapped.calls.length, 2);
 });

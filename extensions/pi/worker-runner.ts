@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, createWorkerChildSession, type ChildRuntimeReport } from "./child-runtime.ts";
+import { promptForJsonEnvelope } from "./child-envelope.ts";
 import {
   attestWorkerAuthority,
   snapshotWorkerAuthority,
@@ -55,11 +56,6 @@ export type BuildWorkerModelInvoker = (
 const WORKER_ENVELOPE_REPAIR_PROMPT =
   'Your previous message was not the required result. Reply now with ONLY the single JSON object envelope described in your instructions (schema "karta-worker-result-v2") — no prose, no headings, no code fence, and nothing before or after the object.';
 
-interface EnvelopePrompter {
-  prompt(message: string): Promise<unknown>;
-  getLastAssistantText(): string | undefined;
-}
-
 function looksLikeWorkerEnvelope(text: string): boolean {
   try {
     const value = parseWorkerEnvelopeJson(text);
@@ -74,21 +70,16 @@ function looksLikeWorkerEnvelope(text: string): boolean {
   }
 }
 
-// A build worker that has finished its edits sometimes ends on a prose summary
-// instead of the JSON envelope. One corrective turn recovers the completed work
-// rather than discarding the whole wave; a second failure falls through to the
-// diagnostic parse error in parseWorkerResult.
-export async function promptWorkerForEnvelope(
-  session: EnvelopePrompter,
+export function promptWorkerForEnvelope(
+  session: Parameters<typeof promptForJsonEnvelope>[0],
   userPrompt: string,
 ): Promise<string> {
-  await session.prompt(userPrompt);
-  let text = session.getLastAssistantText() ?? "";
-  if (!looksLikeWorkerEnvelope(text)) {
-    await session.prompt(WORKER_ENVELOPE_REPAIR_PROMPT);
-    text = session.getLastAssistantText() ?? text;
-  }
-  return text;
+  return promptForJsonEnvelope(
+    session,
+    userPrompt,
+    looksLikeWorkerEnvelope,
+    WORKER_ENVELOPE_REPAIR_PROMPT,
+  );
 }
 
 async function invokeBuildWorker(

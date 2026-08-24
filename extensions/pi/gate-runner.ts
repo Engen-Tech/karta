@@ -18,6 +18,7 @@ import {
 } from "./evidence.ts";
 import type { CheckToolDetails } from "./check-tool.ts";
 import { loadKartaRole } from "./role-catalog.ts";
+import { promptForJsonEnvelope } from "./child-envelope.ts";
 
 const VERDICT_SCHEMA = "karta-gate-verdict-v1" as const;
 const MAX_FINDINGS = 50;
@@ -151,7 +152,12 @@ export function parseGateVerdict(
   try {
     value = JSON.parse(text);
   } catch {
-    throw new Error("Malformed Karta gate verdict: response must be exactly one JSON object");
+    const snippet = text.trim().slice(0, 200).replace(/\s+/g, " ");
+    throw new Error(
+      `Malformed Karta gate verdict: response must be exactly one JSON object (last assistant text: ${
+        snippet ? `"${snippet}"` : "<empty>"
+      })`,
+    );
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Malformed Karta gate verdict: response is not an object");
@@ -242,6 +248,38 @@ export function composeGateSystemPrompt(profile: GateCapabilityProfile): {
   };
 }
 
+const GATE_VERDICT_REPAIR_PROMPT =
+  'Your previous message was not the required result. Reply now with ONLY the single JSON gate-verdict object described in your instructions (schema "karta-gate-verdict-v1") — no prose, no headings, no code fence, and nothing before or after the object.';
+
+// The gate verdict contract is strict: exactly one JSON object, no surrounding
+// prose. This predicate mirrors that strictness (no extraction) so a reviewer
+// that ends on prose gets one corrective turn before the strict parse rejects it.
+function looksLikeGateVerdict(text: string): boolean {
+  try {
+    const value = JSON.parse(text.trim());
+    return (
+      Boolean(value) &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).schema === VERDICT_SCHEMA
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function promptGateForVerdict(
+  session: Parameters<typeof promptForJsonEnvelope>[0],
+  userPrompt: string,
+): Promise<string> {
+  return promptForJsonEnvelope(
+    session,
+    userPrompt,
+    looksLikeGateVerdict,
+    GATE_VERDICT_REPAIR_PROMPT,
+  );
+}
+
 export async function invokeGateModel(
   invocation: GateModelInvocation,
 ): Promise<{ text: string; runtime: ChildRuntimeReport }> {
@@ -260,8 +298,8 @@ export async function invokeGateModel(
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
   if (invocation.ctx.signal?.aborted) abort();
   try {
-    await session.prompt(invocation.userPrompt);
-    return { text: session.getLastAssistantText()?.trim() ?? "", runtime: report };
+    const text = await promptGateForVerdict(session, invocation.userPrompt);
+    return { text: text.trim(), runtime: report };
   } finally {
     invocation.ctx.signal?.removeEventListener("abort", abort);
     invocation.registry.delete(session);
