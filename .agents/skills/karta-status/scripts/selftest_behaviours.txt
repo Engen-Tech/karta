@@ -386,12 +386,25 @@ no-opaque-last-child-sits-square-in-a-rounded-container
 # picked card, none at rest and the second surface on hover elsewhere, all by
 # palette role. The last holds the header's hint as a regression guard: it
 # names picking, and its count is derived from the feed.
+#
+# The pick also has to survive the Delivered filter moving under it. A picked
+# binder the filter hides falls back to the same default the page uses when
+# nothing is picked — the map cannot be left with no picked card while the panel
+# still shows the hidden one — and because the pick is state rather than a
+# derivation, the toggle DROPS it rather than holding it for the next toggle to
+# hand back. The cost is stated as behaviour, not left unsaid: switching
+# Delivered back on does not restore the dropped pick, and a pick the filter
+# never hid is left alone. The last name guards the shipped JavaScript copy of
+# the drop against its Python twin.
 rail-card-control-is-a-button
 rail-picks-exactly-one-binder
 selection-and-in-flight-are-two-marks
 rail-button-ground-follows-selection
 rail-hint-counts-the-binders
 rail-selection-mirror-matches-its-twin
+rail-hidden-pick-falls-back-to-the-default
+rail-toggle-drops-a-pick-the-filter-hides
+rail-pick-drop-mirror-matches-its-twin
 
 # A halt shows on the map card, without a click. The design sets a pill
 # reading "<n> halted" beside the slug of a binder with a halted item; the page
