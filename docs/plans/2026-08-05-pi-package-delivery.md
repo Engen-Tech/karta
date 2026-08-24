@@ -12,12 +12,12 @@ Karta will use one explicit Pi extension and the canonical `skills/` tree. It wi
 |-|-|
 |Worktree|`/Users/tej/src/karta-pi`|
 |Branch|`feat/pi-package`|
-|Package|`@engen-tech/karta` version `2.30.0`, private and `UNLICENSED`|
-|Completed|Phase 0 feasibility closure and Phases 1–6 for the 2.30.0 macOS/Linux support scope|
-|In progress|Release approval only; native Windows support is deferred beyond 2.30.0|
+|Package|`@engen-tech/karta` version `3.0.0`, private and `UNLICENSED`|
+|Completed|Phase 0 feasibility closure and Phases 1–6 for the 3.0.0 macOS/Linux support scope|
+|In progress|Release approval only; native Windows support is deferred beyond 3.0.0|
 |First next action|Request explicit approval for licensing, package ownership, publication, and the signed release tag|
 |Do not touch|Unrelated changes in `/Users/tej/src/karta`|
-|Commit state|The Phase 6 candidate and narrowed 2.30.0 support scope are committed; packed-artifact local acceptance is the final pre-remote gate on `feat/pi-package`|
+|Commit state|The Phase 6 candidate and narrowed 3.0.0 support scope are committed; packed-artifact local acceptance is the final pre-remote gate on `feat/pi-package`|
 
 The source tree and Git refs are the durable checkpoint. Pi session history is not part of Karta recovery.
 
@@ -32,7 +32,7 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 170 tests: 169 pass in the ordinary run and the opt-in live OAuth test is skipped; that test also passes separately with stored `openai-codex` OAuth. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows is not part of the 2.30.0 support scope. The `npm pack` artifact also installs into this machine's Pi 0.84.2 with isolated settings, exposes all ten skills, completes a fixed `karta_dispatch` call, and removes cleanly.
+The Phase 6 candidate passes the full floor on macOS and native Debian Linux. The Pi suite runs 171 tests: 169 pass in the ordinary run and the two opt-in live provider tests are skipped; both also pass separately — stored `openai-codex` OAuth completes the gate roundtrip, and Amorphic `claude-opus-5` reads a real image in an isolated gate child. Production and full development audits report zero vulnerabilities under Pi 0.84.2. Native Windows is not part of the 3.0.0 support scope. The `npm pack` artifact also installs into this machine's Pi 0.84.2 with isolated settings, exposes all ten skills, completes a fixed `karta_dispatch` call, and removes cleanly.
 
 ## Non-negotiable invariants
 
@@ -466,7 +466,7 @@ Run native tests on:
 
 - current macOS;
 - Linux;
-- native Windows is deferred beyond 2.30.0 and is not a release gate for this version;
+- native Windows is deferred beyond 3.0.0 and is not a release gate for this version;
 - paths with spaces, Unicode, symlinks, and linked worktrees;
 - stored, environment, runtime-key, declarative custom, and OAuth provider classes, each through a complete gate tool-call and verdict roundtrip rather than an auth-only probe;
 - staged-tree and merge-tree plumbing under each native Git implementation, including SHA-1 and SHA-256 repositories;

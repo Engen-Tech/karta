@@ -1,6 +1,6 @@
 {
   "name": "@engen-tech/karta",
-  "version": "2.30.0",
+  "version": "3.0.0",
   "description": "Stack-agnostic orchestration for parallel, Git-native delivery.",
   "private": true,
   "type": "module",

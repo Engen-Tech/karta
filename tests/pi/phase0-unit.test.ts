@@ -20,7 +20,7 @@ test("Pi manifest loads one explicit extension and no static skills", async () =
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   assert.deepEqual(manifest.pi.extensions, ["./extensions/pi/index.ts"]);
   assert.equal(manifest.pi.skills, undefined);
-  assert.equal(manifest.version, "2.30.0");
+  assert.equal(manifest.version, "3.0.0");
 });
 
 test("isolated child loader ignores ambient resources and context", async () => {
