@@ -177,12 +177,63 @@ test("acceptance concern stops before safety and releases the lock", async () =>
   }
 });
 
-test("visual and requested boundary-only verification dispatch safety alone", async () => {
-  for (const [oracle, requested] of [
-    [{ type: "visual" }, "full"],
-    [{ type: "unit" }, "boundary-only"],
-  ] as const) {
-    const { manifest, ctx, cleanup } = await fixture(oracle);
+test("an explicit boundary-only request dispatches safety alone and returns its verdict", async () => {
+  const { manifest, ctx, cleanup } = await fixture({ type: "unit" });
+  const locks = new DispatchLockManager();
+  const roles: string[] = [];
+  try {
+    const runner = new KartaVerificationRunner(preflight, new ChildRegistry(), locks, {
+      buildEvidence: async () => manifest,
+      async executeGate(_ctx, role) {
+        roles.push(role);
+        return { ...gate(role, "pass"), evidenceHash: manifest.evidenceHash };
+      },
+    });
+    const result = await runner.run(ctx, "demo", "item-a", "boundary-only");
+    assert.deepEqual(roles, ["safety-gate"]);
+    assert.equal(result.requestedMode, "boundary-only");
+    assert.equal(result.effectiveMode, "boundary-only");
+    assert.equal(result.status, "pass");
+    assert.equal(result.blockedReason, undefined);
+    assert.equal(result.gates.acceptance, undefined);
+    assert.equal(locks.size, 0);
+  } finally {
+    await locks.releaseAll();
+    await cleanup();
+  }
+});
+
+test("a full visual verification blocks visual-required after safety passes without acceptance", async () => {
+  const { manifest, ctx, cleanup } = await fixture({ type: "visual" });
+  const locks = new DispatchLockManager();
+  const roles: string[] = [];
+  try {
+    const runner = new KartaVerificationRunner(preflight, new ChildRegistry(), locks, {
+      buildEvidence: async () => manifest,
+      async executeGate(_ctx, role) {
+        roles.push(role);
+        return { ...gate(role, "pass"), evidenceHash: manifest.evidenceHash };
+      },
+    });
+    const result = await runner.run(ctx, "demo", "item-a", "full");
+    assert.deepEqual(roles, ["safety-gate"]);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blockedReason, "visual-required");
+    assert.equal(result.reason, undefined);
+    assert.equal(result.requestedMode, "full");
+    assert.equal(result.effectiveMode, "full");
+    assert.equal(result.gates.acceptance, undefined);
+    assert.equal(result.gates.safety?.verdict, "pass");
+    assert.equal(locks.size, 0);
+  } finally {
+    await locks.releaseAll();
+    await cleanup();
+  }
+});
+
+test("a full visual verification surfaces a safety failure rather than folding it into visual-required", async () => {
+  for (const verdict of ["concerns", "blocked"] as const) {
+    const { manifest, ctx, cleanup } = await fixture({ type: "visual" });
     const locks = new DispatchLockManager();
     const roles: string[] = [];
     try {
@@ -190,12 +241,14 @@ test("visual and requested boundary-only verification dispatch safety alone", as
         buildEvidence: async () => manifest,
         async executeGate(_ctx, role) {
           roles.push(role);
-          return { ...gate(role, "pass"), evidenceHash: manifest.evidenceHash };
+          return { ...gate(role, verdict), evidenceHash: manifest.evidenceHash };
         },
       });
-      const result = await runner.run(ctx, "demo", "item-a", requested);
+      const result = await runner.run(ctx, "demo", "item-a", "full");
       assert.deepEqual(roles, ["safety-gate"]);
-      assert.equal(result.effectiveMode, "boundary-only");
+      assert.equal(result.status, verdict);
+      assert.equal(result.blockedReason, undefined);
+      assert.equal(result.effectiveMode, "full");
     } finally {
       await locks.releaseAll();
       await cleanup();

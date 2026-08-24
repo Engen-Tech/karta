@@ -200,6 +200,46 @@ test("deterministic crash after worker attestation leaves resumable Git state", 
   }
 });
 
+test("a blocked visual-required finalization halts without consuming a worker-feedback attempt", async () => {
+  const state = await fixture();
+  try {
+    let workers = 0;
+    let finalizations = 0;
+    const build = runner(
+      state.repo,
+      async (_ctx, worktree, _branch, binder, item) => {
+        workers += 1;
+        await writeFile(join(worktree, "subject.txt"), "candidate\n");
+        return workerResult(binder, item, `attempt ${workers}`);
+      },
+      {
+        async finalizeCandidate(_ctx, binder, item) {
+          finalizations += 1;
+          return {
+            status: "blocked",
+            binder,
+            item,
+            verification: {
+              status: "blocked",
+              blockedReason: "visual-required",
+              gates: { safety: { verdict: "pass" } },
+            },
+            message: "Visual acceptance is required but not yet available.",
+          };
+        },
+      },
+    );
+    const result = await build.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "blocked");
+    assert.equal(result.attempts, 1);
+    assert.equal(workers, 1);
+    assert.equal(finalizations, 1);
+    assert.equal(result.finalization?.verification?.blockedReason, "visual-required");
+  } finally {
+    await state.cleanup();
+  }
+});
+
 test("acceptance concerns cap at two attempts and write failed through the host", async () => {
   const state = await fixture();
   try {

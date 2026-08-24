@@ -87,6 +87,11 @@ function gateInvoker(verdict: "pass" | "concerns" = "pass"): GateModelInvoker {
 async function fixture(
   invoker = gateInvoker(),
   checkpoint: KartaFinalizationCheckpoint = () => {},
+  oracle: Record<string, unknown> = {
+    type: "unit",
+    assertions: ["subject contains candidate"],
+    command: "node check.mjs",
+  },
 ): Promise<{
   repo: string;
   locks: DispatchLockManager;
@@ -109,11 +114,7 @@ async function fixture(
         title: "Change subject",
         summary: "Change the subject",
         touches: ["subject.txt"],
-        oracle: {
-          type: "unit",
-          assertions: ["subject contains candidate"],
-          command: "node check.mjs",
-        },
+        oracle,
       },
     ],
   };
@@ -177,6 +178,42 @@ test("finalizer scans, checks, gates, commits, then writes built ref", async () 
       result.commit,
     );
     assert.match(await git(state.repo, ["log", "-1", "--format=%s"]), /^\[karta:item-item-a\]/);
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("a full visual oracle blocks visual-required after safety without writing a built ref", async () => {
+  const state = await fixture(gateInvoker(), () => {}, {
+    type: "visual",
+    assertions: ["subject contains candidate"],
+    command: "node check.mjs",
+  });
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    const before = await git(state.repo, ["rev-parse", "HEAD"]);
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const result = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(result.status, "blocked");
+    assert.equal(result.verification?.status, "blocked");
+    assert.equal(result.verification?.blockedReason, "visual-required");
+    assert.equal(result.verification?.gates.acceptance, undefined);
+    assert.equal(result.verification?.gates.safety?.verdict, "pass");
+    assert.match(result.message, /visual-required/);
+    assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), before);
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
+    );
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/failed"]),
+    );
   } finally {
     await state.locks.release(lease);
     await state.cleanup();
