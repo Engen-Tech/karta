@@ -236,3 +236,63 @@ test("worker runner rejects prose and stale envelopes", async () => {
     await rm(worktree, { recursive: true, force: true });
   }
 });
+
+test("worker runner tolerates a fenced or prose-wrapped envelope and diagnoses an absent one", async () => {
+  const worktree = await mkdtemp(join(tmpdir(), "karta-worker-wrap-"));
+  try {
+    const envelope = (invocation: { profile: { role: { definitionHash: string }; profileHash: string } }) =>
+      JSON.stringify({
+        schema: "karta-worker-result-v2",
+        role: "build-worker",
+        binder: "demo",
+        item: "item-a",
+        roleDefinitionHash: invocation.profile.role.definitionHash,
+        profileHash: invocation.profile.profileHash,
+        outcome: "ready",
+        summary: "Wrapped envelope.",
+        checks: [{ id: "unit", command: "npm test", cwd: "." }],
+      });
+    const runWrapped = (wrap: (json: string) => string) => {
+      const runner = new KartaBuildWorkerRunner(
+        new ChildRegistry(),
+        async (invocation) => ({ runtime, text: wrap(envelope(invocation)) }),
+        async () => [],
+        authority,
+      );
+      return runner.run(
+        { cwd: worktree } as ExtensionContext,
+        worktree,
+        "karta/demo/item-item-a",
+        "demo",
+        "item-a",
+        {},
+      );
+    };
+
+    const fenced = await runWrapped((json) => "```json\n" + json + "\n```");
+    assert.equal(fenced.outcome, "ready");
+    const prosed = await runWrapped((json) => `Here is my result:\n\n${json}\n\nDone.`);
+    assert.equal(prosed.outcome, "ready");
+
+    const empty = new KartaBuildWorkerRunner(
+      new ChildRegistry(),
+      async () => ({ runtime, text: "   " }),
+      async () => [],
+      authority,
+    );
+    await assert.rejects(
+      () =>
+        empty.run(
+          { cwd: worktree } as ExtensionContext,
+          worktree,
+          "karta/demo/item-item-a",
+          "demo",
+          "item-a",
+          {},
+        ),
+      /malformed JSON.*<empty>/,
+    );
+  } finally {
+    await rm(worktree, { recursive: true, force: true });
+  }
+});

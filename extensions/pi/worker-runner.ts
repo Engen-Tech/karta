@@ -87,6 +87,32 @@ function exactKeys(value: Record<string, unknown>, keys: string[]): void {
   }
 }
 
+function parseWorkerEnvelopeJson(text: string): unknown {
+  const trimmed = text.trim();
+  const candidates: string[] = [trimmed];
+  // Common model quirk: the envelope wrapped in a Markdown code fence.
+  const fence = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+  if (fence) candidates.push(fence[1].trim());
+  // Fallback: the outermost brace-delimited object, ignoring any prose around it.
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) candidates.push(trimmed.slice(start, end + 1));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // fall through to the next candidate
+    }
+  }
+  const snippet = trimmed.slice(0, 200).replace(/\s+/g, " ");
+  throw new Error(
+    `Karta build worker returned malformed JSON (last assistant text: ${
+      snippet ? `"${snippet}"` : "<empty>"
+    })`,
+  );
+}
+
 function parseWorkerResult(
   text: string,
   binder: string,
@@ -94,12 +120,7 @@ function parseWorkerResult(
   profile: BuildWorkerCapabilityProfile,
   runtime: ChildRuntimeReport,
 ): Omit<KartaWorkerResult, "attestation"> {
-  let value: unknown;
-  try {
-    value = JSON.parse(text.trim());
-  } catch {
-    throw new Error("Karta build worker returned malformed JSON");
-  }
+  const value = parseWorkerEnvelopeJson(text);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Karta build worker returned a non-object result");
   }
