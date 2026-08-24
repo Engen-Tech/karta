@@ -15522,6 +15522,14 @@ def _font_directories(reader, font_files: dict) -> dict[str, list[tuple[str, int
                      f["file"] for f in c["font_manifest"]["faces"]
                      if not f.get("variable")) else entries)
                  for name, entries in c["font_directories"].items()}},
+             # a variable face that declares NO variation tables. Before the
+             # guard this skipped every sibling-table check and passed on an
+             # fvar of the right size alone — a face whose axes declare
+             # movement no delta table delivers. Selected by the variable
+             # claim, never by position
+             lambda c: {"font_manifest": {**c["font_manifest"], "faces": [
+                 dict(f, variation_tables=[]) if f.get("variable") else f
+                 for f in c["font_manifest"]["faces"]]}},
          ])
 def _c_font_manifest_variation_agreement(ctx):
     """The manifest's per-face variation claim agrees with what that face's own
@@ -15530,8 +15538,10 @@ def _c_font_manifest_variation_agreement(ctx):
     `fvar_length` and is non-zero, and every table the manifest names under
     `variation_tables` for that face must appear with a non-zero recorded
     length. A face the manifest marks static must carry no fvar entry at all.
-    One shipped face is variable — the serif, cut with its weight limited and
-    no axis pinned — and its manifest entry records the fvar length and the
+    One shipped face is variable — the serif, which the manifest DECLARES was
+    cut with its weight limited and no axis pinned; nothing here reads the
+    file to confirm that, and the declaration is provenance rather than a
+    checked fact — and its manifest entry records the fvar length and the
     variation tables the cut carries; the other six are static and carry no
     fvar. Both branches now run against real files, and the synthetic negative
     controls below cover the disagreements no shipped file exhibits.
@@ -15560,7 +15570,12 @@ def _c_font_manifest_variation_agreement(ctx):
     convention.
 
     Two more limits, in the order a re-vendor is likely to hit them. First,
-    this catches an axis REMOVED, never an axis COLLAPSED: a cut keeping an
+    say what "catches an axis removed" does and does not mean, because the
+    general form of that claim is false and the arithmetic above already
+    shows why: a one-axis cut with six instances also measures 84. What this
+    detects is the MEASURED mutation — this upstream, this recipe, opsz
+    pinned, 84 to 56 — not axis removal as a category. And it never catches
+    an axis COLLAPSED: a cut keeping an
     opsz record whose range is a single point still writes two axis records,
     still measures 84 bytes, and still renders flat — and given the original
     defect WAS a pin, that is the plausible next mistake, not a hypothetical.
@@ -15592,7 +15607,15 @@ def _c_font_manifest_variation_agreement(ctx):
         fvar_length = entry.get("fvar_length")
         if not fvar_length or tags["fvar"] != fvar_length:
             return False
-        for other_tag in entry.get("variation_tables", []):
+        # A variable face MUST name the variation tables its cut carries.
+        # Defaulting to [] here would skip every sibling-table check for a
+        # face that simply forgot to declare them — fvar of the right size
+        # and nothing else verified, which is the hole this assertion exists
+        # to close. An undeclared list is a failure, not an empty one.
+        declared = entry.get("variation_tables")
+        if not declared:
+            return False
+        for other_tag in declared:
             if other_tag == "fvar":
                 continue
             if tags.get(other_tag, 0) <= 0:
