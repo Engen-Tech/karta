@@ -14,7 +14,8 @@ LIMIT: this check proves a fact NAMES an existing assertion. It never proves the
 assertion depends on the fact — that is a reading, and only a reviewer can make it.
 
 Usage:
-  uv run scripts/check_fact_traces.py                 # sweep .karta/binders/*.json (non-recursive)
+  uv run scripts/check_fact_traces.py                 # sweep .karta/binders/*.json,
+                                                        # plus its archive/ subdir (see check_path)
   uv run scripts/check_fact_traces.py <binder.json>…  # check the named binders / directories
   uv run scripts/check_fact_traces.py --self-test     # run the embedded fixtures
 """
@@ -29,9 +30,17 @@ LIMIT = ("limit: proves a fact NAMES an existing assertion — never that the "
 TRACE_RE = re.compile(r"^(?P<item>[^:]+):(?P<index>\d+)$")
 
 
-def check_binder(binder: object, label: str) -> tuple[list[str], list[str]]:
+def check_binder(binder: object, label: str, *, archived: bool = False) -> tuple[list[str], list[str]]:
     """(errors, notes) for one parsed binder. Notes echo every declared untraced
-    reason so an accepted gap is visible in the output, never silent."""
+    reason so an accepted gap is visible in the output, never silent.
+
+    `archived` narrows exactly one case: a DICT-shaped design_fact_table (metadata —
+    why_here, settled_collisions, unreconciled, fact_count — wrapping a `facts` list,
+    the shape recorded before the traced-row convention existed) is reported as a
+    note, OUT OF SCOPE by name, rather than failed. It is the only archived exemption:
+    a LIST-shaped table in an archived binder is still checked exactly like a live
+    one, and any OTHER shape (not list, not dict) still fails whether archived or
+    not — "archived" narrows one rule, it does not mean anything goes."""
     errors: list[str] = []
     notes: list[str] = []
     if not isinstance(binder, dict):
@@ -41,6 +50,10 @@ def check_binder(binder: object, label: str) -> tuple[list[str], list[str]]:
         return errors, notes                     # records no facts — nothing to trace
     table = manifest["design_fact_table"]
     if not isinstance(table, list):
+        if archived and isinstance(table, dict):
+            notes.append(f"{label}: design_fact_table is a DICT (pre-convention metadata "
+                         f"wrapping a facts list) — OUT OF SCOPE, not checked")
+            return errors, notes
         return [f"{label}: token_manifest.design_fact_table must be a list of fact rows"], notes
     items: dict[str, int] = {}
     for it in binder.get("work_items") or []:
@@ -93,10 +106,22 @@ def check_binder(binder: object, label: str) -> tuple[list[str], list[str]]:
 
 
 def check_path(path: Path) -> tuple[list[str], list[str]]:
-    """A file is checked; a directory is swept non-recursively (*.json) — an archived
-    binder is frozen by the immutability guard, so a trace rule there could never be
-    satisfied and is not applied."""
-    files = sorted(path.glob("*.json")) if path.is_dir() else [path]
+    """A file is checked directly. A directory is swept non-recursively (*.json) for
+    live binders, and — when it has an archive/ subdirectory — that subdirectory is
+    swept too, one level, under archived semantics (see check_binder's `archived`):
+    a LIST-shaped fact table there is checked exactly like a live one (frozen
+    history is no excuse for a broken trace); a DICT-shaped, pre-convention table is
+    reported as a note, OUT OF SCOPE by name, instead of checked or silently
+    skipped; any other shape still fails. `archived` is decided per file by whether
+    "archive" is one of its path components, so a binder named directly under an
+    archive/ dir gets the same treatment a swept one would."""
+    if path.is_dir():
+        files = sorted(path.glob("*.json"))
+        archive = path / "archive"
+        if archive.is_dir():
+            files += sorted(archive.glob("*.json"))
+    else:
+        files = [path]
     errors: list[str] = []
     notes: list[str] = []
     for f in files:
@@ -109,7 +134,7 @@ def check_path(path: Path) -> tuple[list[str], list[str]]:
         except (OSError, ValueError) as e:
             errors.append(f"{label}: could not read binder JSON ({e})")
             continue
-        e, n = check_binder(data, label)
+        e, n = check_binder(data, label, archived="archive" in f.parts)
         errors.extend(e)
         notes.extend(n)
     return errors, notes
