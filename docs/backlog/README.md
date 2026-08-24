@@ -195,6 +195,39 @@ Full writeup, reproduction and the truth table: [`landing-gate-verb-match/BUG.md
 
 ---
 
+## 9. measuring optical sizing on the watch page — *Ready* (measured 2026-08-23, blocked on `watch-font-adherence` landing)
+
+**What.** Build `scripts/check_optical_sizing.py`: drive the served page in a browser and prove
+Newsreader renders at the optical size each of its six sizes asks for. The `watch-font-adherence`
+binder ships the axis and proves at the floor that a variation table of the recorded size is
+present; it proves nothing about what the browser draws, and says so in scope.
+
+**Why it is a backlog entry and not binder items.** It was drafted as binder items and went
+thirteen review rounds without converging. Rounds 3–9 argued one claim down four times — each time
+the fix was to shrink the claim, and each time I added a bigger check instead. Rounds 10–13 were
+implementation decisions in a measurement harness, where rounds 11 and 12 each broke on the
+previous round's fix. A prose specification of a harness has no natural end: every detail pinned
+reveals another that interacts with it. The two items that did land describe artifacts whose
+properties are knowable before building; a harness's are not.
+
+**What survives, and it is a lot.** Every measurement — the weight and optical axis tables, the
+detection edge bracketed to 3/64 px steps, the `fvar` 84/56/absent arithmetic, the unstable subset
+byte count — plus the rendered-page facts that only appear on the real fixture: four of six serif
+sizes exist at rest, one element per tuple (not twenty-seven), two elements carry no hook, the
+wave numeral is a single character. And eleven design decisions, each one a place a plausible
+implementation is wrong, with the evidence for each.
+
+**The sharpest two.** No absolute pixel floor works: the page carries a one-character numeral and
+a sixty-three-character sentence, and the 0.3 px floor three drafts carried fails a *correct*
+build. And width cannot witness outline variation at all — `HVAR` carries the advances, so a font
+with `gvar` stripped separates weight 400 from 500 by the same 4.828 px as a correct one while its
+letterforms sit frozen (21 sub-pixels of ink change against 5,234). Measure ink, not width, for
+any claim about the shapes.
+
+[`watch-optical-harness/FINDINGS.md`](watch-optical-harness/FINDINGS.md).
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
