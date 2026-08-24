@@ -15783,6 +15783,13 @@ def _coverage_self_test_checks() -> list[tuple[str, bool]]:
             # the harness proves the mutation actually changed the artifact
             # BEFORE running the check — a control that silently stopped
             # mutating would otherwise let every check pass vacuously.
+            # Says what it proves and no more: this is `==`, so it is real for
+            # the string and tuple artifacts (a .replace() whose target is gone
+            # compares equal and is caught here) and VACUOUS for a callable
+            # override, where a freshly built lambda never equals what it
+            # replaces. Callable controls are covered instead by never_failed
+            # below — one that changes no behaviour leaves the check passing,
+            # which is exactly what that list records.
             if not overrides or any(k not in ctx or ctx[k] == v
                                     for k, v in overrides.items()):
                 vacuous.append(name + "#" + str(i))

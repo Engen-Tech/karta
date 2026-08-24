@@ -20,7 +20,7 @@ Usage:
   uv run scripts/check_fact_traces.py --self-test     # run the embedded fixtures
 """
 from __future__ import annotations
-import argparse, json, re, sys
+import argparse, json, re, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -112,19 +112,26 @@ def check_path(path: Path) -> tuple[list[str], list[str]]:
     a LIST-shaped fact table there is checked exactly like a live one (frozen
     history is no excuse for a broken trace); a DICT-shaped, pre-convention table is
     reported as a note, OUT OF SCOPE by name, instead of checked or silently
-    skipped; any other shape still fails. `archived` is decided per file by whether
-    "archive" is one of its path components, so a binder named directly under an
-    archive/ dir gets the same treatment a swept one would."""
+    skipped; any other shape still fails.
+
+    Archived-ness is decided by WHERE THE FILE SITS, never by anything further up
+    the path: a swept file carries the flag the sweep gave it, and a file named
+    directly is archived only when its OWN PARENT is the archive/ dir — so a
+    binder named under one gets the same treatment a swept one would. It is
+    deliberately not a search over path components: these are absolute paths, so
+    a checkout living under any ancestor called "archive" (~/archive/karta, a
+    /builds/archive/... runner) would otherwise flag every LIVE binder as
+    archived and hand it the exemption below, which fails open."""
     if path.is_dir():
-        files = sorted(path.glob("*.json"))
+        files = [(f, False) for f in sorted(path.glob("*.json"))]
         archive = path / "archive"
         if archive.is_dir():
-            files += sorted(archive.glob("*.json"))
+            files += [(f, True) for f in sorted(archive.glob("*.json"))]
     else:
-        files = [path]
+        files = [(path, path.parent.name == "archive")]
     errors: list[str] = []
     notes: list[str] = []
-    for f in files:
+    for f, archived in files:
         try:
             label = str(f.relative_to(ROOT))
         except ValueError:
@@ -134,7 +141,7 @@ def check_path(path: Path) -> tuple[list[str], list[str]]:
         except (OSError, ValueError) as e:
             errors.append(f"{label}: could not read binder JSON ({e})")
             continue
-        e, n = check_binder(data, label, archived="archive" in f.parts)
+        e, n = check_binder(data, label, archived=archived)
         errors.extend(e)
         notes.extend(n)
     return errors, notes
@@ -196,13 +203,47 @@ def _self_test() -> int:
          ["not", "a", "binder"], ["must be a JSON object"], []),
     ]
     failures = 0
+    total = 0  # incremented once per [PASS]/[FAIL] line printed below — never hand-summed,
+    # so a case added later cannot silently under-report the count it is part of.
     for name, data, want_err, want_note in cases:
         errors, notes = check_binder(data, "fx.json")
         ok = (bool(errors) == bool(want_err)
               and all(any(w in e for e in errors) for w in want_err)
               and all(any(w in n for n in notes) for w in want_note))
         print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r} / {notes!r}"))
+        total += 1
         failures += 0 if ok else 1
+
+    # Archived-ness comes from the file's own position. The first case is the
+    # regression: these are absolute paths, so deriving the flag by searching every
+    # path component handed a LIVE binder the archived exemption whenever the
+    # checkout happened to sit under any directory called "archive" — the DICT table
+    # below is malformed, and being wrongly read as archived turns its hard error
+    # into a note. That fails open, and silently.
+    dict_table = {"slug": "fx", "work_items": [],
+                  "token_manifest": {"design_fact_table": {"why_here": "…", "facts": []}}}
+    with tempfile.TemporaryDirectory() as td:
+        # an ancestor called "archive", but the binders dir itself is an ordinary one
+        decoy = Path(td) / "archive" / "checkout" / "binders"
+        (decoy / "archive").mkdir(parents=True)
+        (decoy / "live.json").write_text(json.dumps(dict_table), encoding="utf-8")
+        (decoy / "archive" / "frozen.json").write_text(json.dumps(dict_table), encoding="utf-8")
+        for name, target, want_err, want_note in [
+            ("a live binder under an ancestor called archive/ is still checked",
+             decoy / "live.json", ["must be a list"], []),
+            ("a binder named directly under an archive/ dir is archived",
+             decoy / "archive" / "frozen.json", [], ["OUT OF SCOPE"]),
+            ("sweeping tells the two apart in one pass",
+             decoy, ["live.json", "must be a list"], ["frozen.json", "OUT OF SCOPE"]),
+        ]:
+            errors, notes = check_path(target)
+            ok = (bool(errors) == bool(want_err)
+                  and all(any(w in e for e in errors) for w in want_err)
+                  and all(any(w in n for n in notes) for w in want_note))
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}"
+                  + ("" if ok else f" — got {errors!r} / {notes!r}"))
+            total += 1
+            failures += 0 if ok else 1
 
     # A real binder from this repo that records no facts passes untouched. Archived
     # binders are frozen, so one is always there to stand in; a live one is preferred.
@@ -217,14 +258,16 @@ def _self_test() -> int:
         ok, detail = (errors == [] and notes == []), f"{real.relative_to(ROOT)} — got {errors!r}"
     print(f"[{'PASS' if ok else 'FAIL'}] a real binder recording no facts passes untouched"
           + (f" ({real.relative_to(ROOT)})" if ok else f" — {detail}"))
+    total += 1
     failures += 0 if ok else 1
 
     # The limit is stated where a reader meets the check: usage text and every run's output.
     ok = LIMIT in " ".join(_parser().format_help().split())
     print(f"[{'PASS' if ok else 'FAIL'}] the check's limit is stated in its usage text")
+    total += 1
     failures += 0 if ok else 1
 
-    print(f"self-test: {len(cases) + 2 - failures}/{len(cases) + 2} cases passed")
+    print(f"self-test: {total - failures}/{total} cases passed")
     return 1 if failures else 0
 
 
