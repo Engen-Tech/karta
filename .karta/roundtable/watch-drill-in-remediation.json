@@ -1,0 +1,30 @@
+{
+  "reviewed_hash": "a1936ee75b2f6df5540d62865732322ef6e48ad3c067a83f0275119b1b8095ad",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "watch-drill-in-remediation",
+  "run_at": "2026-08-24T05:15:00.289272+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "codex",
+      "verdict": "SHIP",
+      "summary": "SHIP. The leading assertion resolves the apparent contradiction: mutation assertions now define specific negative-control procedures and expected outcomes, while verification_honesty limits the underlying guarantee to properties of final source text. It explicitly disclaims universal detection of equivalent or adversarial edits, including preserved fragments in comments, decoys, or dead code. The fragment-selection guidance also aligns the reformat control with the stated mechanism. No remaining inconsistency found."
+    },
+    {
+      "provider": "claude",
+      "verdict": "SHIP",
+      "summary": "SHIP. The leading assertion resolves the tension: it scopes every 'turns the suite RED' claim below to the straightforward edit, measured - not a claim over all edits matching the description - matching the limit verification_honesty discloses (final-text checks cannot see edit history; an adversarial edit that keeps old text survives). Both fields now agree on what the guard tests (fragment presence + first-statement position) and where it fails (a crafted edit preserving old text elsewhere in the span). Finding 1 (low, maintainability): consistency is order-dependent - the leading assertion admits it, 'consistent only if this paragraph is read first'. JSON array order is stable today, but tooling that samples or reorders assertions would silently reintroduce the contradiction. Not blocking."
+    }
+  ]
+}
