@@ -155,7 +155,7 @@ Full writeup, reproduction and the truth table: [`landing-gate-verb-match/BUG.md
 
 ---
 
-## 9. measuring optical sizing on the watch page — *Ready* (measured 2026-08-23, blocked on `watch-font-adherence` landing)
+## 9. measuring optical sizing on the watch page — *Ready, unblocked* (measured 2026-08-23; the blocker landed 2026-08-24 at main 1183eea)
 
 **What.** Build `scripts/check_optical_sizing.py`: drive the served page in a browser and prove
 Newsreader renders at the optical size each of its six sizes asks for. The `watch-font-adherence`
@@ -388,6 +388,74 @@ diffstat, which reported `create mode .karta/binders/archive/watch-drill-in-reme
 matching delete — the tell, if anyone had read it as one.
 
 ---
+
+## 15. `_check_font_provenance` drives its variable-face checks off `families`, not `faces` — *Ready* (filed 2026-08-24)
+
+The variable-face rules — a non-empty `axes` map, no `pinned_axes` — are applied while iterating
+`sorted(families.items())` in `scripts/validate_plugin.py`. A face whose `family` names a key that is
+not in `families` is therefore never evaluated against them: a misspelt family on a variable face
+skips its axis-provenance checks entirely.
+
+**Why it is Low rather than a hole.** Nothing in the shipped manifest can reach that state today, and
+a face naming an undeclared family would fail other agreement checks first. It is a defence-in-depth
+gap, not a live bypass.
+
+**Fix.** Assert the foreign key: every `face["family"]` must exist in `families`. That is a cheaper
+and more general net than inverting the loop, and it catches the typo case directly.
+
+**Found by** the antigravity panelist on the fifth and final roundtable pass over
+`watch-font-adherence`, which was otherwise a unanimous merge.
+
+---
+
+## 16. a docstring still hardcodes a source-line pointer — *Ready* (filed 2026-08-24)
+
+`skills/karta-status/scripts/serve_status.py` carries a `serve_status.py:110-124` pointer in the
+variation-agreement docstring. This is the exact pattern removed from the WOFF2 reader's docstring in
+the same delivery, for the reason that hardcoded line numbers rot silently and nothing checks them.
+
+**Fix.** Describe the referent instead of indexing it, the way the reader's docstring now does. If a
+pointer is genuinely wanted, point at a stable name rather than a line range.
+
+**Found by** the claude opus-4-8 panelist on the final pass, which noted the inconsistency with the
+change made two commits earlier.
+
+---
+
+## 17. `karta-status`'s own SKILL.md says the page uses system fonts — *Ready* (filed 2026-08-24)
+
+`skills/karta-status/SKILL.md:56` describes the page as "self-contained (vendored Vue, system fonts,
+no CDN, no build step)". It vendors its fonts, and has since the redesign vendored them — so this
+predates `watch-font-adherence` and was not caused by it.
+
+**Why it was not fixed in that delivery.** SKILL.md is outside karta-doc-gardner's writable surface
+and the writer-confinement hook blocked the edit, correctly. Correcting it is a code-track change,
+and widening a delivery's scope to sweep up unrelated drift is the thing that makes a delivery's diff
+stop describing its own binder.
+
+**Fix.** One word, plus the two generated mirrors via `uv run scripts/sync_codex_skills.py`.
+
+---
+
+## 18. kaizen only ever adds, so its pack now exceeds the size the validator warns at — *Ready* (filed 2026-08-24)
+
+`validate_packs.py` warns that `.karta/sme/karta-house-skill-authoring.md` is 7299 bytes against a
+3500-byte advisory ceiling, with the reason that packs are prompt text. The warning predates this
+delivery and this delivery widened it.
+
+**Why it will keep widening.** karta-kaizen's contract forbids weakening or removing a rule, so the
+pack grows monotonically by construction. Every delivery that teaches it something makes the warning
+worse, and no amount of care in a single run reverses it.
+
+**What is actually being traded.** Every byte is prompt budget spent on every build that loads the
+pack. A rule that earns its place at 3500 bytes may not at 10000, and the pack has no mechanism for
+retiring a lesson that has stopped paying.
+
+**Fix, and it is a human's call by design.** Either trim the pack — deciding which recorded lesson
+stops being worth its budget, which kaizen may not do for itself — or give packs an explicit
+retirement path so the ledger can shrink under review rather than only grow. The second is the real
+fix; the first is what unblocks the warning today.
+
 
 ## Done (recent)
 
