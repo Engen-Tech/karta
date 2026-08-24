@@ -170,7 +170,7 @@ check.
 
 ---
 
-## 8. the merge gates fire on `git merge-base` — *FIXED 2026-08-24*
+## 8. the merge gates fire on `git merge-base` — *Ready* (filed 2026-08-23)
 
 **What.** `scripts/hooks/roundtable_gate.py:80` matches the git verb with `\bmerge\b`. A word
 boundary sits between `merge` and the `-` in `merge-base`, so `git merge-base`, `git merge-tree`
@@ -225,24 +225,6 @@ letterforms sit frozen (21 sub-pixels of ink change against 5,234). Measure ink,
 any claim about the shapes.
 
 [`watch-optical-harness/FINDINGS.md`](watch-optical-harness/FINDINGS.md).
-
----
-
-## 10. the commit gate fires on `git commit-tree` and `git commit-graph` — *Ready* (filed 2026-08-24)
-
-**What.** The exact defect entry 8 fixed, one line above it. `scripts/hooks/roundtable_gate.py`'s
-`_COMMIT_RE` ends in `commit\b`, and `-` is a non-word character, so any git subcommand that merely
-*starts with* `commit` reads as a commit. Verified: `is_commit_command("git commit-tree HEAD^{tree}")`
-and `is_commit_command("git commit-graph write")` both return `True`. Neither writes a commit the
-binder gate is meant to govern — `commit-tree` is plumbing that takes an existing tree, and
-`commit-graph write` only builds a cache file.
-
-**Fix.** The same one, one line up: `commit\b` becomes `commit(?![-\w])`, plus a self-test case per
-false positive alongside the existing `check("detect commit", ...)`.
-
-**Why it is filed rather than folded into entry 8.** Entry 8 was scoped to the merge verb and was
-reviewed and fixed as that. Widening a verified one-line fix at commit time is how an unreviewed
-change rides in on a reviewed one. Found by the independent review of entry 8's fix.
 
 ---
 

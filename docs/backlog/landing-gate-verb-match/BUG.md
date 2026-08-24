@@ -1,16 +1,6 @@
 # The merge gates fire on `git merge-base`, `merge-tree` and `merge-file`
 
-**Filed** 2026-08-23. **Status** FIXED 2026-08-24. **Owner** upstream.
-
-The fix landed as described below: the trailing `\b` became `(?![-\w])`, plus four cases in the
-module's own `--self-test`. Two independent agents verified it. The second established two things
-worth keeping: the four new cases are not vacuous — replayed against the pre-fix pattern, all three
-false-positive assertions flip to failing — and the obvious alternative, a `\s` lookahead, would be
-*worse*, because it misses a bare `git merge` at end of string, which `(?![-\w])` catches.
-
-It also found the same defect one line up. `_COMMIT_RE` ends in `commit\b`, so
-`git commit-tree` and `git commit-graph write` are both matched as commits today. That is out of
-scope for this entry and is filed as its own, below.
+**Filed** 2026-08-23. **Status** Ready (scoped, unblocked, one-line fix). **Owner** upstream.
 
 ## Summary
 
