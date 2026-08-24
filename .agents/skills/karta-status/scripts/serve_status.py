@@ -15510,6 +15510,18 @@ def _font_directories(reader, font_files: dict) -> dict[str, list[tuple[str, int
                      for i, f in enumerate(c["font_manifest"]["faces"])]},
                  "font_directories": {**c["font_directories"],
                      c["font_manifest"]["faces"][0]["file"]: [("fvar", 84)]}},
+             # a face whose directory could not be read at all. An empty
+             # directory carries no fvar, which is the answer a STATIC face is
+             # supposed to give — so without the guard below this passes as a
+             # well-formed static face and a deleted or unreadable file reads
+             # as agreement. Selected by identity, not position: the first
+             # STATIC face, so this control keeps meaning the same thing if a
+             # second variable face ever ships
+             lambda c: {"font_directories": {
+                 name: ([] if name == next(
+                     f["file"] for f in c["font_manifest"]["faces"]
+                     if not f.get("variable")) else entries)
+                 for name, entries in c["font_directories"].items()}},
          ])
 def _c_font_manifest_variation_agreement(ctx):
     """The manifest's per-face variation claim agrees with what that face's own
@@ -15535,13 +15547,36 @@ def _c_font_manifest_variation_agreement(ctx):
     stdlib has no Brotli — see the note at VENDORED_FACES, serve_status.py:
     110-124). What this behaviour catches is the regression it was written for:
     a re-vendor that drops an axis without saying so changes the recorded
-    length, so a silent flattening fails here and a declared one becomes a
-    visible manifest edit naming which axis went away. Proving the axis is an
-    optical-size axis specifically needs a rendered measurement — nothing in
-    this repository makes that claim yet; the work is briefed in
+    length, so a silent flattening fails here and a declared one has to edit
+    `fvar_length` to land. Say what that edit is and is not: it is a SHRUNK
+    INTEGER, 84 to 56, and nothing forces the `axes` map beside it to be
+    corrected — so a re-vendor that updates the length and leaves `axes` still
+    claiming opsz passes both gates with a manifest that now lies. An earlier
+    draft of this docstring claimed the edit "names which axis went away"; it
+    does not, and the difference is the whole distance between a gate and a
+    convention.
+
+    Two more limits, in the order a re-vendor is likely to hit them. First,
+    this catches an axis REMOVED, never an axis COLLAPSED: a cut keeping an
+    opsz record whose range is a single point still writes two axis records,
+    still measures 84 bytes, and still renders flat — and given the original
+    defect WAS a pin, that is the plausible next mistake, not a hypothetical.
+    Second, on what it would take to close the axis question, because two
+    different things get conflated: reading the axis TAG and its range needs
+    only Brotli, since they sit in fvar's own records — it is a decompression
+    away, not a browser away. What needs a rendered measurement is whether the
+    axis materially moves the glyphs. Neither is done here; both are briefed in
     docs/backlog/watch-optical-harness/FINDINGS.md."""
     directories = ctx["font_directories"]
-    for entry in ctx["font_manifest"]["faces"]:
+    faces = ctx["font_manifest"]["faces"]
+    # A face whose directory could not be read is an EMPTY directory, and an
+    # empty directory carries no fvar — which is the right answer for a static
+    # face and reached for the wrong reason. Refuse it rather than let a
+    # missing file pass as a well-formed static one; the sibling hinting check
+    # guards the same hole the same way.
+    if not faces or any(not directories.get(e["file"]) for e in faces):
+        return False
+    for entry in faces:
         tags = dict(directories.get(entry["file"], []))
         variable = bool(entry.get("variable", False))
         has_fvar = "fvar" in tags
