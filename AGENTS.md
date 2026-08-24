@@ -44,6 +44,31 @@ uv run scripts/sync_codex_skills.py --check
 
 The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating.
 
+## How work reaches the default branch
+
+One rule, and it has one exception. **Everything lands on the default branch through a branch and a
+merge — except a fully committed binder**, which may be committed directly. A binder is the plan of
+record, not a change to the framework: its JSON plus the roundtable record filed alongside it is the
+whole commit, and the binder-commit gate already governs it.
+
+Everything else goes on a branch first. Code, hooks, scripts, docs — no direct commits.
+
+| What | Branch | Who merges it |
+|-|-|-|
+| A karta delivery | `karta/<slug>/integration`, assembled by karta-deliver | the human — the landing gate blocks the merge and `KARTA_LANDING_APPROVED=1` must prefix it |
+| Ordinary work — a fix, a doc, a script | a plainly-named branch (`fix/…`, `docs/…`), merged `--no-ff` | whoever is doing the work |
+| A binder | none needed | committed directly, with its review record |
+
+**Do not borrow the `karta/*/integration` namespace for work that is not a delivery.** That name is
+what both merge gates match on, so using it for an ordinary fix manufactures a landing-gate block
+for something no one planned as a delivery, and it misdescribes the change in the audit trail.
+
+The rule is here because it was broken. On 2026-08-24 a one-line hook fix — independently reviewed,
+59/59 on its own self-test, clean on all four floor commands — was committed straight to main. The
+change was right and the route was wrong. Note what that says about enforcement: the repo's gates
+cover binder commits and delivery merges, and neither one looks at an ordinary commit landing on
+main. Nothing would have stopped it, which is why the rule is written down rather than assumed.
+
 ## Review before commit (house-only)
 
 karta's own binders and deliveries get a multi-perspective review before they land. This is a house rule for the karta repo building itself — consumer repos never carry it.

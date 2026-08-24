@@ -77,7 +77,7 @@ _SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 # words must be option tokens (each optionally trailing one non-dash argument),
 # matching precommit_gate.py's conservative detection.
 _COMMIT_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+commit\b")
-_MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge\b")
+_MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge(?![-\w])")
 # an integration ref named anywhere in a merge command: karta/<slug>/integration
 _INTEGRATION_REF_RE = re.compile(r"\bkarta/[^\s/]+/integration\b")
 _BINDER_PATH_RE = re.compile(r"\.karta/binders/([^/\s]+)\.json\b")
@@ -389,6 +389,12 @@ def _run_self_test() -> int:
     check("detect commit", is_commit_command('git commit -m x') and not is_commit_command("git status"))
     check("detect merge", is_merge_command("git merge --no-ff karta/x/integration")
           and not is_merge_command("git status"))
+    check("detect bare merge", is_merge_command("git merge"))
+    # the verb is the whole subcommand token: read-only plumbing that merely starts
+    # with `merge` moves no ref and is not a merge
+    check("merge-base is not a merge", not is_merge_command("git merge-base --is-ancestor HEAD main"))
+    check("merge-tree is not a merge", not is_merge_command("git merge-tree HEAD main"))
+    check("merge-file is not a merge", not is_merge_command("git merge-file mine.txt base.txt theirs.txt"))
     check("worktree read for -a", commit_reads_worktree("git commit -am x"))
     check("worktree read for --amend", commit_reads_worktree("git commit --amend --no-edit"))
     check("worktree read for binder pathspec", commit_reads_worktree("git commit .karta/binders/x.json -m y"))
