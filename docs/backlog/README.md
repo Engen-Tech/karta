@@ -246,6 +246,52 @@ change rides in on a reviewed one. Found by the independent review of entry 8's 
 
 ---
 
+## 11. the gates read HEAD from the main checkout, not from where the merge runs — *Ready* (filed 2026-08-24)
+
+**What.** `scripts/hooks/roundtable_gate.py` roots every git call at a fixed path — `ROOT` is derived
+from the hook script's own location (`roundtable_gate.py:65`) and `git()` runs with `cwd=ROOT`
+(`roundtable_gate.py:183`). So `current_branch()` (`roundtable_gate.py:257`) always reports the
+*primary checkout's* HEAD, whatever directory the command being judged actually runs in. Both places
+that ask "am I on the default branch?" — the landing gate (`roundtable_gate.py:307-310`) and the
+deliver-merge review gate (`roundtable_gate.py:340`) — are reading a branch that may have nothing to
+do with the merge in front of them.
+
+Demonstrated on this repo while the primary checkout sat on `main` and a delivery worktree sat on
+`karta/watch-drill-in/integration`: driving `current_branch()` with a git rooted at the worktree
+returns the integration branch, with one rooted at `ROOT` returns `main`, and the gate takes the
+latter.
+
+**Two consequences, and the second is the serious one.**
+
+- *False positive, observed 2026-08-24.* Consolidating `karta/watch-drill-in-remediation/integration`
+  into `karta/watch-drill-in/integration`, run inside the drill-in worktree, was refused as "landing
+  ... on main is the human's decision". Nothing was landing on main; HEAD in that worktree was an
+  integration branch. The gate blocks integration-to-integration merges run from a worktree, which is
+  the normal shape of a stacked delivery.
+- *False negative, by the same mechanism inverted.* Git allows the default branch to be checked out
+  in a linked worktree while the primary checkout sits on a feature branch. In that arrangement a
+  real landing merge — an integration branch onto `main`, in the worktree that has `main` — sees
+  `current_branch()` report the feature branch, so the condition is false and the gate stays silent.
+  A gate that is meant to make one decision unmissable can be silently absent.
+
+**Fix, and why it is partial.** Reading `cwd` off the PreToolUse payload instead of `ROOT` covers a
+session whose working directory *is* the worktree, which is the common case. It does not cover the
+case that produced the observed block: the command was `cd <worktree> && git merge ...`, so the
+payload's cwd was the project directory and only the command text named the real location. Resolving
+a leading `cd <path> &&` in the same shell segment narrows that too. Neither closes the gap, and the
+entry should not pretend otherwise — a PreToolUse hook sees command text, and where a shell command
+finally runs is not decidable from text. State the residual plainly in `AGENTS.md` alongside the
+bypasses already named there, the same way `git cherry-pick` is named.
+
+**Also worth doing.** `decide()` is already pure over a stubbed `git`, so the regression is cheap to
+pin: drive it with a git stub reporting a worktree HEAD that differs from the primary checkout's and
+assert both directions — no block for integration-to-integration, block for a real landing.
+
+**Found by** the `watch-drill-in-remediation` delivery, which hit the false positive on three item
+merges and then again on the consolidation.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
