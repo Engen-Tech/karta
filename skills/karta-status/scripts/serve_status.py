@@ -15210,8 +15210,18 @@ def _woff2_table_directory(data: bytes) -> list[tuple[str, int]]:
     Raises ValueError on a bad signature, a truncated header, a truncated or
     malformed directory entry, or an undefined transform version.
 
-    Enumerate that list rather than leaving "malformed" to stand for whatever
-    a reader hopes, because one spec rule is deliberately NOT enforced: WOFF2
+    Say what this is before enumerating: an INVENTORY READER, not a WOFF2
+    validator. It answers "which tables does this directory list, and at what
+    recorded lengths", and a successful return is evidence of that and of
+    nothing else. Several things the spec forbids are accepted rather than
+    refused — a directory listing the same tag twice (the later entry wins
+    when callers build a dict from the result), an explicit four-byte tag made
+    of non-printable ASCII, since line 180 tests only that the bytes decode,
+    and any file-level invariant beyond the three header fields read here.
+
+    Enumerate the exclusions rather than leaving "malformed" to stand for
+    whatever a reader hopes. One more spec rule is deliberately NOT enforced:
+    WOFF2
     requires glyf and loca to share a transform state, and a transformed loca
     to carry a transform length of zero. This reads each entry independently
     and checks neither. It cannot desynchronise the parse — every entry is

@@ -475,6 +475,10 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
     digest per face. Consistent: the commit appears in every family's source
     URL, two faces cut from the same source file record the same digest, and a
     family with a VARIABLE face carries a non-empty `axes` map and pins none.
+    That last rule is this repository's policy for the faces it vendors, NOT a
+    property of variable fonts — a variable font may pin one axis and keep
+    another, and stays variable. Nothing here compares a pinned key against a
+    declared one, so the rule is deliberately blunt rather than precise.
     That is a DECLARATION being present, never a declaration being true: no
     axis tag or range here is compared against the file, because that needs
     Brotli. Read it as "the record was filled in", not "the record is right" —
@@ -525,11 +529,14 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
         if variable and entry.get("pinned_axes"):
             errors.append(f"{label}/manifest.json: family '{family}' ships a "
                           "variable face while still declaring pinned_axes "
-                          f"({entry['pinned_axes']}) — pinning an axis is how "
-                          "instancer REMOVES it, so a face that still ships "
-                          "that axis cannot have been pinned on it, and the "
-                          "leftover pin describes the flattened cut this "
-                          "replaced")
+                          f"({entry['pinned_axes']}) — this repository's rule "
+                          "for its own vendored faces, not a fact about "
+                          "variable fonts, which may legally pin one axis and "
+                          "keep another. What is pinned here is checked "
+                          "nowhere against what `axes` declares, so the rule "
+                          "is the blunt one: a family shipping a variable face "
+                          "declares no pins at all, and a leftover pin reads "
+                          "as the flattened cut this replaced")
         if variable and not entry.get("axes"):
             errors.append(f"{label}/manifest.json: family '{family}' ships a "
                           "variable face but records no axes")
