@@ -481,9 +481,9 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
     declared one, so the rule is deliberately blunt rather than precise.
     That is a DECLARATION being present, never a declaration being true: no
     axis tag or range here is compared against the file, because that needs
-    Brotli. Read it as "the record was filled in", not "the record is right" —
-    a pinned axis is exactly what a variable face was not instanced to, so a
-    pin left behind describes the flattened cut it replaced.
+    Brotli. Read it as "the record was filled in", not "the record is right".
+    For the cut this repository ships, a leftover pin would be describing the
+    flattened face this one replaced.
 
     A face's source_file is checked for presence and used to group the digests,
     and deliberately not matched against its family's source_files: that field

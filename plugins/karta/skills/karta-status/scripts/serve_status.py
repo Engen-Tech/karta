@@ -15216,8 +15216,10 @@ def _woff2_table_directory(data: bytes) -> list[tuple[str, int]]:
     nothing else. Several things the spec forbids are accepted rather than
     refused — a directory listing the same tag twice (the later entry wins
     when callers build a dict from the result), an explicit four-byte tag made
-    of non-printable ASCII, since line 180 tests only that the bytes decode,
-    and any file-level invariant beyond the three header fields read here.
+    of non-printable ASCII, since the tag path tests only that the four bytes
+    decode as ASCII, and any file-level invariant beyond what is read here —
+    which is the signature and numTables, plus a minimum-size check, and
+    nothing else in the 48-byte header.
 
     Enumerate the exclusions rather than leaving "malformed" to stand for
     whatever a reader hopes. One more spec rule is deliberately NOT enforced:
