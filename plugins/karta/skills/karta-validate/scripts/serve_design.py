@@ -9,6 +9,7 @@ import contextlib
 import functools
 import http.server
 import json
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -46,6 +47,57 @@ def resolve_design_file(design_path: Path) -> Path:
     return candidates[0]
 
 
+def _git_toplevel(start: Path) -> Path | None:
+    """The Git worktree root enclosing `start`, or None when it is not in a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    top = result.stdout.strip()
+    return Path(top).resolve() if top else None
+
+
+def _contains(ancestor: Path, descendant: Path) -> bool:
+    """True when `descendant` is `ancestor` itself or nested under it."""
+    try:
+        descendant.relative_to(ancestor)
+        return True
+    except ValueError:
+        return False
+
+
+def enforce_document_root_containment(document_root: Path) -> None:
+    """Refuse to serve a whole repository/worktree tree as the design document root.
+
+    One rule for both explicit-file and directory-discovery modes, applied before a
+    socket is ever opened. The chosen design file's parent is the document root the
+    static server would expose. Inside Git, the enclosing worktree root is resolved
+    from that parent and the document root is refused when it is that root itself or
+    an ancestor that contains it — so a directory at or above the repository can
+    never serve the whole tree, while a design directory strictly inside it (e.g.
+    docs/) stays allowed. Outside Git, only a filesystem root is refused."""
+    document_root = document_root.resolve()
+    repo_root = _git_toplevel(document_root)
+    if repo_root is not None:
+        if _contains(document_root, repo_root):
+            raise SystemExit(
+                f"Refusing to serve a repository/worktree root as a design document root: "
+                f"{document_root} (Git worktree root {repo_root}). Point --design-path at a "
+                f"design subdirectory such as docs/ instead of the repository root."
+            )
+    elif document_root.parent == document_root:
+        raise SystemExit(
+            f"Refusing to serve a filesystem root as a design document root: {document_root}."
+        )
+
+
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -70,6 +122,7 @@ def metadata_path(arg: str | None) -> Path:
 
 
 def run_server(design_file: Path, metadata_out: Path) -> None:
+    enforce_document_root_containment(design_file.parent)
     handler = functools.partial(QuietHandler, directory=str(design_file.parent))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     port = int(server.server_address[1])
@@ -103,6 +156,23 @@ def run_server(design_file: Path, metadata_out: Path) -> None:
         server.server_close()
 
 
+def _git_init(path: Path) -> None:
+    for args in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "karta@example.com"],
+        ["git", "config", "user.name", "karta"],
+    ):
+        subprocess.run(args, cwd=str(path), check=True, capture_output=True, text=True)
+
+
+def _refuses(document_root: Path) -> bool:
+    try:
+        enforce_document_root_containment(document_root)
+        return False
+    except SystemExit:
+        return True
+
+
 def self_test() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -122,6 +192,44 @@ def self_test() -> None:
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+    # Containment: one rule for explicit-file and directory-discovery modes.
+    with tempfile.TemporaryDirectory() as tmp:
+        # A repository whose design lives strictly inside it (docs/, and a nested
+        # exports/ under it) is served in both discovery and explicit-file modes.
+        allowed_repo = Path(tmp).resolve() / "allowed"
+        docs = allowed_repo / "docs"
+        nested = docs / "exports"
+        nested.mkdir(parents=True)
+        _git_init(allowed_repo)
+        docs_html = docs / "page.standalone.html"
+        docs_html.write_text("<!doctype html><div id='root'>ok</div>", encoding="utf-8")
+        nested_html = nested / "view.standalone.html"
+        nested_html.write_text("<!doctype html><div id='root'>ok</div>", encoding="utf-8")
+        assert not _refuses(resolve_design_file(docs).parent)          # directory discovery
+        assert not _refuses(resolve_design_file(nested_html).parent)   # explicit nested file
+        assert not _refuses(resolve_design_file(nested).parent)        # nested directory
+
+        # A repository whose only design HTML sits at its root is refused, whether
+        # reached by directory discovery of the root or by an explicit file there,
+        # so the whole tree can never be served as a subtree.
+        root_repo = Path(tmp).resolve() / "at-root"
+        root_repo.mkdir()
+        _git_init(root_repo)
+        root_html = root_repo / "index.standalone.html"
+        root_html.write_text("<!doctype html><div id='root'>ok</div>", encoding="utf-8")
+        assert _refuses(resolve_design_file(root_repo).parent)   # directory discovery of the root
+        assert _refuses(resolve_design_file(root_html).parent)   # explicit file at the root
+        assert _refuses(root_repo)                               # the Git root itself
+
+    # Outside Git, only a filesystem root is refused; an ordinary directory serves.
+    with tempfile.TemporaryDirectory() as tmp:
+        plain = Path(tmp).resolve()
+        (plain / "lonely.standalone.html").write_text("<!doctype html><div id='root'>ok</div>", encoding="utf-8")
+        if _git_toplevel(plain) is None:
+            assert not _refuses(resolve_design_file(plain).parent)
+        assert _refuses(Path(plain.anchor))
+
     print("serve_design self-test passed")
 
 
