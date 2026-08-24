@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "f544f6a19ed055a758d6c2b5f28edd010ea8db42",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/watch-font-adherence/integration",
+  "run_at": "2026-08-24T18:31:00.265390+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "merge",
+      "summary": "Merge recommendation: MERGE.\n\nAudited against tip f544f6a using the specified false-belief defect standard:\n1. No misleading sentences or false claims remain. The previously disputed variable-font generalization is completely eliminated. Mathematical explanations of the 84-byte fvar structure and WOFF2 transform versions accurately describe code behavior and OpenType/WOFF2 specifications.\n2. The WOFF2 parser is correct as an inventory reader: it adheres strictly to UIntBase128 decoding, header parsing, and per-tag transform rules (glyf/loca/hmtx/others) while properly scoping out full table decompression.\n3. The 84-byte fvar guard is valuable as a stdlib-only structural regression check against axis omission; its boundaries (e.g. collapsed ranges) are accurately disclosed.\n4. One low-severity maintainability finding was noted regarding foreign-key iteration in `_check_font_provenance` (a face naming a family absent from `families` skips the variable-axes checks). No blocking bugs, security risks, or contract violations exist."
+    },
+    {
+      "provider": "claude",
+      "verdict": "merge",
+      "summary": "Standard used: false-belief (misleading vs merely narrowable). Verdict: MERGE - no blocking defect, no surviving false belief.\n\nThe round's deletions verify: the false variable-font generalization is gone from `_check_font_provenance` (survives only as a changelog quote), and \"three header fields\" -> \"signature and numTables + min-size check\" matches code.\n\nTwo low, non-blocking notes: (1) the fvar examples switch postScriptNameID convention between \"two axes/two instances\" (needs PS-name to hit 84) and \"one axis/six\" (needs no PS-name) - true as written, mildly confusing; (2) a docstring still hardcodes \"serve_status.py:110-124\", the rot-prone pointer the changelog claims to have removed elsewhere.\n\nWOFF2 reader is correct as an inventory reader: base128 leading-zero/5-byte/32-bit-overflow handled (post-shift check equals the spec's pre-shift &0xFE000000); glyf/loca/hmtx/other transform dispatch matches spec; origLength read before transform length so disclosed non-validations cannot desync.\n\n84-byte guard is worth its narrow claim - catches the opsz-pin 84->56 regression, honestly discloses it misses a collapsed single-point axis and a manifest that edits fvar_length while leaving `axes` stale. Checks fail closed; reader raises on malformed input; negative controls all flip the assertion. Ship it."
+    },
+    {
+      "provider": "codex",
+      "verdict": "merge",
+      "summary": "No findings. I found no remaining sentence that would leave a competent reader with a false belief.\n\nI used the requested standard: a defect must create a false belief about the code, not merely admit narrower wording.\n\n- The WOFF2 reader is correct for its stated inventory role. `_woff2_unpack_base128` handles truncation, overlong encodings, leading zero digits, and 32-bit overflow. `_woff2_table_directory` applies the special `glyf`/`loca` and `hmtx` transform rules correctly. Its acceptance of duplicate tags, non-printable explicit tags, and unchecked cross-table invariants is clearly disclosed. It does not claim to validate the font or compressed payload.\n- The 84-byte `fvar` guard is worth its narrowly stated claim. The docstring explicitly discloses that 84 bytes neither identifies the axes nor proves useful variation, plus the equal-size one-axis/six-instance case, the collapsed-axis blind spot, and the possibility of updating `fvar_length` while leaving a false `axes` declaration. What remains is a useful tripwire for the measured 84-to-56 regression, not semantic axis verification.\n- I specifically rechecked the previously problematic provenance language. It now distinguishes repository policy from variable-font behavior and distinguishes declarations from verified facts. Nothing misleading remains there.\n- The broad opening of `_vendored_weights` is resolved by the lines saying 450 is renderable but intentionally excluded as outside the page's design scale.\n\nVerdict: merge. Nothing in the supplied packet should block landing tip f544f6a."
+    }
+  ]
+}
