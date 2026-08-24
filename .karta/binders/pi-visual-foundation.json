@@ -1,0 +1,180 @@
+{
+  "slug": "pi-visual-foundation",
+  "title": "Make visual evidence mechanical before Pi judges it",
+  "summary": "Stop Pi from treating an unrun visual check as a pass, harden the capture evidence Karta already produces, and turn the structured comparison rules from model instructions into one executable shared diff. This binder adds no screenshot-judgement model and no app orchestration.",
+  "motivation": "Karta already captures screenshots, computed styles, CSS tokens, request logs, console errors, and element geometry. The remaining foundation gap is not capture: the structured diff still exists only as prose a model is asked to perform, and Pi currently downgrades a full visual verification request to safety-only and can mark it successful.",
+  "scope": {
+    "included": [
+      "fail-closed Pi behavior when a visual oracle reaches fixed build or delivery before authoritative visual acceptance exists",
+      "absolute capture health that distinguishes a real render from an empty or near-empty shell and uses the request and console evidence already captured",
+      "one executable structured-diff implementation for tokens, computed styles, element presence, geometry, and spacing, shared by all three runtimes",
+      "a fixed package action that runs the structured diff without caller-selected code, prompts, models, or tools"
+    ],
+    "excluded": [
+      "starting or owning a consumer application's dev server",
+      "materializing a new kind of Git worktree; existing commit-tree plus detached-worktree plumbing remains the path",
+      "screenshot judgement, image-capable child sessions, model routing, or provider fallback",
+      "changes to candidate commit, recovery, merge, waiver, or completion-ref ordering beyond blocking an unrun visual oracle",
+      "Playwright CLI installation or dependency pinning",
+      "Windows enablement and any consumer application's UI"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "TypeScript/Node Pi extension plus package-owned stdlib Python scripts run with uv; existing playwright-cli capture artifacts; one shared structured-diff implementation consumed by Claude Code, Codex, and Pi"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring"
+  ],
+  "shared_terms": [
+    {
+      "id": "capture-health-schema",
+      "canonical": "karta-render-health-v1",
+      "items": [
+        "harden-capture-health",
+        "codify-structured-diff"
+      ]
+    }
+  ],
+  "env_contract": {
+    "command": "npm run check:pi",
+    "supports_isolation": false,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "node",
+        "version": ">=22.19.0"
+      },
+      {
+        "name": "uv",
+        "version": ">=0.4"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "block-unrun-visual",
+      "title": "An unrun visual check can never become built",
+      "summary": "Make Pi halt with an actionable visual-required result instead of turning a full visual verification request into a safety-only success.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "CHANGES one user-visible outcome: within this binder's scope, full verification of every visual oracle returns blocked visual-required rather than pass; the later screenshot-judgement binder is the sole future work allowed to replace this unconditional block. Until it lands every full visual verification blocks, which is the intended fail-closed state and strictly safer than today's silent pass. requestedMode and effectiveMode remain full. Acceptance does not run, so no worker-feedback attempt is consumed; boundary safety still runs. Result derivation is ordered and package-owned: (1) a non-pass safety verdict is surfaced as that safety failure and is never overwritten; (2) safety pass plus missing visual result returns status blocked and blockedReason visual-required; (3) callers key on the top-level discriminated status/blockedReason rather than treating gates.safety.verdict as the overall verdict. This binder adds a separate typed blockedReason field whose only new value is visual-required; the existing free-text reason field remains untouched for oracle opt-out prose, so arbitrary strings can never widen or spoof the blocked reason. The blocked result moves no candidate or integration ref, writes no built/done/accepted/failed marker, and names the missing visual acceptance prerequisite. A caller that explicitly requests boundary-only verification keeps today's safety-only result; oracle opt-out behavior is unchanged. Callers cannot supply a verdict, reason, prompt, model, URL, command, path, or timeout.",
+      "touches": [
+        "extensions/pi/verification-runner.ts",
+        "extensions/pi/build-finalizer.ts",
+        "extensions/pi/build-runner.ts",
+        "extensions/pi/integration-runner.ts",
+        "tests/pi/verification-runner.test.ts",
+        "tests/pi/build-finalizer.test.ts",
+        "tests/pi/build-runner.test.ts",
+        "tests/pi/integration-runner.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "correctness boundary: closes a shipped false-success path for visual oracles",
+          "blast radius: build, recovery, and integration must agree on the same blocked state"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/verification-runner.test.ts tests/pi/build-finalizer.test.ts tests/pi/build-runner.test.ts tests/pi/integration-runner.test.ts && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi",
+        "assertions": [
+          "a full visual verification whose safety gate passes returns status blocked and blockedReason visual-required rather than pass, with reason unset and requestedMode and effectiveMode still full",
+          "a full visual verification whose safety gate does not pass surfaces that safety failure rather than folding it into visual-required",
+          "candidate commit, built, done, accepted, failed, and integration refs remain unchanged on the blocked visual-required result",
+          "the blocked prerequisite consumes no worker-feedback attempt and survives committed-unmarked and merged-unmarked recovery",
+          "an explicit boundary-only request still returns its safety-gate verdict and an opted-out oracle still returns skipped, both unchanged by this item"
+        ]
+      }
+    },
+    {
+      "id": "harden-capture-health",
+      "title": "Capture evidence says whether either page really rendered",
+      "summary": "Add an absolute health result to the existing capture artifact using the request, console, DOM, and geometry evidence Playwright CLI already returns.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "EXPOSES design.render_health and app.render_health inside the existing capture JSON, each with schema karta-render-health-v1, result healthy|degraded|blocked, and bounded evidence fields: readySelector, visibleTextChars, visibleLeafElements, styledElementCount, consoleErrorCount, failedRequestCount, consoleErrors, and failedRequests. DEGRADED_AUTH remains the first gate for the app target; render health is computed only when app auth permits comparison. A fully blank page already hard-fails through wait_for_any and stays that way. A shell is blocked when readySelector matched but visibleTextChars is below 20, visibleLeafElements is zero, and styledElementCount is zero; threshold-minus-one, threshold, and threshold-plus-one fixtures lock the boundary. An uncaught page exception, an unhandled promise rejection, or a failed document, stylesheet, script, or image request degrades an otherwise healthy render; incidental console warnings and informational logs do not, so ordinary third-party noise cannot flip a good render to degraded. readySelector is captured from wait_for_any's matched-selector return; consoleErrorCount and failedRequestCount come from bounded structured entries normalized alongside the existing raw CLI text. Design and app use two independently opened and closed named Playwright sessions, one suffixed design and one app, so event evidence can never cross-contaminate. Each session is closed on its own partial-failure path and failure to open or close one never skips cleanup of the other. The same change embeds stable comparable element records directly in extracted_data for headings, buttons, and landmarks: stable identity, role/category, normalized text, parent identity, sibling order, computed styles, and getBoundingClientRect x/y/width/height. The later comparison doctrine consumes render health before any relative diff; this item only produces and documents the health evidence. serve_design.py applies one containment rule to both explicit-file and directory-discovery modes before opening a socket: resolve the chosen file's parent as the document root; inside Git, resolve git rev-parse --show-toplevel from that parent and refuse when the resolved document root is the repository/worktree root itself or contains it, so a directory above the repository can never serve the whole tree as a subtree while a design directory strictly inside the repository such as docs/ stays allowed; outside Git, refuse a filesystem root. Nested design directories and today's call shapes remain compatible. capture_view.py exposes a pure render-health helper used by both runtime capture and --self-test; self-test covers 19/20/21 visible-text characters with zero meaningful elements, degraded console/request paths, the closed evidence-key set, and the literal karta-render-health-v1 schema. Canonical scripts, skill text, and generated mirrors remain byte-identical.",
+      "touches": [
+        "skills/karta-validate/scripts/capture_view.py",
+        ".agents/skills/karta-validate/scripts/capture_view.py",
+        "plugins/karta/skills/karta-validate/scripts/capture_view.py",
+        "skills/karta-validate/scripts/serve_design.py",
+        ".agents/skills/karta-validate/scripts/serve_design.py",
+        "plugins/karta/skills/karta-validate/scripts/serve_design.py",
+        "skills/karta-validate/SKILL.md",
+        ".agents/skills/karta-validate/SKILL.md",
+        "plugins/karta/skills/karta-validate/SKILL.md",
+        "tests/pi/script-tool.test.ts",
+        "tests/pi/fixtures/visual-captures/"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "cross-runtime surface: shared scripts and doctrine used by Claude Code, Codex, and Pi",
+          "security boundary: prevents serving a whole worktree as the design document root"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/script-tool.test.ts && uv run skills/karta-validate/scripts/capture_view.py --self-test && uv run skills/karta-validate/scripts/serve_design.py --self-test && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi",
+        "assertions": [
+          "design.render_health and app.render_health conform to karta-render-health-v1, preserve raw details, and enforce the exact shell boundary with threshold-minus-one, threshold, and threshold-plus-one fixtures",
+          "design and app request and console evidence are isolated through independently cleaned-up named sessions; reciprocal design-fails/app-clean and design-clean/app-fails fixtures cannot cross-contaminate",
+          "each comparable extracted element carries stable identity, parent/sibling context, computed styles, and an x/y/width/height box in the JSON artifact itself",
+          "the pure self-test helper locks all three shell conditions independently — the 19/20/21 visible-text boundary, a nonzero visible leaf element, and a nonzero styled element — plus classified degraded evidence and the closed schema keys",
+          "a design directory strictly inside the repository is served while the repository root and any directory containing it are refused",
+          "serve_design refuses both explicit-file and directory-discovery inputs that would serve a repository/worktree root before opening a socket, while nested design directories and today's call shapes keep working",
+          "all canonical and generated script and skill copies remain byte-identical"
+        ]
+      }
+    },
+    {
+      "id": "codify-structured-diff",
+      "title": "Pass one becomes code shared by every runtime",
+      "summary": "Move token, style, presence, geometry, and spacing comparison out of model instructions and into one tested package-owned diff.",
+      "estimate": "L",
+      "depends_on": [
+        "block-unrun-visual",
+        "harden-capture-health"
+      ],
+      "contract": "EXPOSES a package-owned structured-diff script and fixed Pi action. The script consumes one existing capture artifact after validating karta-render-health-v1, never reads app or design source, and emits a bounded deterministic discrepancy document, and reads only that validated JSON artifact rather than parsing or joining the playwright-cli YAML sidecar. It implements the rules currently stated only in karta-validate prose using the geometry and identities already embedded by harden-capture-health: pair elements within each role/category by geometry first and normalized text only as a secondary tie-breaker, so mock values cannot drive pairing; compare CSS custom-property tokens and captured computed styles exactly; report missing and extra elements; report measured position/size and sibling-gap discrepancies using the doctrine's current thresholds. Every candidate cites the exact source evidence and stable element identity used to derive it. The fixed Pi action has a strict additionalProperties:false schema with one project-relative capture-artifact path that must exist and one optional project-relative output path, both resolved through the package's traversal and symlink guards; callers cannot supply comparison code, thresholds, prompts, models, or tools. karta-validate on Claude Code and Codex invokes the same script for Pass 1, then gives its output plus both screenshots to the existing grounded Pass 2. A model-unavailable runtime may report the structured result but cannot claim full visual acceptance; Pi remains blocked until its later screenshot-judgement binder lands.",
+      "touches": [
+        "skills/karta-validate/scripts/diff_capture.py",
+        ".agents/skills/karta-validate/scripts/diff_capture.py",
+        "plugins/karta/skills/karta-validate/scripts/diff_capture.py",
+        "skills/karta-validate/SKILL.md",
+        ".agents/skills/karta-validate/SKILL.md",
+        "plugins/karta/skills/karta-validate/SKILL.md",
+        "extensions/pi/script-catalog.ts",
+        "extensions/pi/script-tool.ts",
+        "tests/pi/script-tool.test.ts",
+        "tests/pi/fixtures/visual-captures/"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "cross-runtime contract mutation: replaces prose arithmetic with one executable result",
+          "security boundary: Pi exposes it only through a fixed action with no caller-supplied code or thresholds",
+          "new dependency edge: screenshot judgement may consume the result but can never replace or override it"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/script-tool.test.ts && uv run skills/karta-validate/scripts/diff_capture.py --self-test && grep -F 'scripts/diff_capture.py' skills/karta-validate/SKILL.md && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi",
+        "assertions": [
+          "identical captures produce no discrepancies, malformed or unhealthy captures fail closed, and the diff never reads the playwright-cli YAML sidecar",
+          "token, computed-style, missing/extra-element, geometry, and sibling-gap fixtures produce stable evidence-cited discrepancies, and repeated runs over one fixture emit identical element identities",
+          "duplicate-role, mock-value, input-reordering, and uniform-layout-offset fixtures prove style-to-box linkage and geometry-first pairing remain stable without hiding real structural differences",
+          "the fixed Pi action rejects traversal and contains no prompt, model, tool, code, or threshold parameter",
+          "karta-validate's Pass 1 doctrine cites the shared script path in every canonical and mirrored SKILL.md copy"
+        ]
+      }
+    }
+  ]
+}
