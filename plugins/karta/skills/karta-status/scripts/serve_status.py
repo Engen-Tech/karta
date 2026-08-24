@@ -15296,11 +15296,15 @@ def _woff2_naive_never_desyncs_transform_reader(data: bytes) -> list[tuple[str, 
 
 
 def _woff2_permissive_reader(data: bytes) -> list[tuple[str, int]]:
-    """A deliberately wrong reader: gets the tag-specific null-transform value
-    right (glyf/loca: 3, hmtx: 1, everything else: 0) but never rejects a
-    reserved version — it treats any other non-zero version as "transformed"
-    instead of raising. This is the mistake of parsing a malformed font
-    generically rather than refusing it. Used only as a negative control."""
+    """A deliberately wrong reader carrying exactly ONE mistake, so what it
+    proves is unambiguous: it gets the tag-specific null-transform value right
+    (glyf/loca: 3, everything else including hmtx: 0) and so agrees with the
+    real reader on every VALID fixture — but it never rejects a reserved
+    transform version, treating one as "transformed" and reading a length that
+    is not there. That is the mistake of parsing a malformed font generically
+    rather than refusing it, and isolating it is the point: this control fails
+    only on the reserved-version fixtures, so it cannot pass for the wrong
+    reason. Used only as a negative control."""
     if len(data) < _WOFF2_HEADER_SIZE or data[:4] != _WOFF2_SIGNATURE:
         raise ValueError("WOFF2: bad header")
     num_tables = struct.unpack(">H", data[12:14])[0]
@@ -15317,7 +15321,7 @@ def _woff2_permissive_reader(data: bytes) -> list[tuple[str, int]]:
         else:
             tag = _WOFF2_KNOWN_TAGS[idx]
         orig_length, at = _woff2_unpack_base128(data, at)
-        null_version = 3 if tag in ("glyf", "loca") else (1 if tag == "hmtx" else 0)
+        null_version = 3 if tag in ("glyf", "loca") else 0
         if version != null_version:
             _t, at = _woff2_unpack_base128(data, at)
         tables.append((tag, orig_length))
