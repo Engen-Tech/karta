@@ -126,8 +126,13 @@ function worktreePaths(porcelain: string): string[] {
     .map((line) => line.slice("worktree ".length));
 }
 
-async function siblingIdentity(worktree: string, registry: string): Promise<string> {
+async function siblingIdentity(
+  worktree: string,
+  registry: string,
+  binder?: string,
+): Promise<string> {
   const current = await realpath(worktree);
+  const waveMatePrefix = binder ? `karta/${binder}/item-` : undefined;
   const records: string[] = [];
   for (const path of worktreePaths(registry).sort()) {
     let physical: string;
@@ -146,12 +151,27 @@ async function siblingIdentity(worktree: string, registry: string): Promise<stri
       git(path, ["branch", "--show-current"]),
       git(path, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]),
     ]);
-    records.push(`${physical}\0${head.trim()}\0${branch.trim()}\0${hash(status)}`);
+    // A concurrent wave-mate of the active binder legitimately churns its own
+    // working tree while it builds, and the worker contract forbids it from moving
+    // HEAD or the branch (the host commits only after the wave barrier). Its
+    // volatile status is therefore excluded so a sibling building in parallel is
+    // not mistaken for a protected-surface violation, while HEAD/branch tampering
+    // stays caught. Every foreign worktree keeps full status checking.
+    const isWaveMate =
+      waveMatePrefix !== undefined && branch.trim().startsWith(waveMatePrefix);
+    records.push(
+      isWaveMate
+        ? `${physical}\0${head.trim()}\0${branch.trim()}\0wave-mate`
+        : `${physical}\0${head.trim()}\0${branch.trim()}\0${hash(status)}`,
+    );
   }
   return hash(records.join("\n"));
 }
 
-export async function snapshotWorkerAuthority(worktree: string): Promise<WorkerAuthoritySnapshot> {
+export async function snapshotWorkerAuthority(
+  worktree: string,
+  binder?: string,
+): Promise<WorkerAuthoritySnapshot> {
   const physical = await realpath(worktree);
   const [branch, head, index, refs, localConfig, worktreeConfig, registry, protectedPaths, hooks] =
     await Promise.all([
@@ -190,7 +210,7 @@ export async function snapshotWorkerAuthority(worktree: string): Promise<WorkerA
     hooks,
     worktrees: hash(registry),
     protectedPaths: hash(protectedPaths),
-    siblings: await siblingIdentity(physical, registry),
+    siblings: await siblingIdentity(physical, registry, binder),
   };
 }
 

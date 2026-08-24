@@ -17,11 +17,12 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function fixture(): Promise<{ root: string; item: string; sibling: string; cleanup(): Promise<void> }> {
+async function fixture(): Promise<{ root: string; item: string; sibling: string; waveMate: string; cleanup(): Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), "karta-worker-attestation-"));
   const repo = join(root, "repo");
   const item = join(root, "item");
   const sibling = join(root, "sibling");
+  const waveMate = join(root, "wave-mate");
   await mkdir(repo);
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Test"]);
@@ -33,10 +34,12 @@ async function fixture(): Promise<{ root: string; item: string; sibling: string;
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "base"]);
   await git(repo, ["branch", "karta/demo/item-item-a"]);
+  await git(repo, ["branch", "karta/demo/item-item-b"]);
   await git(repo, ["branch", "sibling"]);
   await git(repo, ["worktree", "add", item, "karta/demo/item-item-a"]);
   await git(repo, ["worktree", "add", sibling, "sibling"]);
-  return { root, item, sibling, cleanup: () => rm(root, { recursive: true, force: true }) };
+  await git(repo, ["worktree", "add", waveMate, "karta/demo/item-item-b"]);
+  return { root, item, sibling, waveMate, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
 test("ordinary worker file edits preserve authority surfaces", async () => {
@@ -97,6 +100,46 @@ test("worker staging and branch movement are detected", async () => {
     assert.equal(attestation.passed, false);
     assert.match(attestation.issues.join(" "), /head/);
     assert.match(attestation.issues.join(" "), /index/);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a concurrent wave-mate's working-tree churn is tolerated when the binder is known", async () => {
+  const state = await fixture();
+  try {
+    const before = await snapshotWorkerAuthority(state.item, "demo");
+    await writeFile(join(state.waveMate, "subject.txt"), "mate building\n");
+    await writeFile(join(state.waveMate, "mate-new.txt"), "mate new\n");
+    const after = await snapshotWorkerAuthority(state.item, "demo");
+    assert.equal(attestWorkerAuthority(before, after).passed, true);
+
+    // Without the binder context the same class of wave-mate churn trips the guard
+    // — proof the exclusion, not an unrelated stable hash, is what tolerates it. A
+    // brand-new untracked file is what changes the wave-mate's porcelain status.
+    const beforeBlind = await snapshotWorkerAuthority(state.item);
+    await writeFile(join(state.waveMate, "mate-second.txt"), "more\n");
+    const blind = attestWorkerAuthority(beforeBlind, await snapshotWorkerAuthority(state.item));
+    assert.equal(blind.passed, false);
+    assert.deepEqual(blind.issues, ["worker changed protected authority surface: siblings"]);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a wave-mate's HEAD or branch tampering is still caught with the binder known", async () => {
+  const state = await fixture();
+  try {
+    const before = await snapshotWorkerAuthority(state.item, "demo");
+    await writeFile(join(state.waveMate, "candidate.txt"), "forged\n");
+    await git(state.waveMate, ["add", "candidate.txt"]);
+    await git(state.waveMate, ["commit", "--no-gpg-sign", "-m", "forged wave-mate commit"]);
+    const attestation = attestWorkerAuthority(before, await snapshotWorkerAuthority(state.item, "demo"));
+    assert.equal(attestation.passed, false);
+    assert.ok(
+      attestation.issues.includes("worker changed protected authority surface: siblings"),
+      `expected a siblings violation, got ${attestation.issues.join(", ")}`,
+    );
   } finally {
     await state.cleanup();
   }

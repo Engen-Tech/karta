@@ -22,7 +22,10 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function fixture(collide = false): Promise<{ repo: string; root: string; cleanup(): Promise<void> }> {
+async function fixture(
+  collide = false,
+  seedIntegration = true,
+): Promise<{ repo: string; root: string; cleanup(): Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), "karta-delivery-runner-"));
   const repo = join(root, "repo");
   await mkdir(join(repo, ".karta", "binders"), { recursive: true });
@@ -69,7 +72,7 @@ async function fixture(collide = false): Promise<{ repo: string; root: string; c
   await git(repo, ["config", "commit.gpgSign", "false"]);
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "base"]);
-  await git(repo, ["branch", "karta/demo/integration"]);
+  if (seedIntegration) await git(repo, ["branch", "karta/demo/integration"]);
   return { repo, root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
@@ -221,6 +224,26 @@ function createRunner(
     maxParallel: () => maximum,
   };
 }
+
+test("a first run creates the integration branch from HEAD when none exists", async () => {
+  const state = await fixture(false, false);
+  try {
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/heads/karta/demo/integration"]),
+    );
+    const base = await git(state.repo, ["rev-parse", "HEAD"]);
+    const delivery = createRunner(state.repo);
+    const result = await delivery.runner.run({ cwd: state.repo } as ExtensionContext, "demo");
+    assert.equal(result.status, "complete");
+    const created = await git(state.repo, ["rev-parse", "refs/heads/karta/demo/integration"]);
+    assert.ok(created);
+    await assert.doesNotReject(() =>
+      git(state.repo, ["merge-base", "--is-ancestor", base, created]),
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
 
 test("delivery builds dependency-ready items in parallel and integrates them FIFO", async () => {
   const state = await fixture();

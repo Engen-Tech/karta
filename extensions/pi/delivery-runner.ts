@@ -267,7 +267,15 @@ export class KartaDeliveryRunner {
     }
     if (!registered) {
       if (await exists(expected)) throw new Error(`Karta refuses to clobber integration path: ${expected}`);
-      await git(repoRoot, ["worktree", "add", expected, `karta/${binder}/integration`]);
+      const branchExists = await git(repoRoot, ["show-ref", "--verify", "--quiet", branchRef])
+        .then(() => true)
+        .catch(() => false);
+      await git(
+        repoRoot,
+        branchExists
+          ? ["worktree", "add", expected, `karta/${binder}/integration`]
+          : ["worktree", "add", "-b", `karta/${binder}/integration`, expected, "HEAD"],
+      );
     }
     const [branch, unstaged, untracked, indexTree, headTree] = await Promise.all([
       git(expected, ["branch", "--show-current"]),
