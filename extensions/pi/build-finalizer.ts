@@ -128,6 +128,19 @@ function finalizationStatus(verification: KartaVerificationResult): KartaBuildFi
   return "blocked";
 }
 
+// A blocked verification names its cause. A visual-required block is a fail-closed missing
+// prerequisite, not a gate failure, so it gets an actionable message; anything else keeps
+// the site's fallback. It writes no completion ref either way — the caller keys on status.
+function blockedFinalizationMessage(
+  verification: KartaVerificationResult,
+  fallback: string,
+): string {
+  if (verification.blockedReason === "visual-required") {
+    return "Visual acceptance is required but not yet available; this item blocks as visual-required until visual acceptance lands.";
+  }
+  return fallback;
+}
+
 export class KartaBuildFinalizer {
   readonly #locks: DispatchLockManager;
   readonly #verification: KartaVerificationRunner;
@@ -246,7 +259,10 @@ export class KartaBuildFinalizer {
           commit: integrationTip,
           checks,
           verification,
-          message: "Landed merge recovery did not pass fresh verification; done remains absent.",
+          message: blockedFinalizationMessage(
+            verification,
+            "Landed merge recovery did not pass fresh verification; done remains absent.",
+          ),
         };
       }
       if ((await git(repository, ["rev-parse", integrationRef])) !== integrationTip) {
@@ -387,7 +403,10 @@ export class KartaBuildFinalizer {
         verification,
         message: finalStatus === "retry"
           ? "Committed candidate still has gate concerns."
-          : "Committed candidate recovery was blocked by gate evidence.",
+          : blockedFinalizationMessage(
+              verification,
+              "Committed candidate recovery was blocked by gate evidence.",
+            ),
       };
     }
     const committedMessage = await git(worktree, ["show", "-s", "--format=%B", commit]);
@@ -682,7 +701,10 @@ export class KartaBuildFinalizer {
         message:
           status === "retry"
             ? "Gate concerns require another bounded worker attempt."
-            : "Gate evidence blocked finalization; the candidate remains staged.",
+            : blockedFinalizationMessage(
+                verification,
+                "Gate evidence blocked finalization; the candidate remains staged.",
+              ),
       };
     }
 

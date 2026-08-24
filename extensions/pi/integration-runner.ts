@@ -548,7 +548,10 @@ export class KartaIntegrationRunner {
           targetTree,
           checks,
           verification,
-          message: "Proposed integration tree did not pass fresh verification.",
+          message:
+            verification.blockedReason === "visual-required"
+              ? "Proposed integration blocks as visual-required until visual acceptance lands; no merge or ref was written."
+              : "Proposed integration tree did not pass fresh verification.",
         };
       }
       const acceptTrailers = waiver

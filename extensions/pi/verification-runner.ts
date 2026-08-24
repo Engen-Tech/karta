@@ -14,6 +14,9 @@ import {
 
 export type KartaVerificationMode = "full" | "boundary-only";
 export type KartaVerificationStatus = "pass" | "concerns" | "blocked" | "skipped";
+// A typed, package-owned blocked reason. Its only value is a fail-closed visual
+// prerequisite; callers may never supply or widen it, so free text can never spoof it.
+export type KartaVerificationBlockedReason = "visual-required";
 
 export interface KartaVerificationResult {
   schema: "karta-verification-v1";
@@ -24,6 +27,9 @@ export interface KartaVerificationResult {
   evidenceHash: string;
   status: KartaVerificationStatus;
   reason?: string;
+  // Set only for a blocked status whose cause is a typed prerequisite (visual-required),
+  // never oracle opt-out prose. The free-text reason field stays reserved for opt-out.
+  blockedReason?: KartaVerificationBlockedReason;
   gates: {
     acceptance?: KartaGateResult;
     safety?: KartaGateResult;
@@ -140,9 +146,14 @@ export class KartaVerificationRunner {
         gates: {},
       };
     }
-    const effectiveMode = itemOracle.type === "visual" ? "boundary-only" : requestedMode;
+    // A full visual oracle has no package-run visual acceptance yet, so it never runs the
+    // acceptance gate (consuming no worker-feedback attempt); the ordered derivation below
+    // blocks it as visual-required after boundary safety. The mode is never downgraded — a
+    // full request stays full, so callers see requestedMode and effectiveMode as "full".
+    const visualAcceptancePending = itemOracle.type === "visual";
+    const effectiveMode: KartaVerificationMode = requestedMode;
     const gates: KartaVerificationResult["gates"] = {};
-    if (effectiveMode === "full") {
+    if (effectiveMode === "full" && !visualAcceptancePending) {
       gates.acceptance = await this.#executeGate(
         ctx,
         "acceptance-gate",
@@ -172,6 +183,37 @@ export class KartaVerificationRunner {
       this.#children,
       this.#invoke,
     );
+    // Ordered, package-owned result derivation. Callers key on the top-level
+    // status/blockedReason, never on gates.safety.verdict as the overall verdict.
+    // 1. A non-pass safety verdict is the overall failure and is never overwritten.
+    if (gates.safety.verdict !== "pass") {
+      return {
+        schema: "karta-verification-v1",
+        binder,
+        item,
+        requestedMode,
+        effectiveMode,
+        evidenceHash: evidence.evidenceHash,
+        status: gateStatus(gates.safety),
+        gates,
+      };
+    }
+    // 2. Safety passed, but a full visual oracle still has no visual acceptance result:
+    //    block as visual-required rather than reporting the safety pass as the verdict.
+    if (effectiveMode === "full" && visualAcceptancePending) {
+      return {
+        schema: "karta-verification-v1",
+        binder,
+        item,
+        requestedMode,
+        effectiveMode,
+        evidenceHash: evidence.evidenceHash,
+        status: "blocked",
+        blockedReason: "visual-required",
+        gates,
+      };
+    }
+    // 3. Otherwise the passing safety verdict is the overall verdict.
     return {
       schema: "karta-verification-v1",
       binder,
