@@ -5,7 +5,10 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
-import { KartaBuildWorkerRunner } from "../../extensions/pi/worker-runner.ts";
+import {
+  KartaBuildWorkerRunner,
+  promptWorkerForEnvelope,
+} from "../../extensions/pi/worker-runner.ts";
 
 const authoritySnapshot = {
   schema: "karta-worker-authority-snapshot-v1" as const,
@@ -295,4 +298,48 @@ test("worker runner tolerates a fenced or prose-wrapped envelope and diagnoses a
   } finally {
     await rm(worktree, { recursive: true, force: true });
   }
+});
+
+class FakePrompter {
+  readonly calls: string[] = [];
+  #responses: string[];
+  #last = "";
+  constructor(responses: string[]) {
+    this.#responses = responses;
+  }
+  async prompt(message: string): Promise<void> {
+    this.calls.push(message);
+    this.#last = this.#responses.shift() ?? "";
+  }
+  getLastAssistantText(): string {
+    return this.#last;
+  }
+}
+
+const validEnvelope = JSON.stringify({ schema: "karta-worker-result-v2", outcome: "ready" });
+
+test("a worker ending on prose gets exactly one envelope-repair turn", async () => {
+  const proseFirst = new FakePrompter([
+    "The implementation is complete.\n\n## Summary\nI closed the false-success path.",
+    validEnvelope,
+  ]);
+  const recovered = await promptWorkerForEnvelope(proseFirst, "USER PROMPT");
+  assert.equal(recovered, validEnvelope);
+  assert.equal(proseFirst.calls.length, 2);
+  assert.equal(proseFirst.calls[0], "USER PROMPT");
+  assert.match(proseFirst.calls[1], /ONLY the single JSON object/);
+});
+
+test("a worker that returns the envelope first is not re-prompted", async () => {
+  const cleanFirst = new FakePrompter([validEnvelope, "should not be used"]);
+  const result = await promptWorkerForEnvelope(cleanFirst, "USER PROMPT");
+  assert.equal(result, validEnvelope);
+  assert.deepEqual(cleanFirst.calls, ["USER PROMPT"]);
+});
+
+test("a worker that stays prose-only after repair returns the last text for the diagnostic", async () => {
+  const proseBoth = new FakePrompter(["first prose", "still prose, no object"]);
+  const result = await promptWorkerForEnvelope(proseBoth, "USER PROMPT");
+  assert.equal(result, "still prose, no object");
+  assert.equal(proseBoth.calls.length, 2);
 });

@@ -52,6 +52,45 @@ export type BuildWorkerModelInvoker = (
   invocation: BuildWorkerInvocation,
 ) => Promise<{ text: string; runtime: ChildRuntimeReport }>;
 
+const WORKER_ENVELOPE_REPAIR_PROMPT =
+  'Your previous message was not the required result. Reply now with ONLY the single JSON object envelope described in your instructions (schema "karta-worker-result-v2") — no prose, no headings, no code fence, and nothing before or after the object.';
+
+interface EnvelopePrompter {
+  prompt(message: string): Promise<unknown>;
+  getLastAssistantText(): string | undefined;
+}
+
+function looksLikeWorkerEnvelope(text: string): boolean {
+  try {
+    const value = parseWorkerEnvelopeJson(text);
+    return (
+      Boolean(value) &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).schema === WORKER_SCHEMA
+    );
+  } catch {
+    return false;
+  }
+}
+
+// A build worker that has finished its edits sometimes ends on a prose summary
+// instead of the JSON envelope. One corrective turn recovers the completed work
+// rather than discarding the whole wave; a second failure falls through to the
+// diagnostic parse error in parseWorkerResult.
+export async function promptWorkerForEnvelope(
+  session: EnvelopePrompter,
+  userPrompt: string,
+): Promise<string> {
+  await session.prompt(userPrompt);
+  let text = session.getLastAssistantText() ?? "";
+  if (!looksLikeWorkerEnvelope(text)) {
+    await session.prompt(WORKER_ENVELOPE_REPAIR_PROMPT);
+    text = session.getLastAssistantText() ?? text;
+  }
+  return text;
+}
+
 async function invokeBuildWorker(
   invocation: BuildWorkerInvocation,
 ): Promise<{ text: string; runtime: ChildRuntimeReport }> {
@@ -70,8 +109,8 @@ async function invokeBuildWorker(
   const abort = () => void session.abort();
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
   try {
-    await session.prompt(invocation.userPrompt);
-    return { text: session.getLastAssistantText() ?? "", runtime: report };
+    const text = await promptWorkerForEnvelope(session, invocation.userPrompt);
+    return { text, runtime: report };
   } finally {
     invocation.ctx.signal?.removeEventListener("abort", abort);
     invocation.registry.delete(session);
