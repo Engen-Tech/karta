@@ -21,7 +21,7 @@ PATH_RE = re.compile(r"`(references/[^`]+|scripts/[^`]+)`")    # backticked path
 # disagree about what "in sync" means. (Importing is side-effect-free: argparse runs
 # only under each script's __main__.)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import sync_codex_skills, sync_codex_agents  # noqa: E402
+import sync_codex_skills, sync_codex_agents, check_fact_traces  # noqa: E402
 
 
 def _frontmatter(text: str) -> dict[str, str]:
@@ -95,6 +95,7 @@ def check() -> list[str]:
     _check_behaviour_anchor(errors)
     _check_vendored_fonts(errors)
     _check_design_reference(errors)
+    _check_fact_traces(errors)
     return errors
 
 
@@ -622,6 +623,203 @@ def _check_design_serving_rig(errors: list[str], fixture_root: Path, script: Pat
                 proc.wait(timeout=5)
 
 
+# --- Watch design reference: the binder panel's ground, read from the design ---
+#
+# card-ground-and-tint-base puts the binder card on the surface role and the
+# frame around it on the page-ground role. serve_status.py's own self-test
+# proves WHICH role each container resolves to, but both of its sides descend
+# from the page's _PALETTE, so it can only prove the page agrees with itself.
+# The design side — the role the design's binder panel declares, and the value
+# the design file itself declares for that role in each palette — is read HERE,
+# from the file this validator already resolves by DESIGN_REFERENCE_REL, and
+# held against what the shipped page resolves. It lives here and not in
+# serve_status.py because that script's self-test is contracted to need no repo
+# and ships to consumer installs that carry no docs/ at all.
+
+_STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.DOTALL)
+_ROOT_RULE_RE = re.compile(r"(:root[^{}]*)\{([^{}]*)\}")
+_BODY_RULE_RE = re.compile(r"(?:^|[\s}])body\s*\{([^{}]*)\}")
+_TOKEN_DECL_RE = re.compile(r"(--[a-z0-9-]+)\s*:\s*([^;]+)")
+_ONE_TOKEN_RE = re.compile(r"var\(\s*(--[a-z0-9-]+)\s*\)")
+_TAG_RE = re.compile(r"<(/?)([a-zA-Z][\w-]*)([^<>]*)>")
+_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+              "meta", "param", "source", "track", "wbr"}
+
+
+def _decls(style: str) -> dict[str, str]:
+    """`prop:value;…` as {prop: value} — an inline style or a rule body."""
+    out: dict[str, str] = {}
+    for decl in style.split(";"):
+        prop, sep, value = decl.partition(":")
+        if sep:
+            out[prop.strip()] = value.strip()
+    return out
+
+
+def _inline_style(tag: str) -> dict[str, str]:
+    m = re.search(r'style="([^"]*)"', tag)
+    return _decls(m.group(1)) if m else {}
+
+
+def _one_token(value: str) -> str | None:
+    """The single palette token a declared value names, or None."""
+    m = _ONE_TOKEN_RE.fullmatch((value or "").strip())
+    return m.group(1) if m else None
+
+
+def _design_palettes(text: str) -> dict[str, dict[str, str]]:
+    """The design's palettes as {theme: {token: value}}, read off its :root
+    rules: the light one is the bare :root or the rule naming
+    data-theme="light"; the dark one names data-theme="dark"."""
+    out: dict[str, dict[str, str]] = {}
+    for prelude, body in _ROOT_RULE_RE.findall(text):
+        selectors = [sel.strip() for sel in prelude.split(",")]
+        themes = {"dark" if 'data-theme="dark"' in sel else "light"
+                  for sel in selectors if sel == ":root" or "data-theme=" in sel}
+        for theme in themes:
+            out.setdefault(theme, {}).update(
+                {k: v.strip() for k, v in _TOKEN_DECL_RE.findall(body)})
+    return out
+
+
+def _direct_children(text: str, start: int) -> list[str]:
+    """The start tags one level inside the element whose start tag begins at
+    `start` — its direct children, depth-counted so a nested box of the same
+    name cannot close it early and a void or self-closing tag opens nothing."""
+    first = _TAG_RE.match(text, start)
+    if not first:
+        return []
+    out, depth = [], 0
+    for m in _TAG_RE.finditer(text, first.end()):
+        closing, name, rest = m.group(1), m.group(2).lower(), m.group(3)
+        if closing:
+            depth -= 1
+            if depth < 0:
+                break
+            continue
+        if depth == 0:
+            out.append(m.group(0))
+        if name not in _VOID_TAGS and not rest.rstrip().endswith("/"):
+            depth += 1
+    return out
+
+
+def _check_design_panel_ground(errors: list[str], design_file: Path, *,
+                               page_card_roles: set[str], page_frame_roles: set[str],
+                               page_palette: dict[str, dict[str, str]]) -> None:
+    """The binder card resolves to the role the design gives its binder panel,
+    and the frame around it to the role the design paints its page in — and
+    the value the page resolves each role to, in both palettes, equals the value
+    the design file itself declares. The design side is read from the file, so
+    this cannot pass by agreeing with itself the way a check whose two sides
+    both descend from _PALETTE does.
+
+    The design's binder panel is found structurally: inside every
+    data-kw-panel section, the one direct child carrying a 1px line border and
+    a ground (export 294). The section itself must declare only display,
+    direction and gap — nothing between it and that panel carries a surface
+    (export 282), which is the fact the page's frame-on-the-page-ground answers
+    to. The page ground is the role the design's body rule paints."""
+    label = design_file.as_posix()
+    if not design_file.is_file():
+        return  # already reported by _check_design_self_contained
+    text = design_file.read_text(encoding="utf-8")
+    palettes = _design_palettes(text)
+    missing = [t for t in ("light", "dark") if t not in palettes]
+    if missing:
+        errors.append(f"{label}: declares no {' or '.join(missing)} palette (:root rule) "
+                      "to read the binder panel's ground from")
+        return
+    style = "\n".join(_STYLE_BLOCK_RE.findall(text))
+    body = _BODY_RULE_RE.search(style)
+    ground_role = _one_token(_decls(body.group(1)).get("background", "")) if body else None
+    if ground_role is None:
+        errors.append(f"{label}: the body rule does not paint the page ground as one token")
+        return
+    panel_roles: set[str] = set()
+    sections = [m.group(0) for m in _TAG_RE.finditer(text)
+                if not m.group(1) and "data-kw-panel=" in m.group(3)]
+    if not sections:
+        errors.append(f"{label}: no data-kw-panel section to read the binder panel from")
+        return
+    for sec in sections:
+        own = _inline_style(sec)
+        if "background" in own or "background-color" in own:
+            errors.append(f"{label}: a data-kw-panel section carries a surface of its own "
+                          "(a frame) — the design puts nothing between the section and "
+                          "the binder panel that carries one (export 282)")
+        if set(own) - {"display", "flex-direction", "gap"}:
+            errors.append(f"{label}: a data-kw-panel section declares more than display, "
+                          f"direction and gap ({', '.join(sorted(set(own) - {'display', 'flex-direction', 'gap'}))})")
+        panels = [c for c in _direct_children(text, text.index(sec))
+                  if _inline_style(c).get("border", "").startswith("1px solid")
+                  and "background" in _inline_style(c)]
+        if len(panels) != 1:
+            errors.append(f"{label}: a data-kw-panel section holds {len(panels)} direct "
+                          "children with a 1px border and a ground; exactly one is the binder panel")
+            continue
+        role = _one_token(_inline_style(panels[0])["background"])
+        if role is None:
+            errors.append(f"{label}: the binder panel's ground is not one palette token")
+            continue
+        panel_roles.add(role)
+    if len(panel_roles) != 1:
+        errors.append(f"{label}: the binder panels resolve to {len(panel_roles)} ground roles; "
+                      "expected one shared role")
+        return
+    card_role = panel_roles.pop()
+    for role in (card_role, ground_role):
+        for theme in ("light", "dark"):
+            if role not in palettes[theme]:
+                errors.append(f"{label}: the {theme} palette does not declare {role}")
+            elif role not in page_palette:
+                errors.append(f"watch panel ground: the page's palette does not declare {role}, "
+                              f"which the design's {theme} palette does")
+            elif palettes[theme][role].lower() != page_palette[role][theme].strip().lower():
+                errors.append(f"watch panel ground: the design declares {role} as "
+                              f"{palettes[theme][role]} in its {theme} palette; the page resolves "
+                              f"it to {page_palette[role][theme]}")
+    for theme in ("light", "dark"):
+        if palettes[theme].get(card_role) == palettes[theme].get(ground_role):
+            errors.append(f"{label}: {card_role} and {ground_role} resolve to the same value in "
+                          f"the {theme} palette, so the binder panel cannot advance off the page")
+    if page_card_roles != {card_role}:
+        errors.append(f"watch panel ground: the design's binder panel resolves to {card_role}; "
+                      f"the page's binder card resolves to {sorted(page_card_roles) or 'no role'}")
+    if page_frame_roles != {ground_role}:
+        errors.append(f"watch panel ground: the design paints its page in {ground_role}; the "
+                      f"page's frame around the binder card resolves to "
+                      f"{sorted(page_frame_roles) or 'no role'} — the frame the design never "
+                      "modelled must sit on the page ground, not on a surface of its own")
+
+
+def _watch_page_grounds() -> tuple[set[str], set[str], dict[str, dict[str, str]]]:
+    """What the shipped page resolves: the binder card's and the delivery
+    frame's ground roles — read by their data-kw hooks through the page's own
+    stylesheet readers, never by class name — and the page's palette."""
+    import importlib.util
+    script = ROOT / "skills" / WATCH_SCRIPT_REL
+    spec = importlib.util.spec_from_file_location("karta_watch_page", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    # the page inserts its own directory on sys.path at import (to reach its
+    # sibling engine); that is the page's business, not the validator's
+    path_before = list(sys.path)
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path[:] = path_before
+    css = mod._strip_css_comments(mod._page_css())
+
+    def roles(hook: str) -> set[str]:
+        tags = mod._tags_with(mod._APP_JS, hook)
+        if len(tags) != 1:
+            return set()
+        return set(mod._VAR_REF_RE.findall(
+            mod._resolved(mod._rules_for_tag(css, tags[0]), "background")))
+    return roles("data-kw-binder"), roles("data-kw-delivery-panel"), mod._PALETTE
+
+
 def _check_design_reference(errors: list[str]) -> None:
     """The watch-fidelity binder's design reference is self-contained and its
     fixture is well-formed, then — only once both hold — the serving rig
@@ -629,6 +827,15 @@ def _check_design_reference(errors: list[str]) -> None:
     each take their target as an argument, so `_self_test()` drives every one
     of them against synthetic fixtures; this composes them over the real repo."""
     _check_design_self_contained(errors, ROOT / DESIGN_REFERENCE_REL)
+    try:
+        card_roles, frame_roles, palette = _watch_page_grounds()
+    except Exception as e:  # a page that cannot be read is a reported failure, never a crash
+        errors.append(f"skills/{WATCH_SCRIPT_REL.as_posix()}: could not read the page's "
+                      f"grounds for the design comparison ({e})")
+    else:
+        _check_design_panel_ground(errors, ROOT / DESIGN_REFERENCE_REL,
+                                   page_card_roles=card_roles, page_frame_roles=frame_roles,
+                                   page_palette=palette)
     fixture_root = ROOT / DESIGN_FIXTURE_REL
     before = len(errors)
     slug = _check_design_fixture(errors, fixture_root)
@@ -703,6 +910,9 @@ def _self_test() -> int:
         ("unreadable schema is reported, not a crash", '{"enabled": true}', "{not json", ["missing or unreadable"]),
     ]
     failures = 0
+    total = 0  # incremented once per [PASS]/[FAIL] line printed below — never hand-summed,
+    # so a case group (or a standalone check with no list of its own) added later cannot
+    # silently under-report: it counts itself the moment it prints its own result line.
     with tempfile.TemporaryDirectory() as td:
         for i, (name, cfg_text, schema_text, want) in enumerate(cases):
             cfg = Path(td) / f"cfg{i}.json"
@@ -714,11 +924,13 @@ def _self_test() -> int:
             _check_doc_gardner(errors, config=cfg, schema=schema)
             ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r}"))
+            total += 1
             failures += 0 if ok else 1
         errors = []
         _check_doc_gardner(errors, config=Path(td) / "absent.json", schema=Path(td) / "schema0.json")
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
+        total += 1
         failures += 0 if ok else 1
 
         # The Karta Watch coverage floor: the anchor is compared as a floor, and an
@@ -751,12 +963,44 @@ def _self_test() -> int:
             _check_behaviour_anchor(errs, anchor=anc, registry=reg)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
         errs = []
         _check_behaviour_anchor(errs, anchor=Path(td) / "absent-anchor.txt", registry=live)
         ok = bool(errs) and any("missing" in e for e in errs)
         print(f"[{'PASS' if ok else 'FAIL'}] anchor floor: a missing anchor fails"
               + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # The fact-trace floor: the sweep is wired, it fails on an untraced fact, and it
+        # reaches an archive/ subdirectory too — a LIST-shaped fact table there is swept
+        # exactly like a live one (frozen history is no excuse for a broken trace).
+        def _fact_binder(traced: bool) -> str:
+            row = {"id": "a-fact", "claim": "x", "traced_by": ["it:0"] if traced else []}
+            return json.dumps({"slug": "fx", "work_items": [{"id": "it", "oracle": {"assertions": ["a"]}}],
+                               "token_manifest": {"design_fact_table": [row]}})
+        bd = Path(td) / "binders"
+        (bd / "archive").mkdir(parents=True)
+        (bd / "ok.json").write_text(_fact_binder(True))
+        (bd / "archive" / "frozen.json").write_text(_fact_binder(False))
+        errs = []
+        _check_fact_traces(errs, binders_dir=bd)
+        ok = (len(errs) == 1 and "archive" in errs[0] and "frozen.json" in errs[0]
+              and "fact 'a-fact' is untraced" in errs[0])
+        print(f"[{'PASS' if ok else 'FAIL'}] fact traces: a traced live binder passes; an untraced archived binder fails too"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+        (bd / "gap.json").write_text(_fact_binder(False))
+        errs = []
+        _check_fact_traces(errs, binders_dir=bd)
+        ok = (len(errs) == 2
+              and any("gap.json" in e and "fact 'a-fact' is untraced" in e for e in errs)
+              and any("archive" in e and "frozen.json" in e and "fact 'a-fact' is untraced" in e for e in errs))
+        print(f"[{'PASS' if ok else 'FAIL'}] fact traces: an untraced fact in a live binder fails the floor"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
         failures += 0 if ok else 1
 
         # _run_self_test enforces "every gated script exposes --self-test": check all three
@@ -785,6 +1029,7 @@ def _self_test() -> int:
             _run_self_test(rst / fn, errs)
             ok = (bool(errs) == want_err) and (want_sub is None or any(want_sub in e for e in errs))
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The vendored fonts: a synthetic repo shape with the canonical tree and
@@ -834,6 +1079,7 @@ def _self_test() -> int:
             _check_vendored_fonts(errs, root=_font_tree(Path(td) / f"fonts{i}", **kwargs))
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The watch design reference: a self-contained good capture, then one
@@ -889,6 +1135,7 @@ def _self_test() -> int:
             _check_design_self_contained(errs, target)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The design fixture: a well-formed synthetic fixture repo root, then
@@ -935,6 +1182,76 @@ def _self_test() -> int:
             _check_design_fixture(errs, root, ref_prober=prober)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
+            failures += 0 if ok else 1
+
+        # The binder panel's ground, read from a synthetic design against a
+        # stand-in page side: the agreeing pair first, then one violating
+        # control per rule — the page's pre-item assignment (card on the
+        # ground, frame on the surface) and each half of it alone, a design
+        # value the page does not resolve to, a design panel on the page
+        # ground, a section carrying a surface of its own, a design with no
+        # dark palette, and a body that paints no single token.
+        def _ground_design(base: Path, *, panel_bg="var(--surface)",
+                           section_style="display:flex;flex-direction:column;gap:22px",
+                           light_surface="#FFFFFF", dark=True, body_bg="var(--bg)") -> Path:
+            base.mkdir(parents=True, exist_ok=True)
+            dark_rule = (':root[data-theme="dark"]{--bg:#2B0F14;--surface:#3B141B;--line:#444}'
+                         if dark else "")
+            f = base / "design.html"
+            f.write_text(
+                "<!DOCTYPE html>\n<html>\n<head>\n<style>\n"
+                ':root, :root[data-theme="light"]{--bg:#F6EFEE;--surface:' + light_surface
+                + ";--line:#DFCBC6}\n" + dark_rule + "\n*{margin:0}\n"
+                "body{background:" + body_bg + ";color:#000}\n</style>\n</head>\n<body>\n"
+                '<main><section data-kw-panel="a" style="' + section_style + '">\n'
+                '<div style="background:var(--band);border-radius:16px"><p>band</p></div>\n'
+                '<div style="background:' + panel_bg + ';border:1px solid var(--line);'
+                'border-radius:16px"><div style="padding:4px"><br>x</div></div>\n'
+                "</section></main>\n</body>\n</html>\n")
+            return f
+
+        page_side = {"page_card_roles": {"--surface"}, "page_frame_roles": {"--bg"},
+                     "page_palette": {"--bg": {"light": "#F6EFEE", "dark": "#2B0F14"},
+                                      "--surface": {"light": "#FFFFFF", "dark": "#3B141B"}}}
+        ground_cases = [
+            ("ground: design panel on the surface, page card on it, values agree -> no error",
+             lambda b: _ground_design(b), page_side, []),
+            ("ground: the pre-item assignment — card on the ground, frame on the surface — fails",
+             lambda b: _ground_design(b),
+             dict(page_side, page_card_roles={"--bg"}, page_frame_roles={"--surface"}),
+             ["binder card resolves to ['--bg']", "frame around the binder card resolves to ['--surface']"]),
+            ("ground: the page card on the ground alone fails",
+             lambda b: _ground_design(b), dict(page_side, page_card_roles={"--bg"}),
+             ["binder card resolves to ['--bg']"]),
+            ("ground: the page frame on the surface alone fails",
+             lambda b: _ground_design(b), dict(page_side, page_frame_roles={"--surface"}),
+             ["frame around the binder card resolves to ['--surface']"]),
+            ("ground: a page card with no role (a literal) fails",
+             lambda b: _ground_design(b), dict(page_side, page_card_roles=set()),
+             ["binder card resolves to no role"]),
+            ("ground: a design surface value the page does not resolve to fails",
+             lambda b: _ground_design(b, light_surface="#FFFFFE"), page_side,
+             ["design declares --surface as #FFFFFE in its light palette"]),
+            ("ground: a design panel declared on the page ground fails",
+             lambda b: _ground_design(b, panel_bg="var(--bg)"), page_side,
+             ["binder panel resolves to --bg"]),
+            ("ground: a section carrying a surface of its own (a frame) fails",
+             lambda b: _ground_design(b, section_style="display:flex;flex-direction:column;"
+                                                       "gap:22px;background:var(--surface)"),
+             page_side, ["carries a surface of its own"]),
+            ("ground: a design with no dark palette fails",
+             lambda b: _ground_design(b, dark=False), page_side, ["declares no dark palette"]),
+            ("ground: a body that paints no single token fails",
+             lambda b: _ground_design(b, body_bg="#fff"), page_side,
+             ["body rule does not paint the page ground as one token"]),
+        ]
+        for i, (name, make, side, want) in enumerate(ground_cases):
+            errs: list[str] = []
+            _check_design_panel_ground(errs, make(Path(td) / f"ground{i}"), **side)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The serving rig, driven against stand-in pages rather than only
@@ -988,10 +1305,8 @@ def _self_test() -> int:
                                       timeout=4.0)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
-    total = (len(cases) + 1 + len(rst_cases) + len(anchor_cases) + 1
-             + len(font_cases) + len(design_cases) + len(fixture_cases)
-             + len(rig_cases))
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
@@ -1028,6 +1343,28 @@ def _run_self_test(script: Path, errors: list[str]) -> None:
     if proc.returncode != 0:
         tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
         errors.append(f"{rel(script)}: --self-test failed ({tail})")
+
+
+def _check_fact_traces(errors: list[str], binders_dir: Path | None = None) -> None:
+    """Every design fact a binder records must be traced to an assertion
+    ('<item-id>:<0-based assertion index>') or carry an untraced_reason — the rule
+    scripts/check_fact_traces.py owns. It runs here so a fact table added later cannot
+    go untraced without failing the floor. The sweep is .karta/binders/*.json plus its
+    archive/ subdirectory (see check_fact_traces.check_path): a LIST-shaped fact table
+    is checked there exactly like a live one — archived does not mean exempt — while a
+    DICT-shaped, pre-convention table is reported as OUT OF SCOPE by name rather than
+    checked or silently passed over. That report must be visible at THIS enforced floor,
+    not only in the standalone script, so its notes are printed here rather than
+    discarded. The script's own fixtures run too, the way every other gated script's do.
+    `binders_dir` is the self-test seam; the default sweeps this repo."""
+    if binders_dir is None:
+        binders_dir = ROOT / ".karta" / "binders"
+        _run_self_test(ROOT / "scripts" / "check_fact_traces.py", errors)
+    if binders_dir.is_dir():
+        swept, notes = check_fact_traces.check_path(binders_dir)
+        errors.extend(f"fact traces: {e}" for e in swept)
+        for n in notes:
+            print(f"  ~ fact traces: {n}")
 
 
 def _check_skill_scripts(errors: list[str]) -> None:

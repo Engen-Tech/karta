@@ -57,8 +57,11 @@ ago** — read from its newest commit. The stamp is simply absent if git can't a
 
 The landing is set in the same colours, type and motion as the repo pages it links to, so moving
 between them doesn't feel like changing product. A repo with work in flight pulses; a broken one
-flashes its alarm colour; and if you have asked your system for reduced motion, both settle to a
-still state that still reads. It refreshes the same way too — see below.
+flashes its alarm colour. If you have asked your system for reduced motion, the two don't answer
+the same way. The in-flight pulse goes still — it holds a resting ring instead of pulsing outward.
+The alarm keeps moving: it softens into the same slow breathing instead of a hard on/off blink,
+because a status page that stops signalling a real problem reads as fixed. It refreshes the same
+way too — see below.
 
 ## Getting around
 
@@ -69,6 +72,11 @@ line under the header — it lists every other opted-in repo, never the one you 
 
 On the repo page itself the vocabulary stays calm: a work item waiting on a dependency shows a
 steel **WAITING** chip — waiting its turn is normal flow, not an alarm.
+
+**show delivered** hides fully-delivered binders from the map. Pick a binder that the toggle
+then hides, and the panel falls back to a default pick — the in-flight binder if there is one,
+otherwise the first binder still showing. Turning the toggle back on does not restore the hidden
+pick. A pick that stays on the map the whole time is never disturbed by the toggle.
 
 ## Choosing when the page refreshes
 

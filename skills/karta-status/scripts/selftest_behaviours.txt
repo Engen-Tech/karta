@@ -36,8 +36,16 @@ retired-tokens-unreferenced
 waiting-state-distinct-from-ready
 halted-state-carries-a-foreground
 delivered-and-built-share-one-green
-five-keyframes-each-settle-under-reduced-motion
-reduced-motion-keeps-halt-and-run-legible
+# Two names RETIRED here, not lost: five-keyframes-each-settle-under-reduced-motion
+# and reduced-motion-keeps-halt-and-run-legible pinned the alarm to animation:none
+# under reduced motion, and the page now takes the design's soften instead — the
+# alarm re-points at the breathe keyframe, slow and eased, so a halted item still
+# moves and still reads urgent. Each is replaced by the stronger claim, and the
+# retirement is recorded both ways in serve_status.py's _RETIRED_BEHAVIOURS and
+# asserted by the third name below.
+five-keyframes-each-settle-and-two-keep-moving
+reduced-motion-keeps-halt-urgent-and-run-legible
+retired-behaviours-recorded-both-ways
 type-roles-bound-to-vendored-weights
 reduced-motion-breathes
 show-delivered-aria-pressed
@@ -46,7 +54,14 @@ theme-toggle-control
 theme-persistence-key
 theme-query-override
 switcher-also-watching
-phase-timeline-groups
+
+# One name RETIRED here, not lost: phase-timeline-groups asserted the shape of
+# the panel's phase grouping — one row per phase, keyed and ordered. The design's
+# main column has no grouping at all, so the grouping is gone and the claim is
+# replaced by the stronger one in the panel block below — that no grouping node
+# exists between the frame and the card — with the retirement recorded both ways
+# in serve_status.py's _RETIRED_BEHAVIOURS and asserted by
+# retired-behaviours-recorded-both-ways above.
 
 # The nesting a work-item card sits inside. The design's main column goes from
 # the next-action band straight into the binder's own bordered panel — no
@@ -54,10 +69,12 @@ phase-timeline-groups
 # column at all — so a card starts one border and one pad in from the column's
 # edge. This page had three container levels where the design draws one.
 #
-# The phase spine went: the map on the left already groups every binder under
-# the same four phases, so the spine restated the grouping and charged every
-# card the gutter's indent for the repeat. Its row wrapper went with it, which
-# is the level the count below is one short of.
+# The phase spine went first: the map on the left already groups every binder
+# under the same four phases, so the spine restated the grouping and charged
+# every card the gutter's indent for the repeat. Its row wrapper went with it.
+# The grouping itself went after — the phase row and the binders box inside it
+# — which is why the count below is two short of what it was; the spine check
+# keeps its name and its read and is keyed on the frame that remains.
 #
 # The wrapper stays, as a FRAME. It carries the repository context the design
 # was never asked to model, so it is held to a budgeted inset per side instead
@@ -294,8 +311,9 @@ rail-type-steps-do-not-move
 
 # Band geometry and wave rhythm: the top of the page, and the space around each
 # wave. The first three hold the header bar — nothing renders above it, its
-# height is stated once at the number the design declares and the four offsets
-# hanging off it re-derive from that one statement, and every control this page
+# height is stated once at the number the design declares and the three offsets
+# hanging off it re-derive from that one statement (a fourth, the binder card's
+# scroll-margin, went with the rail's anchor jump), and every control this page
 # puts in the bar (none of which the design models) is still inside it. The last
 # four hold the wave header: it runs to the panel's edge and repaints the
 # panel's own surface, it takes the design's case treatment on one side and no
@@ -313,9 +331,11 @@ wave-step-position-counts-the-runs-own-waves
 # hold the panel's state reading: it is one row of three — bar, count, grouped
 # per-state readings — and the count renders once, outside the control that
 # collapses the panel rather than copied beside it. The third holds those
-# readings as labels rather than chips. The next three hold the map: the current
-# binder is ringed twice and neither ring moves, it is the only card carrying a
-# bar at all, and on that bar the fill takes a real width (it shipped inline, so
+# readings as labels rather than chips. The next three hold the map: the SELECTED
+# binder (the one the panel shows — rail-is-the-selector moved the ring from in
+# flight to selection) is ringed twice and neither ring moves, the in-flight
+# binder is the only card carrying a bar at all, and on that bar the fill takes
+# a real width (it shipped inline, so
 # every bar measured zero and painted alike) while the hatch marks the
 # remainder the legend above already names. The last two hold wording: three
 # fixed labels take the design's words in the design's own places, with no
@@ -341,7 +361,118 @@ delivered-toggle-announces-in-words
 # leaves the pill set for the step the design actually gives it. The third
 # holds the command chip's edge at the 28% the design draws it at, still drawn
 # by the band's own token rather than by a literal that would stop following
-# the theme.
+# the theme. The first check reads a radius per corner, not per bare length, so
+# the binder card's footer strip — a solid last child that rounds its own two
+# bottom corners at the panel step less the border — is pinned and re-rendered
+# with the rest; the second names the map's progress track and its fill among
+# the pills, so squaring the track fails. The fourth holds the general form of
+# the corner defect the fidelity record found: no rounded container on the page
+# ends in an opaque last child that sits square inside its curve.
 container-corners-are-the-designs-four-steps
 round-shapes-keep-their-shape
 command-chip-edge-at-the-designs-strength
+no-opaque-last-child-sits-square-in-a-rounded-container
+
+# The map is a selector. The rail card's control was an anchor into the
+# binder's own card in the main column, which only worked because the panel
+# rendered every binder at once; the design's map picks. The first holds the
+# control: a real button carrying the binder's slug, wired to the pick, with no
+# fragment anchor left in any card. The second holds the pick itself: exactly
+# one card is the picked one in every state the map can be in, and the default
+# is derived — the in-flight binder, else the first card the rail's own group
+# order yields — never typed. The third holds the two states apart: selection
+# and in flight are separate modifiers that render differently, so two marks on
+# two cards stay tellable. The fourth holds the button's ground: soft in the
+# picked card, none at rest and the second surface on hover elsewhere, all by
+# palette role. The last holds the header's hint as a regression guard: it
+# names picking, and its count is derived from the feed.
+#
+# The pick also has to survive the Delivered filter moving under it. A picked
+# binder the filter hides falls back to the same default the page uses when
+# nothing is picked — the map cannot be left with no picked card while the panel
+# still shows the hidden one — and because the pick is state rather than a
+# derivation, the toggle DROPS it rather than holding it for the next toggle to
+# hand back. The cost is stated as behaviour, not left unsaid: switching
+# Delivered back on does not restore the dropped pick, and a pick the filter
+# never hid is left alone. The last name guards the shipped JavaScript copy of
+# the drop against its Python twin.
+rail-card-control-is-a-button
+rail-picks-exactly-one-binder
+selection-and-in-flight-are-two-marks
+rail-button-ground-follows-selection
+rail-hint-counts-the-binders
+rail-selection-mirror-matches-its-twin
+rail-hidden-pick-falls-back-to-the-default
+rail-toggle-drops-a-pick-the-filter-hides
+rail-pick-drop-mirror-matches-its-twin
+
+# A halt shows on the map card, without a click. The design sets a pill
+# reading "<n> halted" beside the slug of a binder with a halted item; the page
+# rendered no badge on any branch. The first holds the node and its count: it
+# sits inside the card's control, is gated on the card's own halt count so a
+# card with no halt carries no node at all, renders that count, and the count
+# is derived through the card's own derivation from the item states it already
+# receives — driven over states built for the check, since the pinned fixture
+# derives every item as pending. The second holds the motion to the page's one
+# alarm keyframe: the badge wears the alarm class and declares none of its own.
+# The third reads the badge's resolved animation under reduced motion and at
+# rest and finds it equal to the shared alarm rule's, compared and never typed,
+# so the badge cannot drift from the doctrine the alarm rule states. The last
+# holds the colours: the halt role and the foreground the metadata pairs with
+# it, with no token introduced.
+rail-halt-badge-counts-the-halted-items
+rail-halt-badge-wears-the-one-alarm-keyframe
+rail-halt-badge-softens-with-the-alarm
+rail-halt-badge-on-the-halt-role
+halted-count-mirror-matches-its-twin
+
+# The panel is one binder. The map picks, and the main column shows that
+# binder's card and nothing else — no phase grouping around it, no head, no
+# count, no empty-group row, no wrapper between the frame and the card, and no
+# rule left in the sheet for any of them. The first holds that absence, as the
+# stronger claim that replaced phase-timeline-groups. The second holds the
+# card: exactly one, gated on the shown binder rather than repeated, built from
+# the map's pick — checked over states holding several binders, so a feed of
+# one cannot pass it by accident. The third holds the in-flight mark on the
+# card's masthead row: one dot between the eyebrow and the slug, wearing the
+# page's existing ring motion with no token and no keyframe of its own, rendered
+# only while the shown binder is in flight and absent as a node otherwise, with
+# both branches driven over a built state.
+panel-carries-no-phase-grouping
+panel-shows-the-picked-binder
+in-flight-binder-carries-a-state-dot
+
+# The binder head's type, at the sizes the design declares. The summary is the
+# panel's lede — 16.5px at 1.6 in the muted role, held to a ch measure; the
+# eyebrow and the slug both sit on the 11px mono step; the slug is bare text,
+# with no ground, no padding and no icon; a card's description is 13.5px at
+# 1.55 in the muted role and keeps its two-line clamp. Each is read as the
+# value the sheet declares for the element, never as a token name and never
+# against a constant the sheet also interpolates, and each fails on the value
+# the page shipped before. The last holds the row that now keeps the eyebrow
+# and the bare slug apart — a flex row with a pixel gap, the slug on an auto
+# margin, neither child able to shrink beneath its words — which is what the
+# chip used to do.
+binder-summary-is-the-panels-lede
+panel-eyebrow-and-slug-sit-on-the-11px-mono-step
+panel-slug-is-bare-text
+card-description-on-the-designs-body-step
+masthead-row-holds-eyebrow-and-slug-apart
+
+# The two surfaces, the way the design assigns them. The binder card resolves
+# to the surface role and the frame around it to the page-ground role — each
+# read as the one token its background names, the two roles distinct in both
+# palettes, and the page's old assignment (card on the ground, frame on the
+# surface) failing as the first control. Nothing inside the card paints what
+# the card paints, in either palette, except the one box that sticks — the wave
+# step header, whose repaint of the card's surface the bleed behaviour above
+# already pins. And every soft state tint a binder header wears composites over
+# that surface: the tints are read as translucent tokens and the BASE beneath
+# them as the card, with no ground of its own on the header or between — the
+# base is what is proven, never the tint's value, which no item here changes.
+# The design side of the first — the value the design file itself declares for
+# the surface role — is read by scripts/validate_plugin.py, not by this
+# self-test, which needs no repo.
+binder-card-on-the-surface-frame-on-the-page-ground
+nothing-inside-the-binder-card-shares-its-ground
+binder-header-tints-composite-over-the-card-surface

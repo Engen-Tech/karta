@@ -1,0 +1,261 @@
+{
+  "slug": "watch-drill-in-remediation",
+  "title": "Make the drill-in checks able to fail",
+  "summary": "The watch-drill-in delivery was blocked before merge because several of its checks pass no matter what the code does. This repairs them, fixes the one behaviour a review reproduced as wrong, and corrects two docs that describe something the page does not do.",
+  "motivation": "A green check that cannot go red is worse than no check, because it is read as evidence; three of this delivery's were, and the branch cannot land until they are.",
+  "after": [
+    "watch-drill-in"
+  ],
+  "scope": {
+    "included": [
+      "The five defects a pre-merge review reproduced on karta/watch-drill-in/integration: two JavaScript functions no check reads, a new gate blind to the file it was written for, a selection state that contradicts its own item's claim, two factual errors in prose, and a self-test that misreports how many cases it ran.",
+      "A PRECONDITION, not a change, and the thing most likely to go wrong if it is missed. The code this binder edits exists ONLY on karta/watch-drill-in/integration — it is not on the default branch, which is why the top-level `after` names that binder. karta-deliver branches from the DEFAULT branch by default, and a delivery cut that way would find none of these symbols: measured, _vendored_weights is at serve_status.py:8258 on the default branch and :8557 on the integration branch, and haltedCountOf, railSelectionOf and check_fact_traces.py do not exist on the default branch at all. So this binder must be delivered onto the integration branch, and the fixes land there BEFORE that branch merges. Every file:line below is against the integration tip."
+    ],
+    "excluded": [
+      "Merging the branch. That is a human decision and a separate gate; this binder only makes the branch fit to merge.",
+      "The semantic weakness of the fact-to-assertion trace. A recorded fact can name a real assertion that cannot detect the fact changing — review demonstrated it by moving --green-soft from .13 to .12 and watching 258/258 still pass. Closing that means auditing 21 rows and strengthening the assertions behind them, which is its own piece of work and would swamp a remediation binder. The tool already prints the limit in its own output. Filed, not fixed.",
+      "_COMMIT_RE in scripts/hooks/roundtable_gate.py, which has the same verb-matching defect just fixed for merge: it ends in `commit\\b`, so `git commit-tree` and `git commit-graph write` both read as commits. Independent of this branch and filed in the backlog on the default branch. Deliberately NOT cited by entry number here: the backlog is numbered differently on the two trees this binder sits between — the default branch carries entries through 10 while the integration tip stops at 7, and entry 5 reads Done on one and Ready on the other — so a number written here would name a different row depending on where it is read. Review caught exactly that: an earlier draft said 'backlog entry 10' and that entry does not exist on the tree this binder is delivered onto."
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Python 3 stdlib-only scripts plus a single-file server that embeds its own page, CSS and Vue app; no package manifest, no third-party runtime dependency"
+  },
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test && python3 skills/karta-status/scripts/serve_status.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [
+      "Nothing to inject, but not nothing needed. validate_plugin.py's design-serving rig binds an ephemeral loopback port, spawns the committed page as a subprocess and requests it over HTTP, so the oracle needs loopback sockets and subprocess spawn and fails where socket creation is prohibited. It picks its own port, so concurrent items do not collide.",
+      "No browser, no network off loopback, and no server this binder starts."
+    ]
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "work_items": [
+    {
+      "id": "twin-guards",
+      "title": "Hold the browser's own copy of two functions to a check",
+      "summary": "Two functions the browser actually runs can be broken without any check noticing; this makes them answerable the way three of their neighbours already are.",
+      "estimate": "M",
+      "depends_on": [],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "contract": {
+        "exposes": "Registered behaviours that read the SHIPPED JavaScript — the app source the page serves — for the bodies of haltedCountOf (serve_status.py:3258) and railSelectionOf (:3324), so a change to either turns the suite red. This is not a new technique: the same file already does exactly this for three other Python/JavaScript twin pairs — join_archived (:7141-7167), refresh_decision (:14962-14966) and item_detail (:13713) — which compare the two bodies branch for branch. These two skipped an established pattern rather than hitting an unsolved problem.",
+        "preserves": "The Python twins and their existing checks, unchanged: _rail_halted (:2598), _rail_card (:2610) and rail_selection (:2668-2694) keep their behaviours and their negative controls. This item adds coverage of the shipped copy; it removes none of the coverage of the test-only copy. The rendered page does not change at all — no CSS, no template, no behaviour a user can see.",
+        "regression_risk": "A guard written as a whole-body string match is brittle in the other direction: a harmless reformat then turns the suite red and the next person deletes the check. Follow what the three existing twin comparisons do rather than inventing a stricter form.",
+        "verification_honesty": "Describe the CHECK, not the mutations it is meant to catch. Twelve review rounds attacked this field and every one of them defeated a claim phrased as 'mutation X turns the suite red' — first summarising verbs, then a list of escapes, then individual entries in a list of detections. The root cause was constant and only became visible at the end: a mutation is a fact about EDIT HISTORY, and this guard reads FINAL SOURCE TEXT. Any claim about what editing does is therefore a claim the mechanism cannot underwrite, and a reviewer will always find the arrangement of final text that satisfies the check while the edit did its damage.\n\nWHAT THE GUARD DOES, stated as the property it actually tests:\n  * It fails when a named fragment is ABSENT from the extracted body span of the shipped function.\n  * It fails when the function's first statement is not the expected one.\nBoth are properties of the final text. Nothing else is claimed.\n\nRead off the consequence rather than trusting a summary, because the consequence is the part people get wrong. The fragment only has to appear SOMEWHERE in the span, so any arrangement that keeps the text present satisfies the check: the real decision line altered while the original text survives in a comment, a decoy string, or unreachable code below the anchor. Both reviewers found that independently, one round apart, and it is the reason this field no longer says 'an altered fragment is detected'.\n\nSo what is this worth? The regression that actually happened is absence. Measured before this binder, gutting either function leaves the suite at 258/258 — because deleting or rewriting the logic removes the text, and nothing was looking for it. After this item that specific case fails, and so does a stub inserted at the top. An author who edits the live line and deliberately leaves the old text behind defeats it; that is not the accident this repair is aimed at, and closing it needs a structural comparison that locates the executable decision statement and checks its uniqueness — named here, deliberately not built here.\n\nTwo further limits, unchanged: the guard compares copies rather than behaviour, so a bug written into both twins in the parts no fragment names passes; and nothing here reaches the browser, where the value arrives through railCard (:3267) and the template at :4010."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && python3 skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "HOW TO READ THE MUTATION CONTROLS BELOW, because without this they contradict verification_honesty and review caught that. Each control names an edit and requires the suite to go RED when that edit is made THE STRAIGHTFORWARD WAY — the line deleted, the value changed, the body replaced — which is how a reviewer runs a negative control and how the regression actually occurs. None of them claims that EVERY edit fitting the description turns the suite red. It cannot: the guard reads final source text, so an edit that changes the live line while leaving the original text in a comment, a decoy string or unreachable code keeps the check green. That is the disclosed limit in verification_honesty, not a defect in these controls, and the two fields are consistent only if this paragraph is read first.\n\nOne instruction to the builder that follows from it, raised in review: the fragments chosen decide how well the controls behave. A whole-line fragment such as the entire text of serve_status.py:3326 breaks under a line rewrap and would fail the reformat control, while a fragment too short to be unique matches decoy text elsewhere in the span. Choose fragments that are distinctive and smaller than a line.",
+          "Replacing the body of haltedCountOf (serve_status.py:3258-3262) with `return 1;` turns the suite RED. Measured on the integration tip before this item: that mutation leaves it at 258/258, and the wrong output is real rather than theoretical — the count reaches the card through railCard (:3276) and renders at template :4010 gated on `v-if=\"c.halted\"`, so every rail card would read '1 halted', including binders with none.",
+          "Deleting line 3326 of railSelectionOf — `if (picked && slugs.indexOf(picked) >= 0) return picked;` — turns the suite RED. Measured before this item: 258/258 with the line gone. That line is what makes a rail click move the panel, so without it the whole point of the item named 'make the map a selector' silently stops working: pickedSlug is read in exactly one place, selectedSlug (:3636), and pick() (:3771) only assigns it.",
+          "Replacing railSelectionOf's default-pick fallback (:3332-3333) so it no longer prefers the in-flight binder turns the suite RED. Measured before this item: 258/258. Without it a run in flight opens on some queued binder instead.",
+          "The positive control still holds, which is what proves the harness can read these bodies at all: replacing the body of doneCountOf (:3243-3247) — the nearest sibling above haltedCountOf, fifteen lines up, with titleCase in between — turns the suite red, as it does today at 257/258, failing the source assertion at :7070. Its guard is the shape to copy.",
+          "A harmless reformat of either guarded function — reindenting, rewrapping a line, adding or editing a comment, renaming a local variable — does NOT turn the suite red. This is the counterweight to the four mutation controls above: every one of them would also fire under a whole-body string-equality guard, which is the brittle shape regression_risk warns against, so without this assertion the oracle cannot tell the recommended implementation from the one it rejects. The three existing twin comparisons — join_archived (:7141-7167), refresh_decision (:14962) and item_detail (:13713) — all check branch by branch rather than whole-body, and were read during planning to confirm that. Negative control: a guard written as whole-body equality fails this assertion while still passing all four mutation controls.",
+          "An unconditional early return inserted as the FIRST statement of either guarded function turns the suite RED — `function haltedCountOf(b) { return 1; ` with the original body intact below. Separate from the fragment checks and neither implies the other: those test presence anywhere in the span, this one tests position. Meeting it needs one technique none of the three precedent guards use — anchoring the function's first statement to sit immediately after the opening brace. Everything else stays unordered, so this is one anchor, not whole-body matching.\n\nFor what the guard covers, read verification_honesty and do not restate it in shorter words here. That field describes the CHECK — a named fragment absent from the body span fails, a wrong first statement fails — rather than the mutations it is hoped to catch, and the distinction is the single lesson of twelve review rounds: every mutation-shaped claim written in this item was false, because a mutation is a fact about editing and this guard only ever sees the final text. Follow join_archived (:7141-7167), refresh_decision (:14962-14966) and item_detail (:13713) for shape, and do not weaken these controls to fit an implementation — halt instead.",
+          "Each new behaviour is named in selftest_behaviours.txt and in both mirrors, and the anchor floor is not vacuous. Negative control: deleting a registry entry while leaving its anchor line fails with validate_plugin.py:363's named error, and emptying the anchor file fails with :353's vacuous-floor error.",
+          "Every canonical file this item changes is byte-identical in both generated mirrors, so `uv run scripts/sync_codex_skills.py --check` is clean."
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract-mutation: none — adds checks, changes no interface a caller reads",
+          "destructive-op: none",
+          "sensitive-zone: none",
+          "capability-escalation: none — no new dependency, IO, or integration",
+          "blast-radius: 6 files, but only 2 canonical (serve_status.py, selftest_behaviours.txt); the other 4 are generated mirrors regenerated by the sync script. Shares both canonical files with rail-selection-hidden-pick, which is why that item depends on this one rather than running beside it",
+          "architectural-novelty: none — this copies an established pattern the same file already uses three times (join_archived :7141-7167, refresh_decision :14962, item_detail :13713)",
+          "open-question: none"
+        ]
+      }
+    },
+    {
+      "id": "fact-trace-archive",
+      "title": "Let the fact-trace check see the binder it was written for",
+      "summary": "The check that proves a recorded design fact is verified skips archived binders — and the delivery that introduced it archives its own, so it guards nothing.",
+      "estimate": "M",
+      "depends_on": [],
+      "touches": [
+        "scripts/check_fact_traces.py",
+        "scripts/validate_plugin.py"
+      ],
+      "contract": {
+        "exposes": "A fact-trace sweep that reaches the binders this repo actually keeps, and that says out loud what it did not check. Today check_path (check_fact_traces.py:99) globs `*.json` one level deep and the floor calls it on .karta/binders (validate_plugin.py:1344), while the watch-drill-in delivery moves its own binder — the only one carrying a traced fact table — into .karta/binders/archive/ as its final step. The gate therefore ships having never read the table it was written for.\n\nThe archive is not uniform, and the sweep has to know that. Measured on the integration tip, the 21 archived binders fall into three groups: watch-drill-in.json carries a design_fact_table as a LIST of 21 traced rows — the shape the checker knows and the one this gate exists to guard; watch-fidelity.json carries one as a DICT wrapping metadata (why_here, settled_collisions, unreconciled, fact_count) around a `facts` list of 278 entries, recorded BEFORE the traced-row convention existed, so not one of them has a traced_by or an untraced_reason; and the other 19 carry no fact table at all. So the sweep checks list-shaped tables, and reports a dict-shaped one as OUT OF SCOPE by name and reason rather than failing it or passing over it in silence.\n\nOne more file has to change with them, and missing it is how this item fails on its own oracle. validate_plugin.py's embedded self-test (:968-991) does not merely skip the archive — it PLANTS an untraced, list-shaped fact table at a fabricated archive/frozen.json, calls the floor, and asserts errs == [], under the printed label 'fact traces: a traced live binder passes; the archive is not swept'. That fixture writes today's blind spot down as the expected passing state. Sweep list-shaped archived tables correctly and that case flips to FAIL, and so does its neighbour at :986-991, which reuses the same directory. Note the trap in the wording: this is a DIFFERENT suite from the checker's own 18-case --self-test, so 'the 18 cases still pass' can be true while the item's own oracle command is red. Both fixtures are updated here, and both stale descriptions are rewritten to match what the floor now does: the comment at :969 and the printed label at :982, which is the one that shows up in the run output.",
+        "preserves": "The checker's existing rules and its own 18-case self-test — `check_fact_traces.py --self-test`, which is NOT the same suite as validate_plugin.py's embedded fixtures discussed above — unchanged: a trace naming a work item the binder does not have still fails, an out-of-range assertion index still fails, and an untraced fact with an untraced_reason is still accepted. Archived binders are frozen history and stay byte-identical — nothing in this item rewrites, reshapes or moves one. That is a real constraint rather than a preference: converting watch-fidelity.json's dict to a list would delete the why_here, settled_collisions and unreconciled records it deliberately carries, and stamping 278 untraced_reason strings onto facts that predate the convention would be inventing history to satisfy a gate.",
+        "regression_risk": "Two ways to get this wrong, in opposite directions. Fail the pre-convention table and the floor goes red 278 times for a reason older than the gate, and the next person narrows the sweep back and the blind spot returns. Skip it quietly and the sweep reports PASS while never having looked at 278 recorded facts, which is the same silence this binder exists to remove — one directory deeper.\n\nThe skip must therefore be VISIBLE at the enforced floor, not only in the standalone script. validate_plugin.py:1344 currently reads `swept, _notes = check_fact_traces.check_path(...)` and throws the notes away, so anything the checker chooses to report rather than fail is invisible in the run that gates the commit. That discard is part of this item's work.\n\nA third way to get it wrong, found in review: fix the sweep, watch validate_plugin.py's own fixture go red, and 'repair' it by deleting the case. That leaves the floor with no archived-binder coverage at all and looks green, which is the same shape as the defect being fixed.",
+        "verification_honesty": "This closes WHICH FILES the gate reads and makes what it declined to read visible. It does not touch the deeper limit the tool already prints in its own output — that it proves a fact NAMES an existing assertion, never that the assertion would notice the fact changing. Review demonstrated that limit by moving --green-soft from .13 to .12 and watching 258/258 still pass. Out of scope here and recorded in scope.excluded. Nor does it give the 278 pre-convention facts any coverage: after this item they are named as unchecked, which is strictly better than unmentioned, and no closer to verified."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && python3 skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "A LIST-shaped fact table in an archived binder is checked, so a broken trace there turns the floor RED. Measured before this item, with a trace rewritten to `ghost-item:999` in an archived copy of watch-drill-in.json: sweeping the directory printed `FACT TRACES: PASS` and exited 0, while naming the same file explicitly printed `FACT TRACES: FAIL` and exited 1. The failure was always detectable; the sweep just never looked. Negative control: reverting check_path to a one-level glob turns this case red — the same mutation the fixture assertion below leans on, for a different reason: here it proves the sweep reaches the archive, there it proves a fixture still covers it.",
+          "A DICT-shaped, pre-convention fact table is reported as out of scope, naming the file and the reason, and does not fail the run. Measured: exactly one archived binder is in this shape today, watch-fidelity.json, whose 278 facts carry no traced_by and no untraced_reason because the convention post-dates them. Negative controls, both directions: making that table FAIL the run is wrong and must not be the implementation; making it pass with no report is also wrong — a run that checks nothing in a file must say which file.",
+          "The report reaches the ENFORCED floor, not just the standalone script. `uv run scripts/validate_plugin.py --self-test` surfaces the out-of-scope names; validate_plugin.py:1344 no longer discards the checker's notes. Negative control: restoring the `_notes` discard hides the report and turns this assertion red.",
+          "validate_plugin.py's embedded fact-trace fixtures (:968-991) are updated rather than removed, and after this item the floor still has a case that FAILS when the archive sweep is reverted. State the mechanism, because the obvious phrasing does not have one: asserting only that the oracle command stays green cannot tell an updated fixture from a deleted one, since deleting the two cases also leaves the command green — just with less coverage. Review found that hole in an earlier draft of this assertion, which claimed a delete control it did not have.\n\nWhat makes it checkable is a mutation rather than a reading: with the item complete, reverting check_path to a one-level glob must turn `uv run scripts/validate_plugin.py --self-test` RED. That holds only if some fixture still exercises an archived binder, so it fails if the cases were deleted, and it fails if they were rewritten into something that no longer reaches the archive. Concretely the updated fixture asserts the opposite of what it asserts today: the planted untraced table at archive/frozen.json now produces a NAMED error rather than errs == [], and the printed label says the archive is swept for list-shaped tables. Cite it precisely, since review found the previous draft did not: the print() a person reads in the run output is at :982, while :969 is the comment above the fixture describing the same behaviour. Both are stale after this item and both are rewritten. A passing case under a sentence describing the opposite behaviour is how the next reader learns the wrong rule.",
+          "Every archived binder is accounted for in one of the three groups, with no fourth silent outcome: 21 files on the integration tip — one list-shaped and checked, one dict-shaped and reported, 19 with no fact table and nothing to check. Negative control: adding an archived fixture in a fourth shape must fail loudly rather than fall through.",
+          "The checker's existing 18 self-test cases still pass unchanged and `--self-test` still exits 0. Negative control: a trace naming a work item the binder does not have still fails, and an assertion index past the end of that item's list still fails."
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract-mutation: none for callers, but the SET OF FILES the floor reads widens and the floor gains a report line, which is the point",
+          "destructive-op: none — archived binders stay byte-identical; the contract explains why rewriting one would be worse than the gap",
+          "sensitive-zone: none",
+          "capability-escalation: none",
+          "blast-radius: 2 files. Shares validate_plugin.py with selftest-count-is-real, which depends on this item for that reason",
+          "architectural-novelty: none",
+          "open-question: RESOLVED by measurement during planning. The item originally said 'if any archived binder fails, correct it' — which was both a hypothetical about a condition that is already true and a contradiction of its own read-only claim. Reading the archive settled it: the one affected file predates the convention rather than violating it, so the resolution is a shape-aware sweep with a visible out-of-scope report, and no archived binder is touched."
+        ]
+      }
+    },
+    {
+      "id": "rail-selection-hidden-pick",
+      "title": "A pick the filter hides falls back instead of vanishing",
+      "summary": "Pick a delivered binder, then hide delivered, and the map shows no selection while the panel still shows that binder; the pick now falls back to the default instead.",
+      "estimate": "M",
+      "depends_on": [
+        "twin-guards"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        ".agents/skills/karta-status/scripts/selftest_behaviours.txt",
+        "plugins/karta/skills/karta-status/scripts/selftest_behaviours.txt"
+      ],
+      "contract": {
+        "exposes": "One consistent state between the map and the panel when the delivered filter hides the binder the user picked: THE PICK FALLS BACK to the same default the page uses when no explicit pick exists — the in-flight binder — and the panel follows it. This resolution was chosen by the human at plan time, out of two valid ones, and the item is written to it rather than leaving the builder to decide.\n\nWhat is wrong today: rail_selection (serve_status.py:2670-2690) and its JavaScript twin railSelectionOf keep an explicit pick while its binder is anywhere in the feed, deliberately independent of the filter — but rail_groups applies the filter when rendering, so the card carrying the selected marking is never drawn. Reproduced: with a merged binder and an idle one, picking the merged one and then setting showDelivered false returns that slug as the selection while the rail renders only the idle card. Zero cards are marked while the panel shows content as if one were.\n\nWhy this resolution and not the other: falling back is what the page ALREADY does when a picked binder leaves the feed entirely, so this makes one rule cover both disappearances instead of two rules for two ways of vanishing. The alternative — keeping the picked card rendered despite the filter — would make the filter mean something other than what it says.\n\nWhere the change has to live, because the obvious place cannot deliver it. selectedSlug (serve_status.py:3636) is a COMPUTED over railSelectionOf, and the pick it reads is component state: pickedSlug is written in exactly two places on the whole page — initialised to null at :3564 and set by pick() at :3771 — and toggleShowDelivered (:3772-3775) flips showDelivered and writes localStorage without touching it. So a fallback implemented only inside railSelectionOf is TRANSIENT: the hidden slug stays in pickedSlug, and toggling delivered back on hands it straight back. The behaviour chosen at plan time is the sticky one, so this item must also clear the pick when the filter hides it — a state transition on the toggle path, not a change to the pure function. Review found this: every assertion in the previous draft tested railSelectionOf, so a build could satisfy all of them and still restore the pick.",
+        "preserves": "Everything else about the selector: an explicit pick still survives a poll refresh, still falls back when its binder leaves the feed entirely, and the default pick is still the in-flight binder. The four existing rail_selection negative controls keep passing.",
+        "regression_risk": "The accepted cost of falling back is that toggling delivered back ON does NOT restore the previous pick — the fallback stands, and the user re-picks. That is a real loss of intent and it is the reason the other resolution was worth considering. It is accepted deliberately, so the assertion below states it as the required behaviour rather than leaving it unspecified; an implementation that helpfully restores the old pick is a DIFFERENT behaviour and fails here.\n\nThe second sharp edge: the fallback must be the page's existing default, not a fresh rule. If this item invents its own notion of 'the default binder', the two will drift the next time the default changes.\n\nAnd the clearing has to be narrow. Clearing pickedSlug on every toggle would also discard a pick the filter never hid — toggle delivered on and off with a live binder picked, and the user loses a selection for no reason. Clear it only when the pick is no longer in the rendered set.",
+        "verification_honesty": "The claim being repaired is the item's own: 'exactly one rail card is the picked one, in every state the map can be in.' After this item that claim holds for the filter transition specifically. It is asserted against the Python twin, against the shipped JavaScript thanks to twin-guards, and — for the toggle transition — against the component state the browser actually keeps. Still not against a browser: nothing here observes a real click or reads the rendered DOM, so what is proven is the logic and the state, not the pixels."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && python3 skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "With a merged binder and an in-flight binder in the feed, picking the merged one and then setting showDelivered false makes the selection FALL BACK to the in-flight binder, and the panel renders that binder. Exactly one rendered rail card is marked selected. The state reproduced before this item — zero cards marked while the panel still renders the hidden binder — is gone. Negative control: restoring the pre-item behaviour, where the hidden slug is still returned as the selection, turns this red.",
+          "Toggling delivered back ON does NOT restore the earlier pick: the fallback stands until the user picks again. This is the accepted cost of the chosen resolution, so it is asserted positively — a well-meant implementation that restores the old pick must FAIL here rather than pass as an improvement.\n\nIt is asserted against the STATE, not only the selection function, because the selection function cannot deliver it: pickedSlug survives in component state (:3564, :3771) and toggleShowDelivered (:3772-3775) does not touch it, so a fallback built purely inside railSelectionOf hands the pick back on the next toggle while every function-level assertion still passes. Review found exactly that hole in an earlier draft. Negative control: removing the clearing while leaving the railSelectionOf fallback intact must turn this red — that is the precise shape of the wrong implementation. Second control, for the over-broad fix: with a LIVE binder picked, toggling delivered off and on must LEAVE the pick alone, since the filter never hid it.",
+          "The fallback is the page's EXISTING default rather than a second implementation of one: the hidden-pick path and the no-pick-at-all path resolve through the same code. Negative control: giving the hidden-pick case its own default that happens to agree today still fails, because changing the shared default must move both cases together.",
+          "The existing guarantees still hold, each with its own control: a pick survives a poll refresh; a pick whose binder leaves the feed entirely falls back; the default pick with no explicit pick is the in-flight binder.",
+          "The new case is exercised against the shipped JavaScript as well as the Python twin, through the guards twin-guards puts in place. Negative control: deleting line 3326 still turns the suite red, so this item does not quietly re-open the hole twin-guards closed."
+        ]
+      },
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract-mutation: FLAGGED — a user-visible behaviour change to the selector. The resolution was DECIDED BY THE HUMAN at plan time (fall the pick back, rather than keep the hidden card visible), so the open question is closed; the flag stands because a reviewer should still agree with the choice and its recorded cost.",
+          "destructive-op: none, though the chosen resolution discards the user's selection on a filter toggle, which the contract states as an accepted cost and the oracle asserts positively",
+          "sensitive-zone: none",
+          "capability-escalation: none",
+          "blast-radius: 6 files, 2 canonical; shares them with twin-guards, hence the dependency",
+          "architectural-novelty: none — the fallback reuses the page's existing default rather than adding a rule",
+          "open-question: resolved at plan time; see contract-mutation"
+        ]
+      }
+    },
+    {
+      "id": "doc-drift-two-corrections",
+      "title": "Two documents stop describing things the page does not do",
+      "summary": "One doc promises the hub keeps moving under reduced motion and it does not; another still describes the old page that showed every binder at once.",
+      "estimate": "S",
+      "depends_on": [],
+      "touches": [
+        "docs/how-to/karta-watch.md",
+        "docs/conventions/watch-design-fidelity.md"
+      ],
+      "contract": {
+        "exposes": "Two corrected statements. First, docs/how-to/karta-watch.md says that under reduced motion 'neither goes still: the pulse keeps breathing, and the flash softens'. Only the alarm was changed. The hub's in-flight pulse wears .karta-ring, whose reduced-motion rule is still `animation:none !important` with a resting 2px ring, so it does go still. The same delivery's own docs/conventions/watch-design-fidelity.md describes this correctly, so the two documents contradict each other. Second, that same conventions file still says the page 'renders every binder at once' and justifies a heading level with 'several binder headlines' — the panel now shows one binder, which is the whole point of this delivery.",
+        "preserves": "Everything else in both files, including the reduced-motion rationale for the alarm, which is accurate and is the reason the distinction is worth drawing at all.",
+        "regression_risk": "The tempting fix for the first one is to make the ring keep breathing so the sentence becomes true. That is a behaviour change wearing a documentation fix, and it belongs to whoever owns the reduced-motion decision. Correct the prose.",
+        "verification_honesty": "No check in this repo reads either sentence, so nothing here can gate them; doc-gardner is enabled and runs over this delivery, which is a second reader rather than a gate. What the oracle does confirm is that the floor stays green and that neither file grows a pointer that does not resolve."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && python3 skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "docs/how-to/karta-watch.md no longer claims the hub's pulse keeps moving under reduced motion, and what it says instead matches the .karta-ring rule actually in serve_status.py — the ring holds a resting 2px ring rather than pulsing. The two documents agree with each other and with the CSS.",
+          "docs/conventions/watch-design-fidelity.md no longer describes the page as rendering every binder at once, and its heading-hierarchy rationale is restated for a page that shows one binder at a time. If the extra heading level is no longer justified, say so rather than keeping the conclusion and replacing its reason.",
+          "Every file:line pointer and every command either file instructs the reader to run resolves on the integration tip. The floor stays green."
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract-mutation: none — prose only",
+          "destructive-op: none",
+          "sensitive-zone: none",
+          "capability-escalation: none",
+          "blast-radius: 2 files, shared with no other item",
+          "architectural-novelty: none",
+          "open-question: none, though the contract names the tempting wrong fix — changing the CSS so the sentence becomes true — as out of bounds"
+        ]
+      }
+    },
+    {
+      "id": "selftest-count-is-real",
+      "title": "The self-test reports the number of cases it ran",
+      "summary": "The validator prints 46 of 46 while running 58 cases, because one group is left out of the total.",
+      "estimate": "S",
+      "depends_on": [
+        "fact-trace-archive"
+      ],
+      "touches": [
+        "scripts/validate_plugin.py"
+      ],
+      "contract": {
+        "exposes": "A printed count equal to the number of cases executed. On the integration tip the self-test prints 46/46 while executing 58 — measured by counting the [PASS]/[FAIL] lines it emits. The shortfall is 12 and it comes from two places, which matters because naming only the first sends an implementer to a wrong answer: the total expression at :1291-1293 omits len(ground_cases), which is 10, and it also omits two singular checks that print their own [PASS]/[FAIL] line without belonging to any case list — the fact-trace pair at :982 and :989. Add only the ground_cases term and the run reports 56 of 58, still wrong. Exit behaviour is already correct — a failing case still fails the run — so what is wrong is the number a person reads.",
+        "preserves": "Exit behaviour and every case. This adds nothing to the suite and removes nothing; it corrects arithmetic.",
+        "regression_risk": "The same omission recurs the next time a case group or a standalone check is added, and the second half of the gap is the evidence: the singular checks were missed precisely because the total is a hand-maintained sum of list lengths. Derive the total from what actually ran — count the executed cases — rather than maintaining a parallel expression that has now drifted twice.",
+        "verification_honesty": "A correct count is not a correctness property of the repo — it is honesty in the report a person uses to judge the repo. It is in this binder because the review that found it was reading that number to decide whether the floor had been weakened."
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && python3 skills/karta-status/scripts/serve_status.py --self-test",
+        "assertions": [
+          "The number `uv run scripts/validate_plugin.py --self-test` prints equals the number of cases it executed. Measured before this item on the integration tip: 58 [PASS]/[FAIL] lines emitted, '46/46' printed. Negative control, and it is the one that matters because it is the plausible half-fix: adding only len(ground_cases) yields 56 against 58 executed and must still FAIL this assertion.",
+          "The total is derived from the groups that run, not typed a second time, so adding a case group cannot silently under-report again. Negative control: adding a group without touching the total expression still reports correctly.",
+          "Exit behaviour is unchanged: a failing case still exits non-zero. Negative control: forcing one case to fail still fails the run."
+        ]
+      },
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract-mutation: none — the printed count changes, no interface does",
+          "destructive-op: none",
+          "sensitive-zone: none — validate_plugin.py is the floor, but this item touches its reporting arithmetic, not any check",
+          "capability-escalation: none",
+          "blast-radius: 1 file, shared with fact-trace-archive, hence the dependency",
+          "architectural-novelty: none",
+          "open-question: none"
+        ]
+      }
+    }
+  ]
+}
