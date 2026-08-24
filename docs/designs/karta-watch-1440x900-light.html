@@ -11,32 +11,37 @@
 
   This is a derived, self-contained capture, not the live Claude Design export.
   The export's only script reference is a sibling support.js it does not carry,
-  it preconnects to two Google Fonts hosts and links a stylesheet for its eight
-  faces with no local @font-face fallback, and its mascot is a relative path to
-  an asset it does not carry either -- so serving the export as-is would need
+  it preconnects to two Google Fonts hosts and links a stylesheet for its faces
+  with no local @font-face fallback, and its mascot is a relative path to an
+  asset it does not carry either -- so serving the export as-is would need
   the network and would drift whenever a font host did. This file inlines the
   export's styles as they render at 1440x900 in light theme, points the mascot
-  and the eight faces at the copies this repo already vendors under
+  and the seven faces at the copies this repo already vendors under
   skills/karta-status/assets/, and fetches nothing. It records its origin here
   because it is derived and can go stale against the living design -- recapture
   it from the design source rather than hand-editing it. See
   docs/conventions/watch-design-fidelity.md for how to run the comparison this
   file exists for.
+
+  This file cannot witness a font difference. Its @font-face rules point at the
+  very files the page serves, so it renders in whatever the page renders in and
+  agrees with the page about fonts by construction -- including when both are
+  wrong, which is how a serif flattened to a pinned optical size sat here
+  unnoticed. Whatever this comparison is good for, typeface fidelity is not it.
+  The check that can tell the two apart has to measure what a browser drew, and
+  it is briefed in docs/backlog/watch-optical-harness/FINDINGS.md.
 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Karta Watch -- design reference (1440x900, light)</title>
 <style>
-/* The eight vendored faces this repo already ships, pointed at the on-disk
+/* The seven vendored faces this repo already ships, pointed at the on-disk
    copies under skills/karta-status/assets/fonts/ so this capture opens with
    no network. No __ASSET_QS__ token here -- that placeholder only matters to
    the served page's token-gated hub mode; a static file opened directly has
    no query string to carry. */
-@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
-  src:url("../../skills/karta-status/assets/fonts/newsreader-400.woff2") format("woff2");
-  unicode-range:U+0000-00FF, U+2000-206F; }
-@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:500; font-display:swap;
-  src:url("../../skills/karta-status/assets/fonts/newsreader-500.woff2") format("woff2");
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400 500; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/newsreader-var.woff2") format("woff2");
   unicode-range:U+0000-00FF, U+2000-206F; }
 @font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap;
   src:url("../../skills/karta-status/assets/fonts/ibm-plex-sans-400.woff2") format("woff2");

@@ -223,10 +223,18 @@ can change anything — opt-in and opt-out exist only as the script flags above.
 ## The typefaces ship with the plugin
 
 The page sets its text in three families — Newsreader, IBM Plex Sans and IBM Plex Mono. All three
-are vendored: eight subset `.woff2` files under `skills/karta-status/assets/fonts/`, served off the
+are vendored: seven subset `.woff2` files under `skills/karta-status/assets/fonts/`, served off the
 same `/assets/` route as the mascot and the Vue runtime. Nothing is fetched from a font service, so
-the page works with no network at all and leaks no request to anyone. Together the eight files are
-about 108 KB, and a check refuses to let them past 400 KB.
+the page works with no network at all and leaks no request to anyone. Together the seven files are
+about 149 KB, and a check refuses to let them past 400 KB.
+
+Newsreader ships as a variable font rather than one file per weight: its single `newsreader-var.woff2`
+carries a `wght` axis limited to 400..500 and an `opsz` axis left at its upstream 6..72, so the page
+can pick weight and optical size without a second file. IBM Plex Sans and IBM Plex Mono ship as one
+static file per weight, as before. A check reads each face's WOFF2 table directory (tags and recorded
+lengths, no decompression) to confirm the manifest's `variable` claim against the file itself — it
+does not read which axes a font carries or verify that its optical-size axis renders correctly; only
+that the declared table is present at the declared length.
 
 Two consequences worth knowing:
 

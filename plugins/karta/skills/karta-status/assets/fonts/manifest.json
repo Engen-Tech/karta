@@ -1,13 +1,13 @@
 {
-  "note": "Every typeface the Karta Watch page uses, vendored and served same-origin from /assets/fonts/. This file is the DECLARED record of what was shipped: the gate checks that it, the files on disk and the page's @font-face rules agree. Glyph coverage is a guarantee of the subsetting step recorded here, not something read back out of the woff2 cmap \u2014 the gate is stdlib Python with no font library.",
+  "note": "Every typeface the Karta Watch page uses, vendored and served same-origin from /assets/fonts/. This file is the DECLARED record of what was shipped: the gate checks that it, the files on disk and the page's @font-face rules agree. Glyph coverage is a guarantee of the subsetting step recorded here, not something read back out of the woff2 cmap — the gate is stdlib Python with no font library. Each face also carries a \"variable\" claim, checked against the file's own WOFF2 table directory (a stdlib parse, never a decompress) rather than taken on this manifest's word alone — a variable face must carry fvar at its recorded \"fvar_length\" and every tag it lists under \"variation_tables\" at a non-zero length, and a static face must carry no fvar at all. See woff2-table-directory-round-trips, font-manifest-agrees-with-variation-table and font-hinting-tables-stripped in serve_status.py. What a directory read reaches is a tag and a recorded length; every table's CONTENTS are Brotli-compressed and are not read here.",
   "unicode_range_blocks": [
     "Basic Latin U+0020-007F",
     "Latin-1 Supplement U+00A0-00FF",
     "General Punctuation U+2000-206F"
   ],
-  "coverage_caveat": "The range is a fixed writing system, not the characters the page happens to render today. Text outside it (arrows, box drawing, CJK, emoji) falls through to the next family in the stack \u2014 the system font \u2014 which is why every stack keeps one.",
+  "coverage_caveat": "The range is a fixed writing system, not the characters the page happens to render today. Text outside it (arrows, box drawing, CJK, emoji) falls through to the next family in the stack — the system font — which is why every stack keeps one.",
   "subsetting": {
-    "tool": "fonttools pyftsubset (build-time only \u2014 never a runtime dependency)",
+    "tool": "fonttools pyftsubset (build-time only — never a runtime dependency)",
     "flags": [
       "--unicodes=U+0000-00FF,U+2000-206F",
       "--layout-features+=tnum",
@@ -16,7 +16,9 @@
       "--flavor=woff2",
       "--name-IDs=1,2,3,4,5,6,16,17"
     ],
-    "variable_sources": "Newsreader and IBM Plex Sans ship upstream as variable fonts; each face was instanced with fontTools.varLib.instancer at the pinned axes below before subsetting. IBM Plex Mono ships static per-weight files, used directly.",
+    "variable_sources": "Newsreader ships upstream as a variable font and is shipped as one: it is cut with fontTools.varLib.instancer LIMITING wght to 400..500 and PINNING nothing, so opsz stays at its upstream 6..72. IBM Plex Sans ships upstream as a variable font and each face was instanced to the pinned axes below before subsetting. IBM Plex Mono ships static per-weight files, used directly. The instancer step is what flattens a face; the subsetting flags above preserve fvar, gvar, avar, HVAR and STAT on their own.",
+    "fonttools_version": "4.63.0",
+    "reproducibility": "NOT byte-reproducible, which is why the version above is recorded rather than a promise of identical bytes. Replaying this recipe on fontTools 4.60.1 reproduced one face's byte count exactly and landed 36 bytes off another, and two runs of 4.63.0 differ from each other. What is checked is that the bytes on disk match the sha256 and byte count recorded per face here, and that the shipped total stays under the payload bound. That the bytes on disk came from THIS recipe is recorded, never verified.",
     "upstream_repo": "https://github.com/google/fonts",
     "upstream_commit": "352f6b7d9d6cc4fa9e242b931291d31b21a6dc84"
   },
@@ -27,10 +29,12 @@
       "upstream_version": "1.003",
       "source_url": "https://github.com/google/fonts/tree/352f6b7d9d6cc4fa9e242b931291d31b21a6dc84/ofl/newsreader",
       "source_files": "Newsreader[opsz,wght].ttf",
-      "pinned_axes": {
-        "wght": "per face",
-        "opsz": 18
-      }
+      "pinned_axes": null,
+      "axes": {
+        "wght": "400..500 (limited from the upstream 200..800)",
+        "opsz": "6..72 (upstream range, unpinned)"
+      },
+      "axes_caveat": "RECORDED, NOT CHECKED. Reading an axis tag or its range out of a woff2 needs the fvar table's CONTENTS, which are Brotli-compressed; the gate is stdlib Python and reads the table DIRECTORY only, so it can hold this face to an fvar entry of the recorded length and no further. An 84-byte fvar is equally consistent with a different pair of axes. Establishing that the second axis is an optical-size axis, and that it reaches 6 and 72, needs a rendered measurement — briefed in docs/backlog/watch-optical-harness/FINDINGS.md."
     },
     "IBM Plex Sans": {
       "licence": "ibm-plex-sans-OFL.txt",
@@ -55,23 +59,22 @@
   "faces": [
     {
       "family": "Newsreader",
-      "weight": 400,
-      "file": "newsreader-400.woff2",
-      "bytes": 18496,
-      "sha256": "baa74b5b2f8809eeaf4457190531658c22e5cf4e73a093203ac88874fbccd530",
+      "weight": "400 500",
+      "file": "newsreader-var.woff2",
+      "bytes": 79988,
+      "sha256": "6c1cb2b1dd4de46aa14b544114cb10d8dc6d99fadc3290681a29fa65811dc990",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "Newsreader[opsz,wght].ttf",
-      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1"
-    },
-    {
-      "family": "Newsreader",
-      "weight": 500,
-      "file": "newsreader-500.woff2",
-      "bytes": 19912,
-      "sha256": "0459cfff19f8a01eaa15b08c4f9dae1a83bf071e5e3429392f232a7ce51daf03",
-      "unicode_range": "U+0000-00FF, U+2000-206F",
-      "source_file": "Newsreader[opsz,wght].ttf",
-      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1"
+      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1",
+      "variable": true,
+      "fvar_length": 84,
+      "variation_tables": [
+        "fvar",
+        "gvar",
+        "HVAR",
+        "avar",
+        "STAT"
+      ]
     },
     {
       "family": "IBM Plex Sans",
@@ -81,7 +84,8 @@
       "sha256": "452e63e005884a9548bf74d7f8962dd9bce2856dd530c04a5bb715ee2ccc023a",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexSans[wdth,wght].ttf",
-      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3",
+      "variable": false
     },
     {
       "family": "IBM Plex Sans",
@@ -91,7 +95,8 @@
       "sha256": "889037cd894ca0ce466ba8dfdf0eed0613267e90e4d6e2b02f10970bbbc4de83",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexSans[wdth,wght].ttf",
-      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3",
+      "variable": false
     },
     {
       "family": "IBM Plex Sans",
@@ -101,7 +106,8 @@
       "sha256": "c48093cdc446a519f25799bea9464e73096c5d66e66f4a0a66b5b36c2e29738c",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexSans[wdth,wght].ttf",
-      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3",
+      "variable": false
     },
     {
       "family": "IBM Plex Mono",
@@ -111,7 +117,8 @@
       "sha256": "06d7234f6dd584151d8cdf9ef0fe4741365f549b555d4b7f51857a8c8cc03b8c",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexMono-Regular.ttf",
-      "source_sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+      "source_sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46",
+      "variable": false
     },
     {
       "family": "IBM Plex Mono",
@@ -121,7 +128,8 @@
       "sha256": "781d9869b99088f87578f23f9762acbd13b36d7132aedabbafdfc702f3f4ef42",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexMono-Medium.ttf",
-      "source_sha256": "a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755"
+      "source_sha256": "a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755",
+      "variable": false
     },
     {
       "family": "IBM Plex Mono",
@@ -131,7 +139,8 @@
       "sha256": "9bb32951ab78d49340eaca5cf098339b3cc491b71676a655b839721000fc9313",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexMono-SemiBold.ttf",
-      "source_sha256": "d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46"
+      "source_sha256": "d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46",
+      "variable": false
     }
   ]
 }

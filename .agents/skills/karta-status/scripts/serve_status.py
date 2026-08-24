@@ -76,6 +76,7 @@ import re
 import secrets
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -107,10 +108,17 @@ _SCRIPT_PATH = Path(__file__).resolve()
 # The design asks for three families; karta forbids a CDN reference, so they are
 # subset and served same-origin from /assets/fonts/ like every other asset.
 #
-# VENDORED_FACES is the ENUMERATION — the eight (family, weight) pairs this page
+# VENDORED_FACES is the ENUMERATION — the seven (family, weight) pairs this page
 # ships. Nothing counts faces by hand: the manifest beside the fonts, the files
 # on disk and the page's @font-face rules are each checked against this tuple, so
-# "eight" is a length, never a number typed twice.
+# "seven" is a length, never a number typed twice.
+#
+# A weight is an int for a face shipped as its own static file, and a (low, high)
+# RANGE for a face shipped as one variable file covering both weights the design
+# asks for. Newsreader is the second kind: one file, wght 400..500. The range
+# lives here and in the @font-face rule; _vendored_weights is the one place it
+# becomes individual integers, because the checks that ask "is there a file for
+# weight N" want integers and nothing else does.
 #
 # Glyph coverage is NOT read back out of the woff2 files. Parsing a cmap needs a
 # font library, and this script is stdlib-only with zero dependencies — an
@@ -121,8 +129,8 @@ _SCRIPT_PATH = Path(__file__).resolve()
 FONTS_DIR = ASSETS_DIR / "fonts"
 FONT_MANIFEST = FONTS_DIR / "manifest.json"
 FONT_ROUTE = "/assets/fonts/"
-VENDORED_FACES: tuple[tuple[str, int], ...] = (
-    ("Newsreader", 400), ("Newsreader", 500),
+VENDORED_FACES: tuple[tuple[str, int | tuple[int, int]], ...] = (
+    ("Newsreader", (400, 500)),
     ("IBM Plex Sans", 400), ("IBM Plex Sans", 500), ("IBM Plex Sans", 600),
     ("IBM Plex Mono", 400), ("IBM Plex Mono", 500), ("IBM Plex Mono", 600),
 )
@@ -1412,11 +1420,8 @@ _CSS_TEMPLATE = """
    because hub assets are token-gated; ephemeral mode substitutes "". Each face
    swaps rather than blocking paint, and each declares the writing-system range
    it was cut to — anything outside it falls through to the system fallback. */
-@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
-  src:url("/assets/fonts/newsreader-400.woff2__ASSET_QS__") format("woff2");
-  unicode-range:U+0000-00FF, U+2000-206F; }
-@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:500; font-display:swap;
-  src:url("/assets/fonts/newsreader-500.woff2__ASSET_QS__") format("woff2");
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400 500; font-display:swap;
+  src:url("/assets/fonts/newsreader-var.woff2__ASSET_QS__") format("woff2");
   unicode-range:U+0000-00FF, U+2000-206F; }
 @font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap;
   src:url("/assets/fonts/ibm-plex-sans-400.woff2__ASSET_QS__") format("woff2");
@@ -8609,10 +8614,24 @@ _VAR_DEF_RE = re.compile(r"(--[a-z0-9-]+)\s*:")
 
 
 def _vendored_weights() -> dict[str, set[int]]:
-    """family -> the weights this plugin actually ships a file for."""
+    """family -> the weights this plugin actually ships a file for.
+
+    This is the ONE place a VENDORED_FACES weight RANGE becomes integers. A
+    variable face shipped as a single file covers a span of weights, and every
+    reader of this map asks the same integer question — "is there a file behind
+    the font-weight this rule wrote" — so the range is expanded here rather than
+    at each of the six call sites, two of which would silently accept a tuple
+    into a set of ints and then never match anything.
+
+    The step is 100 because the page's own scale is: the design asks for 400 and
+    500 and nothing between them, so Newsreader's 400..500 reports {400, 500}.
+    A rule asking for 450 is a weight this page does not use, and failing it is
+    the conservative direction — the file would render it, but nothing in the
+    design calls for it and an unexplained 450 is more likely a typo."""
     out: dict[str, set[int]] = {}
     for family, weight in VENDORED_FACES:
-        out.setdefault(family, set()).add(weight)
+        low, high = weight if isinstance(weight, tuple) else (weight, weight)
+        out.setdefault(family, set()).update(range(low, high + 1, 100))
     return out
 
 
@@ -9682,7 +9701,12 @@ def _c_retired_behaviours_recorded(ctx):
                      'font-family:var(--serif)', 'font-family:var(--mono)')},
                  lambda c: {"css": c["css"].replace(
                      "font-family:var(--sans); font-size:15px",
-                     "font-family:sans-serif; font-size:15px")}])
+                     "font-family:sans-serif; font-size:15px")},
+                 # _vendored_weights folding a variable face's weight RANGE into
+                 # the map as a tuple instead of expanding it: every serif rule
+                 # then asks for a weight this map says is not shipped
+                 lambda c: {"vendored_weights": {**c["vendored_weights"],
+                                                 "Newsreader": {(400, 500)}}}])
 def _c_type_roles_bound(ctx):
     """Three families, three roles, and no rule asking for a weight the plugin
     does not ship. A font-weight with no vendored file is a faux-bold the
@@ -14440,7 +14464,11 @@ def _c_card_lead_named_roles(ctx):
                      "font-family:var(--serif); font-weight:400; "
                      "font-size:%dpx" % CARD_TITLE_PX,
                      "font-family:var(--sans); font-weight:600; "
-                     "font-size:%dpx" % CARD_TITLE_PX)}])
+                     "font-size:%dpx" % CARD_TITLE_PX)},
+                 # the serif is one variable file now: an unexpanded weight
+                 # RANGE in the map is not the integer this title asks for
+                 lambda c: {"vendored_weights": {**c["vendored_weights"],
+                                                 "Newsreader": {(400, 500)}}}])
 def _c_card_title_serif_step(ctx):
     """The card title resolves to the SERIF role at the card's own display step.
     The family comes through the role token the wordmark and the binder headline
@@ -14890,7 +14918,11 @@ def _c_asset_confinement(ctx):
 # --- the vendored typefaces: manifest, declarations and bytes must agree -----
 # Everything below reads the DECLARED record (the manifest), the bytes on disk
 # and the stylesheet, and checks the three against each other and against
-# VENDORED_FACES. None of it opens a woff2 — see the note at VENDORED_FACES.
+# VENDORED_FACES. None of it opens a woff2 — see the note at VENDORED_FACES. The
+# WOFF2 table-directory reader further down in this section is the one
+# exception: it parses (never decompresses) a font's own table directory, so
+# the manifest's per-face variation claim can be checked against what the file
+# itself says rather than taken on the manifest's word alone.
 
 _FONT_FACE_RE = re.compile(r"@font-face\s*\{([^}]*)\}")
 _CSS_DECL_RE = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;]+)")
@@ -14899,17 +14931,40 @@ _GENERIC_FAMILIES = {"serif", "sans-serif", "monospace", "system-ui",
                      "ui-monospace", "ui-sans-serif", "ui-serif", "cursive"}
 
 
+def _font_weight(value) -> int | tuple[int, int]:
+    """A declared font-weight, normalised to the shape VENDORED_FACES uses: an
+    int for a single weight, a (low, high) tuple for the two-number RANGE a
+    variable face declares ("font-weight:400 500"), and -1 for anything else.
+
+    One function because three readers have to agree on the shape — the
+    stylesheet parse, and the two checks that read the manifest's weight field —
+    and a range normalised differently in any one of them reads as a face that
+    was declared but not shipped. -1 is kept as the unparseable marker rather
+    than raising: an odd weight is a face-set disagreement to REPORT, and a
+    check that crashes on the page's own stylesheet reports nothing."""
+    if isinstance(value, int):
+        return value
+    parts = str(value).split()
+    if len(parts) == 2 and all(p.isdigit() for p in parts):
+        return (int(parts[0]), int(parts[1]))
+    return int(parts[0]) if len(parts) == 1 and parts[0].isdigit() else -1
+
+
 def _declared_faces(doc: str) -> list[dict]:
-    """Every @font-face rule in `doc` as {family, weight, src, display, range}."""
+    """Every @font-face rule in `doc` as {family, weight, src, display, range}.
+
+    ONE descriptor per rule, always — a face declaring a weight RANGE stays one
+    descriptor carrying a normalised range, and is not expanded into a descriptor
+    per weight. The count of these is compared against VENDORED_FACES and the
+    manifest, so expanding here would report more faces declared than shipped."""
     faces = []
     for block in _FONT_FACE_RE.finditer(doc):
         decl = {k.strip().lower(): v.strip()
                 for k, v in _CSS_DECL_RE.findall(block.group(1))}
         url = re.search(r"url\(\s*[\"']?([^\"')]+)", decl.get("src", ""))
-        weight = decl.get("font-weight", "")
         faces.append({
             "family": decl.get("font-family", "").strip("\"'"),
-            "weight": int(weight) if weight.isdigit() else -1,
+            "weight": _font_weight(decl.get("font-weight", "")),
             "src": url.group(1) if url else "",
             "display": decl.get("font-display", ""),
             "range": re.sub(r"\s+", "", decl.get("unicode-range", "")).upper(),
@@ -14960,16 +15015,38 @@ def _stack_without_fallback(css: str) -> str:
                                               "faces": c["font_manifest"]["faces"][:-1]}},
                  lambda c: {"asset_serve": lambda path: (404, "text/plain")},
                  lambda c: {"css": c["css"].replace("font-display:swap",
-                                                    "font-display:block")}])
+                                                    "font-display:block")},
+                 # the serif declared as two rules again — the shape this face
+                 # had before it became one variable file, and the shape a
+                 # stylesheet parse that EXPANDED the range would produce
+                 lambda c: {"css": c["css"].replace(
+                     'font-weight:400 500', 'font-weight:400', 1).replace(
+                     '@font-face{ font-family:"IBM Plex Sans"',
+                     '@font-face{ font-family:"Newsreader"; font-style:normal; '
+                     'font-weight:500; font-display:swap;\n'
+                     '  src:url("/assets/fonts/newsreader-var.woff2") format("woff2");\n'
+                     '  unicode-range:U+0000-00FF, U+2000-206F; }\n'
+                     '@font-face{ font-family:"IBM Plex Sans"', 1)},
+                 # a stylesheet weight the parse cannot read normalises to -1,
+                 # which is the declared-versus-enumerated disagreement the
+                 # range was introduced to avoid
+                 lambda c: {"css": c["css"].replace("font-weight:400 500",
+                                                    "font-weight:bold")}])
 def _c_vendored_font_faces(ctx):
-    """The eight faces are declared, listed and actually served — as woff2."""
+    """The seven faces are declared, listed and actually served — as woff2. The
+    count is a LENGTH in all three places and a literal in none of them, so a
+    face added or dropped shows up as a disagreement rather than as a number
+    someone forgot to change. A face shipped as one variable file counts once,
+    and carries the weight RANGE it covers."""
     declared = [(f["family"], f["weight"]) for f in _declared_faces(ctx["css"])]
-    listed = [(e["family"], e["weight"]) for e in ctx["font_manifest"]["faces"]]
+    listed = [(e["family"], _font_weight(e["weight"]))
+              for e in ctx["font_manifest"]["faces"]]
     enumerated = list(VENDORED_FACES)
     served = all(ctx["asset_serve"](FONT_ROUTE + e["file"]) == (200, "font/woff2")
                  for e in ctx["font_manifest"]["faces"])
-    return (len(enumerated) == 8 and len(set(enumerated)) == 8
-            and sorted(declared) == sorted(listed) == sorted(enumerated)
+    return (len(set(enumerated)) == len(enumerated)
+            and len(declared) == len(listed) == len(enumerated)
+            and set(declared) == set(listed) == set(enumerated)
             and served
             and all(f["display"] == "swap" for f in _declared_faces(ctx["css"])))
 
@@ -14978,13 +15055,23 @@ def _c_vendored_font_faces(ctx):
          breaks=[lambda c: {"font_files": {**c["font_files"],
                                            c["font_manifest"]["faces"][0]["file"]:
                                            {"bytes": 1, "sha256": "0" * 64, "head": ""}}},
+                 # a face this page no longer declares left behind in the fonts
+                 # directory: the manifest and the disk disagree about the set of
+                 # files shipped, which is how a superseded cut goes on shipping
+                 lambda c: {"font_files": {**c["font_files"], "newsreader-400.woff2":
+                                           {"bytes": 18496, "sha256": "0" * 64,
+                                            "head": ""}}},
                  lambda c: {"font_manifest": {
                      **c["font_manifest"],
                      "faces": [{**f, "unicode_range": "U+0000-007F"}
                                for f in c["font_manifest"]["faces"]]}},
                  lambda c: {"css": c["css"].replace("U+2000-206F", "U+2000-20FF")}])
 def _c_font_manifest_agreement(ctx):
-    """Manifest, bytes on disk and @font-face rules describe the same eight files."""
+    """Manifest, bytes on disk and @font-face rules describe the same files —
+    the same set, one entry per shipped file, with the same bytes, digest,
+    unicode range and route. The final set comparison is what catches a face
+    that was superseded and then left on disk: an extra woff2 nothing declares
+    fails here rather than shipping quietly inside the payload budget."""
     entries = ctx["font_manifest"]["faces"]
     disk = ctx["font_files"]
     faces = {(f["family"], f["weight"]): f for f in _declared_faces(ctx["css"])}
@@ -14992,7 +15079,7 @@ def _c_font_manifest_agreement(ctx):
         return False
     for e in entries:
         on_disk = disk.get(e["file"])
-        declared = faces.get((e["family"], e["weight"]))
+        declared = faces.get((e["family"], _font_weight(e["weight"])))
         if on_disk is None or declared is None:
             return False
         if on_disk["bytes"] != e["bytes"] or on_disk["sha256"] != e["sha256"]:
@@ -15035,6 +15122,588 @@ def _c_font_licences_shipped(ctx):
         if licence is None or "OPEN FONT LICENSE" not in licence["head"].upper():
             return False
     return True
+
+
+# --- the WOFF2 table directory: a stdlib reader, no compressed byte read -----
+# A WOFF2 file opens with a 48-byte header, then one directory entry per table
+# — a flags byte, an optional 4-byte literal tag, and one or two UIntBase128
+# lengths. Nothing past the directory is ever read: the table DATA that follows
+# is Brotli-compressed and the stdlib has no Brotli, which is why this reader
+# can exist at all without adding a dependency (see the note at VENDORED_FACES,
+# serve_status.py:110-124).
+#
+# The flags byte's low six bits are a KNOWN-TAG INDEX (0..62) into the WOFF2
+# spec's own 63-entry table below, with 63 (0x3F) meaning "no known tag — a
+# literal 4-byte tag follows instead". A known-tag entry carries NO literal
+# bytes for its name: 'fvar' is index 47, so it is encoded as a single flags
+# byte and the four bytes "fvar" never appear in the file. A substring scan for
+# those bytes would therefore report every variable font as static (assertion
+# 2 in this behaviour's registration proves it, and the round-trip behaviour
+# below proves a scan-based reader fails outright). 'STAT' is NOT in this list
+# — measured against every face this plugin ships, it appears as literal bytes
+# in four of the seven, while fvar/avar/gvar/cmap/head never do. The shipped
+# serif is one of the four, so its STAT entry exercises the literal-tag path
+# against a real file and not only against a fixture.
+_WOFF2_KNOWN_TAGS: tuple[str, ...] = (
+    "cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2", "post",
+    "cvt ", "fpgm", "glyf", "loca", "prep", "CFF ", "VORG", "EBDT",
+    "EBLC", "gasp", "hdmx", "kern", "LTSH", "PCLT", "VDMX", "vhea",
+    "vmtx", "BASE", "GDEF", "GPOS", "GSUB", "EBSC", "JSTF", "MATH",
+    "CBDT", "CBLC", "COLR", "CPAL", "SVG ", "sbix", "acnt", "avar",
+    "bdat", "bloc", "bsln", "cvar", "fdsc", "feat", "fmtx", "fvar",
+    "gvar", "hsty", "just", "lcar", "mort", "morx", "opbd", "prop",
+    "trak", "Zapf", "Silf", "Glat", "Gloc", "Feat", "Sill",
+)
+assert len(_WOFF2_KNOWN_TAGS) == 63 and _WOFF2_KNOWN_TAGS[47] == "fvar"
+
+_WOFF2_SIGNATURE = b"wOF2"
+_WOFF2_HEADER_SIZE = 48  # signature..privLength, fixed-width, no directory yet
+
+
+def _woff2_unpack_base128(data: bytes, at: int) -> tuple[int, int]:
+    """Read one UIntBase128 value starting at `at`; return (value, next offset).
+    Raises ValueError on anything the WOFF2 spec calls invalid: not enough
+    bytes, a leading 0x80 byte (a redundant leading zero digit — the encoding
+    must be the shortest possible form), more than five bytes, or a value that
+    overflows 32 bits. A length silently mis-decoded here is how a reader would
+    report a confident and wrong table list, so every one of these raises
+    rather than returning something plausible."""
+    if at >= len(data):
+        raise ValueError("WOFF2: truncated UIntBase128")
+    if data[at] == 0x80:
+        raise ValueError("WOFF2: UIntBase128 must not start with a leading zero byte")
+    value = 0
+    for i in range(5):
+        if at + i >= len(data):
+            raise ValueError("WOFF2: truncated UIntBase128")
+        byte = data[at + i]
+        value = (value << 7) | (byte & 0x7F)
+        if value > 0xFFFFFFFF:
+            raise ValueError("WOFF2: UIntBase128 value exceeds 32 bits")
+        if not (byte & 0x80):
+            return value, at + i + 1
+    raise ValueError("WOFF2: UIntBase128 sequence longer than 5 bytes")
+
+
+def _woff2_table_directory(data: bytes) -> list[tuple[str, int]]:
+    """Parse a WOFF2 file's table directory and return every table's (tag,
+    origLength) in directory order — reading no compressed byte, and never
+    scanning for a tag's literal bytes.
+
+    Gets the per-tag transform rule right, which is the one place a plausible
+    parser silently desynchronises. The flags byte's top two bits are the
+    transform version (0..3). For 'glyf' and 'loca', version 3 is the null
+    transform (origLength only) and version 0 means transformed (a second
+    UIntBase128 — the transform length — follows). Versions 1 and 2 are
+    reserved and RAISE; an earlier draft of this sentence said "every other
+    version means transformed", which described a reader this is not. For 'hmtx', version 0 is the
+    null transform and version 1 means transformed; versions 2 and 3 are
+    reserved. For every other table, version 0 is the null transform and every
+    other version is reserved — none of them means "transformed, generically".
+    A reserved version means the font is invalid and this raises rather than
+    guessing; a reader that reads any non-zero version as "transformed" would
+    happily parse a malformed font, and one that tests "version is non-zero"
+    for glyf/loca specifically would miss the length that IS there on a
+    version-0 glyf and consume one that is NOT there on a version-3 table —
+    desynchronising every tag reported after it.
+
+    Raises ValueError on a bad signature, a truncated header, a truncated or
+    malformed directory entry, or an undefined transform version.
+
+    Say what this is before enumerating: an INVENTORY READER, not a WOFF2
+    validator. It answers "which tables does this directory list, and at what
+    recorded lengths", and a successful return is evidence of that and of
+    nothing else. Several things the spec forbids are accepted rather than
+    refused — a directory listing the same tag twice (the later entry wins
+    when callers build a dict from the result), an explicit four-byte tag made
+    of non-printable ASCII, since the tag path tests only that the four bytes
+    decode as ASCII, and any file-level invariant beyond what is read here —
+    which is the signature and numTables, plus a minimum-size check, and
+    nothing else in the 48-byte header.
+
+    Enumerate the exclusions rather than leaving "malformed" to stand for
+    whatever a reader hopes. One more spec rule is deliberately NOT enforced:
+    WOFF2
+    requires glyf and loca to share a transform state, and a transformed loca
+    to carry a transform length of zero. This reads each entry independently
+    and checks neither. It cannot desynchronise the parse — every entry is
+    self-describing and origLength is read before any transform length — so a
+    mismatched pair still yields correct tags and lengths, and the invalid
+    font is reported rather than refused. Closing it means tracking state
+    across entries, which is past what this reader is for."""
+    if len(data) < _WOFF2_HEADER_SIZE:
+        raise ValueError("WOFF2: truncated header")
+    if data[:4] != _WOFF2_SIGNATURE:
+        raise ValueError("WOFF2: bad signature (not a WOFF2 file)")
+    num_tables = struct.unpack(">H", data[12:14])[0]
+    at = _WOFF2_HEADER_SIZE
+    tables: list[tuple[str, int]] = []
+    for _ in range(num_tables):
+        if at >= len(data):
+            raise ValueError("WOFF2: truncated table directory")
+        flags = data[at]
+        at += 1
+        known_index = flags & 0x3F
+        version = flags >> 6
+        if known_index == 0x3F:
+            if at + 4 > len(data):
+                raise ValueError("WOFF2: truncated table tag")
+            tag = data[at:at + 4].decode("ascii", "strict")
+            at += 4
+        else:
+            tag = _WOFF2_KNOWN_TAGS[known_index]
+        orig_length, at = _woff2_unpack_base128(data, at)
+        if tag in ("glyf", "loca"):
+            if version == 3:
+                transformed = False
+            elif version == 0:
+                transformed = True
+            else:
+                raise ValueError(
+                    f"WOFF2: undefined transform version {version} for '{tag}'")
+        elif tag == "hmtx":
+            if version == 0:
+                transformed = False
+            elif version == 1:
+                transformed = True
+            else:
+                raise ValueError(
+                    f"WOFF2: undefined transform version {version} for '{tag}'")
+        else:
+            if version == 0:
+                transformed = False
+            else:
+                raise ValueError(
+                    f"WOFF2: undefined transform version {version} for '{tag}'")
+        if transformed:
+            _transform_length, at = _woff2_unpack_base128(data, at)
+        tables.append((tag, orig_length))
+    return tables
+
+
+# --- synthetic fixtures: the reader is proven against bytes built here, never
+# against a shipped font. All eight shipped faces are static (no fvar), so
+# only a synthetic fixture can exercise the variable branch or the reserved
+# transform versions the spec forbids. ---------------------------------------
+
+def _woff2_pack_base128(n: int) -> bytes:
+    """The inverse of _woff2_unpack_base128 — shortest-form big-endian base128,
+    used only to build fixtures. Never shipped as part of the reader's surface."""
+    chunks = [n & 0x7F]
+    n >>= 7
+    while n:
+        chunks.append(n & 0x7F)
+        n >>= 7
+    chunks.reverse()
+    return bytes(c | 0x80 if i < len(chunks) - 1 else c
+                for i, c in enumerate(chunks))
+
+
+def _woff2_pack_entry(tag: str, version: int, orig_length: int,
+                      transform_length: int | None = None) -> bytes:
+    """One directory entry's bytes: a known-tag index when `tag` is in the known
+    list, a literal 4-byte tag otherwise — the same split a real encoder makes."""
+    if tag in _WOFF2_KNOWN_TAGS:
+        flags = _WOFF2_KNOWN_TAGS.index(tag) | (version << 6)
+        body = bytes([flags])
+    else:
+        flags = 0x3F | (version << 6)
+        body = bytes([flags]) + tag.encode("ascii")
+    body += _woff2_pack_base128(orig_length)
+    if transform_length is not None:
+        body += _woff2_pack_base128(transform_length)
+    return body
+
+
+def _woff2_pack_header(num_tables: int) -> bytes:
+    """The fixed 48-byte WOFF2 header. Every field past numTables is a
+    placeholder — the reader never looks at them."""
+    return struct.pack(">4sIIHHIIHHIIIII",
+                       _WOFF2_SIGNATURE, 0x774F4632, 0, num_tables, 0,
+                       0, 0, 1, 0, 0, 0, 0, 0, 0)
+
+
+def _woff2_directory(*entries: tuple) -> bytes:
+    """Build a synthetic WOFF2 file from (tag, version, origLength[, transformLength])
+    tuples — one per table, in directory order."""
+    packed = b"".join(_woff2_pack_entry(*e) for e in entries)
+    return _woff2_pack_header(len(entries)) + packed
+
+
+# Valid fixtures: (bytes, expected ordered [(tag, origLength), ...]).
+_WOFF2_VALID_FIXTURES: tuple[tuple[bytes, list[tuple[str, int]]], ...] = (
+    # a known-tag index, null transform (version 0, "every other table" rule)
+    ("known-tag index", _woff2_directory(("name", 0, 662)),
+     [("name", 662)]),
+    # a literal tag not in the known list (STAT never is)
+    ("literal tag", _woff2_directory(("STAT", 0, 156)),
+     [("STAT", 156)]),
+    # transformed glyf/loca (version 0) placed BEFORE an untransformed fvar —
+    # proves the reader stays in sync across the transform-length field
+    ("transformed glyf/loca before fvar",
+     _woff2_directory(("glyf", 0, 16556, 13038), ("loca", 0, 516, 0),
+                      ("fvar", 0, 84)),
+     [("glyf", 16556), ("loca", 516), ("fvar", 84)]),
+    # glyf at the null-transform version for glyf/loca (3, not 0)
+    ("version-3 glyf is the null transform", _woff2_directory(("glyf", 3, 9000)),
+     [("glyf", 9000)]),
+    # hmtx at its own transform version (1, not the 0/3 glyf-loca convention)
+    ("hmtx at transform version 1", _woff2_directory(("hmtx", 1, 1028, 512)),
+     [("hmtx", 1028)]),
+)
+
+# Invalid fixtures: bytes the reader must raise on, never round-trip.
+_WOFF2_INVALID_FIXTURES: tuple[tuple[str, bytes], ...] = (
+    ("glyf version 1 (reserved)", _woff2_directory(("glyf", 1, 100, 50))),
+    ("glyf version 2 (reserved)", _woff2_directory(("glyf", 2, 100, 50))),
+    ("loca version 1 (reserved)", _woff2_directory(("loca", 1, 100, 0))),
+    ("loca version 2 (reserved)", _woff2_directory(("loca", 2, 100, 0))),
+    ("hmtx version 2 (reserved)", _woff2_directory(("hmtx", 2, 100, 50))),
+    ("hmtx version 3 (reserved)", _woff2_directory(("hmtx", 3, 100, 50))),
+    ("ordinary table version 1 (reserved)", _woff2_directory(("name", 1, 100, 50))),
+    ("ordinary table version 2 (reserved)", _woff2_directory(("name", 2, 100, 50))),
+    ("ordinary table version 3 (reserved)", _woff2_directory(("name", 3, 100, 50))),
+    ("truncated mid-entry",
+     _woff2_pack_header(1) + bytes([_WOFF2_KNOWN_TAGS.index("name")])),
+    ("bad signature", b"XXXX" + _woff2_pack_header(0)[4:]),
+    ("UIntBase128 leading zero byte",
+     _woff2_pack_header(1) + bytes([_WOFF2_KNOWN_TAGS.index("name")])
+     + b"\x80\x80\x3f"),
+    ("UIntBase128 exceeds 32 bits",
+     _woff2_pack_header(1) + bytes([_WOFF2_KNOWN_TAGS.index("name")])
+     + b"\x90\x80\x80\x80\x00"),
+)
+
+
+def _woff2_naive_never_desyncs_transform_reader(data: bytes) -> list[tuple[str, int]]:
+    """A deliberately wrong reader: applies the "every other table" null-transform
+    rule (version 0 only) to EVERY tag, including glyf/loca — the exact tag-blind
+    mistake this behaviour's docstring warns against. Used only as a negative
+    control, never shipped as the reader."""
+    if len(data) < _WOFF2_HEADER_SIZE or data[:4] != _WOFF2_SIGNATURE:
+        raise ValueError("WOFF2: bad header")
+    num_tables = struct.unpack(">H", data[12:14])[0]
+    at = _WOFF2_HEADER_SIZE
+    tables: list[tuple[str, int]] = []
+    for _ in range(num_tables):
+        flags = data[at]
+        at += 1
+        idx = flags & 0x3F
+        version = flags >> 6
+        if idx == 0x3F:
+            tag = data[at:at + 4].decode("ascii")
+            at += 4
+        else:
+            tag = _WOFF2_KNOWN_TAGS[idx]
+        orig_length, at = _woff2_unpack_base128(data, at)
+        if version != 0:
+            _t, at = _woff2_unpack_base128(data, at)
+        tables.append((tag, orig_length))
+    return tables
+
+
+def _woff2_permissive_reader(data: bytes) -> list[tuple[str, int]]:
+    """A deliberately wrong reader carrying exactly ONE mistake, so what it
+    proves is unambiguous: it gets the tag-specific null-transform value right
+    (glyf/loca: 3, everything else including hmtx: 0) and so agrees with the
+    real reader on every VALID fixture — but it never rejects a reserved
+    transform version, treating one as "transformed" and reading a length that
+    is not there. That is the mistake of parsing a malformed font generically
+    rather than refusing it, and isolating it is the point: this control fails
+    only on the reserved-version fixtures, so it cannot pass for the wrong
+    reason. Used only as a negative control."""
+    if len(data) < _WOFF2_HEADER_SIZE or data[:4] != _WOFF2_SIGNATURE:
+        raise ValueError("WOFF2: bad header")
+    num_tables = struct.unpack(">H", data[12:14])[0]
+    at = _WOFF2_HEADER_SIZE
+    tables: list[tuple[str, int]] = []
+    for _ in range(num_tables):
+        flags = data[at]
+        at += 1
+        idx = flags & 0x3F
+        version = flags >> 6
+        if idx == 0x3F:
+            tag = data[at:at + 4].decode("ascii")
+            at += 4
+        else:
+            tag = _WOFF2_KNOWN_TAGS[idx]
+        orig_length, at = _woff2_unpack_base128(data, at)
+        null_version = 3 if tag in ("glyf", "loca") else 0
+        if version != null_version:
+            _t, at = _woff2_unpack_base128(data, at)
+        tables.append((tag, orig_length))
+    return tables
+
+
+def _woff2_substring_scan_reader(data: bytes) -> list[tuple[str, int]]:
+    """A deliberately wrong reader: the exact anti-pattern this behaviour exists
+    to rule out — scans for a tag's literal bytes instead of parsing the
+    directory. Reports 'fvar' present whenever those four bytes appear anywhere
+    in the file, compressed table data included. Used only as a negative
+    control."""
+    return [("fvar", 1)] if b"fvar" in data else []
+
+
+@_covers("woff2-table-directory-round-trips", kind="behaviour",
+         breaks=[lambda c: {"woff2_directory_reader":
+                            _woff2_naive_never_desyncs_transform_reader},
+                 lambda c: {"woff2_directory_reader": _woff2_permissive_reader},
+                 lambda c: {"woff2_directory_reader": _woff2_substring_scan_reader}])
+def _c_woff2_table_directory_round_trips(ctx):
+    """The stdlib WOFF2 table-directory reader gets the header, the known/literal
+    tag split and the tag-specific transform rule right. Every valid synthetic
+    fixture round-trips to its exact ordered (tag, origLength) list; every
+    fixture the WOFF2 spec calls invalid — a reserved transform version, a
+    truncated header or entry, a bad signature, a malformed UIntBase128 — raises
+    instead of returning something plausible. None of this scans for a tag's
+    literal bytes; a reader that did would report every variable font as static,
+    which is exactly the regression the manifest-agreement behaviour below
+    exists to catch."""
+    read = ctx["woff2_directory_reader"]
+    for _label, data, expected in _WOFF2_VALID_FIXTURES:
+        try:
+            if read(data) != expected:
+                return False
+        except Exception:
+            return False
+    for _label, data in _WOFF2_INVALID_FIXTURES:
+        try:
+            read(data)
+        except Exception:
+            continue
+        return False
+    return True
+
+
+def _font_directories(reader, font_files: dict) -> dict[str, list[tuple[str, int]]]:
+    """Every vendored face's own table directory, read from its bytes on disk —
+    filename -> ordered [(tag, origLength), ...]. A file that fails to parse
+    (should never happen for a shipped face) is recorded as an empty directory
+    rather than raising, so a self-test failure here reads as a manifest
+    disagreement and not a crash."""
+    out = {}
+    for name in font_files:
+        if not name.endswith(".woff2"):
+            continue
+        path = FONTS_DIR / name
+        try:
+            out[name] = reader(path.read_bytes())
+        except (ValueError, OSError):
+            out[name] = []
+    return out
+
+
+@_covers("font-manifest-agrees-with-variation-table", kind="behaviour",
+         breaks=[
+             # marking a static face variable: the real directory still has no
+             # fvar entry for it, so the claim disagrees with the file. Selected
+             # by the claim rather than by position — a face index stops being
+             # this control the day a variable face lands at that index, and
+             # then reads as a passing test of nothing
+             lambda c: {"font_manifest": {**c["font_manifest"], "faces": [
+                 f if f.get("variable") else dict(f, variable=True)
+                 for f in c["font_manifest"]["faces"]]}},
+             # a recorded fvar length the file's own directory disagrees with
+             # — the re-vendor that drops an axis without saying so, which is
+             # what moves the shipped serif's fvar from 84 bytes to 56. Only the
+             # DIRECTORY is mutated: a shipped face really is variable now, so
+             # restating the manifest's own claim would mutate nothing and the
+             # harness's vacuity guard would rightly reject it
+             lambda c: {"font_directories": {
+                 name: [(tag, 56 if tag == "fvar" else length)
+                        for tag, length in entries]
+                 for name, entries in c["font_directories"].items()}},
+             # variable + a recorded fvar length of zero, even though the
+             # (synthetic) directory carries a real, non-zero fvar entry —
+             # zero must fail rather than pass as "agreed"
+             lambda c: {
+                 "font_manifest": {**c["font_manifest"], "faces": [
+                     dict(f, variable=True, fvar_length=0) if i == 0 else f
+                     for i, f in enumerate(c["font_manifest"]["faces"])]},
+                 "font_directories": {**c["font_directories"],
+                     c["font_manifest"]["faces"][0]["file"]: [("fvar", 84)]}},
+             # a synthetic variable face: fvar present at the recorded length,
+             # but a variation table the manifest names is missing from the
+             # directory — the fixture that separates this from a check that
+             # only counts fvar bytes
+             lambda c: {
+                 "font_manifest": {**c["font_manifest"], "faces": [
+                     dict(f, variable=True, fvar_length=84,
+                          variation_tables=["fvar", "gvar"]) if i == 0 else f
+                     for i, f in enumerate(c["font_manifest"]["faces"])]},
+                 "font_directories": {**c["font_directories"],
+                     c["font_manifest"]["faces"][0]["file"]: [("fvar", 84)]}},
+             # a face whose directory could not be read at all. An empty
+             # directory carries no fvar, which is the answer a STATIC face is
+             # supposed to give — so without the guard below this passes as a
+             # well-formed static face and a deleted or unreadable file reads
+             # as agreement. Selected by identity, not position: the first
+             # STATIC face, so this control keeps meaning the same thing if a
+             # second variable face ever ships
+             lambda c: {"font_directories": {
+                 name: ([] if name == next(
+                     f["file"] for f in c["font_manifest"]["faces"]
+                     if not f.get("variable")) else entries)
+                 for name, entries in c["font_directories"].items()}},
+             # a variable face that declares NO variation tables. Before the
+             # guard this skipped every sibling-table check and passed on an
+             # fvar of the right size alone — a face whose axes declare
+             # movement no delta table delivers. Selected by the variable
+             # claim, never by position
+             lambda c: {"font_manifest": {**c["font_manifest"], "faces": [
+                 dict(f, variation_tables=[]) if f.get("variable") else f
+                 for f in c["font_manifest"]["faces"]]}},
+         ])
+def _c_font_manifest_variation_agreement(ctx):
+    """The manifest's per-face variation claim agrees with what that face's own
+    table directory reports. A face the manifest marks `variable` must carry an
+    fvar entry whose directory-reported length matches the manifest's recorded
+    `fvar_length` and is non-zero, and every table the manifest names under
+    `variation_tables` for that face must appear with a non-zero recorded
+    length. A face the manifest marks static must carry no fvar entry at all.
+    One shipped face is variable — the serif, which the manifest DECLARES was
+    cut with its weight limited and no axis pinned; nothing here reads the
+    file to confirm that, and the declaration is provenance rather than a
+    checked fact — and its manifest entry records the fvar length and the
+    variation tables the cut carries; the other six are static and carry no
+    fvar. Both branches now run against real files, and the synthetic negative
+    controls below cover the disagreements no shipped file exhibits.
+
+    This checks a VARIATION-AXIS TABLE, never an optical size, and the limit is
+    deliberate, not an oversight: an fvar entry's recorded length pins the
+    table's SIZE, and nothing about which axis tags produced it. fvar is 16
+    bytes plus 20 per axis plus one record per named instance, and an instance
+    record is 4 + 4*axisCount bytes, or 6 + 4*axisCount when the optional
+    postScriptNameID is present — the fixed 4 is easy to drop and an earlier
+    draft of this line did, which broke the arithmetic the next sentence rests
+    on — so an 84-byte fvar is
+    equally consistent with two axes and two instances, or one axis and six.
+    Reading an axis tag or a named instance's coordinates needs the table's
+    CONTENTS, which are Brotli-compressed and outside this reader's reach (the
+    stdlib has no Brotli — see the note at VENDORED_FACES, serve_status.py:
+    110-124). What this behaviour catches is the regression it was written for:
+    a re-vendor that drops an axis without saying so changes the recorded
+    length. Do not round that up to "a silent flattening fails here" — the
+    next paragraph says a collapsed axis is exactly a silent flattening that
+    passes, so the categorical version contradicts it. What fails is the
+    measured mutation: this upstream, this recipe, opsz pinned, 84 to 56. A
+    declared one has to edit `fvar_length` to land. Say what that edit is and is not: it is a SHRUNK
+    INTEGER, 84 to 56, and nothing forces the `axes` map beside it to be
+    corrected — so a re-vendor that updates the length and leaves `axes` still
+    claiming opsz passes both gates with a manifest that now lies. An earlier
+    draft of this docstring claimed the edit "names which axis went away"; it
+    does not, and the difference is the whole distance between a gate and a
+    convention.
+
+    Two more limits, in the order a re-vendor is likely to hit them. First,
+    say what "catches an axis removed" does and does not mean, because the
+    general form of that claim is false and the arithmetic above already
+    shows why: a one-axis cut with six instances also measures 84. What this
+    detects is the MEASURED mutation — this upstream, this recipe, opsz
+    pinned, 84 to 56 — not axis removal as a category. And it never catches
+    an axis COLLAPSED: a cut keeping an
+    opsz record whose range is a single point still writes two axis records,
+    still measures 84 bytes, and still renders flat — and given the original
+    defect WAS a pin, that is the plausible next mistake, not a hypothetical.
+    Second, on what it would take to close the axis question, because two
+    different things get conflated: reading the axis TAG and its range needs
+    only Brotli, since they sit in fvar's own records — it is a decompression
+    away, not a browser away. What needs a rendered measurement is whether the
+    axis materially moves the glyphs. Neither is done here; both are briefed in
+    docs/backlog/watch-optical-harness/FINDINGS.md."""
+    directories = ctx["font_directories"]
+    faces = ctx["font_manifest"]["faces"]
+    # A face whose directory could not be read is an EMPTY directory, and an
+    # empty directory carries no fvar — which is the right answer for a static
+    # face and reached for the wrong reason. Refuse it rather than let a
+    # missing file pass as a well-formed static one; the sibling hinting check
+    # guards the same hole the same way.
+    if not faces or any(not directories.get(e["file"]) for e in faces):
+        return False
+    for entry in faces:
+        tags = dict(directories.get(entry["file"], []))
+        variable = bool(entry.get("variable", False))
+        has_fvar = "fvar" in tags
+        if not variable:
+            if has_fvar:
+                return False
+            continue
+        if not has_fvar:
+            return False
+        fvar_length = entry.get("fvar_length")
+        if not fvar_length or tags["fvar"] != fvar_length:
+            return False
+        # A variable face must declare a NON-EMPTY variation_tables list, and
+        # every table it declares must be present at a non-zero length. Say
+        # the weaker thing, because that is what this does: it holds the file
+        # to the manifest's own list, never to a complete one. A face
+        # declaring only ["fvar"] passes while gvar, HVAR and avar go
+        # unchecked — partial omission is NOT caught here, and closing it
+        # would mean this check deciding which tags a variable font must
+        # carry, which OpenType does not fix and assertion 10 deliberately
+        # left to the item that ships the cut.
+        #
+        # What the non-empty rule does close: defaulting to [] skipped every
+        # sibling check for a face that declared nothing at all, so fvar of
+        # the right size was the whole of the verification.
+        declared = entry.get("variation_tables")
+        if not declared:
+            return False
+        for other_tag in declared:
+            if other_tag == "fvar":
+                continue
+            if tags.get(other_tag, 0) <= 0:
+                return False
+    return True
+
+
+# fontTools' own _hinting_tables_default, spelled as the four-byte tags a table
+# directory actually carries — 'cvt ' has a trailing space, which is why the
+# check below strips before it compares.
+_HINTING_TABLES: tuple[str, ...] = ("cvt ", "cvar", "fpgm", "prep", "hdmx",
+                                    "VDMX")
+_HINTING_TAGS = frozenset(tag.strip() for tag in _HINTING_TABLES)
+
+
+def _plus_table(tag: str, length: int = 8):
+    """A context whose every font directory carries one extra table entry — the
+    mutation a "this tag must not be here" check has to catch."""
+    return lambda c: {"font_directories": {
+        name: list(entries) + [(tag, length)]
+        for name, entries in c["font_directories"].items()}}
+
+
+@_covers("font-hinting-tables-stripped", kind="behaviour",
+         breaks=[_plus_table(tag) for tag in _HINTING_TABLES] + [
+             # a face whose directory could not be read is empty, and an empty
+             # directory carries none of the six for the wrong reason — it must
+             # not pass as a stripped face
+             lambda c: {"font_directories": {
+                 name: ([] if i == 0 else entries) for i, (name, entries)
+                 in enumerate(c["font_directories"].items())}}])
+def _c_font_hinting_tables_stripped(ctx):
+    """No shipped face carries a font-wide hinting table. This is the
+    directory-visible half of the recipe's --no-hinting flag: the flag strips the
+    per-glyph instructions, which live inside glyf and are compressed and so out
+    of reach here, and it drops the six font-wide hinting TABLES, which are
+    ordinary directory entries and are exactly as readable as any other tag.
+
+    Say what this does and does not establish. It establishes that the six tags
+    are absent. It does NOT establish that the glyph instructions were stripped
+    — those are compressed content. The tables are the visible part, so the
+    tables are the asserted part.
+
+    Of the six, this upstream carries prep alone, so prep is the tag with a live
+    control: a cut rebuilt without --no-hinting keeps it. The other five cost
+    nothing and catch a changed upstream or a changed recipe — cvar most of all,
+    since it is the variation of cvt and so the member of this set most likely
+    to appear in a variable cut."""
+    directories = ctx["font_directories"]
+    files = [entry["file"] for entry in ctx["font_manifest"]["faces"]]
+    if not files or any(not directories.get(name) for name in files):
+        return False
+    return not any(tag.strip() in _HINTING_TAGS
+                   for name in files for tag, _length in directories[name])
 
 
 @_covers("page-fetches-nothing-remote", kind="behaviour",
@@ -15717,6 +16386,8 @@ def _coverage_context() -> dict:
         "asset_probe": asset_probe, "asset_serve": asset_serve,
         "font_files": font_files, "font_manifest": font_manifest,
         "font_budget": FONT_BUDGET_BYTES, "asset_scripts": asset_scripts,
+        "woff2_directory_reader": _woff2_table_directory,
+        "font_directories": _font_directories(_woff2_table_directory, font_files),
     }
 
 
