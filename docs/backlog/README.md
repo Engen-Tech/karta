@@ -107,7 +107,7 @@ and the runbook both promising otherwise.
 and inside the repo. This is a rule that would not catch the next one.
 
 **Unblock path.** Match all three attribute quotings, assert containment against the repo ROOT — not
-the design directory, since the mascot and all eight font faces legitimately live under `skills/` —
+the design directory, since the mascot and all seven font faces legitimately live under `skills/` —
 and add three negative controls to `_self_test()`'s `design_cases`, one per hole.
 
 ---
