@@ -492,9 +492,9 @@ def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> Non
     different well-formed one and this passes. Closing it would mean recording
     the same digest a second time in this same file so the two copies could be
     compared, and a value typed twice by the same hand catches a typo and
-    nothing else — the cross-checks in this manifest earn their keep by reading
-    the SAME fact out of independent records (the enumeration in code, the bytes
-    on disk, the stylesheet), which a second hand-written copy is not. So this
+    nothing else — the cross-checks in this manifest work by reading the SAME
+    fact out of independent records (the enumeration in code, the bytes on
+    disk, the stylesheet), which a second hand-written copy is not. So this
     is disclosed rather than closed: the upstream digest is recorded, and
     whether it is the digest the bytes actually came from is not established
     here and is not established anywhere else in this repository either."""
