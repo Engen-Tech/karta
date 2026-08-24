@@ -7,6 +7,7 @@ import {
   type UnboundCheckResult,
 } from "./check-runner.ts";
 import type { KartaCheckManifest } from "./evidence.ts";
+import { readEnvironmentSetup } from "./environment.ts";
 
 const exec = promisify(execFile);
 const DEFAULT_MAX_PASSES = 3;
@@ -28,6 +29,7 @@ export type CheckConvergenceCheckpoint =
 export interface RunCheckConvergenceOptions {
   worktree: string;
   checks: KartaCheckPlanEntry[];
+  environmentSetupCwd?: string;
   signal?: AbortSignal;
   maxPasses?: number;
   onProcessStart?: (pid: number) => void;
@@ -135,6 +137,30 @@ export async function runStableTreeChecks(
   const maxPasses = options.maxPasses ?? DEFAULT_MAX_PASSES;
   if (!Number.isInteger(maxPasses) || maxPasses < 1 || maxPasses > 10) {
     throw new Error("Karta check convergence maxPasses must be an integer from 1 to 10");
+  }
+  const environmentSetup = options.environmentSetupCwd
+    ? await readEnvironmentSetup(options.environmentSetupCwd)
+    : undefined;
+  if (environmentSetup) {
+    // Provision the check worktree's declared environment (e.g. install deps into a
+    // gitignored directory) once, before staging. A gitignored install cannot drift
+    // the staged tree, so this never perturbs the target-tree stability invariant.
+    const setup = await runBoundCheck({
+      worktree: options.worktree,
+      command: environmentSetup,
+      cwd: ".",
+      signal: options.signal,
+      onProcessStart: options.onProcessStart,
+      onProcessExit: options.onProcessExit,
+    });
+    if (setup.status !== "passed") {
+      return {
+        status: setup.status,
+        passes: 0,
+        targetTree: await stageTree(options.worktree),
+        check: { id: "environment-setup", result: setup as HaltedUnboundCheckResult },
+      };
+    }
   }
   let lastTree = "";
   for (let pass = 1; pass <= maxPasses; pass += 1) {

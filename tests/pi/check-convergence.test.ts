@@ -108,3 +108,43 @@ test("check plans reject duplicate ids and unsafe cwd", async () => {
     await state.cleanup();
   }
 });
+
+test("a declared environment setup runs in the worktree before checks", async () => {
+  const state = await fixture(
+    "import { existsSync } from 'node:fs'; process.exit(existsSync('dep/marker') ? 0 : 5);\n",
+  );
+  try {
+    await writeFile(join(state.repo, ".gitignore"), "dep/\n");
+    await mkdir(join(state.repo, ".karta"), { recursive: true });
+    await writeFile(
+      join(state.repo, ".karta", "environment.json"),
+      `{ "setup": "mkdir -p dep && echo ok > dep/marker" }`,
+    );
+    const result = await runStableTreeChecks({
+      worktree: state.repo,
+      checks: plan,
+      environmentSetupCwd: state.repo,
+    });
+    assert.equal(result.status, "stable");
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a failing environment setup halts before checks with a named result", async () => {
+  const state = await fixture("process.exit(0);\n");
+  try {
+    await mkdir(join(state.repo, ".karta"), { recursive: true });
+    await writeFile(join(state.repo, ".karta", "environment.json"), `{ "setup": "exit 3" }`);
+    const result = await runStableTreeChecks({
+      worktree: state.repo,
+      checks: plan,
+      environmentSetupCwd: state.repo,
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.check?.id, "environment-setup");
+    assert.equal(result.check?.result.code, 3);
+  } finally {
+    await state.cleanup();
+  }
+});

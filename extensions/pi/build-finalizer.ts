@@ -193,6 +193,7 @@ export class KartaBuildFinalizer {
         const convergence = await runStableTreeChecks({
           worktree,
           checks: checkPlan,
+          environmentSetupCwd: ctx.cwd,
           signal: ctx.signal,
           onProcessStart: processContext
             ? (pid) => processContext.manager.registerProcess(pid, {
@@ -319,6 +320,7 @@ export class KartaBuildFinalizer {
       const convergence = await runStableTreeChecks({
         worktree,
         checks: checkPlan,
+        environmentSetupCwd: ctx.cwd,
         signal: ctx.signal,
         onProcessStart: processContext
           ? (pid) => processContext.manager.registerProcess(pid, {
@@ -618,6 +620,7 @@ export class KartaBuildFinalizer {
       const convergence = await runStableTreeChecks({
         worktree,
         checks: checkPlan,
+        environmentSetupCwd: ctx.cwd,
         signal: ctx.signal,
         onProcessStart: processContext
           ? (pid) =>
