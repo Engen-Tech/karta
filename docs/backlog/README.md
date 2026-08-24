@@ -352,6 +352,43 @@ changes no behaviour leaves the check passing, `survived` is true, and the name 
 
 ---
 
+## 14. a binder committed to main after its delivery branch was cut survives the landing twice — *Ready* (filed 2026-08-24)
+
+**What happened.** `watch-drill-in-remediation` landed on main with its binder in **two** places at
+once: `.karta/binders/watch-drill-in-remediation.json` (live) and
+`.karta/binders/archive/watch-drill-in-remediation.json`, byte-identical. The delivery had archived
+it correctly — `126bda6` is a real `git mv` — and the archival did not survive the merge.
+
+**Why, exactly.** The binder was added *independently on both sides*. It went onto main as `3f93a0d`
+(the standing rule lets a fully committed binder reach main directly) and onto the delivery branch as
+`dda1878`, karta-deliver's own plan commit. The delivery branch had been cut from an earlier main, so
+the file is **absent in the merge base**. Git then sees: base absent, ours (main) present, theirs
+(branch) absent — which is an add on one side and nothing on the other, not a delete. Ours wins, and
+the live copy is resurrected on top of the archived one.
+
+`watch-drill-in.json` in the same merge renamed into `archive/` cleanly, which is the control: that
+binder *was* in the merge base, so git had a file to trace and the move applied.
+
+**Why this is not a one-off.** It follows from two rules that are each correct on their own — a
+binder may be committed straight to main, and karta-deliver commits the binder as its plan commit on
+the integration branch. Any delivery whose binder reaches main *after* its branch was cut hits this.
+The delivery reports 5/5 and archived, the floor stays green, and the repo quietly holds a live
+binder that karta-status will keep offering as work to do.
+
+**Fix, in order of preference.**
+1. Cut the integration branch from a main that already carries the binder — the plan commit then has
+   a base to be a delete against. This is a sequencing rule for karta-deliver, not code.
+2. Failing that, have the archive step at `deliver:archive` assert afterwards that no live binder of
+   that slug remains, so the delivery fails loudly instead of the merge silently undoing it.
+3. Add a validator check: a slug present in both `.karta/binders/` and `.karta/binders/archive/` is
+   an error. That is the cheap net and it catches every route in, including this one.
+
+**Found by** checking the tree after the `watch-drill-in` landing rather than trusting the merge
+diffstat, which reported `create mode .karta/binders/archive/watch-drill-in-remediation.json` with no
+matching delete — the tell, if anyone had read it as one.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
