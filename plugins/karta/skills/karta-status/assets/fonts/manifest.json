@@ -1,5 +1,5 @@
 {
-  "note": "Every typeface the Karta Watch page uses, vendored and served same-origin from /assets/fonts/. This file is the DECLARED record of what was shipped: the gate checks that it, the files on disk and the page's @font-face rules agree. Glyph coverage is a guarantee of the subsetting step recorded here, not something read back out of the woff2 cmap — the gate is stdlib Python with no font library. Each face also carries a \"variable\" claim, checked against the file's own WOFF2 table directory (a stdlib parse, never a decompress) rather than taken on this manifest's word alone — see woff2-table-directory-round-trips and font-manifest-agrees-with-variation-table in serve_status.py.",
+  "note": "Every typeface the Karta Watch page uses, vendored and served same-origin from /assets/fonts/. This file is the DECLARED record of what was shipped: the gate checks that it, the files on disk and the page's @font-face rules agree. Glyph coverage is a guarantee of the subsetting step recorded here, not something read back out of the woff2 cmap — the gate is stdlib Python with no font library. Each face also carries a \"variable\" claim, checked against the file's own WOFF2 table directory (a stdlib parse, never a decompress) rather than taken on this manifest's word alone — a variable face must carry fvar at its recorded \"fvar_length\" and every tag it lists under \"variation_tables\" at a non-zero length, and a static face must carry no fvar at all. See woff2-table-directory-round-trips, font-manifest-agrees-with-variation-table and font-hinting-tables-stripped in serve_status.py. What a directory read reaches is a tag and a recorded length; every table's CONTENTS are Brotli-compressed and are not read here.",
   "unicode_range_blocks": [
     "Basic Latin U+0020-007F",
     "Latin-1 Supplement U+00A0-00FF",
@@ -16,7 +16,9 @@
       "--flavor=woff2",
       "--name-IDs=1,2,3,4,5,6,16,17"
     ],
-    "variable_sources": "Newsreader and IBM Plex Sans ship upstream as variable fonts; each face was instanced with fontTools.varLib.instancer at the pinned axes below before subsetting. IBM Plex Mono ships static per-weight files, used directly.",
+    "variable_sources": "Newsreader ships upstream as a variable font and is shipped as one: it is cut with fontTools.varLib.instancer LIMITING wght to 400..500 and PINNING nothing, so opsz stays at its upstream 6..72. IBM Plex Sans ships upstream as a variable font and each face was instanced to the pinned axes below before subsetting. IBM Plex Mono ships static per-weight files, used directly. The instancer step is what flattens a face; the subsetting flags above preserve fvar, gvar, avar, HVAR and STAT on their own.",
+    "fonttools_version": "4.63.0",
+    "reproducibility": "NOT byte-reproducible, which is why the version above is recorded rather than a promise of identical bytes. Replaying this recipe on fontTools 4.60.1 reproduced one face's byte count exactly and landed 36 bytes off another, and two runs of 4.63.0 differ from each other. What is checked is that the bytes on disk match the sha256 and byte count recorded per face here, and that the shipped total stays under the payload bound. That the bytes on disk came from THIS recipe is recorded, never verified.",
     "upstream_repo": "https://github.com/google/fonts",
     "upstream_commit": "352f6b7d9d6cc4fa9e242b931291d31b21a6dc84"
   },
@@ -27,10 +29,12 @@
       "upstream_version": "1.003",
       "source_url": "https://github.com/google/fonts/tree/352f6b7d9d6cc4fa9e242b931291d31b21a6dc84/ofl/newsreader",
       "source_files": "Newsreader[opsz,wght].ttf",
-      "pinned_axes": {
-        "wght": "per face",
-        "opsz": 18
-      }
+      "pinned_axes": null,
+      "axes": {
+        "wght": "400..500 (limited from the upstream 200..800)",
+        "opsz": "6..72 (upstream range, unpinned)"
+      },
+      "axes_caveat": "RECORDED, NOT CHECKED. Reading an axis tag or its range out of a woff2 needs the fvar table's CONTENTS, which are Brotli-compressed; the gate is stdlib Python and reads the table DIRECTORY only, so it can hold this face to an fvar entry of the recorded length and no further. An 84-byte fvar is equally consistent with a different pair of axes. Establishing that the second axis is an optical-size axis, and that it reaches 6 and 72, needs a rendered measurement — briefed in docs/backlog/watch-optical-harness/FINDINGS.md."
     },
     "IBM Plex Sans": {
       "licence": "ibm-plex-sans-OFL.txt",
@@ -55,25 +59,22 @@
   "faces": [
     {
       "family": "Newsreader",
-      "weight": 400,
-      "file": "newsreader-400.woff2",
-      "bytes": 18496,
-      "sha256": "baa74b5b2f8809eeaf4457190531658c22e5cf4e73a093203ac88874fbccd530",
+      "weight": "400 500",
+      "file": "newsreader-var.woff2",
+      "bytes": 79988,
+      "sha256": "6c1cb2b1dd4de46aa14b544114cb10d8dc6d99fadc3290681a29fa65811dc990",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "Newsreader[opsz,wght].ttf",
       "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1",
-      "variable": false
-    },
-    {
-      "family": "Newsreader",
-      "weight": 500,
-      "file": "newsreader-500.woff2",
-      "bytes": 19912,
-      "sha256": "0459cfff19f8a01eaa15b08c4f9dae1a83bf071e5e3429392f232a7ce51daf03",
-      "unicode_range": "U+0000-00FF, U+2000-206F",
-      "source_file": "Newsreader[opsz,wght].ttf",
-      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1",
-      "variable": false
+      "variable": true,
+      "fvar_length": 84,
+      "variation_tables": [
+        "fvar",
+        "gvar",
+        "HVAR",
+        "avar",
+        "STAT"
+      ]
     },
     {
       "family": "IBM Plex Sans",

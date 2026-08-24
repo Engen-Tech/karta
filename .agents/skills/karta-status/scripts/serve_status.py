@@ -108,10 +108,17 @@ _SCRIPT_PATH = Path(__file__).resolve()
 # The design asks for three families; karta forbids a CDN reference, so they are
 # subset and served same-origin from /assets/fonts/ like every other asset.
 #
-# VENDORED_FACES is the ENUMERATION — the eight (family, weight) pairs this page
+# VENDORED_FACES is the ENUMERATION — the seven (family, weight) pairs this page
 # ships. Nothing counts faces by hand: the manifest beside the fonts, the files
 # on disk and the page's @font-face rules are each checked against this tuple, so
-# "eight" is a length, never a number typed twice.
+# "seven" is a length, never a number typed twice.
+#
+# A weight is an int for a face shipped as its own static file, and a (low, high)
+# RANGE for a face shipped as one variable file covering both weights the design
+# asks for. Newsreader is the second kind: one file, wght 400..500. The range
+# lives here and in the @font-face rule; _vendored_weights is the one place it
+# becomes individual integers, because the checks that ask "is there a file for
+# weight N" want integers and nothing else does.
 #
 # Glyph coverage is NOT read back out of the woff2 files. Parsing a cmap needs a
 # font library, and this script is stdlib-only with zero dependencies — an
@@ -122,8 +129,8 @@ _SCRIPT_PATH = Path(__file__).resolve()
 FONTS_DIR = ASSETS_DIR / "fonts"
 FONT_MANIFEST = FONTS_DIR / "manifest.json"
 FONT_ROUTE = "/assets/fonts/"
-VENDORED_FACES: tuple[tuple[str, int], ...] = (
-    ("Newsreader", 400), ("Newsreader", 500),
+VENDORED_FACES: tuple[tuple[str, int | tuple[int, int]], ...] = (
+    ("Newsreader", (400, 500)),
     ("IBM Plex Sans", 400), ("IBM Plex Sans", 500), ("IBM Plex Sans", 600),
     ("IBM Plex Mono", 400), ("IBM Plex Mono", 500), ("IBM Plex Mono", 600),
 )
@@ -1413,11 +1420,8 @@ _CSS_TEMPLATE = """
    because hub assets are token-gated; ephemeral mode substitutes "". Each face
    swaps rather than blocking paint, and each declares the writing-system range
    it was cut to — anything outside it falls through to the system fallback. */
-@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
-  src:url("/assets/fonts/newsreader-400.woff2__ASSET_QS__") format("woff2");
-  unicode-range:U+0000-00FF, U+2000-206F; }
-@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:500; font-display:swap;
-  src:url("/assets/fonts/newsreader-500.woff2__ASSET_QS__") format("woff2");
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400 500; font-display:swap;
+  src:url("/assets/fonts/newsreader-var.woff2__ASSET_QS__") format("woff2");
   unicode-range:U+0000-00FF, U+2000-206F; }
 @font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap;
   src:url("/assets/fonts/ibm-plex-sans-400.woff2__ASSET_QS__") format("woff2");
@@ -8610,10 +8614,24 @@ _VAR_DEF_RE = re.compile(r"(--[a-z0-9-]+)\s*:")
 
 
 def _vendored_weights() -> dict[str, set[int]]:
-    """family -> the weights this plugin actually ships a file for."""
+    """family -> the weights this plugin actually ships a file for.
+
+    This is the ONE place a VENDORED_FACES weight RANGE becomes integers. A
+    variable face shipped as a single file covers a span of weights, and every
+    reader of this map asks the same integer question — "is there a file behind
+    the font-weight this rule wrote" — so the range is expanded here rather than
+    at each of the six call sites, two of which would silently accept a tuple
+    into a set of ints and then never match anything.
+
+    The step is 100 because the page's own scale is: the design asks for 400 and
+    500 and nothing between them, so Newsreader's 400..500 reports {400, 500}.
+    A rule asking for 450 is a weight this page does not use, and failing it is
+    the conservative direction — the file would render it, but nothing in the
+    design calls for it and an unexplained 450 is more likely a typo."""
     out: dict[str, set[int]] = {}
     for family, weight in VENDORED_FACES:
-        out.setdefault(family, set()).add(weight)
+        low, high = weight if isinstance(weight, tuple) else (weight, weight)
+        out.setdefault(family, set()).update(range(low, high + 1, 100))
     return out
 
 
@@ -9683,7 +9701,12 @@ def _c_retired_behaviours_recorded(ctx):
                      'font-family:var(--serif)', 'font-family:var(--mono)')},
                  lambda c: {"css": c["css"].replace(
                      "font-family:var(--sans); font-size:15px",
-                     "font-family:sans-serif; font-size:15px")}])
+                     "font-family:sans-serif; font-size:15px")},
+                 # _vendored_weights folding a variable face's weight RANGE into
+                 # the map as a tuple instead of expanding it: every serif rule
+                 # then asks for a weight this map says is not shipped
+                 lambda c: {"vendored_weights": {**c["vendored_weights"],
+                                                 "Newsreader": {(400, 500)}}}])
 def _c_type_roles_bound(ctx):
     """Three families, three roles, and no rule asking for a weight the plugin
     does not ship. A font-weight with no vendored file is a faux-bold the
@@ -14441,7 +14464,11 @@ def _c_card_lead_named_roles(ctx):
                      "font-family:var(--serif); font-weight:400; "
                      "font-size:%dpx" % CARD_TITLE_PX,
                      "font-family:var(--sans); font-weight:600; "
-                     "font-size:%dpx" % CARD_TITLE_PX)}])
+                     "font-size:%dpx" % CARD_TITLE_PX)},
+                 # the serif is one variable file now: an unexpanded weight
+                 # RANGE in the map is not the integer this title asks for
+                 lambda c: {"vendored_weights": {**c["vendored_weights"],
+                                                 "Newsreader": {(400, 500)}}}])
 def _c_card_title_serif_step(ctx):
     """The card title resolves to the SERIF role at the card's own display step.
     The family comes through the role token the wordmark and the binder headline
@@ -14904,17 +14931,40 @@ _GENERIC_FAMILIES = {"serif", "sans-serif", "monospace", "system-ui",
                      "ui-monospace", "ui-sans-serif", "ui-serif", "cursive"}
 
 
+def _font_weight(value) -> int | tuple[int, int]:
+    """A declared font-weight, normalised to the shape VENDORED_FACES uses: an
+    int for a single weight, a (low, high) tuple for the two-number RANGE a
+    variable face declares ("font-weight:400 500"), and -1 for anything else.
+
+    One function because three readers have to agree on the shape — the
+    stylesheet parse, and the two checks that read the manifest's weight field —
+    and a range normalised differently in any one of them reads as a face that
+    was declared but not shipped. -1 is kept as the unparseable marker rather
+    than raising: an odd weight is a face-set disagreement to REPORT, and a
+    check that crashes on the page's own stylesheet reports nothing."""
+    if isinstance(value, int):
+        return value
+    parts = str(value).split()
+    if len(parts) == 2 and all(p.isdigit() for p in parts):
+        return (int(parts[0]), int(parts[1]))
+    return int(parts[0]) if len(parts) == 1 and parts[0].isdigit() else -1
+
+
 def _declared_faces(doc: str) -> list[dict]:
-    """Every @font-face rule in `doc` as {family, weight, src, display, range}."""
+    """Every @font-face rule in `doc` as {family, weight, src, display, range}.
+
+    ONE descriptor per rule, always — a face declaring a weight RANGE stays one
+    descriptor carrying a normalised range, and is not expanded into a descriptor
+    per weight. The count of these is compared against VENDORED_FACES and the
+    manifest, so expanding here would report more faces declared than shipped."""
     faces = []
     for block in _FONT_FACE_RE.finditer(doc):
         decl = {k.strip().lower(): v.strip()
                 for k, v in _CSS_DECL_RE.findall(block.group(1))}
         url = re.search(r"url\(\s*[\"']?([^\"')]+)", decl.get("src", ""))
-        weight = decl.get("font-weight", "")
         faces.append({
             "family": decl.get("font-family", "").strip("\"'"),
-            "weight": int(weight) if weight.isdigit() else -1,
+            "weight": _font_weight(decl.get("font-weight", "")),
             "src": url.group(1) if url else "",
             "display": decl.get("font-display", ""),
             "range": re.sub(r"\s+", "", decl.get("unicode-range", "")).upper(),
@@ -14965,16 +15015,38 @@ def _stack_without_fallback(css: str) -> str:
                                               "faces": c["font_manifest"]["faces"][:-1]}},
                  lambda c: {"asset_serve": lambda path: (404, "text/plain")},
                  lambda c: {"css": c["css"].replace("font-display:swap",
-                                                    "font-display:block")}])
+                                                    "font-display:block")},
+                 # the serif declared as two rules again — the shape this face
+                 # had before it became one variable file, and the shape a
+                 # stylesheet parse that EXPANDED the range would produce
+                 lambda c: {"css": c["css"].replace(
+                     'font-weight:400 500', 'font-weight:400', 1).replace(
+                     '@font-face{ font-family:"IBM Plex Sans"',
+                     '@font-face{ font-family:"Newsreader"; font-style:normal; '
+                     'font-weight:500; font-display:swap;\n'
+                     '  src:url("/assets/fonts/newsreader-var.woff2") format("woff2");\n'
+                     '  unicode-range:U+0000-00FF, U+2000-206F; }\n'
+                     '@font-face{ font-family:"IBM Plex Sans"', 1)},
+                 # a stylesheet weight the parse cannot read normalises to -1,
+                 # which is the declared-versus-enumerated disagreement the
+                 # range was introduced to avoid
+                 lambda c: {"css": c["css"].replace("font-weight:400 500",
+                                                    "font-weight:bold")}])
 def _c_vendored_font_faces(ctx):
-    """The eight faces are declared, listed and actually served — as woff2."""
+    """The seven faces are declared, listed and actually served — as woff2. The
+    count is a LENGTH in all three places and a literal in none of them, so a
+    face added or dropped shows up as a disagreement rather than as a number
+    someone forgot to change. A face shipped as one variable file counts once,
+    and carries the weight RANGE it covers."""
     declared = [(f["family"], f["weight"]) for f in _declared_faces(ctx["css"])]
-    listed = [(e["family"], e["weight"]) for e in ctx["font_manifest"]["faces"]]
+    listed = [(e["family"], _font_weight(e["weight"]))
+              for e in ctx["font_manifest"]["faces"]]
     enumerated = list(VENDORED_FACES)
     served = all(ctx["asset_serve"](FONT_ROUTE + e["file"]) == (200, "font/woff2")
                  for e in ctx["font_manifest"]["faces"])
-    return (len(enumerated) == 8 and len(set(enumerated)) == 8
-            and sorted(declared) == sorted(listed) == sorted(enumerated)
+    return (len(set(enumerated)) == len(enumerated)
+            and len(declared) == len(listed) == len(enumerated)
+            and set(declared) == set(listed) == set(enumerated)
             and served
             and all(f["display"] == "swap" for f in _declared_faces(ctx["css"])))
 
@@ -14983,13 +15055,23 @@ def _c_vendored_font_faces(ctx):
          breaks=[lambda c: {"font_files": {**c["font_files"],
                                            c["font_manifest"]["faces"][0]["file"]:
                                            {"bytes": 1, "sha256": "0" * 64, "head": ""}}},
+                 # a face this page no longer declares left behind in the fonts
+                 # directory: the manifest and the disk disagree about the set of
+                 # files shipped, which is how a superseded cut goes on shipping
+                 lambda c: {"font_files": {**c["font_files"], "newsreader-400.woff2":
+                                           {"bytes": 18496, "sha256": "0" * 64,
+                                            "head": ""}}},
                  lambda c: {"font_manifest": {
                      **c["font_manifest"],
                      "faces": [{**f, "unicode_range": "U+0000-007F"}
                                for f in c["font_manifest"]["faces"]]}},
                  lambda c: {"css": c["css"].replace("U+2000-206F", "U+2000-20FF")}])
 def _c_font_manifest_agreement(ctx):
-    """Manifest, bytes on disk and @font-face rules describe the same eight files."""
+    """Manifest, bytes on disk and @font-face rules describe the same files —
+    the same set, one entry per shipped file, with the same bytes, digest,
+    unicode range and route. The final set comparison is what catches a face
+    that was superseded and then left on disk: an extra woff2 nothing declares
+    fails here rather than shipping quietly inside the payload budget."""
     entries = ctx["font_manifest"]["faces"]
     disk = ctx["font_files"]
     faces = {(f["family"], f["weight"]): f for f in _declared_faces(ctx["css"])}
@@ -14997,7 +15079,7 @@ def _c_font_manifest_agreement(ctx):
         return False
     for e in entries:
         on_disk = disk.get(e["file"])
-        declared = faces.get((e["family"], e["weight"]))
+        declared = faces.get((e["family"], _font_weight(e["weight"])))
         if on_disk is None or declared is None:
             return False
         if on_disk["bytes"] != e["bytes"] or on_disk["sha256"] != e["sha256"]:
@@ -15058,8 +15140,10 @@ def _c_font_licences_shipped(ctx):
 # those bytes would therefore report every variable font as static (assertion
 # 2 in this behaviour's registration proves it, and the round-trip behaviour
 # below proves a scan-based reader fails outright). 'STAT' is NOT in this list
-# — measured against all eight faces this plugin ships today, it appears as
-# literal bytes in three of them, while fvar/avar/gvar/cmap/head never do.
+# — measured against every face this plugin ships, it appears as literal bytes
+# in four of the seven, while fvar/avar/gvar/cmap/head never do. The shipped
+# serif is one of the four, so its STAT entry exercises the literal-tag path
+# against a real file and not only against a fixture.
 _WOFF2_KNOWN_TAGS: tuple[str, ...] = (
     "cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2", "post",
     "cvt ", "fpgm", "glyf", "loca", "prep", "CFF ", "VORG", "EBDT",
@@ -15389,18 +15473,23 @@ def _font_directories(reader, font_files: dict) -> dict[str, list[tuple[str, int
 @_covers("font-manifest-agrees-with-variation-table", kind="behaviour",
          breaks=[
              # marking a static face variable: the real directory still has no
-             # fvar entry for it, so the claim disagrees with the file
+             # fvar entry for it, so the claim disagrees with the file. Selected
+             # by the claim rather than by position — a face index stops being
+             # this control the day a variable face lands at that index, and
+             # then reads as a passing test of nothing
              lambda c: {"font_manifest": {**c["font_manifest"], "faces": [
-                 dict(f, variable=True) if i == 0 else f
-                 for i, f in enumerate(c["font_manifest"]["faces"])]}},
-             # variable + a recorded fvar length the (synthetic) directory
-             # disagrees with
-             lambda c: {
-                 "font_manifest": {**c["font_manifest"], "faces": [
-                     dict(f, variable=True, fvar_length=84) if i == 0 else f
-                     for i, f in enumerate(c["font_manifest"]["faces"])]},
-                 "font_directories": {**c["font_directories"],
-                     c["font_manifest"]["faces"][0]["file"]: [("fvar", 56)]}},
+                 f if f.get("variable") else dict(f, variable=True)
+                 for f in c["font_manifest"]["faces"]]}},
+             # a recorded fvar length the file's own directory disagrees with
+             # — the re-vendor that drops an axis without saying so, which is
+             # what moves the shipped serif's fvar from 84 bytes to 56. Only the
+             # DIRECTORY is mutated: a shipped face really is variable now, so
+             # restating the manifest's own claim would mutate nothing and the
+             # harness's vacuity guard would rightly reject it
+             lambda c: {"font_directories": {
+                 name: [(tag, 56 if tag == "fvar" else length)
+                        for tag, length in entries]
+                 for name, entries in c["font_directories"].items()}},
              # variable + a recorded fvar length of zero, even though the
              # (synthetic) directory carries a real, non-zero fvar entry —
              # zero must fail rather than pass as "agreed"
@@ -15429,9 +15518,11 @@ def _c_font_manifest_variation_agreement(ctx):
     `fvar_length` and is non-zero, and every table the manifest names under
     `variation_tables` for that face must appear with a non-zero recorded
     length. A face the manifest marks static must carry no fvar entry at all.
-    All eight faces this plugin ships today are marked static, and the reader
-    agrees — the variable branch is exercised only by this behaviour's own
-    synthetic negative controls, until a variable face ships.
+    One shipped face is variable — the serif, cut with its weight limited and
+    no axis pinned — and its manifest entry records the fvar length and the
+    variation tables the cut carries; the other six are static and carry no
+    fvar. Both branches now run against real files, and the synthetic negative
+    controls below cover the disagreements no shipped file exhibits.
 
     This checks a VARIATION-AXIS TABLE, never an optical size, and the limit is
     deliberate, not an oversight: an fvar entry's recorded length pins the
@@ -15469,6 +15560,55 @@ def _c_font_manifest_variation_agreement(ctx):
             if tags.get(other_tag, 0) <= 0:
                 return False
     return True
+
+
+# fontTools' own _hinting_tables_default, spelled as the four-byte tags a table
+# directory actually carries — 'cvt ' has a trailing space, which is why the
+# check below strips before it compares.
+_HINTING_TABLES: tuple[str, ...] = ("cvt ", "cvar", "fpgm", "prep", "hdmx",
+                                    "VDMX")
+_HINTING_TAGS = frozenset(tag.strip() for tag in _HINTING_TABLES)
+
+
+def _plus_table(tag: str, length: int = 8):
+    """A context whose every font directory carries one extra table entry — the
+    mutation a "this tag must not be here" check has to catch."""
+    return lambda c: {"font_directories": {
+        name: list(entries) + [(tag, length)]
+        for name, entries in c["font_directories"].items()}}
+
+
+@_covers("font-hinting-tables-stripped", kind="behaviour",
+         breaks=[_plus_table(tag) for tag in _HINTING_TABLES] + [
+             # a face whose directory could not be read is empty, and an empty
+             # directory carries none of the six for the wrong reason — it must
+             # not pass as a stripped face
+             lambda c: {"font_directories": {
+                 name: ([] if i == 0 else entries) for i, (name, entries)
+                 in enumerate(c["font_directories"].items())}}])
+def _c_font_hinting_tables_stripped(ctx):
+    """No shipped face carries a font-wide hinting table. This is the
+    directory-visible half of the recipe's --no-hinting flag: the flag strips the
+    per-glyph instructions, which live inside glyf and are compressed and so out
+    of reach here, and it drops the six font-wide hinting TABLES, which are
+    ordinary directory entries and are exactly as readable as any other tag.
+
+    Say what this does and does not establish. It establishes that the six tags
+    are absent. It does NOT establish that the glyph instructions were stripped
+    — those are compressed content. The tables are the visible part, so the
+    tables are the asserted part.
+
+    Of the six, this upstream carries prep alone, so prep is the tag with a live
+    control: a cut rebuilt without --no-hinting keeps it. The other five cost
+    nothing and catch a changed upstream or a changed recipe — cvar most of all,
+    since it is the variation of cvt and so the member of this set most likely
+    to appear in a variable cut."""
+    directories = ctx["font_directories"]
+    files = [entry["file"] for entry in ctx["font_manifest"]["faces"]]
+    if not files or any(not directories.get(name) for name in files):
+        return False
+    return not any(tag.strip() in _HINTING_TAGS
+                   for name in files for tag, _length in directories[name])
 
 
 @_covers("page-fetches-nothing-remote", kind="behaviour",

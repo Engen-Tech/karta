@@ -440,6 +440,7 @@ def _check_vendored_fonts(errors: list[str], root: Path | None = None) -> None:
             errors.append(f"{label}: family '{family}' ships no licence file "
                           f"('{licence or 'none declared'}') — an OFL face "
                           "redistributed without its licence")
+    _check_font_provenance(errors, label, manifest)
     for f in sorted(p for p in fonts.iterdir() if p.is_file()):
         for problem in _mirror_drift(f, [m / f.name for m in mirror_fonts]):
             errors.append(f"{label}: {problem}")
@@ -448,6 +449,100 @@ def _check_vendored_fonts(errors: list[str], root: Path | None = None) -> None:
         for problem in _mirror_drift(script, [root / m / WATCH_SCRIPT_REL
                                               for m in MIRROR_SKILL_ROOTS]):
             errors.append(f"skills/{WATCH_SCRIPT_REL.as_posix()}: {problem}")
+
+
+# The manifest's provenance block is what a re-vendor is read back out of: the
+# upstream commit, the source file and its digest, and the fontTools version the
+# cut was made with. None of it is VERIFIED — no check here can confirm the bytes
+# on disk came from that recipe rather than from somewhere else that renders the
+# same, and the manifest says so in its own words. What is checked is the part a
+# reader can be misled by: that the block is COMPLETE, and that it does not
+# contradict itself. An incomplete provenance record reads as a stronger claim
+# than it is, and a self-contradicting one reads as a checked claim.
+#
+# The version is required because the recipe is not byte-reproducible: the same
+# flags on two fontTools versions give different byte counts, so "which version"
+# is the difference between a record someone can act on and a record that only
+# looks precise.
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _check_font_provenance(errors: list[str], label: str, manifest: dict) -> None:
+    """The manifest's provenance record is complete and internally consistent.
+
+    Complete: a fontTools version, an upstream commit, and a source file plus
+    digest per face. Consistent: the commit appears in every family's source
+    URL, two faces cut from the same source file record the same digest, and a
+    family with a VARIABLE face declares the axes it carries and pins none —
+    a pinned axis is exactly what a variable face was not instanced to, so a
+    pin left behind describes the flattened cut it replaced.
+
+    A face's source_file is checked for presence and used to group the digests,
+    and deliberately not matched against its family's source_files: that field
+    is written for a reader ("IBMPlexMono-{Regular,Medium,SemiBold}.ttf"), and
+    teaching this check to expand a brace list would be a parser bought to
+    satisfy a rule nobody asked for.
+
+    Say where the digest rule stops, because it is narrower than it looks. It
+    catches a digest that DISAGREES with another face cut from the same file, so
+    it has teeth only for a family shipping two or more faces from one source —
+    IBM Plex Sans, today. A family shipping ONE face from its source, which is
+    what the serif became, has nothing to disagree with: swap that digest for a
+    different well-formed one and this passes. Closing it would mean recording
+    the same digest a second time in this same file so the two copies could be
+    compared, and a value typed twice by the same hand catches a typo and
+    nothing else — the cross-checks in this manifest earn their keep by reading
+    the SAME fact out of independent records (the enumeration in code, the bytes
+    on disk, the stylesheet), which a second hand-written copy is not. So this
+    is disclosed rather than closed: the upstream digest is recorded, and
+    whether it is the digest the bytes actually came from is not established
+    here and is not established anywhere else in this repository either."""
+    sub = manifest.get("subsetting") or {}
+    version = str(sub.get("fonttools_version") or "").strip()
+    if not version:
+        errors.append(f"{label}/manifest.json: subsetting block records no "
+                      "fonttools_version — the recipe is not byte-reproducible, "
+                      "so the version is the only thing that makes the recorded "
+                      "recipe replayable")
+    commit = str(sub.get("upstream_commit") or "").strip()
+    if not commit:
+        errors.append(f"{label}/manifest.json: subsetting block records no "
+                      "upstream_commit")
+    families = manifest.get("families") or {}
+    faces = manifest.get("faces") or []
+    for family, entry in sorted(families.items()):
+        entry = entry or {}
+        if commit and commit not in str(entry.get("source_url") or ""):
+            errors.append(f"{label}/manifest.json: family '{family}' records a "
+                          f"source_url that does not name the pinned upstream "
+                          f"commit {commit}")
+        variable = [f for f in faces
+                    if f.get("family") == family and f.get("variable")]
+        if variable and entry.get("pinned_axes"):
+            errors.append(f"{label}/manifest.json: family '{family}' ships a "
+                          "variable face while still declaring pinned_axes "
+                          f"({entry['pinned_axes']}) — a pin is what a variable "
+                          "face was NOT instanced to")
+        if variable and not entry.get("axes"):
+            errors.append(f"{label}/manifest.json: family '{family}' ships a "
+                          "variable face but records no axes")
+    digests: dict[str, str] = {}
+    for face in faces:
+        name = f"{face.get('family')} {face.get('weight')}"
+        source = str(face.get("source_file") or "").strip()
+        digest = str(face.get("source_sha256") or "").strip()
+        if not source:
+            errors.append(f"{label}/manifest.json: face '{name}' records no "
+                          "source_file")
+        if not _SHA256_RE.match(digest):
+            errors.append(f"{label}/manifest.json: face '{name}' records no "
+                          "well-formed source_sha256")
+            continue
+        if digests.setdefault(source, digest) != digest:
+            errors.append(f"{label}/manifest.json: face '{name}' records a "
+                          f"source_sha256 for '{source}' that disagrees with "
+                          "another face cut from the same file")
 
 
 # --- Watch design reference: self-contained, no-network, and the serving rig
@@ -468,6 +563,18 @@ def _check_vendored_fonts(errors: list[str], root: Path | None = None) -> None:
 
 DESIGN_REFERENCE_REL = Path("docs") / "designs" / "karta-watch-1440x900-light.html"
 DESIGN_FIXTURE_REL = Path("docs") / "designs" / "fixtures" / "watch-fidelity-state"
+
+# The frozen reference points its @font-face rules at the very files the page
+# serves, so it renders in whatever the page renders in and agrees with the page
+# about typefaces BY CONSTRUCTION — including when both are wrong. Giving it a
+# pinned second copy of the fonts would only move the question, so the limit is
+# not fixed here; it is DECLARED, in the file's own header, where the next
+# person to run a font comparison against it will read it. Declared and then
+# enforced, because a caveat only a reviewer maintains is the same reassurance
+# the missing caveat already was: the header must say the file cannot witness a
+# font difference, and must point at where the check that can is briefed.
+DESIGN_FONT_CAVEAT_PHRASE = "cannot witness a font difference"
+DESIGN_FONT_CAVEAT_POINTER = "docs/backlog/watch-optical-harness/FINDINGS.md"
 
 # Absolute http(s) URLs, and the protocol-relative `//host/path` form that is
 # just as much an external fetch while carrying no scheme to grep for. The
@@ -523,6 +630,17 @@ def _check_design_self_contained(errors: list[str], design_file: Path) -> None:
         errors.append(f"{design_file}: header comment must record the capture date")
     if "origin" not in header.lower() and "claude-design://" not in header:
         errors.append(f"{design_file}: header comment must record the origin design")
+    if DESIGN_FONT_CAVEAT_PHRASE not in header:
+        errors.append(f"{design_file}: header comment must record that this file "
+                      f"'{DESIGN_FONT_CAVEAT_PHRASE}' — it points at the page's own "
+                      "vendored faces, so it agrees with the page about typefaces "
+                      "whether or not either one is right, and a fidelity reference "
+                      "read as complete is how a flattened serif goes unnoticed")
+    elif DESIGN_FONT_CAVEAT_POINTER not in header:
+        errors.append(f"{design_file}: the font caveat in the header comment must "
+                      f"point at {DESIGN_FONT_CAVEAT_POINTER}, where the check that "
+                      "CAN witness a font difference is briefed — a caveat naming "
+                      "nowhere to go reads as reassurance")
 
 
 def _check_design_fixture(errors: list[str], fixture_root: Path,
@@ -1036,8 +1154,32 @@ def _self_test() -> int:
         # both Codex mirrors, then one deliberately broken copy per rule. Font
         # drift is invisible in a diff, so each rule is driven against a known-bad
         # tree rather than only against the (clean) real one.
+        # The synthetic manifest is a COMPLETE one — provenance block, a
+        # variable face and a static one cut from the same source — so each
+        # negative control below can break exactly one rule by patching it.
+        demo_commit = "0" * 40
+
+        def _demo_manifest() -> dict:
+            return {
+                "subsetting": {"fonttools_version": "4.63.0",
+                               "upstream_commit": demo_commit},
+                "families": {"Demo": {
+                    "licence": "demo-OFL.txt",
+                    "source_url": f"https://example.invalid/{demo_commit}/demo",
+                    "source_files": "Demo[wght].ttf",
+                    "pinned_axes": None,
+                    "axes": {"wght": "400..500"}}},
+                "faces": [
+                    {"family": "Demo", "weight": "400 500",
+                     "file": "demo-400.woff2", "source_file": "Demo[wght].ttf",
+                     "source_sha256": "a" * 64, "variable": True},
+                    {"family": "Demo", "weight": 600, "file": "demo-600.woff2",
+                     "source_file": "Demo[wght].ttf",
+                     "source_sha256": "a" * 64}],
+            }
+
         def _font_tree(base: Path, *, licence=True, mirror_bytes=b"WOFF2",
-                       script_bytes=b"# page\n", manifest=True):
+                       script_bytes=b"# page\n", manifest=True, patch=None):
             for rel in ("skills",) + tuple(m.as_posix() for m in MIRROR_SKILL_ROOTS):
                 (base / rel / WATCH_FONTS_REL).mkdir(parents=True, exist_ok=True)
                 (base / rel / WATCH_SCRIPT_REL).parent.mkdir(parents=True, exist_ok=True)
@@ -1046,10 +1188,10 @@ def _self_test() -> int:
             if licence:
                 (canon / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE")
             if manifest:
-                (canon / "manifest.json").write_text(json.dumps(
-                    {"families": {"Demo": {"licence": "demo-OFL.txt"}},
-                     "faces": [{"family": "Demo", "weight": 400,
-                                "file": "demo-400.woff2"}]}))
+                doc = _demo_manifest()
+                if patch:
+                    patch(doc)
+                (canon / "manifest.json").write_text(json.dumps(doc))
             (base / "skills" / WATCH_SCRIPT_REL).write_bytes(b"# page\n")
             for m in MIRROR_SKILL_ROOTS:
                 mirror = base / m / WATCH_FONTS_REL
@@ -1073,6 +1215,37 @@ def _self_test() -> int:
              {"script_bytes": b"# drifted\n"}, ["serve_status.py"]),
             ("fonts: an absent manifest fails (nothing to check the files against)",
              {"manifest": False}, ["manifest.json missing"]),
+            # provenance: complete, and not contradicting itself. None of it is
+            # verified against the upstream — these controls prove the record is
+            # held to being whole and self-consistent, which is all it claims.
+            ("fonts: a manifest with no fontTools version fails (the recipe is not "
+             "byte-reproducible, so the version is the record)",
+             {"patch": lambda d: d["subsetting"].pop("fonttools_version")},
+             ["records no fonttools_version"]),
+            ("fonts: an EMPTY fontTools version fails rather than passing as present",
+             {"patch": lambda d: d["subsetting"].update(fonttools_version="  ")},
+             ["records no fonttools_version"]),
+            ("fonts: a manifest with no upstream commit fails",
+             {"patch": lambda d: d["subsetting"].pop("upstream_commit")},
+             ["records no upstream_commit"]),
+            ("fonts: a family source_url that does not name the pinned commit fails",
+             {"patch": lambda d: d["families"]["Demo"].update(
+                 source_url="https://example.invalid/deadbeef/demo")},
+             ["does not name the pinned upstream commit"]),
+            ("fonts: a face with no well-formed source digest fails",
+             {"patch": lambda d: d["faces"][0].update(source_sha256="nope")},
+             ["no well-formed source_sha256"]),
+            ("fonts: two faces cut from one source file recording different digests fails",
+             {"patch": lambda d: d["faces"][1].update(source_sha256="b" * 64)},
+             ["disagrees with another face"]),
+            ("fonts: a variable face whose family still pins an axis fails — the pin "
+             "describes the flattened cut it replaced",
+             {"patch": lambda d: d["families"]["Demo"].update(
+                 pinned_axes={"opsz": 18})},
+             ["still declaring pinned_axes"]),
+            ("fonts: a variable face whose family records no axes fails",
+             {"patch": lambda d: d["families"]["Demo"].update(axes=None)},
+             ["records no axes"]),
         ]
         for i, (name, kwargs, want) in enumerate(font_cases):
             errs = []
@@ -1089,9 +1262,11 @@ def _self_test() -> int:
         # committed nowhere; the checks below are the static, fast half of
         # _check_design_reference (no subprocess) — the real serving-rig
         # proof runs only against the real repo, from `check()`.
+        caveat_line = (f'  This file {DESIGN_FONT_CAVEAT_PHRASE}; see '
+                       f'{DESIGN_FONT_CAVEAT_POINTER}.\n')
         good_header = ('<!--\n  Origin design : claude-design://demo/Demo.dc.html\n'
                        '  Captured      : 2026-08-17\n  Viewport      : 1440x900\n'
-                       '  Theme         : light\n-->\n')
+                       '  Theme         : light\n' + caveat_line + '-->\n')
 
         def _design_file(base: Path, *, header=good_header,
                          asset_tag='<img src="mascot.png">',
@@ -1128,6 +1303,15 @@ def _self_test() -> int:
             ("design: a protocol-relative //host reference fails too (no scheme to grep for)",
              lambda b: _design_file(b, extra='<link href="//fonts.googleapis.com/x" rel="stylesheet">'),
              ["references an external host"]),
+            ("design: a header with no font caveat fails — the reference renders in "
+             "the page's own faces and must say so",
+             lambda b: _design_file(b, header=good_header.replace(caveat_line, "")),
+             ["cannot witness a font difference"]),
+            ("design: a font caveat pointing nowhere fails — a caveat with no brief "
+             "behind it reads as reassurance",
+             lambda b: _design_file(b, header=good_header.replace(
+                 caveat_line, f'  This file {DESIGN_FONT_CAVEAT_PHRASE}.\n')),
+             ["must point at"]),
         ]
         for i, (name, make, want) in enumerate(design_cases):
             errs: list[str] = []
