@@ -910,6 +910,9 @@ def _self_test() -> int:
         ("unreadable schema is reported, not a crash", '{"enabled": true}', "{not json", ["missing or unreadable"]),
     ]
     failures = 0
+    total = 0  # incremented once per [PASS]/[FAIL] line printed below — never hand-summed,
+    # so a case group (or a standalone check with no list of its own) added later cannot
+    # silently under-report: it counts itself the moment it prints its own result line.
     with tempfile.TemporaryDirectory() as td:
         for i, (name, cfg_text, schema_text, want) in enumerate(cases):
             cfg = Path(td) / f"cfg{i}.json"
@@ -921,11 +924,13 @@ def _self_test() -> int:
             _check_doc_gardner(errors, config=cfg, schema=schema)
             ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r}"))
+            total += 1
             failures += 0 if ok else 1
         errors = []
         _check_doc_gardner(errors, config=Path(td) / "absent.json", schema=Path(td) / "schema0.json")
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
+        total += 1
         failures += 0 if ok else 1
 
         # The Karta Watch coverage floor: the anchor is compared as a floor, and an
@@ -958,12 +963,14 @@ def _self_test() -> int:
             _check_behaviour_anchor(errs, anchor=anc, registry=reg)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
         errs = []
         _check_behaviour_anchor(errs, anchor=Path(td) / "absent-anchor.txt", registry=live)
         ok = bool(errs) and any("missing" in e for e in errs)
         print(f"[{'PASS' if ok else 'FAIL'}] anchor floor: a missing anchor fails"
               + ("" if ok else f" — got {errs!r}"))
+        total += 1
         failures += 0 if ok else 1
 
         # The fact-trace floor: the sweep is wired, it fails on an untraced fact, and it
@@ -983,6 +990,7 @@ def _self_test() -> int:
               and "fact 'a-fact' is untraced" in errs[0])
         print(f"[{'PASS' if ok else 'FAIL'}] fact traces: a traced live binder passes; an untraced archived binder fails too"
               + ("" if ok else f" — got {errs!r}"))
+        total += 1
         failures += 0 if ok else 1
         (bd / "gap.json").write_text(_fact_binder(False))
         errs = []
@@ -992,6 +1000,7 @@ def _self_test() -> int:
               and any("archive" in e and "frozen.json" in e and "fact 'a-fact' is untraced" in e for e in errs))
         print(f"[{'PASS' if ok else 'FAIL'}] fact traces: an untraced fact in a live binder fails the floor"
               + ("" if ok else f" — got {errs!r}"))
+        total += 1
         failures += 0 if ok else 1
 
         # _run_self_test enforces "every gated script exposes --self-test": check all three
@@ -1020,6 +1029,7 @@ def _self_test() -> int:
             _run_self_test(rst / fn, errs)
             ok = (bool(errs) == want_err) and (want_sub is None or any(want_sub in e for e in errs))
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The vendored fonts: a synthetic repo shape with the canonical tree and
@@ -1069,6 +1079,7 @@ def _self_test() -> int:
             _check_vendored_fonts(errs, root=_font_tree(Path(td) / f"fonts{i}", **kwargs))
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The watch design reference: a self-contained good capture, then one
@@ -1124,6 +1135,7 @@ def _self_test() -> int:
             _check_design_self_contained(errs, target)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The design fixture: a well-formed synthetic fixture repo root, then
@@ -1170,6 +1182,7 @@ def _self_test() -> int:
             _check_design_fixture(errs, root, ref_prober=prober)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The binder panel's ground, read from a synthetic design against a
@@ -1238,6 +1251,7 @@ def _self_test() -> int:
             _check_design_panel_ground(errs, make(Path(td) / f"ground{i}"), **side)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
 
         # The serving rig, driven against stand-in pages rather than only
@@ -1291,10 +1305,8 @@ def _self_test() -> int:
                                       timeout=4.0)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
             failures += 0 if ok else 1
-    total = (len(cases) + 1 + len(rst_cases) + len(anchor_cases) + 1
-             + len(font_cases) + len(design_cases) + len(fixture_cases)
-             + len(rig_cases))
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
