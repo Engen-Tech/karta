@@ -342,6 +342,56 @@ side and fails the aggregate.
 
 ---
 
+## 13. `check_fact_traces.py` has four narrow gaps the third review pass found — *Ready* (filed 2026-08-24)
+
+**Where they came from.** The two-provider review of `karta/watch-drill-in/integration` at tip
+`66cf410` ([record](../../.karta/roundtable/branch-66cf41012c755895a6ca297f123795404b4647d0.json)).
+Two of the four were raised by both providers independently. All four are confirmed by running them,
+all are low severity, and none blocks the landing — they are filed rather than fixed because fixing
+would have moved the tip and voided the record that pass produced.
+
+**a. An explicit `"token_manifest": null` bypasses validation.** `check_binder` reads
+`binder.get("token_manifest")` and returns clean on `None`, so a present-but-null manifest is
+indistinguishable from an absent key — which contradicts the rule the same function states one line
+later, that a manifest *when present* must be an object. Confirmed: `errors=[]`. Note this is a gap
+in code the review itself introduced, one pass earlier. **Fix:** test key presence, then the value.
+
+**b. The self-test is asymmetric about unexpected errors.** The predicate is
+`bool(errors) == bool(want_err)`, so once a case expects an error it cannot tell one error from
+five: a regression emitting the wanted error *plus* a spurious one still passes. The note side was
+tightened to `bool(notes) == bool(want_note)` in the same pass; the error side was not. **Fix:**
+compare counts, or require every error to match a wanted substring.
+
+**c. The `row {i}` fallback id can alias a real one.** A row with no `id` is labelled `row 3` by
+position, so a fact legitimately named `"row 3"` alongside an id-less row at index 3 reports a
+spurious "recorded twice". Confirmed. The direction is a false alarm rather than a pass-while-broken,
+but it is the duplicate detector reporting on itself. The mirror case matters more: two id-less rows
+get *distinct* fallback ids, so a genuine duplicate among them is never flagged. **Fix:** namespace
+the fallback so it cannot collide with a real id.
+
+**d. A fact row needs no `id` at all.** The fallback means `{"traced_by": ["item:0"]}` validates,
+even though ids are documented as unique stable identities. **Fix:** require a non-blank string
+`id`, and use the positional label only when reporting that failure.
+
+**Speculative, kept for whoever nests a binder.** The sweep is `*.json` plus one level of `archive/`.
+A live binder in any other subdirectory, or an archived one deeper than a level, is never checked and
+passes by omission. Binders are flat today, so this is not reachable.
+
+**One recommendation declined, with the reason.** A provider asked that the archived DICT exemption
+validate the full pre-convention schema — the metadata keys, not just that `facts` is a list. Turning
+that down: the only pre-convention table in this repo is `watch-fidelity.json`, and pinning the
+exemption to its particular metadata keys would fit the check to one file rather than to a shape.
+Requiring `facts` to be a list is the line that distinguishes "pre-convention" from "malformed",
+which is what the exemption is for.
+
+**One finding checked and cleared.** The same pass flagged that the new comment on the coverage
+harness claims callable controls are "covered instead by `never_failed`", and that the claim was
+unverifiable from what it had been shown. It was verified against the source: a callable control that
+changes no behaviour leaves the check passing, `survived` is true, and the name is appended to
+`never_failed`. The comment is accurate.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
