@@ -391,6 +391,7 @@ rail-picks-exactly-one-binder
 selection-and-in-flight-are-two-marks
 rail-button-ground-follows-selection
 rail-hint-counts-the-binders
+rail-selection-mirror-matches-its-twin
 
 # A halt shows on the map card, without a click. The design sets a pill
 # reading "<n> halted" beside the slug of a binder with a halted item; the page
@@ -410,6 +411,7 @@ rail-halt-badge-counts-the-halted-items
 rail-halt-badge-wears-the-one-alarm-keyframe
 rail-halt-badge-softens-with-the-alarm
 rail-halt-badge-on-the-halt-role
+halted-count-mirror-matches-its-twin
 
 # The panel is one binder. The map picks, and the main column shows that
 # binder's card and nothing else — no phase grouping around it, no head, no

@@ -13752,6 +13752,97 @@ def _c_item_detail_mirror(ctx):
             and "MIRROR: change together with itemDetail()" in py)
 
 
+def _js_first_after_brace(body: str, opener: str, template: str) -> bool:
+    """True if, once `opener`'s own text is stripped from the front of `body`
+    and any whole-line comments ahead of the first statement are skipped — a
+    comment added there is a harmless reformat, not a stub — what remains
+    starts with `template`, ALL whitespace discarded on both sides so
+    reindenting and rewrapping the statement across lines (wherever the wrap
+    falls) cannot matter. `template` spells the one local variable the
+    statement assigns as the literal marker `$VAR$`, matched against any JS
+    identifier, so renaming that local also stays harmless. Written for
+    exactly one purpose: catching an unconditional statement inserted ahead of
+    a function's real first statement, which every fragment-presence check
+    below is blind to, since those only ask whether text is present SOMEWHERE
+    in the span."""
+    lines = body[len(opener):].splitlines()
+    i = 0
+    while i < len(lines) and (not lines[i].strip()
+                              or lines[i].strip().startswith("//")):
+        i += 1
+    compact = re.sub(r"\s+", "", "\n".join(lines[i:]))
+    before, _, after = template.partition("$VAR$")
+    pattern = (re.escape(re.sub(r"\s+", "", before)) + r"[A-Za-z_$][\w$]*"
+               + re.escape(re.sub(r"\s+", "", after)))
+    return re.match(pattern, compact) is not None
+
+
+@_covers("halted-count-mirror-matches-its-twin", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             _js_block(c["app_src"], "function haltedCountOf(b) {"),
+             "function haltedCountOf(b) {\n  return 1;\n}")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "function haltedCountOf(b) {",
+                     "function haltedCountOf(b) { return 1;")}])
+def _c_halted_count_mirror(ctx):
+    """The page ships its own copy of haltedCountOf, the twin of the Python
+    _rail_halted() a rail card's badge is built from — checked the way the
+    established twins above are checked, not invented fresh: fragments that
+    carry its decision, present somewhere in the extracted body span, plus the
+    first statement anchored immediately after the opening brace so a stub
+    inserted ahead of the real body is caught even though every fragment below
+    survives untouched underneath it.
+
+    This tests presence in final text and first-statement position — nothing
+    about what edit produced that text. See verification_honesty for why that
+    is the only honest way to describe what this check does."""
+    app = ctx["app_src"]
+    opener = "function haltedCountOf(b) {"
+    body = _js_block(app, opener)
+    if not body:
+        return False
+    anchored = _js_first_after_brace(
+        body, opener, "const $VAR$ = (b.items && b.items.detail) || [];")
+    return (anchored
+            and "b.items.failed" in body
+            and "x.status === 'failed'" in body)
+
+
+@_covers("rail-selection-mirror-matches-its-twin", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+             ".indexOf(picked) >= 0", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     ".filter(g => g.key === 'now')", "")},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "function railSelectionOf(binders, showDelivered, picked) {",
+                     "function railSelectionOf(binders, showDelivered, picked) { return null;")}])
+def _c_rail_selection_mirror(ctx):
+    """The page ships its own copy of railSelectionOf, the twin of the Python
+    rail_selection() that decides which binder the map opens on. Checked the
+    same way as halted-count-mirror-matches-its-twin just above: fragments
+    for its explicit-pick honouring and its in-flight-first fallback, present
+    somewhere in the extracted body span, plus the first statement anchored
+    immediately after the opening brace.
+
+    Deliberately not a whole-line match on the explicit-pick guard or the
+    fallback return — either would break under a harmless line rewrap, which
+    is the brittleness regression_risk warns against. Deliberately not
+    prefixed with the local variable each fragment reads off, either — `slugs`
+    and `shown` are locals a rename can touch without changing what either
+    fragment means. See verification_honesty for what this check does and
+    does not claim about the edits that produced the final text it reads."""
+    app = ctx["app_src"]
+    opener = "function railSelectionOf(binders, showDelivered, picked) {"
+    body = _js_block(app, opener)
+    if not body:
+        return False
+    anchored = _js_first_after_brace(
+        body, opener, "const $VAR$ = (binders || []).map(b => b.slug);")
+    return (anchored
+            and ".indexOf(picked) >= 0" in body
+            and ".filter(g => g.key === 'now')" in body)
+
+
 @_covers("item-detail-hooks-are-registered", kind="behaviour",
          breaks=[lambda c: {"detail_hooks":
                             c["detail_hooks"] + (KW_PREFIX + "detail-ghost",)},
