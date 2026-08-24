@@ -292,6 +292,56 @@ merges and then again on the consolidation.
 
 ---
 
+## 12. the coverage harness's own guards have four soft spots — *Ready* (filed 2026-08-24)
+
+**Where.** `skills/karta-status/scripts/serve_status.py`, the three aggregate checks that stand in
+for per-behaviour tests across the whole `_COVERAGE_REGISTRY` (~258 checks), plus the two self-test
+counters. Found by the two-provider branch review of `watch-drill-in-remediation`; both providers
+raised the first one independently. None of these is a defect the branch introduced — the harness
+predates it — and none is a one-line fix, which is why they are filed rather than folded into a
+review commit.
+
+**a. The vacuity guard proves nothing for a callable control.** The check is
+`any(k not in ctx or ctx[k] == v for k, v in overrides.items())`. For the string and tuple artifacts
+that is real — a `.replace()` whose target has gone compares equal and is caught. For a **callable**
+override `==` is identity, and a freshly built lambda never equals what it replaces, so a callable
+control can never be flagged vacuous. The aggregate still reports *"each negative control proves its
+mutation changed the rendered bytes"*, which is untrue for that whole class. `never_failed` catches a
+control that changes no behaviour, so there is no exploit today, but the stated invariant is not the
+one being enforced. Compounding it: the runner treats an exception as `survived = False`, so a
+callable break that merely makes the check *crash* satisfies `never_failed` without ever showing it
+exercised the guarded behaviour. **Fix:** have callable overrides carry an explicit before/after
+probe — assert the replacement returns something different from the original on a fixed input —
+rather than leaning on `==`.
+
+**b. A break receives the shared, un-copied context.** `overrides = mutate(ctx)` runs against the
+live `ctx`; the defensive `broken = dict(ctx)` happens afterwards, and one `ctx` is reused for every
+entry in the loop. A control that mutates a nested value in place rather than returning a
+replacement would poison the true-render comparison for every check evaluated after it, making
+results order-dependent. No current control does this. **Fix:** snapshot and restore around each
+break, or hand `mutate` a copy.
+
+**c. A duplicated registry name silently drops a check.** `_covers` writes
+`_COVERAGE_REGISTRY[name] = {...}`, so registering two behaviours under one name discards the first
+with no diagnostic, and none of the three aggregates asserts a count or uniqueness. The committed
+behaviour anchor catches it only when the dropped name is already in the anchor — a duplicate pair
+added in a single commit is invisible. **Fix:** reject a duplicate at registration.
+
+**d. Both self-test totals are disciplined, not derived.** `scripts/check_fact_traces.py` and
+`scripts/validate_plugin.py` now increment a running `total` beside each printed result line, which
+is a real improvement on the hand-summed expression it replaced — but a future block that prints
+`[PASS]`/`[FAIL]` and forgets its `total += 1` still under-reports silently. That is the same failure
+class `selftest-count-is-real` set out to end, moved from one central sum to N local increments
+rather than removed. **Fix:** collect `(name, ok)` results and derive both numbers from the list, so
+the count cannot disagree with what was printed.
+
+**Worth recording about the review itself.** A third claim — that a rendered check whose hook is
+absent from every string artifact is *silently* skipped — was checked and rejected. The skip is not
+silent: the aggregate compares `renamed_fails == rendered` as lists, so a skipped check shortens one
+side and fails the aggregate.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
