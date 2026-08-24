@@ -476,3 +476,17 @@ masthead-row-holds-eyebrow-and-slug-apart
 binder-card-on-the-surface-frame-on-the-page-ground
 nothing-inside-the-binder-card-shares-its-ground
 binder-header-tints-composite-over-the-card-surface
+
+# The stdlib WOFF2 table-directory reader (serve_status.py, "the WOFF2 table
+# directory" section) and the one behaviour it holds the manifest to. The
+# first proves the reader itself against synthetic fixtures — none of the
+# eight shipped faces is variable, so only a synthetic fixture can exercise
+# the reserved-transform-version and variable-face paths. The second reads
+# every shipped face's own directory and checks it against the manifest's
+# per-face "variable" claim: a face marked variable must carry fvar at the
+# manifest's recorded length and every named variation table at a non-zero
+# length; a face marked static must carry no fvar. Named for a
+# variation-AXIS table, never for an optical size — a directory read cannot
+# reach an axis tag, which needs Brotli and is outside this reader.
+woff2-table-directory-round-trips
+font-manifest-agrees-with-variation-table

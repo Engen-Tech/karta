@@ -1,13 +1,13 @@
 {
-  "note": "Every typeface the Karta Watch page uses, vendored and served same-origin from /assets/fonts/. This file is the DECLARED record of what was shipped: the gate checks that it, the files on disk and the page's @font-face rules agree. Glyph coverage is a guarantee of the subsetting step recorded here, not something read back out of the woff2 cmap \u2014 the gate is stdlib Python with no font library.",
+  "note": "Every typeface the Karta Watch page uses, vendored and served same-origin from /assets/fonts/. This file is the DECLARED record of what was shipped: the gate checks that it, the files on disk and the page's @font-face rules agree. Glyph coverage is a guarantee of the subsetting step recorded here, not something read back out of the woff2 cmap — the gate is stdlib Python with no font library. Each face also carries a \"variable\" claim, checked against the file's own WOFF2 table directory (a stdlib parse, never a decompress) rather than taken on this manifest's word alone — see woff2-table-directory-round-trips and font-manifest-agrees-with-variation-table in serve_status.py.",
   "unicode_range_blocks": [
     "Basic Latin U+0020-007F",
     "Latin-1 Supplement U+00A0-00FF",
     "General Punctuation U+2000-206F"
   ],
-  "coverage_caveat": "The range is a fixed writing system, not the characters the page happens to render today. Text outside it (arrows, box drawing, CJK, emoji) falls through to the next family in the stack \u2014 the system font \u2014 which is why every stack keeps one.",
+  "coverage_caveat": "The range is a fixed writing system, not the characters the page happens to render today. Text outside it (arrows, box drawing, CJK, emoji) falls through to the next family in the stack — the system font — which is why every stack keeps one.",
   "subsetting": {
-    "tool": "fonttools pyftsubset (build-time only \u2014 never a runtime dependency)",
+    "tool": "fonttools pyftsubset (build-time only — never a runtime dependency)",
     "flags": [
       "--unicodes=U+0000-00FF,U+2000-206F",
       "--layout-features+=tnum",
@@ -61,7 +61,8 @@
       "sha256": "baa74b5b2f8809eeaf4457190531658c22e5cf4e73a093203ac88874fbccd530",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "Newsreader[opsz,wght].ttf",
-      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1"
+      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1",
+      "variable": false
     },
     {
       "family": "Newsreader",
@@ -71,7 +72,8 @@
       "sha256": "0459cfff19f8a01eaa15b08c4f9dae1a83bf071e5e3429392f232a7ce51daf03",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "Newsreader[opsz,wght].ttf",
-      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1"
+      "source_sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1",
+      "variable": false
     },
     {
       "family": "IBM Plex Sans",
@@ -81,7 +83,8 @@
       "sha256": "452e63e005884a9548bf74d7f8962dd9bce2856dd530c04a5bb715ee2ccc023a",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexSans[wdth,wght].ttf",
-      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3",
+      "variable": false
     },
     {
       "family": "IBM Plex Sans",
@@ -91,7 +94,8 @@
       "sha256": "889037cd894ca0ce466ba8dfdf0eed0613267e90e4d6e2b02f10970bbbc4de83",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexSans[wdth,wght].ttf",
-      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3",
+      "variable": false
     },
     {
       "family": "IBM Plex Sans",
@@ -101,7 +105,8 @@
       "sha256": "c48093cdc446a519f25799bea9464e73096c5d66e66f4a0a66b5b36c2e29738c",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexSans[wdth,wght].ttf",
-      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3"
+      "source_sha256": "3b031aa4216174205bd8471f88a49b91f093169e9e87bd5262242bc5967fe2e3",
+      "variable": false
     },
     {
       "family": "IBM Plex Mono",
@@ -111,7 +116,8 @@
       "sha256": "06d7234f6dd584151d8cdf9ef0fe4741365f549b555d4b7f51857a8c8cc03b8c",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexMono-Regular.ttf",
-      "source_sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+      "source_sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46",
+      "variable": false
     },
     {
       "family": "IBM Plex Mono",
@@ -121,7 +127,8 @@
       "sha256": "781d9869b99088f87578f23f9762acbd13b36d7132aedabbafdfc702f3f4ef42",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexMono-Medium.ttf",
-      "source_sha256": "a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755"
+      "source_sha256": "a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755",
+      "variable": false
     },
     {
       "family": "IBM Plex Mono",
@@ -131,7 +138,8 @@
       "sha256": "9bb32951ab78d49340eaca5cf098339b3cc491b71676a655b839721000fc9313",
       "unicode_range": "U+0000-00FF, U+2000-206F",
       "source_file": "IBMPlexMono-SemiBold.ttf",
-      "source_sha256": "d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46"
+      "source_sha256": "d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46",
+      "variable": false
     }
   ]
 }
