@@ -30,6 +30,13 @@ LIMIT = ("limit: proves a fact NAMES an existing assertion — never that the "
 TRACE_RE = re.compile(r"^(?P<item>[^:]+):(?P<index>\d+)$")
 
 
+def _is_pre_convention_table(table: object) -> bool:
+    """The one DICT shape the archived exemption is named for: metadata wrapping a
+    `facts` LIST. Checked rather than assumed, so the exemption cannot be claimed by
+    an empty dict or a garbage one — "pre-convention" has to look pre-convention."""
+    return isinstance(table, dict) and isinstance(table.get("facts"), list)
+
+
 def check_binder(binder: object, label: str, *, archived: bool = False) -> tuple[list[str], list[str]]:
     """(errors, notes) for one parsed binder. Notes echo every declared untraced
     reason so an accepted gap is visible in the output, never silent.
@@ -46,11 +53,16 @@ def check_binder(binder: object, label: str, *, archived: bool = False) -> tuple
     if not isinstance(binder, dict):
         return [f"{label}: binder must be a JSON object"], notes
     manifest = binder.get("token_manifest")
-    if not isinstance(manifest, dict) or "design_fact_table" not in manifest:
+    if manifest is None:
+        return errors, notes                     # records no facts — nothing to trace
+    if not isinstance(manifest, dict):
+        # present but not an object: say so rather than reading it as "no facts".
+        return [f"{label}: token_manifest must be an object when present"], notes
+    if "design_fact_table" not in manifest:
         return errors, notes                     # records no facts — nothing to trace
     table = manifest["design_fact_table"]
     if not isinstance(table, list):
-        if archived and isinstance(table, dict):
+        if archived and _is_pre_convention_table(table):
             notes.append(f"{label}: design_fact_table is a DICT (pre-convention metadata "
                          f"wrapping a facts list) — OUT OF SCOPE, not checked")
             return errors, notes
@@ -121,9 +133,21 @@ def check_path(path: Path) -> tuple[list[str], list[str]]:
     deliberately not a search over path components: these are absolute paths, so
     a checkout living under any ancestor called "archive" (~/archive/karta, a
     /builds/archive/... runner) would otherwise flag every LIVE binder as
-    archived and hand it the exemption below, which fails open."""
+    archived and hand it the exemption below, which fails open.
+
+    RESIDUAL, named rather than implied: a swept file's flag is structural, but a
+    file named DIRECTLY on the command line is still judged by its parent's NAME.
+    A live binder sitting in some unrelated directory called "archive" and passed
+    by path is read as archived. That is the cost of honouring "a binder named
+    under an archive/ dir behaves like a swept one" without anchoring this script
+    to one repo's layout, and it is one directory name away rather than any
+    ancestor away. The enforced floor never takes this path — it sweeps."""
     if path.is_dir():
-        files = [(f, False) for f in sorted(path.glob("*.json"))]
+        # a directory that IS the archive tags its own children archived — pointing
+        # the checker straight at .karta/binders/archive must not read those binders
+        # as live and fail them on the very shape the sweep exempts.
+        here = path.name == "archive"
+        files = [(f, here) for f in sorted(path.glob("*.json"))]
         archive = path / "archive"
         if archive.is_dir():
             files += [(f, True) for f in sorted(archive.glob("*.json"))]
@@ -201,16 +225,45 @@ def _self_test() -> int:
          {"slug": "fx", "work_items": [], "token_manifest": {"mechanism": "css vars"}}, [], []),
         ("a binder that is not an object fails",
          ["not", "a", "binder"], ["must be a JSON object"], []),
+        ("a token_manifest that is present but not an object fails",
+         {"slug": "fx", "work_items": [], "token_manifest": "corrupt"},
+         ["token_manifest must be an object"], []),
+        ("an absent token_manifest still passes untouched",
+         {"slug": "fx", "work_items": []}, [], []),
     ]
     failures = 0
     total = 0  # incremented once per [PASS]/[FAIL] line printed below — never hand-summed,
     # so a case added later cannot silently under-report the count it is part of.
     for name, data, want_err, want_note in cases:
         errors, notes = check_binder(data, "fx.json")
-        ok = (bool(errors) == bool(want_err)
+        ok = (bool(errors) == bool(want_err) and bool(notes) == bool(want_note)
               and all(any(w in e for e in errors) for w in want_err)
               and all(any(w in n for n in notes) for w in want_note))
         print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r} / {notes!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+    # The archived exemption is for ONE shape and checks for it. A dict that does
+    # not wrap a facts list is not "pre-convention", it is malformed, and archived
+    # must not launder it — otherwise the exemption is a hole any dict fits through.
+    for name, table, arch, want_err, want_note in [
+        ("a real pre-convention table is exempted when archived",
+         {"why_here": "…", "fact_count": 2, "facts": [{"id": "a"}]}, True, [], ["OUT OF SCOPE"]),
+        ("the same table is still checked when NOT archived",
+         {"why_here": "…", "facts": []}, False, ["must be a list"], []),
+        ("an empty dict is not pre-convention, archived or not",
+         {}, True, ["must be a list"], []),
+        ("a dict whose facts is not a list is not pre-convention",
+         {"facts": "nope"}, True, ["must be a list"], []),
+    ]:
+        errors, notes = check_binder(
+            {"slug": "fx", "work_items": [], "token_manifest": {"design_fact_table": table}},
+            "fx.json", archived=arch)
+        ok = (bool(errors) == bool(want_err) and bool(notes) == bool(want_note)
+              and all(any(w in e for e in errors) for w in want_err)
+              and all(any(w in n for n in notes) for w in want_note))
+        print(f"[{'PASS' if ok else 'FAIL'}] {name}"
+              + ("" if ok else f" — got {errors!r} / {notes!r}"))
         total += 1
         failures += 0 if ok else 1
 
@@ -222,6 +275,8 @@ def _self_test() -> int:
     # into a note. That fails open, and silently.
     dict_table = {"slug": "fx", "work_items": [],
                   "token_manifest": {"design_fact_table": {"why_here": "…", "facts": []}}}
+    # (a genuine pre-convention shape — metadata wrapping a facts list — so these
+    #  fixtures test WHERE the file sits, not whether the shape earns the exemption)
     with tempfile.TemporaryDirectory() as td:
         # an ancestor called "archive", but the binders dir itself is an ordinary one
         decoy = Path(td) / "archive" / "checkout" / "binders"
@@ -235,9 +290,11 @@ def _self_test() -> int:
              decoy / "archive" / "frozen.json", [], ["OUT OF SCOPE"]),
             ("sweeping tells the two apart in one pass",
              decoy, ["live.json", "must be a list"], ["frozen.json", "OUT OF SCOPE"]),
+            ("pointing the sweep AT an archive/ dir keeps archived semantics",
+             decoy / "archive", [], ["frozen.json", "OUT OF SCOPE"]),
         ]:
             errors, notes = check_path(target)
-            ok = (bool(errors) == bool(want_err)
+            ok = (bool(errors) == bool(want_err) and bool(notes) == bool(want_note)
                   and all(any(w in e for e in errors) for w in want_err)
                   and all(any(w in n for n in notes) for w in want_note))
             print(f"[{'PASS' if ok else 'FAIL'}] {name}"
