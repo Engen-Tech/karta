@@ -1,0 +1,68 @@
+{
+  "schema": "karta.validate.capture.v1",
+  "viewport": { "width": 1440, "height": 900 },
+  "design": {
+    "url": "http://127.0.0.1:5500/index.standalone.html",
+    "health": "OK",
+    "auth": null,
+    "screenshot": ".karta-validate/design.png",
+    "dom_snapshot": ".karta-validate/design-snapshot.yaml",
+    "extracted_data": {
+      "url": "http://127.0.0.1:5500/index.standalone.html",
+      "title": "Team dashboard",
+      "tokens": {},
+      "headings": [],
+      "buttons": [],
+      "landmarks": []
+    },
+    "ready_selector": "#root > *",
+    "render_health": {
+      "schema": "karta-render-health-v1",
+      "result": "healthy",
+      "readySelector": "#root > *",
+      "visibleTextChars": 512,
+      "visibleLeafElements": 64,
+      "styledElementCount": 38,
+      "consoleErrorCount": 0,
+      "failedRequestCount": 0,
+      "consoleErrors": [],
+      "failedRequests": []
+    },
+    "console_errors": "",
+    "requests": "GET http://127.0.0.1:5500/index.standalone.html 200 document"
+  },
+  "app": {
+    "url": "http://localhost:3000/dashboard",
+    "health": "OK",
+    "auth": { "isLikelyAuth": false },
+    "screenshot": ".karta-validate/app.png",
+    "dom_snapshot": ".karta-validate/app-snapshot.yaml",
+    "extracted_data": {
+      "url": "http://localhost:3000/dashboard",
+      "title": "",
+      "tokens": {},
+      "headings": [],
+      "buttons": [],
+      "landmarks": []
+    },
+    "ready_selector": "body > *",
+    "render_health": {
+      "schema": "karta-render-health-v1",
+      "result": "blocked",
+      "readySelector": "body > *",
+      "visibleTextChars": 19,
+      "visibleLeafElements": 0,
+      "styledElementCount": 0,
+      "consoleErrorCount": 0,
+      "failedRequestCount": 0,
+      "consoleErrors": [],
+      "failedRequests": []
+    },
+    "console_errors": "",
+    "requests": "GET http://localhost:3000/dashboard 200 document"
+  },
+  "APP_HEALTH": "OK",
+  "STATUS": "captured",
+  "error": null,
+  "compare_ready": true
+}
