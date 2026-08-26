@@ -120,6 +120,12 @@
           "type": ["object", "string", "null"],
           "description": "the open-shape interface this item exposes/consumes"
         },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "ids of the work items whose design claim this item's visual gate checks; a visual_check_waiver naming this item is only accepted when the waived item's id appears here, so coverage is agreed by both items rather than claimed by one"
+        },
         "visual_check_waiver": {
           "type": "object",
           "required": ["reason", "covered_by"],

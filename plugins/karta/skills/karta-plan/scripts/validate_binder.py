@@ -210,12 +210,15 @@ def _design_reference_errors(items: list[dict], graph: dict[str, list[str]]) -> 
     must cost something: the item either carries a visual oracle itself, or a `visual_check_waiver`
     naming the item that checks it — never neither. A `visual_check_waiver` that isn't doing any
     work (the item makes no real design claim, or already carries a visual oracle) is itself
-    rejected, and a waiver's `covered_by` target is checked against five conditions, each its own
+    rejected, and a waiver's `covered_by` target is checked against six conditions, each its own
     error: it must resolve to a real work item, that item's oracle must be `visual`, that item's
     own `design_reference` must name a real view (a covering gate karta-build would skip cannot
     cover anything), that item must depend on the waived item directly or through the chain (it
-    has to run after the work it covers), and that item's oracle must carry a non-empty
-    `assertions` list (a covering check has to state what it checks before it can cover anything).
+    has to run after the work it covers), that item's oracle must carry a non-empty `assertions`
+    list (a covering check has to state what it checks before it can cover anything), and that
+    item must name the waived item in its own `covers` list — coverage is an agreement between
+    both items, so a gate is never volunteered into covering work it never accepted, whatever
+    view it happens to open.
     """
     by_id = {it["id"]: it for it in items}
     errors: list[str] = []
@@ -270,6 +273,18 @@ def _design_reference_errors(items: list[dict], graph: dict[str, list[str]]) -> 
                 errors.append(
                     f"design: item '{item_id}' visual_check_waiver.covered_by '{covered_by}' "
                     "oracle carries no assertions — a covering check must state what it checks")
+
+            # The covering item's own `design_reference` is deliberately NOT compared with the
+            # waived item's: one closing gate legitimately covers several differently-named
+            # views, which is what `waiver_summary` reports. What a gate cannot be is
+            # volunteered — it has to name the items it accepts, so coverage is agreed at
+            # both ends rather than asserted by the item that benefits from it.
+            cov_covers = cov_item.get("covers")
+            if not isinstance(cov_covers, list) or item_id not in cov_covers:
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver.covered_by '{covered_by}' "
+                    f"does not list '{item_id}' in its covers — a covering gate must name the "
+                    "items it covers")
             continue
 
         if names_real_view and not has_visual_oracle:
@@ -645,7 +660,7 @@ def _run_self_test() -> int:
          "oracle": {"opt_out": True, "reason": "r"},
          "visual_check_waiver": {"reason": "checked by c", "covered_by": "c"}},
         {"id": "c", "title": "C", "summary": "s", "design_reference": "view-c",
-         "depends_on": ["w"], "oracle": _v},
+         "depends_on": ["w"], "covers": ["w"], "oracle": _v},
     ])
 
     # redundant_waiver: one violating fixture covers both non-vacuous shapes (design_reference
@@ -663,17 +678,21 @@ def _run_self_test() -> int:
 
     # coverage rule: a base fully-compliant pair (w waived, c covers it), then one broken twin
     # per condition — each flips exactly one property of the compliant pair.
-    def _cov_binder(slug, w_extra=None, c_extra=None, drop_c_design_reference=False):
+    def _cov_binder(slug, w_extra=None, c_extra=None, drop_c_design_reference=False,
+                    drop_c_covers=False):
         w = {"id": "w", "title": "W", "summary": "s", "design_reference": "view-w",
              "oracle": _u, "visual_check_waiver": {"reason": "checked by c", "covered_by": "c"}}
         c = {"id": "c", "title": "C", "summary": "s", "design_reference": "view-c",
-             "depends_on": ["w"], "oracle": {"type": "visual", "assertions": ["checks w and c"]}}
+             "depends_on": ["w"], "covers": ["w"],
+             "oracle": {"type": "visual", "assertions": ["checks w and c"]}}
         if w_extra:
             w.update(w_extra)
         if c_extra:
             c.update(c_extra)
         if drop_c_design_reference:
             del c["design_reference"]
+        if drop_c_covers:
+            del c["covers"]
         return _design_binder(slug, [w, c])
 
     cov_base_good = _cov_binder("cov-base-good")
@@ -687,6 +706,34 @@ def _run_self_test() -> int:
     cov_no_assertions = _cov_binder("cov-no-assertions", c_extra={"oracle": {"type": "visual"}})
     cov_empty_assertions = _cov_binder(
         "cov-empty-assertions", c_extra={"oracle": {"type": "visual", "assertions": []}})
+    # covers condition: the covering item has to accept the waived item. Two violating shapes
+    # (no covers list at all; a covers list that names someone else), against cov_base_good —
+    # the identical pair whose only difference is that 'w' appears in c's covers.
+    cov_covers_absent = _cov_binder("cov-covers-absent", drop_c_covers=True)
+    cov_covers_omits_waived = _cov_binder("cov-covers-omits-waived", c_extra={"covers": ["c"]})
+
+    # The watch-fidelity shape, and the reason the covers condition is not design_reference
+    # equality: one closing gate naming 'binder-panel' legitimately covers three items naming
+    # three other views. Valid because the gate lists all three; the twin below drops one id
+    # from that list and only that item is rejected.
+    def _multi_view_binder(slug, covers):
+        waived = [
+            {"id": wid, "title": wid.upper(), "summary": "s", "design_reference": wid,
+             "oracle": _u,
+             "visual_check_waiver": {"reason": "compared once at the closing gate",
+                                     "covered_by": "gate"}}
+            for wid in ("typography", "item-card", "rail")]
+        gate = {"id": "gate", "title": "Gate", "summary": "s",
+                "design_reference": "binder-panel",
+                "depends_on": ["typography", "item-card", "rail"], "covers": covers,
+                "oracle": {"type": "visual",
+                           "assertions": ["the assembled panel matches the design"]}}
+        return _design_binder(slug, waived + [gate])
+
+    multi_view_gate = _multi_view_binder(
+        "multi-view-gate", ["typography", "item-card", "rail"])
+    multi_view_gate_drops_one = _multi_view_binder(
+        "multi-view-gate-drops-one", ["typography", "item-card"])
 
     # a cyclic depends_on graph still terminates when the coverage walk (_reachable) runs over
     # it, and the cycle error and the design: error both surface in the same pass.
@@ -796,6 +843,10 @@ def _run_self_test() -> int:
         ("waiver covered_by item does not depend on the waived item", cov_no_dep_edge, False),
         ("waiver covered_by item oracle has no assertions field", cov_no_assertions, False),
         ("waiver covered_by item oracle has an empty assertions list", cov_empty_assertions, False),
+        ("waiver covered_by item declares no covers at all", cov_covers_absent, False),
+        ("waiver covered_by item's covers omits the waived item", cov_covers_omits_waived, False),
+        ("one gate covering three items that name three different views", multi_view_gate, True),
+        ("the same gate with one covered id dropped from its covers", multi_view_gate_drops_one, False),
         ("pre-rule consumer binder shape (gringotts-browse-refinements)", gringotts_shape, False),
         ("cyclic deps binder also carrying an unwaived design claim", cyclic_with_design, False),
         ("visual_check_waiver missing reason", waiver_missing_reason, False),
