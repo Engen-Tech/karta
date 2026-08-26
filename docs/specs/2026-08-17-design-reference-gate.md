@@ -32,16 +32,17 @@ The sentinel comparison is exact. Only the literal string `none` excuses an item
 
 ## Decision 3 — coverage may not cross binders
 
-`covered_by` must name a work item **in the same binder** that satisfies five conditions, each reported as its own error: the id resolves, that item's oracle `type` is `visual`, that item's own `design_reference` names a real view, that item depends on the waived item directly or through the chain, and that item's oracle carries a non-empty `assertions` list.
+`covered_by` must name a work item **in the same binder** that satisfies six conditions, each reported as its own error: the id resolves, that item's oracle `type` is `visual`, that item's own `design_reference` names a real view, that item depends on the waived item directly or through the chain, that item's oracle carries a non-empty `assertions` list, and that item names the waived item in its own `covers` array.
 
 **Coverage may not cross binders, chosen over allowing a later binder to cover an earlier one.** A promise that a later binder will look is exactly the promise that was made last time, and it took a hand comparison to discover it had not been kept.
 
-The other four conditions each close a way of satisfying the rule with prose:
+The other five conditions each close a way of satisfying the rule with prose:
 
 - The `visual` type is what routes the covering item to the gate at all.
 - The covering item's own `design_reference` has to name a real view, because `karta-build` skips the visual gate when it is `none` — a covering item that is `visual` but names no view is a gate no browser ever runs.
 - The dependency edge is what makes "covers" true in time. A gate cannot cover work it does not run after.
 - `assertions` is optional in the schema. Without this condition the cheapest compliant shape is one bare closing visual gate absorbing every waiver in the binder, which is the deferred check the rule exists to end.
+- `covers` is what makes coverage a two-sided agreement. The first five conditions all read the covering item's own properties, so a waived item could point at any qualifying gate in the binder and be accepted whatever that gate actually opens — an item naming `checkout` waived to a gate naming `dashboard` validated clean and `checkout` was never compared. **Chosen over requiring the two `design_reference` values to match.** One closing gate covering several differently-named views is the intended shape and the one `waiver_summary` exists to report: `watch-fidelity`'s single `binder-panel` gate legitimately covers seven items naming `typography`, `item-card`, `header` and `rail`, and equality would reject five of those seven. So the gate is not asked to name the same view — it is asked to name the items, which is the fact the waiver was asserting on its behalf.
 
 A binder with no `visual` item anywhere cannot waive anything. It has to add a check or drop the claim.
 
@@ -55,11 +56,13 @@ One error, not two, covers a waiver doing no work — on an item with no real de
 2. Bytes disagree with the pin — fail.
 3. Inside the repository, pin file present, no entry of its own — fail.
 4. `recapture_after` has passed — fail.
-5. No pin file at all — pass with a notice.
-6. Design resolved from outside the repository — pass with a notice.
+5. No pin file at all — fail; a notice and a pass under `--allow-unpinned`.
+6. Design resolved from outside the repository — fail; a notice and a pass under `--allow-unpinned`.
 7. Malformed pin file — fail as malformed, never as a matching capture.
 
-**The ladder, chosen over a single match-or-fail check.** A flat check would break every consumer on the day it landed. The pass rungs are what let a repository that has not opted in carry on unaffected while the hole closes for any repository that has.
+**The ladder, chosen over a single match-or-fail check.** A flat check would break every consumer on the day it landed. Rungs 5 and 6 are what let a repository that has not opted in carry on unaffected while the hole closes for any repository that has.
+
+**Rungs 5 and 6 exit non-zero, chosen over the notice-and-pass they shipped with.** Both describe a capture the check compared against nothing, and both returned 0 — so anything gating on the exit status read "not verified" as "verified", which is the same shape of silent pass the whole rule exists to end. The escape did not go away, it became a word someone writes: `--allow-unpinned` restores the notice and the pass for exactly those two rungs and moves nothing else. An un-opted-in repository is one flag from carrying on, and the flag sits at the call site where a reader can see it. `karta-validate`'s prerequisites step does not pass it.
 
 Rung 4 is opt-in inside an opt-in: `recapture_after` is optional, so no existing pin gains a deadline it did not ask for, and a capture that outlives the life its author gave it stops the comparison instead of being disclosed and ignored.
 
@@ -87,7 +90,7 @@ It is a warning and not an error on purpose: a project may legitimately be all b
 
 The rule rejected both live binders on the day it was drafted. Neither was edited; both were handled by sequencing, recorded in this binder's `after` edges so the ordering lives where karta reads it.
 
-**`watch-fidelity`** — ten items, seven of which name a design view and are checked deterministically, against a single visual oracle, its closing `design-fidelity-gate`. Its dependency chain is a single spine and that gate transitively depends on all seven, so seven waivers are expressible and all point at the same covering item. It is sequenced before this binder; **if that order is ever broken, it needs seven waivers**. Seven were written into it ahead of time, parked inside each item's `contract` because the sibling field did not exist yet and the validator rejects an undeclared work-item property outright. That makes the retrofit mechanical, but it does not satisfy the rule, which reads the sibling field and not a contract clause.
+**`watch-fidelity`** — ten items, seven of which name a design view and are checked deterministically, against a single visual oracle, its closing `design-fidelity-gate`. Its dependency chain is a single spine and that gate transitively depends on all seven, so seven waivers are expressible and all point at the same covering item — which, under the `covers` condition, would also list all seven. It is sequenced before this binder; **if that order is ever broken, it needs seven waivers**. Seven were written into it ahead of time, parked inside each item's `contract` because the sibling field did not exist yet and the validator rejects an undeclared work-item property outright. That makes the retrofit mechanical, but it does not satisfy the rule, which reads the sibling field and not a contract clause.
 
 **`watch-redesign`** — ten items naming a design view and **no visual item at all**. No waiver can bring it into compliance, correctly, since it is the binder this rule exists to prevent. It can only leave the live set by landing, and would be rejected outright if it did not. Its own integration branch already carried the archive move, so landing retired it.
 

@@ -59,13 +59,29 @@ The waiver is a sibling field on the work item, next to `oracle` — not inside 
 }
 ```
 
-`covered_by` must satisfy five conditions, each of which the validator reports as its own error:
+`covered_by` must satisfy six conditions, each of which the validator reports as its own error:
 
 1. It names a real work item **in the same binder**.
 2. That item's oracle `type` is `visual`.
 3. That item's own `design_reference` names a real view — not `"none"`, not absent. A covering item whose `design_reference` is `"none"` is one `karta-build` skips the visual gate for, so it opens no browser and covers nothing.
 4. That item depends on the waived item, directly or through the dependency chain. A gate cannot cover work it does not run after.
 5. That item's oracle carries a non-empty `assertions` list. A covering check has to say what it checks.
+6. That item lists the waived item's `id` in its own `covers`. A waiver alone is one item volunteering another; the gate has to accept.
+
+Condition 6 is why the two `design_reference` values are never compared with each other. One closing gate legitimately covers several differently-named views — a `binder-panel` gate over items naming `rail`, `header` and `typography` is the normal shape — so requiring the strings to match would reject valid plans. What makes coverage real is not a matching view name but a gate that named the items it accepts:
+
+```json
+{
+  "id": "design-fidelity-gate",
+  "design_reference": "binder-panel",
+  "depends_on": ["binder-map-rail", "next-action-hero-band"],
+  "covers": ["binder-map-rail", "next-action-hero-band"],
+  "oracle": {
+    "type": "visual",
+    "assertions": ["the assembled page matches the design at 1440x900"]
+  }
+}
+```
 
 A binder with no `visual` item anywhere cannot waive anything. Add a check or drop the claim.
 
@@ -120,7 +136,7 @@ Someone changed the capture's bytes. Decide which happened:
 
 ### The other failures you can see
 
-There are seven outcomes and only four of them stop you:
+There are seven outcomes and six of them stop you by default. Two of those six stop you because the check verified nothing, not because it found something wrong, and that pair is what `--allow-unpinned` is for:
 
 | Outcome | Result |
 |-|-|
@@ -128,11 +144,19 @@ There are seven outcomes and only four of them stop you:
 | Bytes differ from the pin | **Fail** — the drift message above, with both hashes |
 | Design is inside the repo, a pin file exists, this design has no entry | **Fail** — `... has no pin in .karta/design-pins.json (sha256=...)`. This repository pins its captures and this one escaped; add the entry |
 | The entry's `recapture_after` date has passed | **Fail** — `... pin has expired: recapture_after 2026-12-01 has passed — recapture the design before trusting this comparison.` |
-| No pin file at all | Pass with a notice naming the design it did not verify, and its `sha256` |
-| Design resolved from outside the repository | Pass with a notice saying it cannot be pinned |
+| No pin file at all | **Fail**, naming the design it did not verify and printing its `sha256`. With `--allow-unpinned`: pass with that as a notice |
+| Design resolved from outside the repository | **Fail**, saying it cannot be pinned. With `--allow-unpinned`: pass with that as a notice |
 | Malformed pin file — not a JSON object, or an entry missing `sha256` | **Fail** as malformed, never as a matching capture |
 
-A repository with no `.karta/design-pins.json` has not opted in and is never blocked by this check.
+### `--allow-unpinned`
+
+No pin file at all, and a design resolved from outside the repository, are the two outcomes where the check compared the capture against nothing. They exit non-zero, because a zero exit is read as "this capture was checked" by anything gating on it, and for those two that is false.
+
+```sh
+uv run skills/karta-validate/scripts/check_design_pins.py --design-path <path> --allow-unpinned
+```
+
+The flag turns exactly those two back into a notice and a pass. Nothing else moves: a drifted capture, an expired pin, a missing entry and a malformed pin file all still fail with the flag set. Use it in a repository that has deliberately not pinned its captures — and write it at the call site, where a reader can see the choice, rather than leaving it to an exit code that never meant it.
 
 ## Pin a capture
 
@@ -155,7 +179,7 @@ Add one entry per committed design file, keyed by its repository-relative path:
 
 | Key | Required | What it is for |
 |-|-|-|
-| `sha256` | yes | The fingerprint of the committed bytes. Get it by running the check against an unpinned design — the failure and the no-pin-file notice both print the hash they computed |
+| `sha256` | yes | The fingerprint of the committed bytes. Get it by running the check against an unpinned design — the drift failure and the no-pin-file outcome both print the hash they computed |
 | `source` | no | The upstream address the capture came from, printed on every pass so the person about to trust the comparison knows where a recapture is aimed |
 | `captured_on` | no | The date the capture was taken, printed on every pass |
 | `recapture_triggers` | no | The events you decided call for taking the capture again. Printed on every pass; nothing enforces them |
