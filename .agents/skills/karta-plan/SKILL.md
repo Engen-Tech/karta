@@ -165,7 +165,7 @@ For each work item, set:
 - `oracle` per [references/definition-of-done.md](references/definition-of-done.md): a real CI-facing check oracle (`type`, `command`, `assertions`) OR an explicit opt-out (`opt_out: true`, `reason: "…"`). The floor is compile + type-check + lint. Use opt-out only when a genuinely better check already exists and recording it here would be redundant — always provide a reason.
 - `serialize: true` and `shared_resources` for items that must not run in parallel (e.g. DB migrations, lock-file changes).
 - `touches`: the concrete files/paths each item creates or modifies. This gives the parallelism file-collision and shared-resource gates structured data instead of prose to infer from, and `validate_binder.py` uses it to flag two same-wave items (no dependency edge between them) whose `touches` overlap unless one declares `serialize` or they share a `shared_resources` entry. Populate it for every item; without it the collision gate falls back to unenforced inference.
-- UI-only fields (`design_reference`, `component_map`, `icon_map`, `token_changes`) only when the stack has a design surface. Omit them entirely for backend, CLI, data, and other non-UI stacks.
+- UI-only fields (`design_reference`, `visual_check_waiver`, `component_map`, `icon_map`, `token_changes`) only when the stack has a design surface. Omit them entirely for backend, CLI, data, and other non-UI stacks.
 
 **Write the human prose in plain language.** The binder `title`/`summary` and each work item's `title`/`summary` are what a person reads in Karta Watch. Write them with the bundled **karta-plainlanguage** standard: lead with the reader, plain words over jargon, active voice, and no kebab-case identifiers in the prose. The `slug` and `id` stay the technical anchors; the `title` and `summary` are for humans — a `title` that just restates the slug, or a `summary` that restates the title, fails this bar.
 
@@ -175,7 +175,7 @@ For each work item, set:
 
 - Break UI work into items with the **vertical-slice heuristics** (foundation slice if the library/theme isn't integrated; one slice per page/view; split list + detail; complex reusable components; cross-cutting features; modals bundled with their view) — ui-analysis `ui:slice`.
 - Set `estimate` to the **S/M/L** size from the slice's component count and per-component complexity — ui-analysis `ui:slice`.
-- Set `design_reference` to the view/route the slice renders (or `none` for a pure setup/foundation item).
+- Set `design_reference` to the view/route the slice renders (or `none` for a pure setup/foundation item). **Naming a real view commits the item to being checked against it**: give it a `visual` oracle, or record a `visual_check_waiver` naming the item that opens the view for it. With neither, `validate_binder.py` rejects the binder — "…has no visual oracle and no visual_check_waiver". A waiver is `reason` plus `covered_by`, and the `covered_by` item must be a real work item that carries a `visual` oracle with a non-empty `assertions` list, names a real view in its own `design_reference`, and depends on the waived item directly or through the chain — a covering gate has to run after the work it covers. A waiver on an item that names no view, or that already carries a visual oracle, is rejected for doing no work. The field table and a worked snippet are in [references/binder-reference.md](references/binder-reference.md).
 - Populate `component_map` from the **component-to-library mapping** (Library match / Library + wrapper / Custom / Composite), `icon_map` from the **icon mapping** (primary → fallback → custom SVG, with the Source column and any missing-icon flags), and `token_changes` from the **design-token mapping** (no-consumable-tier-match tokens recorded as semantic-additive entries with per-context values and Auth) — ui-analysis `ui:components`, `ui:icons`, `ui:tokens`. Put the shared design→project token map in the binder-level `token_manifest`.
 
 Non-UI items keep the stack-agnostic synthesis above and carry none of these fields.
@@ -254,6 +254,8 @@ uv run --script skills/karta-plan/scripts/validate_binder.py --binder <path>
 
 The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, or `python3` all run it. Do not proceed on a validation failure. Fix the binder and re-validate until it passes. **For a set, validate every binder** — each must pass on its own before you present the set.
 
+A clean run still prints two recorded escapes: the opted-out items, and the waived visual checks — every item naming a design view it does not open, with its reason and the item covering it. **Carry both onto the review card**, so the person saying `commit` sees each escape and its cover before the binder is committed rather than in the report afterwards.
+
 **Single-work-item hatch.** A binder with exactly one work item can skip the deliver phase and go straight to build. Tell the user this option exists; let them make the call.
 
 **Review surface — in-chat card, or a plannotator annotation session.** The editable card has an optional second surface: a browser annotation session over the same card(s), through the separately-installed plannotator CLI. The surface changes how the user reviews; it changes no gate and no verb — committing still takes the explicit `commit`.
@@ -283,6 +285,7 @@ Lead with the binder path and the total work-item count, then give the user:
 - **Work order** — the item IDs in dependency order (topological sort), and the dependency chain.
 - **Flagged for review** — the IDs and the signals that flagged each one.
 - **Opted-out items** — the IDs and their recorded reasons (from the validator's opt-out summary).
+- **Waived visual checks** — the IDs that name a design view but do not open it, each with its reason and the item that checks it for them, plus how many waivers each covering item absorbs (from the validator's waiver summary).
 - **First wave** — the items with no `depends_on`. These can start right away.
 - **Experts applied** — the `sme` packs in effect for this binder (or *none*).
 
@@ -296,6 +299,7 @@ Lead with the binder path and the total work-item count, then give the user:
 - **UI fields are conditional, not universal.** `design_reference`, `component_map`, `icon_map`, and `token_changes` belong only on items with a UI surface. Emitting them on a migration, a CLI command, or a data pipeline item is a schema error — the validator will catch it, but don't write it in the first place.
 - **The oracle is a real CI-facing check.** It is not a self-grading statement ("implementation looks correct") or a description of what the item does. It is the command you'd want CI to run and the assertions you'd want to confirm.
 - **Opt-out is explicit and recorded.** There is no silent opt-out. Every `opt_out: true` requires a `reason`. karta reports opted-out items after every run so nothing slips through unnoticed.
+- **A design claim is checked or waived — never neither.** An item whose `design_reference` names a real view carries a `visual` oracle or a `visual_check_waiver` (`reason` plus `covered_by`). `validate_binder.py` rejects the binder otherwise, and rejects a waiver that does no work. `none` is matched byte for byte, so `None` and `NONE` are view names, not the sentinel.
 - **Don't delegate synthesis judgment.** The synthesis subagent drafts; the main thread reviews, corrects, and owns the binder. Cross-referencing contracts, oracle traceability, and dependency order requires judgment — do not hand that off.
 - **Validate before commit.** A binder that fails `validate_binder.py` is not a valid binder. Fix it before presenting it to the user for commit.
 - **A sequence is a set of self-sufficient binders; order is derived, never stored.** When scope spans multiple natural binders that must land in order, emit them as a set — each independently valid and mergeable, sliced expand → migrate → contract so each leaves the tree green. Slugs are descriptive and unique (no sequence number). Each binder except the first carries an `after` field naming its immediate predecessor(s); `after` is the only persisted cross-binder dependency. No sequence manifest, no ordering in slugs. The run order is derived (topo sort) from the edges — it is never stored directly. Movement between binders is the user's, done manually. Default is still one binder.
