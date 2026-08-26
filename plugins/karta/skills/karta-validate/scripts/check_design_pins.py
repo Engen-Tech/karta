@@ -144,13 +144,11 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
         return 1, [f"{rel} has no pin in {PIN_FILE_NAME} (sha256={digest}) — this "
                    f"repository pins its design captures, and this one has no entry."]
 
-    # Keyed on presence, not truthiness: a falsy-but-present value (0, "", false) is a
-    # deadline someone wrote down wrong, and reading it as "no deadline" would let a pin
-    # outlive the life its author tried to give it — the one thing this rung exists to stop.
-    # `null` is how JSON writes "absent", so a generator that always emits the key still
-    # means no deadline. 0, "" and false are not ways of writing that — they are a deadline
-    # someone got wrong, and reading them as "no deadline" would let a pin outlive the life
-    # its author tried to give it, which is the one thing this rung exists to stop.
+    # Keyed on the value being non-null, not on it being truthy. `null` is how JSON writes
+    # "absent", so a generator that always emits the key still means no deadline. 0, "" and
+    # false are not ways of writing that — they are a deadline someone got wrong, and reading
+    # them as "no deadline" would let a pin outlive the life its author tried to give it,
+    # which is the one thing this rung exists to stop.
     if entry.get("recapture_after") is not None:
         recapture_after = entry["recapture_after"]
         if not isinstance(recapture_after, str) or not recapture_after:
