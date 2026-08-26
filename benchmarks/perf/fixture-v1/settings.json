@@ -1,0 +1,31 @@
+{
+  "$comment": "Permission allowlist for one headless fixture-v1 baseline run. Copied verbatim to $RUN_ROOT/repo/.claude/settings.json by runner.sh, which then adds the pinned plugin marketplace to the same file with --scope project. The run itself passes --permission-mode bypassPermissions, so this list is the record of what a delivery of the bench binder is expected to need, not the only thing standing between the run and the machine.",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Edit",
+      "Task",
+      "Skill",
+      "TodoWrite",
+      "Bash(git:*)",
+      "Bash(python3:*)",
+      "Bash(uv:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(sh:*)",
+      "Bash(test:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

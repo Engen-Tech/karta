@@ -5,7 +5,7 @@ method: ab-fixture-run
 cadence: quarterly
 cost: L
 probe: benchmarks/probes/perf-fixture-cost-baseline.py
-probe_status: planned
+probe_status: partial
 results: benchmarks/perf/results/
 provenance: "lens: perf; merged_from: fixture-phase-cost-ab"
 ---
