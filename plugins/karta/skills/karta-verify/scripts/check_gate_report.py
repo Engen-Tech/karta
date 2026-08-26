@@ -51,6 +51,7 @@ import contextlib
 import io
 import json
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -359,6 +360,8 @@ def _run_self_test() -> int:
                       "--binder", str(bnd)])
     check("main() exit codes: 0 clean / 1 findings / 2 unreadable input",
           clean == 0 and finding == 1 and usage == 2, f"{clean} {finding} {usage}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
 
     print(f"self-test: {passed}/{total} cases passed")
     return 1 if failures else 0

@@ -25,7 +25,7 @@ merging it instead of trusting a report:
      trailer-bearing commit sitting off that first-parent chain — a side-branch accept
      is exactly the forgery the reachability rule exists to catch.
 
-The script only READS git (rev-list, log, cat-file, show-ref). It never writes a ref.
+The script only READS git (rev-list, log, rev-parse, for-each-ref). It never writes a ref.
 
 Stdlib only. Invoked directly (not installed), matching the non-executable mode of
 sibling scripts:
@@ -193,15 +193,20 @@ def check_accepted(repo: Path, slug: str, item_id: str) -> list[str]:
                 )
 
     # Any trailer-bearing commit off the first-parent chain is a forged accept. The
-    # scan is scoped to this slug's own refs — the integration branch, the item
-    # branches, and the refs/karta/<slug>/ namespace — so a legitimate accept
-    # belonging to another binder is never dragged in as a finding here.
+    # scan is scoped twice over — to this slug's own refs, and then to commits that
+    # name THIS item. Both narrowings are load-carrying: a slug's branches carry the
+    # whole repo history, so scoping by ref alone reads every older binder's
+    # legitimate accept (long since merged onward, and so no longer on this branch's
+    # first-parent chain) as a forgery. The forgery this rule exists to catch is a
+    # worker manufacturing an accept for its own item, and that commit names it.
     scan_refs = _slug_refs(repo, slug)
     stamped = [line.strip() for line in
                _git(repo, "log", "--format=%H", "--extended-regexp",
                     f"--grep=^{ACCEPT_TRAILERS[0]}:", *scan_refs).splitlines()
                if line.strip()] if scan_refs else []
     for sha in stamped:
+        if f"item-{item_id}" not in _message(repo, sha):
+            continue  # an accept belonging to some other item, not ours to judge
         if sha not in chain:
             findings.append(
                 f"accepted: {sha[:12]} carries {ACCEPT_TRAILERS[0]} trailers but sits off the "
@@ -295,6 +300,17 @@ def _run_self_test() -> int:
         check("NEGATIVE CONTROL: a trailered commit forged at the worker's own tip, off the "
               "first-parent chain, is a finding",
               len(f) == 1 and forged[:12] in f[0] and "off the first-parent chain" in f[0], str(f))
+
+        # The scope of that rule, proved: the SAME off-chain shape belonging to another
+        # item is not this item's finding. Without this, the check reads every older
+        # binder's legitimate accept as a forgery (it did, on the karta repo itself).
+        _git(a, "checkout", "-q", "-b", "karta/s/item-z", "karta/s/item-a")
+        commit(a, "karta: merge item-z\n\nKarta-Accepted: item-z\n"
+                  "Karta-Accept-Reason: another item's accept, off this chain")
+        _git(a, "checkout", "-q", "karta/s/integration")
+        f = check_accepted(a, "s", "a")
+        check("another item's off-chain accept is not this item's finding",
+              len(f) == 1 and forged[:12] in f[0], str(f))
 
         # NEGATIVE CONTROL: accepted ref with no done ref at all.
         b = init(tmp / "accept-nodone")
