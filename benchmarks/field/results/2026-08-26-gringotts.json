@@ -292,6 +292,42 @@
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
+    },
+    {
+      "id": "design-pins",
+      "karta_version": "2.31.0",
+      "ship_date": "2026-08-26T10:34:18-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "jq",
+        "pattern": ".",
+        "path": ".karta/design-pins.json"
+      },
+      "status": "NOT-EXERCISED-SINCE-SHIP",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": 30
+    },
+    {
+      "id": "visual-check-waiver",
+      "karta_version": "2.31.0",
+      "ship_date": "2026-08-26T10:34:18-04:00",
+      "durable": true,
+      "detection": {
+        "kind": "grep",
+        "pattern": "visual_check_waiver",
+        "path": ".karta/binders"
+      },
+      "status": "NOT-EXERCISED-SINCE-SHIP",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
+      "lag_label": null,
+      "present_now": null,
+      "days_since_last_activity": 30
     }
   ],
   "headline": {
@@ -302,7 +338,7 @@
       "pack-provenance-stamp"
     ],
     "count": 4,
-    "denominator": 14
+    "denominator": 16
   },
   "adoption_lag_n": 6,
   "adoption_lag_median_days": 11.0
