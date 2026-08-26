@@ -186,9 +186,135 @@ def validate_binder(binder: dict) -> list[str]:
         if color[i] == WHITE:
             visit(i, [i])
 
+    # design: a work item that names a real design view must either open it itself
+    # (a visual oracle) or carry a recorded waiver naming the item that opens it for it.
+    # Runs in the same pass as the cycle check above (not gated behind `if not errors`)
+    # so a cyclic binder that also carries an unwaived design claim reports both —
+    # the coverage walk below (`_reachable`) has its own visited set and terminates
+    # regardless of a cycle in `graph`.
+    errors.extend(_design_reference_errors(items, graph))
+
     if not errors:
         errors.extend(_wave_collision(items))
     return errors
+
+
+# The one sentinel that excuses a work item from claiming a design view: matched byte for
+# byte, no stripping, no case folding. "None" and "NONE" are design claims, not the sentinel.
+_NONE_SENTINEL = "none"
+
+
+def _design_reference_errors(items: list[dict], graph: dict[str, list[str]]) -> list[str]:
+    """The design: error family. An item whose `design_reference` names a real view (present,
+    and not the exact string "none") is asserting that view is what it renders. That assertion
+    must cost something: the item either carries a visual oracle itself, or a `visual_check_waiver`
+    naming the item that checks it — never neither. A `visual_check_waiver` that isn't doing any
+    work (the item makes no real design claim, or already carries a visual oracle) is itself
+    rejected, and a waiver's `covered_by` target is checked against five conditions, each its own
+    error: it must resolve to a real work item, that item's oracle must be `visual`, that item's
+    own `design_reference` must name a real view (a covering gate karta-build would skip cannot
+    cover anything), that item must depend on the waived item directly or through the chain (it
+    has to run after the work it covers), and that item's oracle must carry a non-empty
+    `assertions` list (a covering check has to state what it checks before it can cover anything).
+    """
+    by_id = {it["id"]: it for it in items}
+    errors: list[str] = []
+    for it in items:
+        item_id = it["id"]
+        design_ref = it.get("design_reference")
+        names_real_view = design_ref is not None and design_ref != _NONE_SENTINEL
+        oracle = it.get("oracle")
+        oracle_type = oracle.get("type") if isinstance(oracle, dict) else None
+        has_visual_oracle = oracle_type == "visual"
+        waiver = it.get("visual_check_waiver")
+
+        if waiver is not None:
+            if not names_real_view or has_visual_oracle:
+                why = ("design_reference is absent or the literal 'none'" if not names_real_view
+                       else "the item already carries a visual oracle")
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver is redundant — {why}, "
+                    "so the waiver is doing no work")
+                continue  # a redundant waiver's covered_by is not worth checking further
+
+            covered_by = waiver.get("covered_by")
+            cov_item = by_id.get(covered_by)
+            if cov_item is None:
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver.covered_by names unknown "
+                    f"work item '{covered_by}'")
+                continue  # nothing further to check against an item that doesn't exist
+
+            cov_oracle = cov_item.get("oracle")
+            cov_type = cov_oracle.get("type") if isinstance(cov_oracle, dict) else None
+            if cov_type != "visual":
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver.covered_by '{covered_by}' "
+                    "does not carry a visual oracle")
+
+            cov_design_ref = cov_item.get("design_reference")
+            if cov_design_ref is None or cov_design_ref == _NONE_SENTINEL:
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver.covered_by '{covered_by}' "
+                    "has design_reference 'none' (or none at all) — karta-build skips its "
+                    "visual gate, so it cannot cover this waiver")
+
+            if item_id not in _reachable(covered_by, graph):
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver.covered_by '{covered_by}' "
+                    f"does not depend on '{item_id}' (directly or through the chain), so it "
+                    "cannot cover work it does not run after")
+
+            cov_assertions = cov_oracle.get("assertions") if isinstance(cov_oracle, dict) else None
+            if not cov_assertions:
+                errors.append(
+                    f"design: item '{item_id}' visual_check_waiver.covered_by '{covered_by}' "
+                    "oracle carries no assertions — a covering check must state what it checks")
+            continue
+
+        if names_real_view and not has_visual_oracle:
+            errors.append(
+                f"design: item '{item_id}' names a design view ('{design_ref}') but "
+                "has no visual oracle and no visual_check_waiver")
+    return errors
+
+
+def waiver_summary(binder: dict) -> list[str]:
+    """Mirrors opt_out_summary's surfacing so a recorded escape prints somewhere: one line
+    per waiver stating its reason and its covered_by, plus one line per covering item stating
+    how many waivers it absorbs — so a gate covering seven views reads as covering seven views,
+    not as a binder with none."""
+    lines: list[str] = []
+    absorbed: dict[str, int] = {}
+    for it in binder.get("work_items", []):
+        w = it.get("visual_check_waiver")
+        if isinstance(w, dict):
+            covered_by = w.get("covered_by")
+            lines.append(f"{it['id']}: {w.get('reason')} (covered by {covered_by})")
+            absorbed[covered_by] = absorbed.get(covered_by, 0) + 1
+    for cov_id in sorted(absorbed):
+        lines.append(f"{cov_id}: absorbs {absorbed[cov_id]} waiver(s)")
+    return lines
+
+
+def design_source_advisory(binder: dict) -> list[str]:
+    """Advisory (non-fatal): a binder that names a design source in design_facts but carries no
+    visual oracle on any item is exactly the shape of the failure this file's design: rule
+    exists to catch — every design claim reaching the gate only through waivers pointing nowhere,
+    or (before this rule existed) reaching it nowhere at all. A warning, not an error: a project
+    may legitimately be all-backend work under a design-bearing repo. Prints on every run so the
+    shape cannot pass unnoticed, the same way the previous failure did."""
+    source = (binder.get("design_facts") or {}).get("source")
+    if not source:
+        return []
+    has_visual = any(
+        isinstance(it.get("oracle"), dict) and it["oracle"].get("type") == "visual"
+        for it in binder.get("work_items", []))
+    if has_visual:
+        return []
+    return ["binder names a design source in design_facts but no work item carries a visual "
+            "oracle — confirm this project is legitimately all-backend work, not a design claim "
+            "with nothing behind it"]
 
 
 def _paths_overlap(a_paths: list[str], b_paths: list[str]) -> list[str]:
@@ -215,24 +341,29 @@ def _paths_overlap(a_paths: list[str], b_paths: list[str]) -> list[str]:
     return sorted(hits)
 
 
+def _reachable(start: str, graph: dict[str, list[str]]) -> set[str]:
+    """All ids reachable from `start` by following depends_on edges (the transitive
+    closure of "depends on"). Iterative with its own visited set, so a cyclic graph still
+    terminates. Module-level and shared by the same-wave collision check (`_wave_collision`)
+    and the design-reference waiver's coverage check (`_design_reference_errors`) rather than
+    walked twice — one shared walk, proven to terminate where it lives."""
+    seen: set[str] = set()
+    stack = list(graph.get(start, ()))
+    while stack:
+        n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        stack.extend(graph.get(n, ()))
+    return seen
+
+
 def _wave_collision(items: list[dict]) -> list[str]:
     """Flag item pairs that can land in the SAME wave and both `touches` a file,
     without declaring serialize or a shared resource to order them. Items with a
     dependency path between them land in different waves, so they never collide."""
-    deps = {it["id"]: set(it.get("depends_on", [])) for it in items}
-
-    def reachable(start: str) -> set[str]:
-        seen: set[str] = set()
-        stack = list(deps.get(start, ()))
-        while stack:
-            n = stack.pop()
-            if n in seen:
-                continue
-            seen.add(n)
-            stack.extend(deps.get(n, ()))
-        return seen
-
-    trans = {i: reachable(i) for i in deps}
+    deps = {it["id"]: list(it.get("depends_on", [])) for it in items}
+    trans = {i: _reachable(i, deps) for i in deps}
     by_id = {it["id"]: it for it in items}
     out: list[str] = []
     for a, b in combinations(list(deps), 2):
@@ -476,6 +607,150 @@ def _run_self_test() -> int:
         "st-empty-canon", [{"id": "t", "canonical": "", "items": ["a", "b"]}])
     shared_terms_single_item = _st_binder(
         "st-single", [{"id": "t", "canonical": "c", "items": ["a"]}])
+
+    # design: rule fixtures. _v is a visual oracle with a non-empty assertions list (the shape
+    # a valid covering item needs); _u (defined above) is a plain unit oracle.
+    _v = {"type": "visual", "assertions": ["matches the view"]}
+
+    def _design_item(design_reference=None, oracle=None, waiver=None):
+        it = {"id": "w", "title": "W", "summary": "s", "oracle": oracle if oracle is not None else _u}
+        if design_reference is not None:
+            it["design_reference"] = design_reference
+        if waiver is not None:
+            it["visual_check_waiver"] = waiver
+        return it
+
+    def _design_binder(slug, work_items, design_facts=None):
+        b = {"slug": slug, "title": "T", "summary": "S", "motivation": "x",
+             "scope": {"included": ["x"]}, "work_items": work_items}
+        if design_facts is not None:
+            b["design_facts"] = design_facts
+        return b
+
+    design_missing_waiver = _design_binder(
+        "design-missing-waiver", [_design_item(design_reference="view-x")])
+    design_visual_ok = _design_binder(
+        "design-visual-ok", [_design_item(design_reference="view-x", oracle=_v)])
+    design_none_ok = _design_binder(
+        "design-none-ok", [_design_item(design_reference="none")])
+    design_capital_none = _design_binder(
+        "design-capital-none", [_design_item(design_reference="None")])
+    design_upper_none = _design_binder(
+        "design-upper-none", [_design_item(design_reference="NONE")])
+    optout_design_no_waiver = _design_binder(
+        "optout-design-no-waiver",
+        [_design_item(design_reference="view-x", oracle={"opt_out": True, "reason": "r"})])
+    optout_design_with_waiver = _design_binder("optout-design-with-waiver", [
+        {"id": "w", "title": "W", "summary": "s", "design_reference": "view-x",
+         "oracle": {"opt_out": True, "reason": "r"},
+         "visual_check_waiver": {"reason": "checked by c", "covered_by": "c"}},
+        {"id": "c", "title": "C", "summary": "s", "design_reference": "view-c",
+         "depends_on": ["w"], "oracle": _v},
+    ])
+
+    # redundant_waiver: one violating fixture covers both non-vacuous shapes (design_reference
+    # absent + waiver; already-visual + waiver), plus one compliant twin with the waivers dropped.
+    redundant_waiver_bad = _design_binder("redundant-waiver-bad", [
+        {"id": "a", "title": "A", "summary": "s", "oracle": _u,
+         "visual_check_waiver": {"reason": "r", "covered_by": "b"}},
+        {"id": "b", "title": "B", "summary": "s", "design_reference": "view-b", "oracle": _v,
+         "visual_check_waiver": {"reason": "r", "covered_by": "b"}},
+    ])
+    redundant_waiver_good = _design_binder("redundant-waiver-good", [
+        {"id": "a", "title": "A", "summary": "s", "oracle": _u},
+        {"id": "b", "title": "B", "summary": "s", "design_reference": "view-b", "oracle": _v},
+    ])
+
+    # coverage rule: a base fully-compliant pair (w waived, c covers it), then one broken twin
+    # per condition — each flips exactly one property of the compliant pair.
+    def _cov_binder(slug, w_extra=None, c_extra=None, drop_c_design_reference=False):
+        w = {"id": "w", "title": "W", "summary": "s", "design_reference": "view-w",
+             "oracle": _u, "visual_check_waiver": {"reason": "checked by c", "covered_by": "c"}}
+        c = {"id": "c", "title": "C", "summary": "s", "design_reference": "view-c",
+             "depends_on": ["w"], "oracle": {"type": "visual", "assertions": ["checks w and c"]}}
+        if w_extra:
+            w.update(w_extra)
+        if c_extra:
+            c.update(c_extra)
+        if drop_c_design_reference:
+            del c["design_reference"]
+        return _design_binder(slug, [w, c])
+
+    cov_base_good = _cov_binder("cov-base-good")
+    cov_unknown_id = _cov_binder(
+        "cov-unknown-id", w_extra={"visual_check_waiver": {"reason": "x", "covered_by": "ghost"}})
+    cov_not_visual = _cov_binder(
+        "cov-not-visual", c_extra={"oracle": {"type": "unit", "assertions": ["checks w and c"]}})
+    cov_design_none = _cov_binder("cov-design-none", c_extra={"design_reference": "none"})
+    cov_design_absent = _cov_binder("cov-design-absent", drop_c_design_reference=True)
+    cov_no_dep_edge = _cov_binder("cov-no-dep-edge", c_extra={"depends_on": []})
+    cov_no_assertions = _cov_binder("cov-no-assertions", c_extra={"oracle": {"type": "visual"}})
+    cov_empty_assertions = _cov_binder(
+        "cov-empty-assertions", c_extra={"oracle": {"type": "visual", "assertions": []}})
+
+    # a cyclic depends_on graph still terminates when the coverage walk (_reachable) runs over
+    # it, and the cycle error and the design: error both surface in the same pass.
+    cyclic_with_design = {
+        "slug": "cyclic-design", "title": "T", "summary": "S", "motivation": "x",
+        "scope": {"included": ["x"]},
+        "work_items": [
+            {"id": "a", "title": "A", "summary": "s", "depends_on": ["b"],
+             "design_reference": "view-a", "oracle": _u},
+            {"id": "b", "title": "B", "summary": "s", "depends_on": ["a"], "oracle": _u},
+        ],
+    }
+
+    # pre-rule consumer shape, mirrored inline from benchmarks/fixtures/
+    # gringotts-browse-refinements-binder-2026-07-17.json (same ids, same real prose
+    # design_reference strings, no visual item anywhere) rather than read from disk, so the
+    # shipped self-test stays zero-dependency wherever this script is installed — a bare
+    # Codex plugin install carries no benchmarks/ directory.
+    gringotts_shape = _design_binder(
+        "gringotts-browse-refinements",
+        [
+            {"id": "detail-hero-derivative", "title": "T1", "summary": "s",
+             "design_reference": "/photos/{id} — detail hero image (comps shared in-session 2026-07-17)",
+             "oracle": {"type": "integration"}},
+            {"id": "tag-chip-counts", "title": "T2", "summary": "s",
+             "design_reference": "/ — tag chip rail with count badges (comps shared in-session 2026-07-17)",
+             "oracle": {"type": "integration"}},
+            {"id": "multi-tag-filter", "title": "T3", "summary": "s",
+             "design_reference": "/?tag=a&tag=b — chip rail add/remove interaction, K-of-N header, "
+                                  "intersection grid (comps shared in-session 2026-07-17)",
+             "oracle": {"type": "integration"}},
+            {"id": "wide-screen-layout", "title": "T4", "summary": "s",
+             "design_reference": "/ and /photos/{id} at wide viewports — centered-column comps "
+                                  "shared in-session 2026-07-17",
+             "oracle": {"type": "integration"}},
+        ],
+        design_facts={"source": "https://claude.ai/design/p/48eada1e-cbaf-40d2-8b93-308d71b2f564 "
+                                 "— delivered hybrid vocabulary extended; comps for this slice "
+                                 "shared in-session 2026-07-17",
+                      "stack": "Go 1.26 + templ/HTMX + modernc SQLite; one static CGO-free binary"})
+
+    waiver_missing_reason = _design_binder("waiver-missing-reason", [
+        {"id": "a", "title": "A", "summary": "s", "design_reference": "view-a", "oracle": _u,
+         "visual_check_waiver": {"covered_by": "b"}},
+        {"id": "b", "title": "B", "summary": "s", "design_reference": "view-b", "oracle": _v},
+    ])
+    waiver_missing_covered_by = _design_binder("waiver-missing-covered-by", [
+        {"id": "a", "title": "A", "summary": "s", "design_reference": "view-a", "oracle": _u,
+         "visual_check_waiver": {"reason": "r"}},
+    ])
+    waiver_empty_reason = _design_binder("waiver-empty-reason", [
+        {"id": "a", "title": "A", "summary": "s", "design_reference": "view-a", "oracle": _u,
+         "visual_check_waiver": {"reason": "", "covered_by": "b"}},
+        {"id": "b", "title": "B", "summary": "s", "design_reference": "view-b", "oracle": _v},
+    ])
+    waiver_extra_prop = _design_binder("waiver-extra-prop", [
+        {"id": "a", "title": "A", "summary": "s", "design_reference": "view-a", "oracle": _u,
+         "visual_check_waiver": {"reason": "r", "covered_by": "b", "extra": True}},
+        {"id": "b", "title": "B", "summary": "s", "design_reference": "view-b", "oracle": _v},
+    ])
+    design_reference_empty = _design_binder(
+        "design-reference-empty",
+        [{"id": "a", "title": "A", "summary": "s", "design_reference": "", "oracle": _u}])
+
     cases = [
         ("valid example", valid, True),
         ("well-formed shared_terms", shared_terms_ok, True),
@@ -504,6 +779,30 @@ def _run_self_test() -> int:
         ("glob/normalized same-wave collision", collide_glob, False),
         ("same-wave different files", no_collide, True),
         ("file overlap across a transitive edge", collide_transitive, True),
+        ("design_reference names a real view, no visual oracle, no waiver", design_missing_waiver, False),
+        ("design_reference real view backed by a visual oracle needs no waiver", design_visual_ok, True),
+        ("design_reference 'none' needs no visual oracle and no waiver", design_none_ok, True),
+        ("design_reference 'None' is a design claim, not the none sentinel", design_capital_none, False),
+        ("design_reference 'NONE' is a design claim, not the none sentinel", design_upper_none, False),
+        ("opt-out oracle with a real design claim and no waiver", optout_design_no_waiver, False),
+        ("opt-out oracle with a real design claim covered by a waiver", optout_design_with_waiver, True),
+        ("redundant waiver on a none/absent claim and on an already-visual item", redundant_waiver_bad, False),
+        ("same items with the redundant waivers dropped", redundant_waiver_good, True),
+        ("waiver covered_by names an unknown work item", cov_unknown_id, False),
+        ("waiver coverage: fully compliant pair", cov_base_good, True),
+        ("waiver covered_by item does not carry a visual oracle", cov_not_visual, False),
+        ("waiver covered_by item has design_reference 'none'", cov_design_none, False),
+        ("waiver covered_by item has no design_reference at all", cov_design_absent, False),
+        ("waiver covered_by item does not depend on the waived item", cov_no_dep_edge, False),
+        ("waiver covered_by item oracle has no assertions field", cov_no_assertions, False),
+        ("waiver covered_by item oracle has an empty assertions list", cov_empty_assertions, False),
+        ("pre-rule consumer binder shape (gringotts-browse-refinements)", gringotts_shape, False),
+        ("cyclic deps binder also carrying an unwaived design claim", cyclic_with_design, False),
+        ("visual_check_waiver missing reason", waiver_missing_reason, False),
+        ("visual_check_waiver missing covered_by", waiver_missing_covered_by, False),
+        ("visual_check_waiver empty reason", waiver_empty_reason, False),
+        ("visual_check_waiver additional property rejected", waiver_extra_prop, False),
+        ("design_reference empty string rejected by minLength", design_reference_empty, False),
     ]
     failures = 0
     for name, binder, should_pass in cases:
@@ -533,6 +832,41 @@ def _run_self_test() -> int:
           and len(shared_terms_warnings(st_empty_touches)) == 1
           and len(shared_terms_warnings(shared_terms_ok)) == 0)
     print(f"[{'PASS' if ok else 'FAIL'}] shared_terms warns on a listed item with empty touches")
+    failures += 0 if ok else 1
+
+    # waiver summary: one line per waiver stating reason + covered_by, one line per covering
+    # item stating how many waivers it absorbs — the same surfacing opt_out_summary already gets.
+    wsumm = waiver_summary(cov_base_good)
+    ok = (any("checked by c" in l and "covered by c" in l for l in wsumm)
+          and any("absorbs 1 waiver" in l for l in wsumm))
+    print(f"[{'PASS' if ok else 'FAIL'}] waiver summary states reason, covered_by, and absorb count: {wsumm}")
+    failures += 0 if ok else 1
+
+    # design-source advisory: warns only when design_facts.source is set and no item anywhere
+    # carries a visual oracle; silent once one does, and never changes the exit code.
+    design_source_no_visual = _design_binder(
+        "design-source-no-visual", [_design_item(design_reference="none")],
+        design_facts={"source": "design.html", "stack": "x"})
+    ok = (not validate_binder(design_source_no_visual)
+          and len(design_source_advisory(design_source_no_visual)) == 1
+          and len(design_source_advisory(valid)) == 0)  # 'valid' names a source AND has a visual item
+    print(f"[{'PASS' if ok else 'FAIL'}] design-source advisory fires only with no visual oracle anywhere")
+    failures += 0 if ok else 1
+
+    # cyclic + design claim: the design: rule still reaches a cyclic binder in the same pass
+    # (the coverage walk's own visited set terminates regardless of the cycle), so a graph:
+    # cycle error and a design: error both come back together rather than one masking the other.
+    cwd_errs = validate_binder(cyclic_with_design)
+    ok = any("cycle" in e for e in cwd_errs) and any(e.startswith("design:") for e in cwd_errs)
+    print(f"[{'PASS' if ok else 'FAIL'}] cyclic binder still surfaces the design: rule in the same pass: {cwd_errs}")
+    failures += 0 if ok else 1
+
+    # pre-rule consumer shape: every item draws the exact clause an operator is told to search
+    # for — the same message the runbook's migration paragraph quotes.
+    gr_errs = validate_binder(gringotts_shape)
+    ok = (len(gr_errs) == 4
+          and all("has no visual oracle and no visual_check_waiver" in e for e in gr_errs))
+    print(f"[{'PASS' if ok else 'FAIL'}] pre-rule consumer fixture message matches the quoted clause: {gr_errs}")
     failures += 0 if ok else 1
 
     # cross-binder `after` graph (resolution + acyclicity)
@@ -568,7 +902,7 @@ def _run_self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: errors={errs} warnings={warns}")
         failures += 0 if ok else 1
 
-    print(f"\n{len(cases) + 3 + len(cb_cases) - failures}/{len(cases) + 3 + len(cb_cases)} checks passed")
+    print(f"\n{len(cases) + 7 + len(cb_cases) - failures}/{len(cases) + 7 + len(cb_cases)} checks passed")
     return 1 if failures else 0
 
 
@@ -598,12 +932,19 @@ def main() -> int:
             print(f"  - {e}")
         return 1
     summ = opt_out_summary(binder)
-    print(f"VALID. {len(binder['work_items'])} work items; {len(summ)} opted out of acceptance checks.")
+    waived = sum(1 for it in binder["work_items"]
+                 if isinstance(it.get("visual_check_waiver"), dict))
+    print(f"VALID. {len(binder['work_items'])} work items; {len(summ)} opted out of acceptance "
+          f"checks; {waived} waived design checks.")
     for s in summ:
         print(f"  opt-out: {s}")
+    for w in waiver_summary(binder):
+        print(f"  waiver: {w}")
     for w in sme_warnings(binder):
         print(f"  warning: {w}")
     for w in shared_terms_warnings(binder):
+        print(f"  warning: {w}")
+    for w in design_source_advisory(binder):
         print(f"  warning: {w}")
     # cross-binder `after` graph, when the binder is one of a set on disk — including
     # delivered (archived) slugs, so an `after` naming one reads satisfied and a slug
