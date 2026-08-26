@@ -86,7 +86,13 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
 
     `allow_unpinned` loosens the two rungs the check cannot verify (no pin file
     at all, a design outside the repository) back to a notice and a pass."""
-    repo_root = repo_root.expanduser().resolve()
+    # Normalising the root is itself fallible — expanduser raises RuntimeError for a ~user
+    # with no home, and resolve can fail on an unreadable component. This runs before any
+    # other guard, so without this the contract breaks on the function's first statement.
+    try:
+        repo_root = repo_root.expanduser().resolve()
+    except (OSError, RuntimeError) as e:
+        return 1, [f"repository root could not be resolved ({e})"]
     try:
         resolved = resolve_design_file(Path(design_path))
     except SystemExit as e:
@@ -141,7 +147,11 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
     # Keyed on presence, not truthiness: a falsy-but-present value (0, "", false) is a
     # deadline someone wrote down wrong, and reading it as "no deadline" would let a pin
     # outlive the life its author tried to give it — the one thing this rung exists to stop.
-    if "recapture_after" in entry:
+    # `null` is how JSON writes "absent", so a generator that always emits the key still
+    # means no deadline. 0, "" and false are not ways of writing that — they are a deadline
+    # someone got wrong, and reading them as "no deadline" would let a pin outlive the life
+    # its author tried to give it, which is the one thing this rung exists to stop.
+    if entry.get("recapture_after") is not None:
         recapture_after = entry["recapture_after"]
         if not isinstance(recapture_after, str) or not recapture_after:
             return 1, [f"malformed pin file {PIN_FILE_NAME}: entry for '{rel}' has an "
@@ -398,12 +408,43 @@ def _self_test() -> int:
                "with the key absent passes",
                falsy_ok and absent_ok, falsy_detail or f"{code=} {lines=}")
 
+        # 13. `recapture_after: null` is how JSON writes "absent", so a generator that always
+        #     emits the key still means no deadline — it must pass, unlike the falsy values
+        #     above. The violating twin is the same entry with a real expired date.
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash,
+                                                     "recapture_after": None}}))
+        code, lines = evaluate(exp, pin_file, root)
+        null_ok = code == 0
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash,
+                                                     "recapture_after": "2000-01-01"}}))
+        code_x, lines_x = evaluate(exp, pin_file, root)
+        expired_ok = code_x == 1 and "expired" in "\n".join(lines_x)
+        record("a null recapture_after reads as no deadline and passes, while a real expired "
+               "date on the same entry still fails",
+               null_ok and expired_ok, f"{code=} {lines=} {code_x=} {lines_x=}")
+
+        # 14. Resolving the caller's own paths is fallible before any rung runs — expanduser
+        #     raises RuntimeError for a ~user with no home. The check promises a return, so
+        #     that is an ordinary error; the compliant twin is the same call on a real root.
+        try:
+            code, lines = evaluate(exp, pin_file, Path("~nosuchuser0987/x"))
+        except Exception as e:  # the traceback this guard exists to stop
+            code, lines = -1, [f"raised {e!r}"]
+        bad_root_ok = code == 1 and "could not be resolved" in "\n".join(lines)
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}))
+        code_g, lines_g = evaluate(exp, pin_file, root)
+        good_root_ok = code_g == 0
+        record("an unresolvable repo root returns a clean error rather than a traceback, and "
+               "a real root on the same capture passes",
+               bad_root_ok and good_root_ok, f"{code=} {lines=} {code_g=} {lines_g=}")
+
     print(f"self-test: {total - failures}/{total} cases passed")
-    if total != 12:
-        print(f"FAIL: expected exactly 12 self-test cases, ran {total} "
+    if total != 14:
+        print(f"FAIL: expected exactly 14 self-test cases, ran {total} "
               f"(the seven ladder outcomes, of which the malformed pin file is the "
-              f"seventh, plus the two directory-path cases, the unreadable capture, and "
-              f"the two malformed-metadata cases)")
+              f"seventh, plus the two directory-path cases, the unreadable capture, the "
+              f"two malformed-metadata cases, the null-deadline case and the "
+              f"unresolvable-root case)")
         return 1
     return 1 if failures else 0
 
@@ -429,9 +470,17 @@ def main() -> None:
     if not args.design_path:
         parser.error("--design-path is required unless --self-test is used")
 
-    repo_root = Path(args.repo_root).expanduser().resolve() if args.repo_root else Path.cwd().resolve()
-    pin_file = (Path(args.pin_file).expanduser().resolve() if args.pin_file
-               else repo_root / ".karta" / "design-pins.json")
+    # main resolves the two path arguments before evaluate sees them, so evaluate's own guard
+    # cannot cover this: expanduser raises RuntimeError for a ~user with no home, and resolve
+    # can fail on an unreadable component. A bad argument is an exit-1 message, not a traceback.
+    try:
+        repo_root = (Path(args.repo_root).expanduser().resolve() if args.repo_root
+                     else Path.cwd().resolve())
+        pin_file = (Path(args.pin_file).expanduser().resolve() if args.pin_file
+                    else repo_root / ".karta" / "design-pins.json")
+    except (OSError, RuntimeError) as e:
+        print(f"path argument could not be resolved ({e})")
+        raise SystemExit(1)
 
     code, lines = evaluate(Path(args.design_path), pin_file, repo_root,
                            allow_unpinned=args.allow_unpinned)

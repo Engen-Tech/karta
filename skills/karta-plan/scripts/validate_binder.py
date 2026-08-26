@@ -296,8 +296,13 @@ def _design_reference_errors(items: list[dict], graph: dict[str, list[str]]) -> 
     # the real item it points at — but the schema calls these work-item ids, so a typo or a
     # stale id would sit there reading as coverage that was never agreed with anyone.
     for it in items:
-        for cov_id in (it.get("covers") or []):
-            if cov_id not in by_id:
+        # Guarded the same way the waiver loop above guards this very field. The schema types
+        # `covers` as an array of strings and validate_binder returns before reaching here on
+        # a schema error, so this holds only for a caller invoking the helper directly — but
+        # one function reading one field two different ways is a defect on its own.
+        covers = it.get("covers")
+        for cov_id in (covers if isinstance(covers, list) else []):
+            if isinstance(cov_id, str) and cov_id not in by_id:
                 errors.append(
                     f"design: item '{it['id']}' covers unknown work item '{cov_id}'")
     return errors

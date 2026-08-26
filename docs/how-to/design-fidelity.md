@@ -185,7 +185,7 @@ Add one entry per committed design file, keyed by its repository-relative path:
 | `source` | no | The upstream address the capture came from, printed on every pass so the person about to trust the comparison knows where a recapture is aimed |
 | `captured_on` | no | The date the capture was taken, printed on every pass |
 | `recapture_triggers` | no | The events you decided call for taking the capture again. Printed on every pass; nothing enforces them |
-| `recapture_after` | no | An ISO date past which the capture must be taken again. Once that date passes, the check fails naming the date. Leave the key **out** and the capture never expires — the check reads the key's presence, not its truth, so a present-but-empty or non-string value fails as a malformed date rather than passing as no deadline |
+| `recapture_after` | no | An ISO date past which the capture must be taken again. Once that date passes, the check fails naming the date. Leave the key out — or set it to `null` — and the capture never expires. Any other non-date value (`0`, `""`, `false`) fails as a malformed date rather than passing as no deadline: those are a deadline written down wrong, not a way of saying there isn't one |
 
 `recapture_after` is opt-in inside an opt-in. Omit it and nothing changes; add it and you have given this capture a stated shelf life that stops the comparison rather than being disclosed and ignored.
 
