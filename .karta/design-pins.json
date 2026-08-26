@@ -1,0 +1,11 @@
+{
+  "docs/designs/karta-watch-1440x900-light.html": {
+    "sha256": "4479d7406cfa80835dd72d052bb1aabedb40fef5440a2466ae378036315d20ae",
+    "source": "claude-design://59832c82-69dc-4841-9c45-c4a8a86730a3/Karta Watch.dc.html",
+    "captured_on": "2026-08-17",
+    "recapture_triggers": [
+      "the living Claude Design export changes",
+      "the vendored fonts or mascot under skills/karta-status/assets/ change"
+    ]
+  }
+}
