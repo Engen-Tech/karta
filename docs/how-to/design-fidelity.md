@@ -68,6 +68,8 @@ The waiver is a sibling field on the work item, next to `oracle` — not inside 
 5. That item's oracle carries a non-empty `assertions` list. A covering check has to say what it checks.
 6. That item lists the waived item's `id` in its own `covers`. A waiver alone is one item volunteering another; the gate has to accept.
 
+Separately from the six, every id in any item's `covers` must name a real work item in the binder. A stale or mistyped id is not a way past the rule — a waiver is always resolved against the item it actually points at — but it would sit in the plan reading as coverage nobody agreed to, so it is reported.
+
 Condition 6 is why the two `design_reference` values are never compared with each other. One closing gate legitimately covers several differently-named views — a `binder-panel` gate over items naming `rail`, `header` and `typography` is the normal shape — so requiring the strings to match would reject valid plans. What makes coverage real is not a matching view name but a gate that named the items it accepts:
 
 ```json
@@ -183,7 +185,7 @@ Add one entry per committed design file, keyed by its repository-relative path:
 | `source` | no | The upstream address the capture came from, printed on every pass so the person about to trust the comparison knows where a recapture is aimed |
 | `captured_on` | no | The date the capture was taken, printed on every pass |
 | `recapture_triggers` | no | The events you decided call for taking the capture again. Printed on every pass; nothing enforces them |
-| `recapture_after` | no | A date past which the capture must be taken again. Once that date passes, the check fails naming the date. Leave the key out and the capture never expires |
+| `recapture_after` | no | An ISO date past which the capture must be taken again. Once that date passes, the check fails naming the date. Leave the key **out** and the capture never expires — the check reads the key's presence, not its truth, so a present-but-empty or non-string value fails as a malformed date rather than passing as no deadline |
 
 `recapture_after` is opt-in inside an opt-in. Omit it and nothing changes; add it and you have given this capture a stated shelf life that stops the comparison rather than being disclosed and ignored.
 

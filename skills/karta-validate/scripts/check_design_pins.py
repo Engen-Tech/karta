@@ -91,6 +91,11 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
         resolved = resolve_design_file(Path(design_path))
     except SystemExit as e:
         return 1, [str(e)]
+    except OSError as e:
+        # resolve_design_file raises SystemExit for its own outcomes, but it stats the path
+        # to get there and a stat can fail on its own (an unreadable path component). This
+        # check promises a return, so that becomes one too.
+        return 1, [f"design path could not be resolved ({e})"]
 
     try:
         inside = resolved.is_relative_to(repo_root)
@@ -133,10 +138,16 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
         return 1, [f"{rel} has no pin in {PIN_FILE_NAME} (sha256={digest}) — this "
                    f"repository pins its design captures, and this one has no entry."]
 
-    recapture_after = entry.get("recapture_after")
-    if recapture_after:
+    # Keyed on presence, not truthiness: a falsy-but-present value (0, "", false) is a
+    # deadline someone wrote down wrong, and reading it as "no deadline" would let a pin
+    # outlive the life its author tried to give it — the one thing this rung exists to stop.
+    if "recapture_after" in entry:
+        recapture_after = entry["recapture_after"]
+        if not isinstance(recapture_after, str) or not recapture_after:
+            return 1, [f"malformed pin file {PIN_FILE_NAME}: entry for '{rel}' has an "
+                       f"invalid recapture_after date '{recapture_after}'"]
         try:
-            deadline = date.fromisoformat(str(recapture_after))
+            deadline = date.fromisoformat(recapture_after)
         except ValueError:
             return 1, [f"malformed pin file {PIN_FILE_NAME}: entry for '{rel}' has an "
                        f"invalid recapture_after date '{recapture_after}'"]
@@ -153,9 +164,19 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
     lines = [f"PASS: {rel} matches its pin (sha256={digest})",
              f"  captured:   {entry.get('captured_on', '(not recorded)')}",
              f"  source:     {entry.get('source', '(not recorded)')}"]
-    triggers = entry.get("recapture_triggers") or []
-    lines.append("  recapture_triggers: "
-                 + (", ".join(str(t) for t in triggers) if triggers else "(none recorded)"))
+    # Only a list is iterated. A scalar here would raise straight out of the PASS branch,
+    # and a bare string would iterate per character into nonsense — both on a capture whose
+    # digest matched, which is the one outcome that must not end in a traceback.
+    triggers = entry.get("recapture_triggers")
+    if isinstance(triggers, list) and triggers:
+        shown = ", ".join(str(t) for t in triggers)
+    elif isinstance(triggers, str) and triggers:
+        shown = triggers
+    elif triggers is None or triggers == [] or triggers == "":
+        shown = "(none recorded)"
+    else:
+        shown = f"(malformed: {triggers!r})"
+    lines.append(f"  recapture_triggers: {shown}")
     return 0, lines
 
 
@@ -334,11 +355,55 @@ def _self_test() -> int:
                "traceback, and the same bytes readable pass their pin",
                unread_ok and twin_ok, unread_detail or f"{code=} {lines=}")
 
+        # 11. A scalar `recapture_triggers` on a capture whose digest MATCHES must not
+        #     escape as a TypeError out of the PASS branch — a matching capture is the one
+        #     outcome that must never end in a traceback. The compliant twin is a real list,
+        #     which still prints its triggers.
+        trig = root / "trig.html"
+        trig.write_bytes(good_bytes)
+        scalar_ok, scalar_detail = True, ""
+        for bad in (5, True, "one-string"):
+            pin_file.write_text(json.dumps(
+                {"trig.html": {"sha256": good_hash, "recapture_triggers": bad}}))
+            try:
+                code, lines = evaluate(trig, pin_file, root)
+            except Exception as e:  # the traceback this guard exists to stop
+                code, lines = -1, [f"raised {e!r}"]
+            if code != 0:
+                scalar_ok, scalar_detail = False, f"{bad=} {code=} {lines=}"
+        pin_file.write_text(json.dumps(
+            {"trig.html": {"sha256": good_hash, "recapture_triggers": ["export changed"]}}))
+        code, lines = evaluate(trig, pin_file, root)
+        list_ok = code == 0 and "export changed" in "\n".join(lines)
+        record("a scalar recapture_triggers on a matching capture returns instead of raising, "
+               "and a real list still prints its triggers",
+               scalar_ok and list_ok, scalar_detail or f"{code=} {lines=}")
+
+        # 12. `recapture_after` is keyed on presence, not truthiness: a falsy-but-present
+        #     value is a deadline written down wrong and must fail as malformed, not pass as
+        #     "no deadline". The compliant twin is the same entry with the key absent.
+        exp = root / "exp.html"
+        exp.write_bytes(good_bytes)
+        falsy_ok, falsy_detail = True, ""
+        for bad in (0, "", False):
+            pin_file.write_text(json.dumps(
+                {"exp.html": {"sha256": good_hash, "recapture_after": bad}}))
+            code, lines = evaluate(exp, pin_file, root)
+            if not (code == 1 and "invalid recapture_after" in "\n".join(lines)):
+                falsy_ok, falsy_detail = False, f"{bad=} {code=} {lines=}"
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}))
+        code, lines = evaluate(exp, pin_file, root)
+        absent_ok = code == 0
+        record("a falsy-but-present recapture_after fails as malformed, and the same entry "
+               "with the key absent passes",
+               falsy_ok and absent_ok, falsy_detail or f"{code=} {lines=}")
+
     print(f"self-test: {total - failures}/{total} cases passed")
-    if total != 10:
-        print(f"FAIL: expected exactly 10 self-test cases, ran {total} "
+    if total != 12:
+        print(f"FAIL: expected exactly 12 self-test cases, ran {total} "
               f"(the seven ladder outcomes, of which the malformed pin file is the "
-              f"seventh, plus the two directory-path cases and the unreadable capture)")
+              f"seventh, plus the two directory-path cases, the unreadable capture, and "
+              f"the two malformed-metadata cases)")
         return 1
     return 1 if failures else 0
 

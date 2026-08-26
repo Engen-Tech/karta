@@ -291,6 +291,15 @@ def _design_reference_errors(items: list[dict], graph: dict[str, list[str]]) -> 
             errors.append(
                 f"design: item '{item_id}' names a design view ('{design_ref}') but "
                 "has no visual oracle and no visual_check_waiver")
+
+    # A `covers` entry naming nothing is not a bypass — a waiver is always checked against
+    # the real item it points at — but the schema calls these work-item ids, so a typo or a
+    # stale id would sit there reading as coverage that was never agreed with anyone.
+    for it in items:
+        for cov_id in (it.get("covers") or []):
+            if cov_id not in by_id:
+                errors.append(
+                    f"design: item '{it['id']}' covers unknown work item '{cov_id}'")
     return errors
 
 
@@ -978,7 +987,25 @@ def _run_self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: errors={errs} warnings={warns}")
         failures += 0 if ok else 1
 
-    print(f"\n{len(cases) + 9 + len(cb_cases) - failures}/{len(cases) + 9 + len(cb_cases)} checks passed")
+    # covers naming nothing: not a bypass — a waiver is always resolved against the real item
+    # it points at — but the schema calls these work-item ids, so a stale or mistyped one would
+    # sit in the plan reading as coverage nobody agreed to. Paired with the same gate whose
+    # covers resolves, which must stay valid.
+    cov_ghost = _design_binder("cov-ghost", [
+        _design_item(design_reference="panel", oracle=_v)])
+    cov_ghost["work_items"][0]["covers"] = ["ghost"]
+    cov_real = json.loads(json.dumps(cov_ghost))
+    cov_real["slug"] = "cov-real"
+    # the fixture item's own id, so the entry resolves
+    cov_real["work_items"][0]["covers"] = [cov_real["work_items"][0]["id"]]
+    errs_ghost = validate_binder(cov_ghost)
+    ok = (any("covers unknown work item 'ghost'" in e for e in errs_ghost)
+          and not validate_binder(cov_real))
+    print(f"[{'PASS' if ok else 'FAIL'}] a covers entry naming no work item is reported, "
+          f"and the same gate covering a real id is valid")
+    failures += 0 if ok else 1
+
+    print(f"\n{len(cases) + 10 + len(cb_cases) - failures}/{len(cases) + 10 + len(cb_cases)} checks passed")
     return 1 if failures else 0
 
 
