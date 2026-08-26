@@ -307,7 +307,11 @@ def waiver_summary(binder: dict) -> list[str]:
             covered_by = w.get("covered_by")
             lines.append(f"{it['id']}: {w.get('reason')} (covered by {covered_by})")
             absorbed[covered_by] = absorbed.get(covered_by, 0) + 1
-    for cov_id in sorted(absorbed):
+    # Sorted by the printed form, not the key: a waiver with no `covered_by` keys this dict
+    # on None, and mixing None with strings makes the plain sort raise. The schema rejects
+    # that waiver long before validation reaches here, so this only holds for a caller
+    # summarising a binder it has not validated — which must get a line, not a TypeError.
+    for cov_id in sorted(absorbed, key=str):
         lines.append(f"{cov_id}: absorbs {absorbed[cov_id]} waiver(s)")
     return lines
 
@@ -319,7 +323,10 @@ def design_source_advisory(binder: dict) -> list[str]:
     or (before this rule existed) reaching it nowhere at all. A warning, not an error: a project
     may legitimately be all-backend work under a design-bearing repo. Prints on every run so the
     shape cannot pass unnoticed, the same way the previous failure did."""
-    source = (binder.get("design_facts") or {}).get("source")
+    # `design_facts` is an object in the schema, so a non-dict here means the caller has not
+    # validated the binder. Read it as "no source declared" rather than raising on .get.
+    facts = binder.get("design_facts")
+    source = facts.get("source") if isinstance(facts, dict) else None
     if not source:
         return []
     has_visual = any(
@@ -904,6 +911,24 @@ def _run_self_test() -> int:
     print(f"[{'PASS' if ok else 'FAIL'}] design-source advisory fires only with no visual oracle anywhere")
     failures += 0 if ok else 1
 
+    # Both surfacing helpers are public and run after validation, so the two shapes below are
+    # unreachable through this script's own CLI — the schema rejects a waiver with no
+    # `covered_by` and a non-object `design_facts` first. They are here because a public
+    # function another script can call must return where it used to raise, and each is paired
+    # with the well-formed input it must keep handling identically.
+    mixed_waivers = {"work_items": [
+        {"id": "a", "visual_check_waiver": {"reason": "r", "covered_by": "c"}},
+        {"id": "b", "visual_check_waiver": {"reason": "r"}},
+    ]}
+    ok = len(waiver_summary(mixed_waivers)) == 4 and len(waiver_summary(cov_base_good)) == 2
+    print(f"[{'PASS' if ok else 'FAIL'}] waiver summary returns lines for a waiver with no covered_by")
+    failures += 0 if ok else 1
+
+    ok = (design_source_advisory({"design_facts": "docs/design.html", "work_items": []}) == []
+          and len(design_source_advisory(design_source_no_visual)) == 1)
+    print(f"[{'PASS' if ok else 'FAIL'}] design-source advisory returns for a non-object design_facts")
+    failures += 0 if ok else 1
+
     # cyclic + design claim: the design: rule still reaches a cyclic binder in the same pass
     # (the coverage walk's own visited set terminates regardless of the cycle), so a graph:
     # cycle error and a design: error both come back together rather than one masking the other.
@@ -953,7 +978,7 @@ def _run_self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: errors={errs} warnings={warns}")
         failures += 0 if ok else 1
 
-    print(f"\n{len(cases) + 7 + len(cb_cases) - failures}/{len(cases) + 7 + len(cb_cases)} checks passed")
+    print(f"\n{len(cases) + 9 + len(cb_cases) - failures}/{len(cases) + 9 + len(cb_cases)} checks passed")
     return 1 if failures else 0
 
 
