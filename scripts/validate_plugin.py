@@ -292,6 +292,19 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                         f".karta/roundtable.json: unknown key '{key}' "
                         "(allowed: enabled, tool, providers, min_providers, focus, points)")
 
+    # 9. design-pins.json opt-in config — if this repo commits one, it must be a
+    # flat map from a repo-relative design path to a well-formed pin record. This
+    # only gates the committed file's SHAPE at commit time, the way the three
+    # blocks above gate theirs; freshness (bytes-vs-hash, recapture_after) is the
+    # runtime job of check_design_pins.py, self-tested by the skill-scripts pass
+    # above.
+    # KARTA-SME-OVERRIDE(min.4): mirrors the proven doc-gardner/kaizen/roundtable
+    # blocks above pattern-for-pattern, and this repo ships no test framework by
+    # design (manual gate scripts only) [ceiling: a fifth divergent opt-in config
+    # copy; upgrade: factor the shared enabled/unknown-key checks into one
+    # schema-driven helper]
+    _check_design_pins(errors)
+
 
 # --- the Karta Watch coverage floor ----------------------------------------
 # serve_status.py is the file every item of a watch binder edits, so a check and
@@ -1026,6 +1039,49 @@ def _check_doc_gardner(errors: list[str], config: Path | None = None,
             errors.append(f"{label}: '{key}' must be a {props[key].get('type')}")
 
 
+_DESIGN_PIN_ENTRY_KEYS = {"sha256", "source", "captured_on", "recapture_triggers", "recapture_after"}
+
+
+def _check_design_pins(errors: list[str], config: Path | None = None) -> None:
+    """Gate a committed .karta/design-pins.json's SHAPE at commit time: a flat map
+    from a repo-relative design path to a pin record carrying at least a string
+    'sha256', with the rest of the record's keys (source, captured_on,
+    recapture_triggers, recapture_after) optional but typed when present. An
+    absent config is valid (opt-in). This checks shape only — the freshness rules
+    (drift, recapture_after) live in skills/karta-validate/scripts/check_design_pins.py,
+    run against this same file by its own --self-test in the skill-scripts pass."""
+    cfg_path = config if config is not None else ROOT / ".karta" / "design-pins.json"
+    label = ".karta/design-pins.json"
+    if not cfg_path.exists():
+        return  # opt-in: an absent config is valid
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except (OSError, ValueError) as e:
+        errors.append(f"{label}: invalid JSON ({e})")
+        return
+    if not isinstance(cfg, dict):
+        errors.append(f"{label}: must be a JSON object (design path -> pin record)")
+        return
+    for path, entry in cfg.items():
+        if not isinstance(entry, dict):
+            errors.append(f"{label}: entry for '{path}' must be an object")
+            continue
+        if not isinstance(entry.get("sha256"), str) or not entry.get("sha256"):
+            errors.append(f"{label}: entry for '{path}' missing 'sha256'")
+        for key in ("source", "captured_on", "recapture_after"):
+            if key in entry and not isinstance(entry[key], str):
+                errors.append(f"{label}: entry for '{path}' '{key}' must be a string")
+        if "recapture_triggers" in entry:
+            triggers = entry["recapture_triggers"]
+            if not isinstance(triggers, list) or not all(isinstance(t, str) for t in triggers):
+                errors.append(f"{label}: entry for '{path}' 'recapture_triggers' must be "
+                              "a list of strings")
+        for key in entry:
+            if key not in _DESIGN_PIN_ENTRY_KEYS:
+                errors.append(f"{label}: entry for '{path}' unknown key '{key}' "
+                              f"(allowed: {', '.join(sorted(_DESIGN_PIN_ENTRY_KEYS))})")
+
+
 def _self_test() -> int:
     """Fixture-driven cases for the doc-gardner schema gate (run via --self-test)."""
     import tempfile
@@ -1065,6 +1121,54 @@ def _self_test() -> int:
         _check_doc_gardner(errors, config=Path(td) / "absent.json", schema=Path(td) / "schema0.json")
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] absent config stays valid" + ("" if ok else f" — got {errors!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # design-pins.json opt-in config — shape gate only (freshness is
+        # check_design_pins.py's own job, self-tested by the skill-scripts pass).
+        dp_cases = [
+            ("valid minimal entry passes",
+             {"a.html": {"sha256": "a" * 64}}, []),
+            ("valid entry with every optional key passes",
+             {"a.html": {"sha256": "a" * 64, "source": "s", "captured_on": "2026-01-01",
+                        "recapture_triggers": ["x"], "recapture_after": "2027-01-01"}}, []),
+            ("entry missing sha256 fails",
+             {"a.html": {"source": "s"}}, ["missing 'sha256'"]),
+            ("non-string sha256 fails",
+             {"a.html": {"sha256": 1}}, ["missing 'sha256'"]),
+            ("non-object entry fails",
+             {"a.html": "not-an-object"}, ["must be an object"]),
+            ("non-string source fails",
+             {"a.html": {"sha256": "a" * 64, "source": 1}}, ["'source' must be a string"]),
+            ("recapture_triggers that is not a list of strings fails",
+             {"a.html": {"sha256": "a" * 64, "recapture_triggers": "x"}},
+             ["'recapture_triggers' must be a list of strings"]),
+            ("unknown key fails",
+             {"a.html": {"sha256": "a" * 64, "extra": 1}}, ["unknown key 'extra'"]),
+            ("non-object config fails",
+             ["not", "a", "map"], ["must be a JSON object"]),
+        ]
+        for i, (name, data, want) in enumerate(dp_cases):
+            cfg = Path(td) / f"pins{i}.json"
+            cfg.write_text(json.dumps(data))
+            errs: list[str] = []
+            _check_design_pins(errs, config=cfg)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] design-pins: {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
+            failures += 0 if ok else 1
+        errs = []
+        _check_design_pins(errs, config=Path(td) / "absent-pins.json")
+        ok = errs == []
+        print(f"[{'PASS' if ok else 'FAIL'}] design-pins: absent config stays valid" + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+        errs = []
+        bad_json = Path(td) / "bad-pins.json"
+        bad_json.write_text("{not json")
+        _check_design_pins(errs, config=bad_json)
+        ok = bool(errs) and any("invalid JSON" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] design-pins: invalid JSON fails" + ("" if ok else f" — got {errs!r}"))
         total += 1
         failures += 0 if ok else 1
 

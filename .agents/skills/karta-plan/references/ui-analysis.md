@@ -259,7 +259,7 @@ Read all three Explore reports, then break UI work into work items using these v
 5. **Cross-cutting features** (AI Assistant, global search) are separate slices.
 6. **Dialogs/modals** that serve a single view bundle with that view.
 
-Each slice becomes a work item that is independently implementable and verifiable — it should render something meaningful on its own. The view/route it renders sets its `design_reference`; its `oracle` is a real CI-facing check (a `visual` or `smoke` oracle for a view, the compile/type-check/lint floor otherwise).
+Each slice becomes a work item that is independently implementable and verifiable — it should render something meaningful on its own. The view/route it renders sets its `design_reference`, and naming a view commits the slice to being checked against it: its `oracle` is a `visual` check that opens the view, or the item carries a `visual_check_waiver` naming the slice whose visual gate covers this view for it. A recorded waiver is the only way a view-naming slice is checked by something other than a rendered comparison. A slice with no view — a pure setup or foundation item — sets `design_reference` to `none` and takes the compile/type-check/lint floor. `validate_binder.py` rejects a slice that names a view and carries neither.
 
 **Estimate each slice (S/M/L)** from its component count and the per-component complexity from the design analysis (trivial <30 lines / moderate 30–100 / complex >100):
 

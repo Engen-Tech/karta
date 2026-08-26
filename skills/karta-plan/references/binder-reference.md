@@ -99,7 +99,9 @@ is `check_shared_terms.py`'s job on the assembled tree, not the validator's.
 | `summary` | string | yes | Plain-language goal, one sentence: what this item does |
 | `estimate` | `S` \| `M` \| `L` | no | Size estimate |
 | `depends_on` | string[] | no | IDs of items that must land before this one starts |
-| `design_reference` | string | no | View or route ID from the design source, or the literal `none` |
+| `design_reference` | string | no | View or route ID from the design source, or the literal `none`. Non-empty (`minLength: 1`). Naming a real view requires either a `visual` oracle or a `visual_check_waiver`; `none` is matched byte for byte, so `None` and `NONE` read as view names, not the sentinel |
+| `covers` | string[] | no | IDs of the work items whose design claim this item's visual gate checks. A `visual_check_waiver` naming this item is only accepted when the waived item's ID appears here, so coverage is agreed at both ends rather than claimed by the item that benefits from it |
+| `visual_check_waiver` | object | no | Records that this item names a design view another item opens for it. `reason` and `covered_by` are both required and non-empty. `validate_binder.py` holds the `covered_by` item to six conditions, each its own error: it resolves to a real work item; its oracle `type` is `visual`; its own `design_reference` names a real view (a gate karta-build would skip covers nothing); it depends on the waived item directly or through the chain (a covering gate runs after the work it covers); its oracle carries a non-empty `assertions` list; and it lists this item in its own `covers`. The two `design_reference` values are never compared, so one gate covers several differently-named views as long as it names the items. A waiver on an item that names no view, or that already has a visual oracle, is rejected for doing no work |
 | `component_map` | array | no | **UI-relevant, optional — present only when the stack has that surface** |
 | `icon_map` | array | no | **UI-relevant, optional — present only when the stack has that surface** |
 | `token_changes` | array | no | **UI-relevant, optional — present only when the stack has that surface** |
@@ -139,6 +141,21 @@ The schema allows two shapes:
 ```
 
 Opt-outs are explicit and recorded, never silent. The `reason` field is required. After a run, karta reports every opted-out item and its reason so nothing slips through unnoticed. For the full rules on the floor and opt-out policy, see `definition-of-done.md`.
+
+**A recorded visual-check waiver** is the other escape karta writes down. It sits beside the oracle rather than inside it, and records that this item names a design view but is checked against it by another item's visual gate:
+
+```json
+{
+  "id": "dashboard-data",
+  "design_reference": "dashboard",
+  "visual_check_waiver": {
+    "reason": "this item wires the dashboard's data layer; the view is opened once, by the slice that renders it",
+    "covered_by": "dashboard-view"
+  }
+}
+```
+
+Here `dashboard-view` carries the `visual` oracle, names `dashboard` in its own `design_reference`, lists `dashboard-data` in both its `depends_on` and its `covers`, and states what it checks in a non-empty `assertions` list — the six conditions in the field table above. Waivers are explicit and recorded, never silent, the same way opt-outs are: `validate_binder.py` prints every waiver with its reason and its covering item, and prints how many waivers each covering item absorbs, so a gate covering seven views reads as covering seven views.
 
 ## Execution context — where the command runs and how tools resolve
 
