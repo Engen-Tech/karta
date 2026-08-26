@@ -156,7 +156,7 @@ No pin file at all, and a design resolved from outside the repository, are the t
 uv run skills/karta-validate/scripts/check_design_pins.py --design-path <path> --allow-unpinned
 ```
 
-The flag turns exactly those two back into a notice and a pass. Nothing else moves: a drifted capture, an expired pin, a missing entry and a malformed pin file all still fail with the flag set. Use it in a repository that has deliberately not pinned its captures — and write it at the call site, where a reader can see the choice, rather than leaving it to an exit code that never meant it.
+The flag turns exactly those two back into a notice and a pass. Nothing else moves: a drifted capture, an expired pin, a missing entry and a malformed pin file all still fail with the flag set. `karta-validate` passes it in its own prerequisites step, because pinning is opt-in and a repository that never pinned anything should not be stopped by a check it never asked for. Drop it when you have pinned your captures and want the unverifiable cases to stop you too — and write it at the call site, where a reader can see the choice, rather than leaving it to an exit code that never meant it.
 
 ## Pin a capture
 
