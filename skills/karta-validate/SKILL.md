@@ -53,6 +53,13 @@ All checks are hard gates. Fail with a clear report rather than prompting.
 
 3. **App dev server is already running.** The caller owns the app server lifecycle. Use a host-native HTTP check or let `capture_view.py` fail on navigation. Do not start the app server here.
 4. **`playwright-cli` is available.** `capture_view.py` checks this before capture. If it is missing, the script exits non-zero with an actionable install CTA — the two-step `npm install -g @playwright/cli@latest` then `playwright-cli install --skills`, plus the docs link. Surface that message and stop; this stays a hard gate (no prompting, no auto-install, no degraded capture).
+5. **The design capture still matches its pin, if one is recorded.** Run:
+
+   ```powershell
+   uv run <skill-dir>/scripts/check_design_pins.py --design-path <design-path>
+   ```
+
+   `check_design_pins.py` hashes the caller's design path (resolving a directory through the same `resolve_design_file` used in `validate:serve`, so it pins the file that will actually be served) and compares it against the fingerprint recorded for it in `.karta/design-pins.json`. A repository that has not opted in — no pin file at all, or a design resolved from outside the repository — passes with a printed notice; a repository that has pinned this capture and finds it drifted, expired past its own `recapture_after`, or missing its entry fails, and a non-zero exit here is a hard stop, the same as the checks above. On a pass, the run also prints the capture's date, its upstream address, and its recapture triggers — read them before trusting the comparison that follows, since this check never looks upstream itself.
 
 Do not assume Bash, WSL, `/tmp`, `curl`, `grep`, `find`, `lsof`, `kill`, or POSIX background syntax.
 
