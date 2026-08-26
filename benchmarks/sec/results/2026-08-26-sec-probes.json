@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "finding_id": "seed-P1-frozen-sink-list",
+      "severity": "info",
+      "summary": "frozen unescaped-sink list recorded (count must reach and stay 0): none"
+    },
+    {
+      "finding_id": "card-step6-results-path-errata",
+      "severity": "info",
+      "summary": "results are written to benchmarks/sec/results/<date>-sec-probes.json per the card frontmatter results dir and the sibling probes' date-keyed convention, deviating from card step 6's benchmarks/results/<version>-sec-probes.json (no RC version exists mid-cycle) \u2014 card text left untouched"
+    }
+  ],
+  "injection_verbatim": "<karta-status>\nkarta: 1 binder(s) in .karta/binders\n  adversarial-fixture \u2014 not_started, 0/1 items done, packs: sme-poison\n  next: karta-deliver adversarial-fixture\n</karta-status>\n",
+  "probe_matrix": {
+    "cells": {
+      "bind-scope": {
+        "good": true,
+        "runtime_reachable": true,
+        "static_loopback": true
+      },
+      "escaped-render": {
+        "good": true,
+        "html_sink_count": 0,
+        "sink_count": 0
+      },
+      "injection-byte-budget": {
+        "budget": 4096,
+        "bytes": 183,
+        "good": true
+      },
+      "injection-inertness": {
+        "delimited": true,
+        "good": true
+      },
+      "key-gate": {
+        "good": true,
+        "keyed_status": 200,
+        "keyless_status": 403
+      }
+    },
+    "unescaped_sinks": []
+  },
+  "run_date": "2026-08-26",
+  "schema_version": 1,
+  "unescaped_sinks": [],
+  "vector": "sec-untrusted-input-surfaces"
+}
