@@ -1,0 +1,109 @@
+{
+  "capture": {
+    "schema": "karta.validate.capture.v1",
+    "design": {
+      "extracted_data": {
+        "tokens": {},
+        "headings": [
+          {
+            "identity": "h1#page-title",
+            "category": "heading",
+            "role": "heading",
+            "text": "Team dashboard",
+            "parentIdentity": "div#root:nth-child(1)",
+            "siblingOrder": 0,
+            "styles": {
+              "fontSize": "30px",
+              "fontWeight": "400",
+              "color": "rgb(17, 24, 39)",
+              "backgroundColor": "rgba(0, 0, 0, 0)",
+              "borderRadius": "0px",
+              "padding": "0px",
+              "fontFamily": "Inter, system-ui, sans-serif"
+            },
+            "box": {
+              "x": 24,
+              "y": 24,
+              "width": 320,
+              "height": 36
+            }
+          }
+        ],
+        "buttons": [],
+        "landmarks": []
+      },
+      "dom_snapshot": ".karta-validate/design-snapshot.yaml",
+      "render_health": {
+        "schema": "karta-render-health-v1",
+        "result": "healthy",
+        "readySelector": "main",
+        "visibleTextChars": 400,
+        "visibleLeafElements": 40,
+        "styledElementCount": 30,
+        "consoleErrorCount": 0,
+        "failedRequestCount": 0,
+        "consoleErrors": [],
+        "failedRequests": []
+      },
+      "console_errors": "",
+      "requests": ""
+    },
+    "app": {
+      "extracted_data": {
+        "tokens": {},
+        "headings": [
+          {
+            "identity": "h1#page-title",
+            "category": "heading",
+            "role": "heading",
+            "text": "Team dashboard",
+            "parentIdentity": "div#root:nth-child(1)",
+            "siblingOrder": 0,
+            "styles": {
+              "fontSize": "24px",
+              "fontWeight": "400",
+              "color": "rgb(220, 38, 38)",
+              "backgroundColor": "rgba(0, 0, 0, 0)",
+              "borderRadius": "0px",
+              "padding": "0px",
+              "fontFamily": "Inter, system-ui, sans-serif"
+            },
+            "box": {
+              "x": 24,
+              "y": 24,
+              "width": 320,
+              "height": 36
+            }
+          }
+        ],
+        "buttons": [],
+        "landmarks": []
+      },
+      "dom_snapshot": ".karta-validate/app-snapshot.yaml",
+      "render_health": {
+        "schema": "karta-render-health-v1",
+        "result": "healthy",
+        "readySelector": "main",
+        "visibleTextChars": 400,
+        "visibleLeafElements": 40,
+        "styledElementCount": 30,
+        "consoleErrorCount": 0,
+        "failedRequestCount": 0,
+        "consoleErrors": [],
+        "failedRequests": []
+      },
+      "console_errors": "",
+      "requests": ""
+    },
+    "APP_HEALTH": "OK",
+    "compare_ready": true
+  },
+  "expect": {
+    "status": "ok",
+    "blockedReason": null,
+    "discrepancyCount": 2,
+    "tokenDriftCount": 0,
+    "missingCount": 0,
+    "extraCount": 0
+  }
+}

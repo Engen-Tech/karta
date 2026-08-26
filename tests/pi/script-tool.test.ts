@@ -9,6 +9,7 @@ import { resolvePackagePath } from "../../extensions/pi/package-paths.ts";
 import {
   buildScriptInvocation,
   createKartaScriptTool,
+  ScriptParameters,
   type KartaScriptParameters,
 } from "../../extensions/pi/script-tool.ts";
 
@@ -107,6 +108,47 @@ test("capture action accepts only HTTP URLs and project output paths", async () 
   }
 });
 
+test("diffCapture action passes an existing capture path and optional output through the guards", async () => {
+  const { cwd, cleanup } = await fixture();
+  try {
+    // The capture artifact must exist; a missing one is refused before the script runs.
+    assert.throws(
+      () => buildScriptInvocation({ action: "diffCapture", capture: "artifacts/missing.json" }, cwd),
+      /does not exist/,
+    );
+    // Project traversal is rejected by the same guard used for every other path arg.
+    assert.throws(
+      () => buildScriptInvocation({ action: "diffCapture", capture: "../../outside.json" }, cwd),
+      /outside the project/,
+    );
+    const invocation = buildScriptInvocation(
+      { action: "diffCapture", capture: ".karta/binders/work.json", out: "artifacts/diff.json" },
+      cwd,
+    );
+    assert.equal(invocation.script, resolvePackagePath("skills/karta-validate/scripts/diff_capture.py"));
+    assert.deepEqual(invocation.args, [
+      "--capture",
+      join(cwd, ".karta", "binders", "work.json"),
+      "--out",
+      join(cwd, "artifacts", "diff.json"),
+    ]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the fixed diffCapture action exposes no prompt, model, tool, code, or threshold parameter", () => {
+  const members = (ScriptParameters as { anyOf: Array<Record<string, any>> }).anyOf;
+  const diff = members.find((m) => m.properties?.action?.const === "diffCapture");
+  assert.ok(diff, "diffCapture action is registered");
+  // Exactly the fixed path parameters — nothing a caller could use to inject behavior.
+  assert.deepEqual(Object.keys(diff!.properties).sort(), ["action", "capture", "out"]);
+  assert.equal(diff!.additionalProperties, false);
+  for (const forbidden of ["prompt", "model", "tool", "tools", "code", "command", "threshold", "thresholds"]) {
+    assert.equal(forbidden in diff!.properties, false, forbidden);
+  }
+});
+
 const VISUAL_CAPTURES = fileURLToPath(new URL("fixtures/visual-captures/", import.meta.url));
 const RENDER_HEALTH_KEYS = [
   "consoleErrorCount",
@@ -176,6 +218,20 @@ test("named-session evidence never cross-contaminates between design and app", a
   assert.equal(afDesign.failedRequestCount, 0);
   assert.deepEqual(afDesign.consoleErrors, []);
   assert.deepEqual(afDesign.failedRequests, []);
+});
+
+test("structured-diff fixtures wrap a render-health capture with an expected outcome", async () => {
+  // Each diff-*.json is a self-test spec for scripts/diff_capture.py: a capture artifact
+  // plus the deterministic outcome the shared Pass-1 diff must produce from it.
+  const okFixture = await loadCapture("diff-computed-style.json");
+  assert.equal(okFixture.capture.design.render_health.schema, "karta-render-health-v1");
+  assert.equal(okFixture.capture.app.render_health.schema, "karta-render-health-v1");
+  assert.equal(okFixture.expect.status, "ok");
+  assert.equal(typeof okFixture.expect.discrepancyCount, "number");
+  // Unhealthy captures are recorded as fail-closed specs, never as a clean pass.
+  const blocked = await loadCapture("diff-blocked-render.json");
+  assert.equal(blocked.expect.status, "blocked");
+  assert.equal(blocked.expect.blockedReason, "render-blocked");
 });
 
 test("comparable extracted elements carry identity, context, styles, and a bounding box", async () => {

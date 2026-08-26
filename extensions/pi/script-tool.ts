@@ -10,7 +10,7 @@ import { PACKAGE_ROOT } from "./package-paths.ts";
 import { resolveKartaScript } from "./script-catalog.ts";
 
 const PathValue = Type.String({ minLength: 1, maxLength: 4096 });
-const ScriptParameters = Type.Union([
+export const ScriptParameters = Type.Union([
   Type.Object({ action: Type.Literal("detectStack"), root: Type.Optional(PathValue) }, { additionalProperties: false }),
   Type.Object(
     {
@@ -50,6 +50,14 @@ const ScriptParameters = Type.Union([
       ]),
       root: Type.Optional(PathValue),
       port: Type.Optional(Type.Integer({ minimum: 1, maximum: 65535 })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      action: Type.Literal("diffCapture"),
+      capture: PathValue,
+      out: Type.Optional(PathValue),
     },
     { additionalProperties: false },
   ),
@@ -214,6 +222,11 @@ export function buildScriptInvocation(params: KartaScriptParameters, cwd: string
       }
       if (params.port) args.push("--port", String(params.port));
       return { ...base, script: resolveKartaScript("serveStatus"), args };
+    }
+    case "diffCapture": {
+      const args = ["--capture", projectPath(cwd, params.capture, { mustExist: true })];
+      if (params.out) args.push("--out", projectPath(cwd, params.out));
+      return { ...base, script: resolveKartaScript("diffCapture"), args };
     }
     case "serveDesignSelfTest":
       return { ...base, script: resolveKartaScript("serveDesign"), args: ["--self-test"] };
