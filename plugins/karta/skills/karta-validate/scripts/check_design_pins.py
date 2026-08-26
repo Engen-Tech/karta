@@ -18,10 +18,15 @@ Seven outcomes, in a deliberate ladder:
   2. bytes disagree with the pin                         -> fail (drift)
   3. inside the repo, pin file present, no entry         -> fail
   4. recapture_after has passed                          -> fail
-  5. no pin file at all                                  -> pass, notice
-  6. design resolved from outside the repository         -> pass, notice
+  5. no pin file at all                                  -> fail *
+  6. design resolved from outside the repository         -> fail *
   7. malformed pin file (not an object, or an entry
      missing sha256)                                     -> fail
+
+* Rungs 5 and 6 are the two the check could not verify, and they exit non-zero
+so a caller gating on the exit status never reads "not verified" as
+"verified". --allow-unpinned turns both back into a notice and a pass, for a
+repository that has deliberately not pinned its captures.
 
 The check reads. It never rewrites a capture, never rewrites the pin file, and
 never deletes anything — restoring a drifted pin, or writing the first one, is
@@ -29,6 +34,7 @@ a copy-paste from this script's own printed hash.
 
 Usage:
   uv run skills/karta-validate/scripts/check_design_pins.py --design-path <path>
+  uv run skills/karta-validate/scripts/check_design_pins.py --design-path <path> --allow-unpinned
   uv run skills/karta-validate/scripts/check_design_pins.py --self-test
 """
 from __future__ import annotations
@@ -52,17 +58,34 @@ from serve_design import resolve_design_file  # noqa: E402
 
 PIN_FILE_NAME = ".karta/design-pins.json"
 DRIFT_MESSAGE = "design capture does not match its pin in .karta/design-pins.json"
+UNPINNED_HINT = "Pass --allow-unpinned to accept a capture this check could not verify."
 _ENTRY_KEYS = {"sha256", "source", "captured_on", "recapture_triggers", "recapture_after"}
 
 
 def _sha256(path: Path) -> str:
+    """Hash the capture's bytes. An unreadable file raises OSError here; `evaluate` catches it
+    and returns, so the caller never sees a traceback out of a check that promises a return."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def evaluate(design_path: Path, pin_file: Path, repo_root: Path) -> tuple[int, list[str]]:
+def _unverified(reason: str, allow_unpinned: bool) -> tuple[int, list[str]]:
+    """Rungs 5 and 6 — the two outcomes where the check could not verify the capture at all.
+    They fail by default: a caller that gates on the exit status reads 0 as "this capture was
+    checked", and for these two that is false. --allow-unpinned is the deliberate opt-out for
+    a repository that has not pinned its captures, and restores the notice and the pass."""
+    if allow_unpinned:
+        return 0, [f"NOTICE: {reason}"]
+    return 1, [f"{reason} {UNPINNED_HINT}"]
+
+
+def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
+             allow_unpinned: bool = False) -> tuple[int, list[str]]:
     """Run the enforcement ladder for one design path against one pin file,
     rooted at repo_root. Returns (exit_code, lines-to-print). Every outcome is
-    a return, never an exception — the caller only prints and exits."""
+    a return, never an exception — the caller only prints and exits.
+
+    `allow_unpinned` loosens the two rungs the check cannot verify (no pin file
+    at all, a design outside the repository) back to a notice and a pass."""
     repo_root = repo_root.expanduser().resolve()
     try:
         resolved = resolve_design_file(Path(design_path))
@@ -75,15 +98,22 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path) -> tuple[int, l
         inside = False
 
     if not inside:
-        return 0, [f"NOTICE: {resolved} is outside the repository ({repo_root}); "
-                   f"it cannot be pinned and was not verified."]
+        return _unverified(f"{resolved} is outside the repository ({repo_root}); "
+                           f"it cannot be pinned and was not verified.", allow_unpinned)
 
     rel = resolved.relative_to(repo_root).as_posix()
 
-    if not pin_file.exists():
+    # Hashed once here rather than at each rung that wants it. An unreadable capture is not a
+    # ladder outcome — it is the ladder having nothing to run on — so it becomes an ordinary
+    # error return at the one place the bytes are read.
+    try:
         digest = _sha256(resolved)
-        return 0, [f"NOTICE: no {PIN_FILE_NAME} found; {rel} was not verified "
-                   f"(sha256={digest})."]
+    except OSError as e:
+        return 1, [f"{rel}: design capture could not be read ({e})"]
+
+    if not pin_file.exists():
+        return _unverified(f"no {PIN_FILE_NAME} found; {rel} was not verified "
+                           f"(sha256={digest}).", allow_unpinned)
 
     try:
         raw = json.loads(pin_file.read_text())
@@ -100,7 +130,6 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path) -> tuple[int, l
 
     entry = raw.get(rel)
     if entry is None:
-        digest = _sha256(resolved)
         return 1, [f"{rel} has no pin in {PIN_FILE_NAME} (sha256={digest}) — this "
                    f"repository pins its design captures, and this one has no entry."]
 
@@ -115,7 +144,6 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path) -> tuple[int, l
             return 1, [f"{rel} pin has expired: recapture_after {recapture_after} has "
                        f"passed — recapture the design before trusting this comparison."]
 
-    digest = _sha256(resolved)
     pinned = entry["sha256"]
     if digest != pinned:
         return 1, [f"{rel}: {DRIFT_MESSAGE}",
@@ -132,10 +160,10 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path) -> tuple[int, l
 
 
 def _self_test() -> int:
-    """Each of the seven ladder outcomes, plus the two directory-path cases, gets
-    its own fixture built in a temporary directory at run time and committed
-    nowhere — the passing and failing fixtures differ only in the byte or the
-    date that should decide the outcome."""
+    """Each of the seven ladder outcomes, plus the two directory-path cases and the
+    unreadable capture, gets its own fixture built in a temporary directory at run
+    time and committed nowhere — the passing and failing fixtures differ only in the
+    byte, the date, or the flag that should decide the outcome."""
     total = 0
     failures = 0
 
@@ -201,26 +229,38 @@ def _self_test() -> int:
                "the same entry with no recapture_after key passes", ok_a and ok_b,
                f"{code_a=} {lines_a=} {code_b=} {lines_b=}")
 
-        # 5. no pin file at all -> pass, notice naming the design, printing its hash
-        #    (the third hash-printing outcome).
+        # 5. no pin file at all -> fail, naming the design and printing its hash (the
+        #    third hash-printing outcome), because nothing here was verified. The twin is
+        #    the same call under --allow-unpinned, which is the notice and the pass.
         no_pinfile_design = root / "no-pinfile.html"
         no_pinfile_design.write_bytes(good_bytes)
         missing_pin_file = root / "does-not-exist.json"
-        code, lines = evaluate(no_pinfile_design, missing_pin_file, root)
-        blob = "\n".join(lines)
-        ok = code == 0 and "no-pinfile.html" in blob and "sha256=" in blob
-        record("a repository with no pin file at all passes and prints a notice naming "
-               "the design it did not verify and its hash", ok, f"{code=} {lines=}")
+        code_a, lines_a = evaluate(no_pinfile_design, missing_pin_file, root)
+        blob_a = "\n".join(lines_a)
+        ok_a = (code_a == 1 and "no-pinfile.html" in blob_a and "sha256=" in blob_a
+                and "--allow-unpinned" in blob_a)
+        code_b, lines_b = evaluate(no_pinfile_design, missing_pin_file, root, allow_unpinned=True)
+        blob_b = "\n".join(lines_b)
+        ok_b = code_b == 0 and "NOTICE" in blob_b and "no-pinfile.html" in blob_b and "sha256=" in blob_b
+        record("a repository with no pin file at all fails, naming the design it did not "
+               "verify and its hash, and passes with a notice under --allow-unpinned",
+               ok_a and ok_b, f"{code_a=} {lines_a=} {code_b=} {lines_b=}")
 
-        # 6. design resolved from outside the repository -> pass with a notice, no
-        #    fingerprint it could ever have had.
+        # 6. design resolved from outside the repository -> fail, for the same reason: no
+        #    fingerprint it could ever have had. Its twin is the same --allow-unpinned pass.
         with tempfile.TemporaryDirectory() as outside_td:
             outside_design = Path(outside_td) / "outside.html"
             outside_design.write_bytes(good_bytes)
-            code, lines = evaluate(outside_design, pin_file, root)
-            ok = code == 0 and "outside the repository" in "\n".join(lines) and "cannot be pinned" in "\n".join(lines)
-            record("a design resolved from outside the repository passes with a notice "
-                   "saying it cannot be pinned", ok, f"{code=} {lines=}")
+            code_a, lines_a = evaluate(outside_design, pin_file, root)
+            blob_a = "\n".join(lines_a)
+            ok_a = (code_a == 1 and "outside the repository" in blob_a
+                    and "cannot be pinned" in blob_a and "--allow-unpinned" in blob_a)
+            code_b, lines_b = evaluate(outside_design, pin_file, root, allow_unpinned=True)
+            blob_b = "\n".join(lines_b)
+            ok_b = code_b == 0 and "NOTICE" in blob_b and "outside the repository" in blob_b
+            record("a design resolved from outside the repository fails saying it cannot be "
+                   "pinned, and passes with a notice under --allow-unpinned",
+                   ok_a and ok_b, f"{code_a=} {lines_a=} {code_b=} {lines_b=}")
 
         # 7. malformed pin file — not an object, or an entry missing sha256 — is
         #    reported as malformed and NEVER as a matching capture.
@@ -257,11 +297,48 @@ def _self_test() -> int:
         record("the same directory-valued path fails when the file resolve_design_file "
                "chooses has drifted from its pin", ok, f"{code=} {lines=}")
 
+        # 10. a capture whose bytes cannot be read comes back as an ordinary error return,
+        #     never a traceback out of read_bytes() — evaluate's contract is that every
+        #     outcome is a return. Two shapes of the same OSError: a dangling symlink the
+        #     directory resolver still picks (which binds under any uid), and a mode-000
+        #     file (the permission case, dropped where the running uid ignores file modes).
+        #     The compliant twin is the identical capture readable, which passes its pin.
+        broken_dir = root / "broken-capture"
+        broken_dir.mkdir()
+        (broken_dir / "gone.html").symlink_to(root / "never-written.html")
+        unreadable_targets = [broken_dir]
+        mode000 = root / "mode000.html"
+        mode000.write_bytes(good_bytes)
+        mode000.chmod(0o000)
+        try:
+            mode000.read_bytes()
+        except OSError:
+            unreadable_targets.append(mode000)
+        else:
+            mode000.chmod(0o644)
+        unread_ok, unread_detail = True, ""
+        for target in unreadable_targets:
+            try:
+                code, lines = evaluate(target, pin_file, root)
+            except Exception as e:  # the traceback this guard exists to stop
+                code, lines = -1, [f"raised {e!r}"]
+            if not (code == 1 and "could not be read" in "\n".join(lines)):
+                unread_ok, unread_detail = False, f"{target=} {code=} {lines=}"
+        mode000.chmod(0o644)
+        readable_twin = root / "readable-twin.html"
+        readable_twin.write_bytes(good_bytes)
+        pin_file.write_text(json.dumps({"readable-twin.html": {"sha256": good_hash}}))
+        code, lines = evaluate(readable_twin, pin_file, root)
+        twin_ok = code == 0 and "PASS" in "\n".join(lines)
+        record("a capture whose bytes cannot be read returns a clean error rather than a "
+               "traceback, and the same bytes readable pass their pin",
+               unread_ok and twin_ok, unread_detail or f"{code=} {lines=}")
+
     print(f"self-test: {total - failures}/{total} cases passed")
-    if total != 9:
-        print(f"FAIL: expected exactly 9 self-test cases, ran {total} "
+    if total != 10:
+        print(f"FAIL: expected exactly 10 self-test cases, ran {total} "
               f"(the seven ladder outcomes, of which the malformed pin file is the "
-              f"seventh, plus the two directory-path cases)")
+              f"seventh, plus the two directory-path cases and the unreadable capture)")
         return 1
     return 1 if failures else 0
 
@@ -275,6 +352,10 @@ def main() -> None:
     parser.add_argument("--repo-root", help="Repository root the pin file and the resolved "
                         "design path are checked against. Defaults to the current working "
                         "directory.")
+    parser.add_argument("--allow-unpinned", action="store_true",
+                        help="Accept a capture this check could not verify — no pin file at "
+                             "all, or a design resolved from outside the repository — as a "
+                             "pass with a notice instead of a failure.")
     parser.add_argument("--self-test", action="store_true", help="Run the embedded fixtures and exit.")
     args = parser.parse_args()
 
@@ -287,7 +368,8 @@ def main() -> None:
     pin_file = (Path(args.pin_file).expanduser().resolve() if args.pin_file
                else repo_root / ".karta" / "design-pins.json")
 
-    code, lines = evaluate(Path(args.design_path), pin_file, repo_root)
+    code, lines = evaluate(Path(args.design_path), pin_file, repo_root,
+                           allow_unpinned=args.allow_unpinned)
     for line in lines:
         print(line)
     raise SystemExit(code)
