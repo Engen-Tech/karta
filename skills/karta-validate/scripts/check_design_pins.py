@@ -93,14 +93,21 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
         repo_root = repo_root.expanduser().resolve()
     except (OSError, RuntimeError) as e:
         return 1, [f"repository root could not be resolved ({e})"]
+    # main resolves this before calling, so this is for a direct caller passing "~/pins.json":
+    # unexpanded, .exists() would read it as a literal ./~ directory and report no pin file.
+    try:
+        pin_file = pin_file.expanduser().resolve()
+    except (OSError, RuntimeError) as e:
+        return 1, [f"pin file path could not be resolved ({e})"]
     try:
         resolved = resolve_design_file(Path(design_path))
     except SystemExit as e:
         return 1, [str(e)]
-    except OSError as e:
-        # resolve_design_file raises SystemExit for its own outcomes, but it stats the path
-        # to get there and a stat can fail on its own (an unreadable path component). This
-        # check promises a return, so that becomes one too.
+    except (OSError, RuntimeError) as e:
+        # resolve_design_file raises SystemExit for its own outcomes, but it expanduser()s and
+        # stats the path to get there: a stat can fail on an unreadable component (OSError) and
+        # a ~user with no home raises RuntimeError. Both reach here, so both become returns —
+        # the same two the repo root is guarded against, on the third path argument.
         return 1, [f"design path could not be resolved ({e})"]
 
     try:
@@ -172,6 +179,9 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
     lines = [f"PASS: {rel} matches its pin (sha256={digest})",
              f"  captured:   {entry.get('captured_on', '(not recorded)')}",
              f"  source:     {entry.get('source', '(not recorded)')}"]
+    # Deliberately laxer than recapture_after above, which hard-fails on "". A deadline is
+    # safety-critical — getting it wrong lets a pin outlive its stated life — while triggers
+    # are a note to a human, so a malformed one is shown rather than made a failure.
     # Only a list is iterated. A scalar here would raise straight out of the PASS branch,
     # and a bare string would iterate per character into nonsense — both on a capture whose
     # digest matched, which is the one outcome that must not end in a traceback.
@@ -436,13 +446,29 @@ def _self_test() -> int:
                "a real root on the same capture passes",
                bad_root_ok and good_root_ok, f"{code=} {lines=} {code_g=} {lines_g=}")
 
+        # 15. The design path is the third fallible argument, and the one the round-4 panel
+        #     found unguarded because rounds 2-3 fixtured the other two and not this. It is
+        #     the same failure — resolve_design_file expanduser()s, so a ~user with no home
+        #     raises RuntimeError — so it gets the same paired fixture.
+        try:
+            code, lines = evaluate(Path("~nosuchuser0987/x.html"), pin_file, root)
+        except Exception as e:  # the traceback this guard exists to stop
+            code, lines = -1, [f"raised {e!r}"]
+        bad_design_ok = code == 1 and "could not be resolved" in "\n".join(lines)
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}))
+        code_d, lines_d = evaluate(exp, pin_file, root)
+        good_design_ok = code_d == 0
+        record("an unresolvable design path returns a clean error rather than a traceback, and "
+               "a real path on the same root passes",
+               bad_design_ok and good_design_ok, f"{code=} {lines=} {code_d=} {lines_d=}")
+
     print(f"self-test: {total - failures}/{total} cases passed")
-    if total != 14:
-        print(f"FAIL: expected exactly 14 self-test cases, ran {total} "
+    if total != 15:
+        print(f"FAIL: expected exactly 15 self-test cases, ran {total} "
               f"(the seven ladder outcomes, of which the malformed pin file is the "
               f"seventh, plus the two directory-path cases, the unreadable capture, the "
               f"two malformed-metadata cases, the null-deadline case and the "
-              f"unresolvable-root case)")
+              f"unresolvable-root case and the unresolvable-design-path case)")
         return 1
     return 1 if failures else 0
 
