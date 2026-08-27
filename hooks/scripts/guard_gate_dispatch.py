@@ -83,7 +83,7 @@ def _unquote(tok: str) -> str:
     return tok
 
 
-def _extract_worktree(text: str, cwd: str) -> str:
+def _extract_worktree(text: str, cwd: str) -> str | None:
     for m in WORKTREE_RE.finditer(text):
         # Every character scrubbed here — quotes, `;,:)]` — is legal in a POSIX name, so
         # `worktree /srv/wt/release;` may mean the directory `release;`, and a greedy strip
@@ -100,15 +100,26 @@ def _extract_worktree(text: str, cwd: str) -> str:
         # with a full stop is denied instead. A lone quote may be part of a name and
         # stays; a token that never becomes path-like is prose, and the next mention is
         # tried.
+        # The returned path is made absolute against the payload cwd, so `lexists` here
+        # and `git -C` later resolve a relative form against the same base. A mention
+        # whose token is a path behind an UNMATCHED quote — `"/srv/wt/release;`, or a
+        # correctly quoted path with a space that `\S+` cut short — is not prose and is
+        # not a path either: it is a malformed brief, and the guard returns None so the
+        # dispatch is denied outright rather than judged against the payload cwd, which
+        # might well resolve the range and allow.
         tok = m.group(1)
         first_pathlike = None
+        quoted_attempt = False
         while tok:
             cand = _unquote(tok)
             if cand and _PATHLIKE.search(cand):
-                if os.path.lexists(os.path.join(cwd, cand)):
-                    return cand
+                full = os.path.join(cwd, cand)
+                if os.path.lexists(full):
+                    return full
                 if first_pathlike is None:
-                    first_pathlike = cand
+                    first_pathlike = full
+            elif cand and _PATHLIKE.search(cand.lstrip("\"'")):
+                quoted_attempt = True
             if cand != tok:
                 tok = cand
             elif tok[-1] in _CLAUSE_PUNCT:
@@ -117,6 +128,8 @@ def _extract_worktree(text: str, cwd: str) -> str:
                 break
         if first_pathlike is not None:
             return first_pathlike
+        if quoted_attempt:
+            return None
     return cwd
 
 
@@ -125,7 +138,7 @@ def _diff_has_changes(worktree: str, diff_range: str) -> bool | None:
     try:
         proc = subprocess.run(["git", "-C", worktree, "diff", "--quiet", diff_range],
                                capture_output=True, timeout=GIT_TIMEOUT)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
     if proc.returncode == 0:
         return False
@@ -141,7 +154,7 @@ def _diff_stat(worktree: str, diff_range: str) -> tuple[int, int] | None:
                                 capture_output=True, timeout=GIT_TIMEOUT)
         full = subprocess.run(["git", "-C", worktree, "diff", diff_range],
                                capture_output=True, timeout=GIT_TIMEOUT)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
     if names.returncode != 0 or full.returncode != 0:
         return None
@@ -158,6 +171,13 @@ def decide(payload: dict) -> tuple[int, str]:
     text = "\n".join(str(tool_input.get(k) or "") for k in ("prompt", "description"))
     cwd = payload.get("cwd") or os.getcwd()
     worktree = _extract_worktree(text, cwd)
+    if worktree is None:
+        return 2, (
+            "karta: this is a gate-reviewer dispatch and its `worktree` mention is malformed — "
+            "a path behind an unmatched quote, or a quoted path containing a space, which the "
+            "guard cannot read as a name. It fails closed rather than judging the range against "
+            "the payload cwd. Re-dispatch with the worktree path written unquoted and without "
+            "spaces.")
 
     m = RANGE_TOKEN_RE.search(text)
     endpoints = _split_range(m.group(1)) if m else None
@@ -314,10 +334,20 @@ def _run_self_test() -> int:
              "unquoted first, then peeled to the directory",
              dispatch(f'worktree "{twin_punct};" diff range base..feature. {good_size_line}',
                       worktree=missing_dir), 0, None),
-            ("an UNMATCHED leading quote is never scrubbed off to reach a sibling tree — "
-             "the mention is prose and the payload cwd is used, which here does not exist",
+            ("an UNMATCHED leading quote is a malformed mention: denied outright, even "
+             "though the payload cwd is a real tree that resolves the range",
              dispatch(f'worktree "{twin_punct} diff range base..feature. {good_size_line}',
+                      worktree=repo), 2, "malformed"),
+            ("a correctly quoted path containing a space is cut at the space and denied "
+             "outright, not judged against the payload cwd",
+             dispatch(f'worktree "{td}/my tree" diff range base..feature. {good_size_line}',
+                      worktree=repo), 2, "malformed"),
+            ("a NUL in the path is a fail-closed deny, not an exception that fails open",
+             dispatch(f"worktree {repo}\x00x; diff range base..feature. {good_size_line}",
                       worktree=missing_dir), 2, "fails closed"),
+            ("a relative worktree form is resolved against the payload cwd",
+             dispatch(f"worktree ./ diff range base..feature. {good_size_line}",
+                      worktree=repo), 0, None),
             ("a file at the longer name stops the peel and denies rather than peeling "
              "past it to the real tree beside it",
              dispatch(f"worktree {trio_file_punct} diff range base..feature. "
