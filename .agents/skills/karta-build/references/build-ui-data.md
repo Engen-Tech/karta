@@ -79,6 +79,8 @@ Use a repo-owned helper script when this logic becomes non-trivial; do not assum
 round = 1
 while round <= 3:
   # Re-run the floor if we made fixes (skip for round 1 — the floor `build:floor` already passed)
+  # Floor commands go through the runner, exactly as in build:floor:
+  #   python3 skills/karta-build/scripts/run_oracle.py --cwd <resolved cwd> '<lint command>'
   if round > 1:
     run <lint command> && <test command>
     if fail: fix, re-run lint/test
@@ -123,7 +125,7 @@ When fixing issues between rounds:
 
 - Use the report's category and line hints to locate each violation.
 - Cross-reference the project's data-layer-rules doc for the correct pattern when the category isn't self-explanatory.
-- After fixes, re-run `<lint command> && <test command>` before the next validation round — fixes must not break the floor.
+- After fixes, re-run `<lint command> && <test command>` before the next validation round — fixes must not break the floor. Run them through `skills/karta-build/scripts/run_oracle.py` the way `build:floor` does, and read the emitted record's `success`, `exit_status`, and `decisive_output` rather than the raw output, so a UI/data item leaves the same evidence trail as every other item.
 
 #### 5b-6. Edge cases
 
