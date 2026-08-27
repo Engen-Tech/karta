@@ -462,11 +462,13 @@ _LONE_ECHO = re.compile(r"^echo(\s|$)")
 # `true` with or without arguments, `:`, `exit 0`, and the absolute forms. Anchored with a
 # boundary so `truebeam --run` is not caught.
 _ALWAYS_OK = re.compile(r"^(/usr)?(/bin)?/?(true|:)(\s|$)|^exit\s+0\s*$")
-# `a || true` and `a ; true` take their exit status from the tail, so a vacuous tail makes
-# the whole command vacuous however real the head is. `&&` and `|` do not: `a && true`
-# still fails when a fails, and `a | true` reports the pipeline's status. Split on the two
-# separators that actually hand the status over, and judge the last segment.
-_DEFANG_SPLIT = re.compile(r"\|\||;|\n")
+# `a || true`, `a ; true` and `a | true` all take their exit status from the tail, so a
+# vacuous tail makes the whole command vacuous however real the head is. A pipeline is in
+# that list on purpose: without `set -o pipefail` its status is the LAST stage's, so
+# `false | true` exits 0 — verified, not assumed. `&&` is the one separator that does not
+# hand over, since `a && true` still fails when a fails. Split on the three that do and
+# judge the last segment.
+_DEFANG_SPLIT = re.compile(r"\|\||\||;|\n")
 
 
 def _is_atom_vacuous(atom: str) -> bool:
@@ -485,12 +487,15 @@ def _is_vacuous_command(command: str) -> bool:
     # ran before it — `pytest -q || true` is green no matter what pytest did. That is the
     # commonest way an oracle stops being able to fail, so it is judged on the last
     # status-bearing segment rather than waved through as "compound, therefore real".
-    segments = _DEFANG_SPLIT.split(stripped)
+    # Empty segments are dropped before the tail is taken: a command may legitimately end
+    # in its separator, and `pytest -q || true;` split naively yields a trailing "" that
+    # hides the `true` behind it.
+    segments = [seg.strip() for seg in _DEFANG_SPLIT.split(stripped) if seg.strip()]
     if len(segments) > 1:
-        tail = segments[-1].strip()
+        tail = segments[-1]
         # Only a tail that is itself one plain command is judged: `a || b && c` hands its
         # status to `b && c`, which is not a no-op just because it starts with one.
-        if tail and not _COMPOUND.search(tail) and _is_atom_vacuous(tail):
+        if not _COMPOUND.search(tail) and _is_atom_vacuous(tail):
             return True
     if _COMPOUND.search(stripped):
         return False
@@ -1007,9 +1012,14 @@ def _run_self_test() -> int:
     # a fails, so it is not a defang and `echo running && pytest -q` must stay quiet.
     vacuous_cmds = ["true", ":", "  true  ", "echo ok", "echo", "",
                     "pytest -q || true", "npm test ; true", "make lint || echo ok",
-                    "/bin/true", "/usr/bin/true", "exit 0", "true --anything"]
+                    "/bin/true", "/usr/bin/true", "exit 0", "true --anything",
+                    # A pipeline hands its status to the last stage without `pipefail`
+                    # (`false | true` exits 0, verified), so a pipe defangs exactly like
+                    # `||`. A command may also end in its own separator, which used to
+                    # leave an empty tail segment that hid the no-op behind it.
+                    "pytest -q | true", "make test | :", "pytest -q || true;"]
     real_cmds = ["pytest -q", "echo running && pytest -q", "true; pytest -q", "truebeam --run",
-                 "pytest -q || exit 1", "make test | tee log", "a || b && c"]
+                 "pytest -q || exit 1", "pytest -q | grep -q PASS", "a || b && c"]
     fired = [c for c in vacuous_cmds
              if len(vacuous_oracle_warnings(_cmd_binder(c))) == 1
              and "vacuous" in vacuous_oracle_warnings(_cmd_binder(c))[0]]

@@ -49,7 +49,7 @@ RANGE_TOKEN_RE = re.compile(rf"(?<![A-Za-z0-9_/.~^-])({_REV}\.\.\.?{_REV})")
 # bare dot — and anything else falls back to the payload cwd rather than denying on a
 # worktree the brief never named.
 WORKTREE_RE = re.compile(r"\bworktree\b\s*[:=]?\s*(\S+)", re.I)
-_PATHLIKE = re.compile(r"^(\.|\.\.|~|/)|/")
+_PATHLIKE = re.compile(r"^(\.\.?/|\.\.?$|~|/)")
 # The exact string "Diff-size:" is a shared term — case-sensitive, verbatim.
 DIFF_SIZE_RE = re.compile(r"Diff-size:\s*(\d+)\s*files?,\s*(\d+)\s*bytes?")
 
@@ -75,7 +75,13 @@ def _split_range(token: str) -> tuple[str, str] | None:
 
 def _extract_worktree(text: str, cwd: str) -> str:
     for m in WORKTREE_RE.finditer(text):
-        path = re.sub(r"[;,:]+$", "", m.group(1))
+        # A path at the end of a sentence keeps its full stop unless it is scrubbed, which
+        # is the same trailing-punctuation bug the range grammar above was fixed for. The
+        # two strips are separate on purpose: folding the dot into the first class turns
+        # `worktree .;` into the empty string, and a bare `.` is a real worktree path.
+        path = m.group(1).rstrip(';,:)]"\'')
+        if path not in (".", "..") and path.endswith("."):
+            path = path.rstrip(".")
         if path and _PATHLIKE.search(path):
             return path
     return cwd
@@ -226,6 +232,9 @@ def _run_self_test() -> int:
              0, None),
             ("a trailing full stop is not part of the endpoint",
              dispatch(f"worktree {repo}; diff range base..feature. {good_size_line}"), 0, None),
+            ("a worktree path at a sentence end keeps its path, loses the full stop",
+             dispatch(f"worktree {repo}. diff range base..feature. {good_size_line}",
+                      worktree=missing_dir), 0, None),
             ("the word after a prose 'worktree' is not taken as a path",
              dispatch(f"reviewed in the worktree at length; diff range base..feature. "
                       f"{good_size_line}", worktree=repo), 0, None),
