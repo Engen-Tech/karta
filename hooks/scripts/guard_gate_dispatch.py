@@ -75,18 +75,16 @@ def _split_range(token: str) -> tuple[str, str] | None:
 
 def _extract_worktree(text: str, cwd: str) -> str:
     for m in WORKTREE_RE.finditer(text):
-        # A path at the end of a sentence keeps its full stop unless it is scrubbed, which
-        # is the same trailing-punctuation bug the range grammar above was fixed for. The
-        # two strips are separate on purpose: folding the dot into the first class turns
-        # `worktree .;` into the empty string, and a bare `.` is a real worktree path.
+        # Quotes and clause punctuation are scrubbed; a trailing DOT deliberately is not.
+        # Whether the dot ends a sentence or names a directory cannot be told apart from
+        # the token — `/srv/wt/..` is the parent, `/srv/wt/release..` is a real name, and
+        # `/srv/wt.` at a sentence end is a path that is not there. Two attempts to guess
+        # it both produced the same failure: the guard resolved a DIFFERENT tree and
+        # judged the dispatch against it. Not guessing costs a denial on a brief that ends
+        # its path with a full stop, which is fail-closed and one re-dispatch. Guessing
+        # costs a gate that silently reviewed the wrong worktree, which is the one outcome
+        # a guard must not have.
         path = m.group(1).strip('"\'').rstrip(';,:)]"\'')
-        # A trailing dot is sentence punctuation only when it is not part of the path.
-        # `/srv/wt/..` names the parent, and stripping its dots yields `/srv/wt/` — a
-        # different directory, so the guard would validate the wrong tree rather than
-        # deny. Traversal endings are exempt along with a bare `.` or `..`.
-        if (path not in (".", "..") and not path.endswith(("/.", "/.."))
-                and path.endswith(".")):
-            path = path.rstrip(".")
         if path and _PATHLIKE.search(path):
             return path
     return cwd
@@ -209,6 +207,9 @@ def _run_self_test() -> int:
         # first grammar here stopped the rev class at every dot, so "v2.31.0..HEAD" was
         # read as "0..HEAD" and a legitimate dispatch was denied.
         run("git", "branch", "release/2.31.0", "feature", cwd=repo)
+        # A real directory whose name genuinely ends in dots, so the case below tests what
+        # its name says rather than passing for the traversal case's reason.
+        (Path(repo) / "release..").mkdir()
 
         real_files, real_bytes = _diff_stat(repo, "base..feature")
         good_size_line = f"Diff-size: {real_files} files, {real_bytes} bytes"
@@ -237,11 +238,15 @@ def _run_self_test() -> int:
              0, None),
             ("a trailing full stop is not part of the endpoint",
              dispatch(f"worktree {repo}; diff range base..feature. {good_size_line}"), 0, None),
-            ("a worktree path at a sentence end keeps its path, loses the full stop",
+            ("a worktree path ending in a dot is never guessed at — it denies rather "
+             "than resolving a different tree",
              dispatch(f"worktree {repo}. diff range base..feature. {good_size_line}",
-                      worktree=missing_dir), 0, None),
+                      worktree=missing_dir), 2, "could not resolve"),
             ("a traversal path keeps its dots — they are the path, not punctuation",
              dispatch(f"worktree {repo}/.git/.. diff range base..feature. "
+                      f"{good_size_line}", worktree=missing_dir), 0, None),
+            ("an ordinary directory whose name ends in dots is left alone",
+             dispatch(f"worktree {repo}/release.. diff range base..feature. "
                       f"{good_size_line}", worktree=missing_dir), 0, None),
             ("the word after a prose 'worktree' is not taken as a path",
              dispatch(f"reviewed in the worktree at length; diff range base..feature. "
