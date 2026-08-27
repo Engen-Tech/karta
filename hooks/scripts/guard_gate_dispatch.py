@@ -117,8 +117,11 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
         # alike. Only a bare word with none of those marks (`worktree at length;`) is
         # prose, and only then does the payload cwd stand in, as it does for a brief with
         # no mention at all.
-        names_something = (sep is not None or raw[0] in "\"'([{<" or "/" in raw
-                           or bool(_PATHLIKE.search(raw.strip(_WRAP_PUNCT))))
+        # `worktree:` with nothing after it makes the regex backtrack and hand the
+        # separator itself over as the token — an explicit separator that names nothing
+        # readable, which is malformed, not prose.
+        names_something = (sep is not None or raw in (":", "=") or raw[0] in "\"'([{<"
+                           or "/" in raw or bool(_PATHLIKE.search(raw.strip(_WRAP_PUNCT))))
         tok = raw
         first_pathlike = None
         while tok:
@@ -304,6 +307,14 @@ def _run_self_test() -> int:
                     "tool_input": {"subagent_type": subagent, "description": "boundary scan",
                                    "prompt": prompt}}
 
+        # The "names something => never cwd" property rests on two relations between the
+        # character sets: everything the peel strips is also set aside by the naming test,
+        # and no path-like leading marker is ever stripped by it. Asserted so an edit to
+        # one constant cannot silently reopen the fall-to-cwd.
+        set_ok = set(_CLAUSE_PUNCT) <= set(_WRAP_PUNCT) and not (set("./~") & set(_WRAP_PUNCT))
+        print(f"[{'PASS' if set_ok else 'FAIL'}] _CLAUSE_PUNCT is a subset of _WRAP_PUNCT and "
+              f"no path-like marker is in _WRAP_PUNCT")
+
         cases = [
             ("unrecognized subagent passes with no diff-size line",
              dispatch("build item a", subagent="karta-build"), 0, None),
@@ -379,6 +390,14 @@ def _run_self_test() -> int:
              "payload cwd stands in — the one reading the guard still makes",
              dispatch(f"worktree release; diff range base..feature. {good_size_line}",
                       worktree=repo), 0, None),
+            ("a trailing `worktree:` with nothing after it is a separator naming nothing "
+             "readable — denied, not the payload cwd (the regex backtracks and captures "
+             "the separator itself as the token)",
+             dispatch(f"diff range base..feature. {good_size_line}\nworktree:",
+                      worktree=repo), 2, "malformed"),
+            ("same with `=` and surrounding spaces",
+             dispatch(f"diff range base..feature. {good_size_line} worktree = ",
+                      worktree=repo), 2, "malformed"),
             ("a prose word holding a slash is denied too — fail-closed, one re-dispatch",
              dispatch(f"worktree and/or branch diff range base..feature. {good_size_line}",
                       worktree=repo), 2, "malformed"),
@@ -423,7 +442,7 @@ def _run_self_test() -> int:
              {"hook_event_name": "PreToolUse", "tool_name": "Task", "cwd": repo,
               "tool_input": "junk"}, 0, None),
         ]
-        failures = 0
+        failures = 0 if set_ok else 1
         for name, payload, want, needle in cases:
             code, msg = decide(payload)
             ok = code == want and (needle is None or needle in msg)
