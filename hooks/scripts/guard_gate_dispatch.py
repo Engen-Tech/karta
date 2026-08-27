@@ -85,32 +85,38 @@ def _unquote(tok: str) -> str:
 
 def _extract_worktree(text: str, cwd: str) -> str:
     for m in WORKTREE_RE.finditer(text):
-        raw = m.group(1)
         # Every character scrubbed here — quotes, `;,:)]` — is legal in a POSIX name, so
         # `worktree /srv/wt/release;` may mean the directory `release;`, and a greedy strip
         # would resolve its sibling `release` instead: the guard judging a tree the brief
         # never named, which is the one outcome it must not produce. So the token is
-        # peeled one trailing character at a time, and the FIRST form that names an
-        # existing directory wins. `release;;` therefore stops at `release;` when that
-        # exists rather than overshooting to `release`. A trailing DOT is never peeled:
-        # `..` is path syntax, so `/srv/wt/...` minus its dots is a real different
-        # directory, and a brief that ends its path with a full stop is denied instead.
-        tok = raw
+        # peeled one step at a time — a matched outer quote pair, else one trailing
+        # clause character — and the FIRST form that EXISTS wins, whatever it is. A file
+        # or a dangling symlink at that name stops the peel too: `git -C` then fails and
+        # the guard denies, instead of peeling past it to a sibling directory. When no
+        # form exists, the longest path-like form the loop evaluated is handed to git so
+        # the denial names what was written; nothing is ever returned that the loop did
+        # not check. A trailing DOT is never peeled: `..` is path syntax, so `/srv/wt/...`
+        # minus its dots is a real different directory, and a brief that ends its path
+        # with a full stop is denied instead. A lone quote may be part of a name and
+        # stays; a token that never becomes path-like is prose, and the next mention is
+        # tried.
+        tok = m.group(1)
+        first_pathlike = None
         while tok:
             cand = _unquote(tok)
-            if cand and _PATHLIKE.search(cand) and os.path.isdir(os.path.join(cwd, cand)):
-                return cand
-            if tok[-1] in _CLAUSE_PUNCT:
+            if cand and _PATHLIKE.search(cand):
+                if os.path.lexists(os.path.join(cwd, cand)):
+                    return cand
+                if first_pathlike is None:
+                    first_pathlike = cand
+            if cand != tok:
+                tok = cand
+            elif tok[-1] in _CLAUSE_PUNCT:
                 tok = tok[:-1]
             else:
                 break
-        # Nothing along the way exists as written. Fall back to the fully scrubbed form
-        # (which also drops an unbalanced leading quote) so git can say so: it either
-        # resolves nothing and the guard denies, or it was never path-like and the next
-        # `worktree` mention is tried.
-        path = raw.strip('"\'').rstrip(_CLAUSE_PUNCT)
-        if path and _PATHLIKE.search(path):
-            return path
+        if first_pathlike is not None:
+            return first_pathlike
     return cwd
 
 
@@ -243,6 +249,13 @@ def _run_self_test() -> int:
         twin_plain = str(Path(td) / "twin")
         Path(twin_plain).mkdir()
         run("git", "init", "-q", cwd=twin_plain)
+        # A FILE named with trailing clause punctuation beside a real tree of the bare
+        # name: the peel must stop on the file (it exists) and let git deny, not peel
+        # past it to the tree beside it.
+        trio = str(Path(td) / "trio")
+        shutil.copytree(repo, trio)
+        trio_file_punct = trio + ";"
+        Path(trio_file_punct).write_text("not a tree\n")
 
         real_files, real_bytes = _diff_stat(repo, "base..feature")
         good_size_line = f"Diff-size: {real_files} files, {real_bytes} bytes"
@@ -297,6 +310,18 @@ def _run_self_test() -> int:
              "at the right step",
              dispatch(f'worktree "{twin_punct}"; diff range base..feature. {good_size_line}',
                       worktree=missing_dir), 0, None),
+            ("a quoted form of it with extra clause punctuation inside the quotes is "
+             "unquoted first, then peeled to the directory",
+             dispatch(f'worktree "{twin_punct};" diff range base..feature. {good_size_line}',
+                      worktree=missing_dir), 0, None),
+            ("an UNMATCHED leading quote is never scrubbed off to reach a sibling tree — "
+             "the mention is prose and the payload cwd is used, which here does not exist",
+             dispatch(f'worktree "{twin_punct} diff range base..feature. {good_size_line}',
+                      worktree=missing_dir), 2, "fails closed"),
+            ("a file at the longer name stops the peel and denies rather than peeling "
+             "past it to the real tree beside it",
+             dispatch(f"worktree {trio_file_punct} diff range base..feature. "
+                      f"{good_size_line}", worktree=missing_dir), 2, "fails closed"),
             ("the word after a prose 'worktree' is not taken as a path",
              dispatch(f"reviewed in the worktree at length; diff range base..feature. "
                       f"{good_size_line}", worktree=repo), 0, None),
