@@ -11,7 +11,9 @@ Each binder gets a dedicated integration branch `karta/<slug>/integration`, kept
 
 ## Serial merge queue
 
-Completed items enter a FIFO queue by completion time; the orchestrator processes one merge at a time (the "lock" is sequential processing). For each: rebase/merge the item branch onto the current integration tip → on conflict, bounded rebuild against the new tip, else halt → re-run the item oracle on the merged result → merge (ff or no-ff) → tag and write the done ref. On resume, an item carrying a `built` marker but no `done` ref (committed but unmerged when a prior run stopped) is recovered by this same queue — re-validated and merged from its existing built branch — **not** rebuilt; re-dispatching it to `karta-build` would trip its worktree clobber-guard (the branch already exists), stopping the run.
+Completed items enter a FIFO queue by completion time; the orchestrator processes one merge at a time (the "lock" is sequential processing). For each: rebase/merge the item branch onto the current integration tip → on conflict, bounded rebuild against the new tip, else halt → **check provenance** → re-run the item oracle on the merged result → merge (ff or no-ff) → tag and write the done ref.
+
+The provenance step is a command, not an expectation: before every merge the orchestrator runs `skills/karta-deliver/scripts/check_item_provenance.py` over the item's commit range (`--repo <worktree> --item <id> --range <integration-tip>..<item-tip>`) to assert the commit-marker provenance from git itself. Findings halt that item's merge. It runs **without** `--check-accepted` here — the `accepted` ref and the `done` merge exist only after a merge lands, so pre-merge is the wrong lifecycle point for that flag; the accepted-state form belongs to resume/frontier reconstruction and to the moment just after an `accepted` ref is written. On resume, an item carrying a `built` marker but no `done` ref (committed but unmerged when a prior run stopped) is recovered by this same queue — re-validated and merged from its existing built branch — **not** rebuilt; re-dispatching it to `karta-build` would trip its worktree clobber-guard (the branch already exists), stopping the run.
 
 ## Merge ownership — two modes
 
@@ -49,6 +51,7 @@ Per-item outcomes:
 - `refs/karta/<slug>/item-<id>/done` → merge commit
 - `refs/karta/<slug>/item-<id>/accepted` → the accepted item-branch commit a human waived. Written by the orchestrator only, and written **last**. The worker never writes this namespace under any mode
 - `refs/karta/<slug>/item-<id>/failed` → committed item-branch tip that halted at the gate, not cleanly done
+- `refs/karta/<slug>/item-<id>/evidence` → the capped oracle evidence record blob for the item's last validated run
 - `refs/karta/<slug>/item-<id>/in-progress`
 
 `done` ⟺ merged into integration (the invariant), in two flavors told apart by the `accepted` ref + trailers:
