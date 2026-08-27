@@ -88,6 +88,10 @@ When Pi has `karta_dispatch`, the build, verify, and deliver skills call it inst
 
 Callers provide identity, not authority. They cannot choose a prompt, model, provider hook, command, tool set, evidence path, ref, or timeout through these actions.
 
+## Visual oracles are not accepted on Pi yet
+
+The Pi package runs the behavioral gates but has no visual-fidelity judge. A `visual`-oracle item still passes through the safety gate, but its acceptance blocks: full build or delivery verification returns `blocked` with the reason `visual-required` and writes no merge or completion ref. This is a fail-closed stop, never a silent pass of an unchecked view. Behavioral oracles run in full.
+
 ## Enable companion writers
 
 Doc-gardner and Kaizen are opt-in delivery phases.

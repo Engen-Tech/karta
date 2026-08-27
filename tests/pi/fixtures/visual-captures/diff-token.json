@@ -1,0 +1,66 @@
+{
+  "capture": {
+    "schema": "karta.validate.capture.v1",
+    "design": {
+      "extracted_data": {
+        "tokens": {
+          "--color-primary": "#2563eb",
+          "--radius-md": "8px"
+        },
+        "headings": [],
+        "buttons": [],
+        "landmarks": []
+      },
+      "dom_snapshot": ".karta-validate/design-snapshot.yaml",
+      "render_health": {
+        "schema": "karta-render-health-v1",
+        "result": "healthy",
+        "readySelector": "main",
+        "visibleTextChars": 400,
+        "visibleLeafElements": 40,
+        "styledElementCount": 30,
+        "consoleErrorCount": 0,
+        "failedRequestCount": 0,
+        "consoleErrors": [],
+        "failedRequests": []
+      },
+      "console_errors": "",
+      "requests": ""
+    },
+    "app": {
+      "extracted_data": {
+        "tokens": {
+          "--color-primary": "#1d4ed8"
+        },
+        "headings": [],
+        "buttons": [],
+        "landmarks": []
+      },
+      "dom_snapshot": ".karta-validate/app-snapshot.yaml",
+      "render_health": {
+        "schema": "karta-render-health-v1",
+        "result": "healthy",
+        "readySelector": "main",
+        "visibleTextChars": 400,
+        "visibleLeafElements": 40,
+        "styledElementCount": 30,
+        "consoleErrorCount": 0,
+        "failedRequestCount": 0,
+        "consoleErrors": [],
+        "failedRequests": []
+      },
+      "console_errors": "",
+      "requests": ""
+    },
+    "APP_HEALTH": "OK",
+    "compare_ready": true
+  },
+  "expect": {
+    "status": "ok",
+    "blockedReason": null,
+    "discrepancyCount": 0,
+    "tokenDriftCount": 2,
+    "missingCount": 0,
+    "extraCount": 0
+  }
+}

@@ -24,6 +24,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
 async function fixture(options: {
   checkpoint?: KartaIntegrationCheckpoint;
   acceptanceConcern?: boolean;
+  visualRequired?: boolean;
 } = {}): Promise<{
   root: string;
   integration: string;
@@ -87,6 +88,19 @@ async function fixture(options: {
       workItem: string,
       mode: "full" | "boundary-only",
     ) {
+      if (options.visualRequired && mode === "full") {
+        return {
+          schema: "karta-verification-v1",
+          binder,
+          item: workItem,
+          requestedMode: mode,
+          effectiveMode: mode,
+          evidenceHash: "a".repeat(64),
+          status: "blocked",
+          blockedReason: "visual-required",
+          gates: { safety: { verdict: "pass" } },
+        };
+      }
       const concern = options.acceptanceConcern && mode === "full";
       return {
         schema: "karta-verification-v1",
@@ -147,6 +161,33 @@ test("integration gates the proposed tree then creates an exact no-ff merge and 
     assert.deepEqual(parents, [result.base, result.itemTip]);
     assert.equal(await git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/done"]), tip);
     assert.equal((await deriveItemGitState(state.integration, "demo", "item-a")).state, "done");
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("a full visual verification blocks integration as visual-required without moving refs", async () => {
+  const state = await fixture({ visualRequired: true });
+  const lease = await state.locks.acquire(state.integration, "demo");
+  try {
+    const before = await git(state.integration, ["rev-parse", "HEAD"]);
+    const result = await state.runner.integrate(
+      { cwd: state.integration } as ExtensionContext,
+      "demo",
+      "item-a",
+      state.integration,
+      lease,
+      [{ id: "floor", purpose: "floor", command: "node check.mjs", cwd: "." }],
+    );
+    assert.equal(result.status, "blocked");
+    assert.equal(result.verification?.blockedReason, "visual-required");
+    assert.match(result.message, /visual-required/);
+    assert.equal(await git(state.integration, ["rev-parse", "HEAD"]), before);
+    await assert.rejects(() =>
+      git(state.integration, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/done"]),
+    );
+    assert.equal((await deriveItemGitState(state.integration, "demo", "item-a")).state, "built");
   } finally {
     await state.locks.release(lease);
     await state.cleanup();
