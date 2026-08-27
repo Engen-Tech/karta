@@ -471,6 +471,31 @@ _ALWAYS_OK = re.compile(r"^(/usr)?(/bin)?/?(true|:)(\s|$)|^exit\s+0\s*$")
 _DEFANG_SPLIT = re.compile(r"\|\||\||;|\n")
 
 
+def _mask_quoted(command: str) -> str:
+    """`command` with quoted and escaped spans blanked, same length, so a separator that is
+    really an argument stops looking like one. `grep -E 'a|true b' f` must not split on the
+    pipe inside those quotes — flagging that command vacuous would be a false positive, and
+    a lint that cries wolf on real commands is worse than one that misses a case."""
+    out = list(command)
+    quote = None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote is None and ch == "\\" and i + 1 < len(command):
+            out[i] = out[i + 1] = "x"
+            i += 2
+            continue
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            else:
+                out[i] = "x"
+        elif ch in "'\"":
+            quote = ch
+        i += 1
+    return "".join(out)
+
+
 def _is_atom_vacuous(atom: str) -> bool:
     """One command with no status-handing separator in it."""
     atom = atom.strip()
@@ -490,14 +515,22 @@ def _is_vacuous_command(command: str) -> bool:
     # Empty segments are dropped before the tail is taken: a command may legitimately end
     # in its separator, and `pytest -q || true;` split naively yields a trailing "" that
     # hides the `true` behind it.
-    segments = [seg.strip() for seg in _DEFANG_SPLIT.split(stripped) if seg.strip()]
+    # Split positions are found on the masked copy and applied to the original, so a
+    # separator inside quotes never splits while the segment text stays real.
+    masked = _mask_quoted(stripped)
+    pieces, last = [], 0
+    for sep in _DEFANG_SPLIT.finditer(masked):
+        pieces.append((stripped[last:sep.start()], masked[last:sep.start()]))
+        last = sep.end()
+    pieces.append((stripped[last:], masked[last:]))
+    segments = [(raw.strip(), msk.strip()) for raw, msk in pieces if raw.strip()]
     if len(segments) > 1:
-        tail = segments[-1]
+        tail_raw, tail_masked = segments[-1]
         # Only a tail that is itself one plain command is judged: `a || b && c` hands its
         # status to `b && c`, which is not a no-op just because it starts with one.
-        if not _COMPOUND.search(tail) and _is_atom_vacuous(tail):
+        if not _COMPOUND.search(tail_masked) and _is_atom_vacuous(tail_raw):
             return True
-    if _COMPOUND.search(stripped):
+    if _COMPOUND.search(masked):
         return False
     return _is_atom_vacuous(stripped)
 
@@ -1019,7 +1052,11 @@ def _run_self_test() -> int:
                     # leave an empty tail segment that hid the no-op behind it.
                     "pytest -q | true", "make test | :", "pytest -q || true;"]
     real_cmds = ["pytest -q", "echo running && pytest -q", "true; pytest -q", "truebeam --run",
-                 "pytest -q || exit 1", "pytest -q | grep -q PASS", "a || b && c"]
+                 "pytest -q || exit 1", "pytest -q | grep -q PASS", "a || b && c",
+                 # A separator inside quotes is an argument, not a separator. Splitting on
+                 # it flagged this real grep as vacuous, which is the false positive a
+                 # review caught after the pipe rule went in.
+                 "grep -E 'failure|true condition' results.txt", "echo x | grep -q 'true'"]
     fired = [c for c in vacuous_cmds
              if len(vacuous_oracle_warnings(_cmd_binder(c))) == 1
              and "vacuous" in vacuous_oracle_warnings(_cmd_binder(c))[0]]

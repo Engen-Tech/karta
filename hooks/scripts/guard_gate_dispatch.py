@@ -79,7 +79,7 @@ def _extract_worktree(text: str, cwd: str) -> str:
         # is the same trailing-punctuation bug the range grammar above was fixed for. The
         # two strips are separate on purpose: folding the dot into the first class turns
         # `worktree .;` into the empty string, and a bare `.` is a real worktree path.
-        path = m.group(1).rstrip(';,:)]"\'')
+        path = m.group(1).strip('"\'').rstrip(';,:)]"\'')
         if path not in (".", "..") and path.endswith("."):
             path = path.rstrip(".")
         if path and _PATHLIKE.search(path):
