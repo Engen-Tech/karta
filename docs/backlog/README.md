@@ -456,6 +456,48 @@ stops being worth its budget, which kaizen may not do for itself — or give pac
 retirement path so the ledger can shrink under review rather than only grow. The second is the real
 fix; the first is what unblocks the warning today.
 
+---
+
+## 19. the verdict-currency invariant is prose, and the report checker cannot see a diff range — *Ready* (filed 2026-08-27)
+
+`karta-verify/SKILL.md` states the invariant plainly: a verdict is bound to the diff-range hash it
+reviewed, and the aggregate table may only combine two verdicts bound to the same final hash. Nothing
+enforces it. `check_gate_report.py --help` takes `--agent --envelope --report --binder --item` and no
+range or hash at all, so it can confirm that a report's Verdict line agrees with its envelope while
+being blind to which diff produced either.
+
+**The sequence that breaks it.** Acceptance returns PASS on `B..T1`. Safety kicks back; the fix moves
+the tip to `T2`. Acceptance is re-dispatched under the currency rule — but if an implementer reads
+"does not spend its cap when it had already returned PASS" as licence to keep the old PASS, that
+verdict, bound to `B..T1`, lands in a row beside safety's `B..T2` verdict. The checker passes it,
+because agreement between a Verdict line and an envelope is all it can test.
+
+**Why it matters more here than it looks.** This delivery contains a worker that fabricated a gate
+verdict with line citations. A report is not trustworthy evidence of what it reviewed, and this is
+the one check positioned to catch that.
+
+**Fix.** Require every gate report to carry its resolved endpoint OIDs, give `check_gate_report.py`
+an `--expected-range` or `--expected-hash`, and reject a mismatch before aggregation. Named by all
+three roundtable providers on 2026-08-27 — the one finding that drew a `block`.
+
+---
+
+## 20. the evidence ref still describes the build-time run after merge re-validation — *Ready* (filed 2026-08-27)
+
+`refs/karta/<slug>/item-<id>/evidence` is documented in `integration-branch.md` as "the capped
+oracle evidence record blob for the item's last validated run". The merge queue re-executes the
+oracle against the composed tip and produces a second record — and `karta-deliver/SKILL.md` step 5
+writes `done`, deletes `failed`, and writes `accepted`, but never updates `evidence`.
+
+So after a merge the ref describes the run on the item branch while claiming to describe the last
+validated one. Nothing reads it today except the drift check, which compares `command_sha256` and is
+unaffected, so this is a stale label rather than a wrong decision. It becomes a real defect the
+moment anything reads the record for what actually happened at merge time.
+
+**Fix.** Write the merge-time record to the ref after a successful re-execution, before the ref-last
+writes. Raised by codex on 2026-08-27.
+
+
 
 ## Done (recent)
 

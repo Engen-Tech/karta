@@ -32,10 +32,24 @@ import argparse, json, os, re, subprocess, sys
 AGENT_KEYS = ("subagent_type", "agent_type", "agent", "agent_name", "name")
 GATE_AGENTS = ("karta-acceptance-reviewer", "karta-safety-auditor")
 
-# A git rev has no dots of its own in this grammar; ".." is the literal separator.
-_REV = r"[A-Za-z0-9_/~^-]+"
-RANGE_RE = re.compile(rf"({_REV})\.\.({_REV})")
+# Revs DO contain dots — v2.31.0, release/2.31.0 — so the rev class must allow them,
+# which means the class can no longer be trusted to stop at the separator. Match the whole
+# token instead and split it on the separator explicitly, longest form first so A...B is
+# not read as A. .. .B. The endpoints are not validated here: an endpoint that does not
+# resolve falls through to the existing unresolvable-range deny, which is where a bad rev
+# belongs. Written after a review found v1.17.0..HEAD parsed as 0..HEAD and denied a
+# legitimate dispatch.
+# Dots are legal inside a rev but never at its end (git check-ref-format), so the class
+# allows them while the final character may not be one — otherwise "range base..feature."
+# swallows the sentence's full stop and the endpoint stops resolving.
+_REV = r"[A-Za-z0-9_/.~^{}@-]*[A-Za-z0-9_/~^{}@-]"
+RANGE_TOKEN_RE = re.compile(rf"(?<![A-Za-z0-9_/.~^-])({_REV}\.\.\.?{_REV})")
+# A path, not the next English word. `worktree at /srv/wt` must not yield "at", so the
+# captured token has to look like a path — absolute, explicitly relative, ~-rooted, or a
+# bare dot — and anything else falls back to the payload cwd rather than denying on a
+# worktree the brief never named.
 WORKTREE_RE = re.compile(r"\bworktree\b\s*[:=]?\s*(\S+)", re.I)
+_PATHLIKE = re.compile(r"^(\.|\.\.|~|/)|/")
 # The exact string "Diff-size:" is a shared term — case-sensitive, verbatim.
 DIFF_SIZE_RE = re.compile(r"Diff-size:\s*(\d+)\s*files?,\s*(\d+)\s*bytes?")
 
@@ -50,12 +64,21 @@ def _recognized(tool_input: dict) -> bool:
     return False
 
 
+def _split_range(token: str) -> tuple[str, str] | None:
+    """Split a matched range token into its two endpoints, three-dot form first."""
+    for sep in ("...", ".."):
+        head, found, tail = token.partition(sep)
+        if found and head and tail:
+            return head, tail
+    return None
+
+
 def _extract_worktree(text: str, cwd: str) -> str:
-    m = WORKTREE_RE.search(text)
-    if not m:
-        return cwd
-    path = re.sub(r"[;,:]+$", "", m.group(1))
-    return path or cwd
+    for m in WORKTREE_RE.finditer(text):
+        path = re.sub(r"[;,:]+$", "", m.group(1))
+        if path and _PATHLIKE.search(path):
+            return path
+    return cwd
 
 
 def _diff_has_changes(worktree: str, diff_range: str) -> bool | None:
@@ -97,8 +120,9 @@ def decide(payload: dict) -> tuple[int, str]:
     cwd = payload.get("cwd") or os.getcwd()
     worktree = _extract_worktree(text, cwd)
 
-    m = RANGE_RE.search(text)
-    if not m:
+    m = RANGE_TOKEN_RE.search(text)
+    endpoints = _split_range(m.group(1)) if m else None
+    if not endpoints:
         return 2, (
             "karta: this is a gate-reviewer dispatch (karta-acceptance-reviewer / "
             "karta-safety-auditor) and the guard fails closed — the dispatch prompt must name "
@@ -106,7 +130,7 @@ def decide(payload: dict) -> tuple[int, str]:
             "karta-verify already mandates the range as a required input, so its absence is a "
             "malformed brief. Re-dispatch with the diff range embedded in the prompt.")
 
-    diff_range = f"{m.group(1)}..{m.group(2)}"
+    diff_range = m.group(1)
     has_changes = _diff_has_changes(worktree, diff_range)
     if has_changes is None:
         return 2, (
@@ -170,6 +194,10 @@ def _run_self_test() -> int:
         run("git", "add", "-A", cwd=repo)
         run("git", "commit", "-q", "-m", "feature", cwd=repo)
         run("git", "branch", "feature", cwd=repo)
+        # A dotted ref, because that is what this repo actually tags and branches. The
+        # first grammar here stopped the rev class at every dot, so "v2.31.0..HEAD" was
+        # read as "0..HEAD" and a legitimate dispatch was denied.
+        run("git", "branch", "release/2.31.0", "feature", cwd=repo)
 
         real_files, real_bytes = _diff_stat(repo, "base..feature")
         good_size_line = f"Diff-size: {real_files} files, {real_bytes} bytes"
@@ -193,6 +221,14 @@ def _run_self_test() -> int:
                       subagent="karta-acceptance-reviewer"), 0, None),
             ("recognized safety-auditor, well-formed range and Diff-size line passes",
              dispatch(f"worktree {repo}; diff range base..feature. {good_size_line}"), 0, None),
+            ("a dotted ref resolves — the rev class allows dots without eating the separator",
+             dispatch(f"worktree {repo}; diff range base..release/2.31.0. {good_size_line}"),
+             0, None),
+            ("a trailing full stop is not part of the endpoint",
+             dispatch(f"worktree {repo}; diff range base..feature. {good_size_line}"), 0, None),
+            ("the word after a prose 'worktree' is not taken as a path",
+             dispatch(f"reviewed in the worktree at length; diff range base..feature. "
+                      f"{good_size_line}", worktree=repo), 0, None),
             ("namespaced subagent type is recognized",
              dispatch(f"worktree {repo}; diff range base..feature. {good_size_line}",
                       subagent="karta:karta-safety-auditor"), 0, None),

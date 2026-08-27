@@ -459,15 +459,42 @@ def shared_terms_warnings(binder: dict) -> list[str]:
 # and this lint must not cry wolf on it.
 _COMPOUND = re.compile(r"[;|&\n]")
 _LONE_ECHO = re.compile(r"^echo(\s|$)")
+# `true` with or without arguments, `:`, `exit 0`, and the absolute forms. Anchored with a
+# boundary so `truebeam --run` is not caught.
+_ALWAYS_OK = re.compile(r"^(/usr)?(/bin)?/?(true|:)(\s|$)|^exit\s+0\s*$")
+# `a || true` and `a ; true` take their exit status from the tail, so a vacuous tail makes
+# the whole command vacuous however real the head is. `&&` and `|` do not: `a && true`
+# still fails when a fails, and `a | true` reports the pipeline's status. Split on the two
+# separators that actually hand the status over, and judge the last segment.
+_DEFANG_SPLIT = re.compile(r"\|\||;|\n")
+
+
+def _is_atom_vacuous(atom: str) -> bool:
+    """One command with no status-handing separator in it."""
+    atom = atom.strip()
+    if not atom:
+        return True
+    return bool(_ALWAYS_OK.match(atom)) or bool(_LONE_ECHO.match(atom))
 
 
 def _is_vacuous_command(command: str) -> bool:
     stripped = command.strip()
     if not stripped:
         return True
+    # The exit status of `a || b` and `a ; b` is b's, so a vacuous tail defangs whatever
+    # ran before it — `pytest -q || true` is green no matter what pytest did. That is the
+    # commonest way an oracle stops being able to fail, so it is judged on the last
+    # status-bearing segment rather than waved through as "compound, therefore real".
+    segments = _DEFANG_SPLIT.split(stripped)
+    if len(segments) > 1:
+        tail = segments[-1].strip()
+        # Only a tail that is itself one plain command is judged: `a || b && c` hands its
+        # status to `b && c`, which is not a no-op just because it starts with one.
+        if tail and not _COMPOUND.search(tail) and _is_atom_vacuous(tail):
+            return True
     if _COMPOUND.search(stripped):
         return False
-    return stripped in ("true", ":") or bool(_LONE_ECHO.match(stripped))
+    return _is_atom_vacuous(stripped)
 
 
 def vacuous_oracle_warnings(binder: dict) -> list[str]:
@@ -974,8 +1001,15 @@ def _run_self_test() -> int:
             "work_items": [{"id": "a", "title": "A", "summary": "s",
                             "oracle": {"type": "smoke", "command": command}}],
         }
-    vacuous_cmds = ["true", ":", "  true  ", "echo ok", "echo", ""]
-    real_cmds = ["pytest -q", "echo running && pytest -q", "true; pytest -q", "truebeam --run"]
+    # The defang cases are the point of the list, not an afterthought: `pytest -q || true`
+    # is green whatever pytest did, and it was the shape this lint missed until a review
+    # named it. `&&` and `|` stay off the list deliberately — `a && true` still fails when
+    # a fails, so it is not a defang and `echo running && pytest -q` must stay quiet.
+    vacuous_cmds = ["true", ":", "  true  ", "echo ok", "echo", "",
+                    "pytest -q || true", "npm test ; true", "make lint || echo ok",
+                    "/bin/true", "/usr/bin/true", "exit 0", "true --anything"]
+    real_cmds = ["pytest -q", "echo running && pytest -q", "true; pytest -q", "truebeam --run",
+                 "pytest -q || exit 1", "make test | tee log", "a || b && c"]
     fired = [c for c in vacuous_cmds
              if len(vacuous_oracle_warnings(_cmd_binder(c))) == 1
              and "vacuous" in vacuous_oracle_warnings(_cmd_binder(c))[0]]
