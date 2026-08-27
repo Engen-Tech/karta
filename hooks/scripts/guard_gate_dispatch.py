@@ -107,9 +107,16 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
         # not a path either: it is a malformed brief, and the guard returns None so the
         # dispatch is denied outright rather than judged against the payload cwd, which
         # might well resolve the range and allow.
-        tok = m.group(1)
+        raw = m.group(1)
+        # A token that names something — it holds a separator, or is path-like once
+        # leading quotes and brackets are set aside — is a path the brief meant, however
+        # it was wrapped. If no readable form of it resolves, the mention is malformed and
+        # the dispatch is denied outright: `("/srv/wt/release;` and `foo/bar` alike. Only
+        # a token that names nothing (`worktree at length;`) is prose, and only then does
+        # the payload cwd stand in, as it does for a brief with no mention at all.
+        names_something = "/" in raw or bool(_PATHLIKE.search(raw.lstrip("\"'([{<")))
+        tok = raw
         first_pathlike = None
-        quoted_attempt = False
         while tok:
             cand = _unquote(tok)
             if cand and _PATHLIKE.search(cand):
@@ -118,8 +125,6 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
                     return full
                 if first_pathlike is None:
                     first_pathlike = full
-            elif cand and _PATHLIKE.search(cand.lstrip("\"'")):
-                quoted_attempt = True
             if cand != tok:
                 tok = cand
             elif tok[-1] in _CLAUSE_PUNCT:
@@ -128,7 +133,7 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
                 break
         if first_pathlike is not None:
             return first_pathlike
-        if quoted_attempt:
+        if names_something:
             return None
     return cwd
 
@@ -169,15 +174,21 @@ def decide(payload: dict) -> tuple[int, str]:
         return 0, ""  # unrecognized dispatch shapes always pass
 
     text = "\n".join(str(tool_input.get(k) or "") for k in ("prompt", "description"))
-    cwd = payload.get("cwd") or os.getcwd()
+    cwd = payload.get("cwd")
+    if cwd is None or cwd == "":
+        cwd = os.getcwd()
+    if not isinstance(cwd, str):
+        return 2, ("karta: this is a gate-reviewer dispatch and the hook payload's `cwd` is not "
+                   "a string — a malformed payload, and the guard fails closed on it.")
+    cwd = os.path.abspath(cwd)
     worktree = _extract_worktree(text, cwd)
     if worktree is None:
         return 2, (
             "karta: this is a gate-reviewer dispatch and its `worktree` mention is malformed — "
-            "a path behind an unmatched quote, or a quoted path containing a space, which the "
-            "guard cannot read as a name. It fails closed rather than judging the range against "
-            "the payload cwd. Re-dispatch with the worktree path written unquoted and without "
-            "spaces.")
+            "it names a path the guard cannot read (behind an unmatched quote or a bracket, a "
+            "quoted path containing a space, or a relative path without a leading `./`). It "
+            "fails closed rather than judging the range against the payload cwd. Re-dispatch "
+            "with the worktree path written plainly: absolute, unquoted, no spaces.")
 
     m = RANGE_TOKEN_RE.search(text)
     endpoints = _split_range(m.group(1)) if m else None
@@ -342,6 +353,22 @@ def _run_self_test() -> int:
              "outright, not judged against the payload cwd",
              dispatch(f'worktree "{td}/my tree" diff range base..feature. {good_size_line}',
                       worktree=repo), 2, "malformed"),
+            ("a path behind a bracket AND a quote is still a malformed mention, not prose",
+             dispatch(f'worktree ("{twin_punct}; diff range base..feature. {good_size_line}',
+                      worktree=repo), 2, "malformed"),
+            ("a bare relative path with no leading ./ names something and cannot be read: "
+             "denied, not judged against the payload cwd",
+             dispatch(f"worktree foo/bar diff range base..feature. {good_size_line}",
+                      worktree=repo), 2, "malformed"),
+            ("a prose word holding a slash is denied too — fail-closed, one re-dispatch",
+             dispatch(f"worktree and/or branch diff range base..feature. {good_size_line}",
+                      worktree=repo), 2, "malformed"),
+            ("a non-string payload cwd is a malformed payload and denies, not a TypeError "
+             "into the outer fail-open",
+             {"hook_event_name": "PreToolUse", "tool_name": "Task", "cwd": {"a": 1},
+              "tool_input": {"subagent_type": "karta-safety-auditor", "description": "x",
+                             "prompt": f"worktree {repo}; diff range base..feature. "
+                                       f"{good_size_line}"}}, 2, "not a string"),
             ("a NUL in the path is a fail-closed deny, not an exception that fails open",
              dispatch(f"worktree {repo}\x00x; diff range base..feature. {good_size_line}",
                       worktree=missing_dir), 2, "fails closed"),
