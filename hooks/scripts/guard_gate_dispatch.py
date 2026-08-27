@@ -80,7 +80,12 @@ def _extract_worktree(text: str, cwd: str) -> str:
         # two strips are separate on purpose: folding the dot into the first class turns
         # `worktree .;` into the empty string, and a bare `.` is a real worktree path.
         path = m.group(1).strip('"\'').rstrip(';,:)]"\'')
-        if path not in (".", "..") and path.endswith("."):
+        # A trailing dot is sentence punctuation only when it is not part of the path.
+        # `/srv/wt/..` names the parent, and stripping its dots yields `/srv/wt/` — a
+        # different directory, so the guard would validate the wrong tree rather than
+        # deny. Traversal endings are exempt along with a bare `.` or `..`.
+        if (path not in (".", "..") and not path.endswith(("/.", "/.."))
+                and path.endswith(".")):
             path = path.rstrip(".")
         if path and _PATHLIKE.search(path):
             return path
@@ -235,6 +240,9 @@ def _run_self_test() -> int:
             ("a worktree path at a sentence end keeps its path, loses the full stop",
              dispatch(f"worktree {repo}. diff range base..feature. {good_size_line}",
                       worktree=missing_dir), 0, None),
+            ("a traversal path keeps its dots — they are the path, not punctuation",
+             dispatch(f"worktree {repo}/.git/.. diff range base..feature. "
+                      f"{good_size_line}", worktree=missing_dir), 0, None),
             ("the word after a prose 'worktree' is not taken as a path",
              dispatch(f"reviewed in the worktree at length; diff range base..feature. "
                       f"{good_size_line}", worktree=repo), 0, None),

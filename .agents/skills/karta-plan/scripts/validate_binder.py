@@ -481,7 +481,10 @@ def _mask_quoted(command: str) -> str:
     i = 0
     while i < len(command):
         ch = command[i]
-        if quote is None and ch == "\\" and i + 1 < len(command):
+        # A backslash escapes outside quotes and inside double quotes, but never inside
+        # single quotes, where POSIX makes it a literal. Missing the double-quoted case
+        # let an escaped quote close the span early and expose the separators after it.
+        if ch == "\\" and quote != "'" and i + 1 < len(command):
             out[i] = out[i + 1] = "x"
             i += 2
             continue
@@ -1050,13 +1053,17 @@ def _run_self_test() -> int:
                     # (`false | true` exits 0, verified), so a pipe defangs exactly like
                     # `||`. A command may also end in its own separator, which used to
                     # leave an empty tail segment that hid the no-op behind it.
-                    "pytest -q | true", "make test | :", "pytest -q || true;"]
+                    "pytest -q | true", "make test | :", "pytest -q || true;",
+                    'pytest -q "x\\" y" || true']
     real_cmds = ["pytest -q", "echo running && pytest -q", "true; pytest -q", "truebeam --run",
                  "pytest -q || exit 1", "pytest -q | grep -q PASS", "a || b && c",
                  # A separator inside quotes is an argument, not a separator. Splitting on
                  # it flagged this real grep as vacuous, which is the false positive a
                  # review caught after the pipe rule went in.
-                 "grep -E 'failure|true condition' results.txt", "echo x | grep -q 'true'"]
+                 "grep -E 'failure|true condition' results.txt", "echo x | grep -q 'true'",
+                 # An escaped quote inside double quotes does not close the span; missing
+                 # that exposed the separators after it and flagged this real grep.
+                 'grep -E "failure\\"|true condition" results.txt']
     fired = [c for c in vacuous_cmds
              if len(vacuous_oracle_warnings(_cmd_binder(c))) == 1
              and "vacuous" in vacuous_oracle_warnings(_cmd_binder(c))[0]]
