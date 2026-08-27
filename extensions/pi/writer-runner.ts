@@ -12,8 +12,26 @@ import {
   type KartaWriterRole,
   type WriterCapabilityProfile,
 } from "./writer-profile.ts";
+import { parseJsonEnvelope, promptForJsonEnvelope } from "./child-envelope.ts";
 
 const WRITER_SCHEMA = "karta-writer-result-v1";
+
+const WRITER_ENVELOPE_REPAIR_PROMPT =
+  'Your previous message was not the required result. Reply now with ONLY the single JSON writer-result object described in your instructions (schema "karta-writer-result-v1") — no prose, no headings, no code fence, and nothing before or after the object.';
+
+function looksLikeWriterEnvelope(text: string): boolean {
+  try {
+    const value = parseJsonEnvelope(text, "writer");
+    return (
+      Boolean(value) &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).schema === WRITER_SCHEMA
+    );
+  } catch {
+    return false;
+  }
+}
 
 export interface KartaResolvedWriterPack {
   id: string;
@@ -101,8 +119,13 @@ async function invokeWriter(
   const abort = () => void session.abort();
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
   try {
-    await session.prompt(invocation.userPrompt);
-    return { text: session.getLastAssistantText() ?? "", runtime: report };
+    const text = await promptForJsonEnvelope(
+      session,
+      invocation.userPrompt,
+      looksLikeWriterEnvelope,
+      WRITER_ENVELOPE_REPAIR_PROMPT,
+    );
+    return { text, runtime: report };
   } finally {
     invocation.ctx.signal?.removeEventListener("abort", abort);
     invocation.registry.delete(session);
@@ -133,12 +156,7 @@ function parseWriterResult(
   profile: WriterCapabilityProfile,
   runtime: ChildRuntimeReport,
 ): KartaUnattestedWriterResult {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.trim());
-  } catch {
-    throw new Error("Karta writer returned malformed JSON");
-  }
+  const parsed = parseJsonEnvelope(text, "writer");
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Karta writer returned a non-object result");
   }

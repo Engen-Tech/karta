@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, createWorkerChildSession, type ChildRuntimeReport } from "./child-runtime.ts";
-import { promptForJsonEnvelope } from "./child-envelope.ts";
+import { parseJsonEnvelope, promptForJsonEnvelope } from "./child-envelope.ts";
 import {
   attestWorkerAuthority,
   snapshotWorkerAuthority,
@@ -118,29 +118,7 @@ function exactKeys(value: Record<string, unknown>, keys: string[]): void {
 }
 
 function parseWorkerEnvelopeJson(text: string): unknown {
-  const trimmed = text.trim();
-  const candidates: string[] = [trimmed];
-  // Common model quirk: the envelope wrapped in a Markdown code fence.
-  const fence = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
-  if (fence) candidates.push(fence[1].trim());
-  // Fallback: the outermost brace-delimited object, ignoring any prose around it.
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) candidates.push(trimmed.slice(start, end + 1));
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    try {
-      return JSON.parse(candidate);
-    } catch {
-      // fall through to the next candidate
-    }
-  }
-  const snippet = trimmed.slice(0, 200).replace(/\s+/g, " ");
-  throw new Error(
-    `Karta build worker returned malformed JSON (last assistant text: ${
-      snippet ? `"${snippet}"` : "<empty>"
-    })`,
-  );
+  return parseJsonEnvelope(text, "build worker");
 }
 
 function parseWorkerResult(
