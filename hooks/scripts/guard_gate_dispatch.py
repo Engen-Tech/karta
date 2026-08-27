@@ -73,18 +73,42 @@ def _split_range(token: str) -> tuple[str, str] | None:
     return None
 
 
+_CLAUSE_PUNCT = ';,:)]"\''
+
+
+def _unquote(tok: str) -> str:
+    """Remove one matched outer quote pair; a lone quote may be part of a name."""
+    if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in "\"'":
+        return tok[1:-1]
+    return tok
+
+
 def _extract_worktree(text: str, cwd: str) -> str:
     for m in WORKTREE_RE.finditer(text):
-        # Quotes and clause punctuation are scrubbed; a trailing DOT deliberately is not.
-        # Whether the dot ends a sentence or names a directory cannot be told apart from
-        # the token — `/srv/wt/..` is the parent, `/srv/wt/release..` is a real name, and
-        # `/srv/wt.` at a sentence end is a path that is not there. Two attempts to guess
-        # it both produced the same failure: the guard resolved a DIFFERENT tree and
-        # judged the dispatch against it. Not guessing costs a denial on a brief that ends
-        # its path with a full stop, which is fail-closed and one re-dispatch. Guessing
-        # costs a gate that silently reviewed the wrong worktree, which is the one outcome
-        # a guard must not have.
-        path = m.group(1).strip('"\'').rstrip(';,:)]"\'')
+        raw = m.group(1)
+        # Every character scrubbed here — quotes, `;,:)]` — is legal in a POSIX name, so
+        # `worktree /srv/wt/release;` may mean the directory `release;`, and a greedy strip
+        # would resolve its sibling `release` instead: the guard judging a tree the brief
+        # never named, which is the one outcome it must not produce. So the token is
+        # peeled one trailing character at a time, and the FIRST form that names an
+        # existing directory wins. `release;;` therefore stops at `release;` when that
+        # exists rather than overshooting to `release`. A trailing DOT is never peeled:
+        # `..` is path syntax, so `/srv/wt/...` minus its dots is a real different
+        # directory, and a brief that ends its path with a full stop is denied instead.
+        tok = raw
+        while tok:
+            cand = _unquote(tok)
+            if cand and _PATHLIKE.search(cand) and os.path.isdir(os.path.join(cwd, cand)):
+                return cand
+            if tok[-1] in _CLAUSE_PUNCT:
+                tok = tok[:-1]
+            else:
+                break
+        # Nothing along the way exists as written. Fall back to the fully scrubbed form
+        # (which also drops an unbalanced leading quote) so git can say so: it either
+        # resolves nothing and the guard denies, or it was never path-like and the next
+        # `worktree` mention is tried.
+        path = raw.strip('"\'').rstrip(_CLAUSE_PUNCT)
         if path and _PATHLIKE.search(path):
             return path
     return cwd
@@ -210,6 +234,15 @@ def _run_self_test() -> int:
         # A real directory whose name genuinely ends in dots, so the case below tests what
         # its name says rather than passing for the traversal case's reason.
         (Path(repo) / "release..").mkdir()
+        # A real directory named with trailing clause punctuation, carrying repo's
+        # branches, beside a sibling WITHOUT them. If the guard strips the `;` it lands
+        # on the sibling and the range fails to resolve — which is how round 6 caught it.
+        import shutil
+        twin_punct = str(Path(td) / "twin;")
+        shutil.copytree(repo, twin_punct)
+        twin_plain = str(Path(td) / "twin")
+        Path(twin_plain).mkdir()
+        run("git", "init", "-q", cwd=twin_plain)
 
         real_files, real_bytes = _diff_stat(repo, "base..feature")
         good_size_line = f"Diff-size: {real_files} files, {real_bytes} bytes"
@@ -248,6 +281,22 @@ def _run_self_test() -> int:
             ("an ordinary directory whose name ends in dots is left alone",
              dispatch(f"worktree {repo}/release.. diff range base..feature. "
                       f"{good_size_line}", worktree=missing_dir), 0, None),
+            ("a directory whose name ends in clause punctuation is used as written, not "
+             "stripped to its sibling",
+             dispatch(f"worktree {twin_punct} diff range base..feature. {good_size_line}",
+                      worktree=missing_dir), 0, None),
+            ("negative control: the sibling really lacks those branches, so the case "
+             "above passed for the right reason",
+             dispatch(f"worktree {twin_plain} diff range base..feature. {good_size_line}",
+                      worktree=missing_dir), 2, "could not resolve"),
+            ("clause punctuation AFTER such a directory is peeled one character at a time, "
+             "stopping at the directory rather than overshooting to its sibling",
+             dispatch(f"worktree {twin_punct}; diff range base..feature. {good_size_line}",
+                      worktree=missing_dir), 0, None),
+            ("a quoted directory of that kind followed by clause punctuation is unquoted "
+             "at the right step",
+             dispatch(f'worktree "{twin_punct}"; diff range base..feature. {good_size_line}',
+                      worktree=missing_dir), 0, None),
             ("the word after a prose 'worktree' is not taken as a path",
              dispatch(f"reviewed in the worktree at length; diff range base..feature. "
                       f"{good_size_line}", worktree=repo), 0, None),
