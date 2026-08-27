@@ -8,7 +8,7 @@ triggers:
   - "check acceptance for <id>"
 ---
 
-`karta-verify` is the thin orchestrator for the behavioral acceptance gate. In its default **full** mode it dispatches two karta-owned gate agents — `karta-acceptance-reviewer` and `karta-safety-auditor` — aggregates their verdicts, and drives the kickback and escalation loop per `references/verification-gate.md`; in **boundary-only** mode it dispatches the safety-auditor alone (see *Modes* below). This skill is read-only throughout: the agents read the diff and the binder; this skill never edits code, tests, or the binder.
+`karta-verify` is the thin orchestrator for the behavioral acceptance gate. In its default **full** mode it dispatches two karta-owned gate agents — `karta-acceptance-reviewer` and `karta-safety-auditor` — in parallel, aggregates their verdicts, and drives the kickback and escalation loop per `references/verification-gate.md`; in **boundary-only** mode it dispatches the safety-auditor alone (see *Modes* below). This skill is read-only throughout: the agents read the diff and the binder; this skill never edits code, tests, or the binder.
 
 Visual oracles (`type: visual`) get their acceptance judgment from `karta-validate`, never from this skill — but they do not skip the boundary gate: karta-build (Phase 6) dispatches this skill in **boundary-only** mode for visual-oracle items *before* karta-validate runs, so a VIOLATION or BLOCKED halts before any dev-server work. Opt-out oracles bypass this gate entirely; the build step skips karta-verify for items where `oracle.opt_out` is true.
 
@@ -16,8 +16,8 @@ Visual oracles (`type: visual`) get their acceptance judgment from `karta-valida
 
 The caller names the mode at dispatch; unnamed means **full**.
 
-- **full** (default) — the pipeline as written below: Phase 0, Phase 1 (acceptance), Phase 2 (boundary scan), Phase 3 (aggregate).
-- **boundary-only** — runs only the safety-auditor boundary gate (no acceptance phase): Phase 0, then Phase 2 directly, then report the safety verdict alone (Phase 3's aggregate table does not apply — PASS → `pass`, VIOLATION → the kickback loop under the same cap of 3, BLOCKED → `blocked`). karta-build's Phase 6 dispatches this mode for visual-oracle items BEFORE karta-validate runs; a VIOLATION or BLOCKED halts the item before any dev-server work. Acceptance for a visual oracle stays with karta-validate and is never judged here.
+- **full** (default) — the pipeline as written below: Phase 0, then Phase 1 (acceptance) and Phase 2 (boundary scan) dispatched **in parallel**, then Phase 3 (aggregate).
+- **boundary-only** — runs only the safety-auditor boundary gate (no acceptance phase, so nothing to parallelize): Phase 0, then Phase 2 directly, then report the safety verdict alone (Phase 3's aggregate table does not apply — PASS → `pass`, VIOLATION → the kickback loop under the same cap of 3, BLOCKED → `blocked`). karta-build's Phase 6 dispatches this mode for visual-oracle items BEFORE karta-validate runs; a VIOLATION or BLOCKED halts the item before any dev-server work. Acceptance for a visual oracle stays with karta-validate and is never judged here.
 
 ## Inputs
 
@@ -45,9 +45,41 @@ Each gate runs as a **fresh, read-only subagent** that receives only the four in
 
 In both dispatching paths (1 and 2) the agent is read-only and receives only the four inputs (plus the safety-auditor's resolved stack-pack checklists when `sme[]` is non-empty); no build-session state travels with it. The dispatch steps below say "dispatch the `<agent>` gate" — resolve it by this rule each time.
 
+## Parallel dispatch and verdict currency  `verify:parallel`
+
+In **full** mode the two gates go out **in parallel** — one message carrying two independent read-only dispatches, `verify:acceptance` and `verify:boundary` together. Nothing forces an order: both read the same diff, neither writes, and neither agent's answer changes what the other reads. Running them one after the other cost the measured delivery about thirteen minutes. Everything else is unchanged — the aggregate table, both caps (2 acceptance, 3 safety, still independent), and every verdict rule. Aggregation simply waits for both envelopes before it fills a row.
+
+The safety-auditor's stack-pack checklist resolution (`verify:boundary`, unchanged mechanics — including the composed-checklist resolver) happens **before** the parallel dispatch, because its output rides in that agent's dispatch brief.
+
+**The verdict-currency invariant.** A verdict is bound to the diff-range hash it reviewed, and the aggregate table may only ever combine two verdicts bound to the same, final diff-range hash. When a kickback changes the range, every verdict bound to the old hash is stale: re-dispatch each stale agent on the new range — in parallel again when both are stale — and never carry a stale verdict into a row.
+
+**Cap counting.** An agent's cap counts only the dispatches that follow its OWN non-passing verdict. A re-dispatch caused purely by a verdict-currency refresh — the agent's own prior verdict was passing, and a peer's kickback changed the range — does NOT count toward that agent's cap. So a safety-driven kickback chain can never exhaust the acceptance cap of an item acceptance never faulted, and the reverse holds the same way.
+
+**The acknowledged cost, stated plainly.** A range-changing kickback re-dispatches EVERY stale agent — up to two dispatches per kickback where the serial flow re-dispatched one. The parallel saving therefore lives on clean items, which the measured delivery shows are the common case; a kickback-heavy item trades some of it back.
+
+## Dispatch briefs and returned reports  `verify:brief`
+
+**Every** gate dispatch brief — first dispatch or re-dispatch, either agent, either mode — carries the deterministic diff-size stat line in the pre-dispatch guard's grammar:
+
+```
+Diff-size: <files> files, <bytes> bytes
+```
+
+Compute both numbers over the item's diff range: `git diff --name-only <range>` piped to a line count for `<files>`, `git diff <range>` piped to a byte count for `<bytes>`. The guard recomputes them and denies a brief that omits the line or claims numbers git disagrees with, so the doctrine here and the guard agree byte-for-byte on the shared prefix.
+
+**Fresh-eyes kickback.** A re-dispatch brief after a kickback carries **deterministic facts only** — the `run_oracle` evidence record for the corrected build (its JSON, already capped), the failing assertion ids, and the diff-range hash (`git rev-parse` of both endpoints). It carries **never the prior attempt**'s verdict prose: no quoted findings, no earlier narrative, no argument with what the last report said. The re-review is a fresh reading of the corrected diff, not a debate with the report that preceded it.
+
+**Check every returned report before acting on it.** On EVERY returned report, run the checker first:
+
+```
+python3 skills/karta-verify/scripts/check_gate_report.py --agent <acceptance|safety> --envelope <verdict> --report <file> --binder <path>
+```
+
+A nonzero result means the report is **malformed** — its `**Verdict:**` line disagrees with the returned envelope, or a safety report is missing the mandatory `Stack-pack check:` provenance line, or that line disagrees with the binder's pinned packs. Do not act on the verdict. Re-dispatch that agent once for a well-formed report. If the re-dispatched report ALSO fails the checker, halt the item with a call to action naming the malformed field — never loop.
+
 ## Phase 1 — Acceptance + contract conformance  `verify:acceptance`
 
-Dispatch the **`karta-acceptance-reviewer`** gate (resolved per *Resolving the gate agents* above) with the worktree path, binder path, work item id, and diff range.
+Dispatch the **`karta-acceptance-reviewer`** gate (resolved per *Resolving the gate agents* above) with the worktree path, binder path, work item id, and diff range — in the same message as the boundary dispatch (`verify:parallel`), and with the brief content `verify:brief` requires.
 
 The agent reads the binder on disk, dispositions each `oracle.assertions[i]` as inspection-verifiable or execution-required, and checks contract conformance against an external artifact (type-checker, schema, or contract test). It returns one of:
 
@@ -64,13 +96,13 @@ The agent reads the binder on disk, dispositions each `oracle.assertions[i]` as 
 
 See `references/verification-gate.md`.
 
-**On SPEC-SUSPECT:** halt for human adjudication immediately. Do not loop; do not kick back. In a wave the worker leaves the same `failed` anchor — a committed item branch + a `failed` ref carrying the spec-suspect reason (it means "halted at the gate," not "the code is bad"). The binder is amended through karta-plan; alternatively the human may accept the divergence at the Phase-4 halt (the orchestrator records the waiver against the halted tip), never by this gate.
+**On SPEC-SUSPECT:** halt for human adjudication immediately. Do not loop; do not kick back. The boundary verdict dispatched alongside is recorded in the report but triggers no kickback — a halted item has no corrected diff to re-scan. In a wave the worker leaves the same `failed` anchor — a committed item branch + a `failed` ref carrying the spec-suspect reason (it means "halted at the gate," not "the code is bad"). The binder is amended through karta-plan; alternatively the human may accept the divergence at the Phase-4 halt (the orchestrator records the waiver against the halted tip), never by this gate.
 
-**On BLOCKED:** halt with the blocking reason; do not proceed to the boundary scan (`verify:boundary`). For an empty diff, the reason names which it looks like — a whiff (re-dispatch the worker) or a change already present on the tip (drop or amend the item via karta-plan). An empty-diff BLOCKED is not an accept/defer candidate: there is no diff to merge and no named assertion to waive.
+**On BLOCKED:** halt with the blocking reason. The boundary scan (`verify:boundary`) was dispatched alongside rather than after, so record whatever verdict it returns and kick nothing back — the item is halted. For an empty diff, the reason names which it looks like — a whiff (re-dispatch the worker) or a change already present on the tip (drop or amend the item via karta-plan). An empty-diff BLOCKED is not an accept/defer candidate: there is no diff to merge and no named assertion to waive.
 
 ## Phase 2 — Boundary scan  `verify:boundary`
 
-Dispatch the **`karta-safety-auditor`** gate (resolved per *Resolving the gate agents* above) with the same inputs: worktree path, binder path, work item id, and diff range.
+Dispatch the **`karta-safety-auditor`** gate (resolved per *Resolving the gate agents* above) with the same inputs: worktree path, binder path, work item id, and diff range — in full mode, in the same message as the acceptance dispatch (`verify:parallel`), and with the brief content `verify:brief` requires.
 
 **Resolve stack-pack checklists first (only when the binder pins `sme[]`).** Read the binder's `sme` list. For each id, resolve the pack — the worktree's project overlay `.karta/sme/<id>.md` laid over this skill's built-in [references/sme/](references/sme/) `<id>.md` (project-local wins). Before extracting anything from a project overlay, validate it with the pack validator (`python3 skills/karta-kaizen/scripts/validate_packs.py <pack.md>`): a malformed overlay is **BLOCKED** — report the validator's findings and halt; never skip a pack that fails validation, because a silently dropped pack silently drops its rules out of the gate. A pinned id that resolves to no pack at all (no overlay, no built-in) is likewise **BLOCKED**, with the missing id(s) named in the report. After validation, obtain the checklist by invoking the resolver (`python3 skills/karta-kaizen/scripts/resolve_pack_checklist.py <pack.md>`) and **parsing its JSON stdout as the composed Review checklist** — the normalized item list, one object per rule with keys `id`, `text`, `source` — and hand THAT parsed list to the auditor in its dispatch brief, never a raw section blob. The dispatcher no longer reads the pack's own `## Review checklist` section directly: the resolver's output IS the checklist, so an `extends` pack's base rules and exclusions actually reach the gate. A resolver error — an unresolvable `extends` base, or an `exclude_rules` id the extended built-in never had — is **BLOCKED** and halts with the resolver's findings, exactly like a validator failure. This is the one input beyond the four that travels to a gate agent, and only when `sme[]` is non-empty: a project-extensible checklist cannot be embedded in the self-contained agent, and built-in packs live in the plugin rather than the worktree, so the dispatcher resolves them. When `sme[]` is empty or absent, hand nothing and the auditor's stack-pack check no-ops.
 
@@ -84,11 +116,11 @@ The agent re-runs the seven smart-surfaced-review signals (see `references/smart
 
 **On BLOCKED:** halt with the blocking reason.
 
-In full mode the boundary scan (`verify:boundary`) runs after acceptance (`verify:acceptance`) resolves to CONFORMANT (or is skipped on SPEC-SUSPECT/BLOCKED halt). The two agents run sequentially in the common path; if `verify:acceptance` loops, `verify:boundary` does not start until `verify:acceptance` clears or exhausts its cap. In boundary-only mode this phase runs directly after Phase 0 — there is no acceptance phase to wait on.
+In full mode this scan is dispatched **in parallel** with acceptance (`verify:acceptance`), not after it — see `verify:parallel`. Its verdict is always collected: when acceptance halts the item, the boundary result arriving alongside is recorded in the report and kicks nothing back. When acceptance kicks back and the diff range changes, this verdict goes stale and the auditor is re-dispatched on the new range under the currency invariant — which does not spend its cap when it had already returned PASS. In boundary-only mode this phase runs directly after Phase 0 — there is no acceptance phase beside it.
 
 ## Phase 3 — Aggregate verdict  `verify:aggregate`
 
-In boundary-only mode there is nothing to aggregate: report the safety-auditor's verdict alone — PASS → `pass`, VIOLATION with the cap exhausted → escalate per the cap rules, BLOCKED → `blocked`. In full mode, combine both agents' return envelopes into a single verdict:
+In boundary-only mode there is nothing to aggregate: report the safety-auditor's verdict alone — PASS → `pass`, VIOLATION with the cap exhausted → escalate per the cap rules, BLOCKED → `blocked`. In full mode, combine both agents' return envelopes — checked per `verify:brief`, and both bound to the same, final diff-range hash per `verify:parallel` — into a single verdict:
 
 | Acceptance result | Safety result | Aggregate |
 |-|-|-|
@@ -113,6 +145,8 @@ This skill is read-only throughout all phases.
 - **Fresh session per dispatch.** Each agent dispatch is a new session with no build-session context. Pass only the four inputs — the one exception is the safety-auditor's stack-pack Review checklists, resolved here and passed only when the binder pins `sme[]`. No build-session state travels.
 - **The agents do the reading.** `karta-acceptance-reviewer` and `karta-safety-auditor` read the diff and the binder directly. This skill does not pre-read those files for them.
 - **Escalate only on exhaustion; this gate never records an accept.** No human review gate fires during delivery except safety-auditor cap exhaustion (3 attempts). The acceptance gate (2 attempts) and a SPEC-SUSPECT halt with a call to action, not a human escalation. A human may accept or defer the halted item, but only at the delivery orchestrator's Phase-4 halt through the host's user-input facility — this read-only gate surfaces the halt and never writes the `accepted` ref.
-- **Caps are per-agent, not shared.** The acceptance cap (2) and the safety cap (3) are independent. Exhausting one does not reset the other.
+- **Caps are per-agent, not shared.** The acceptance cap (2) and the safety cap (3) are independent. Exhausting one does not reset the other, and a re-dispatch that only refreshes a stale-but-passing verdict does NOT count toward that agent's cap (`verify:parallel`).
+- **Both gates go out at once, and a stale verdict never lands in the table.** In full mode the two dispatches share one message; a kickback that changes the diff range invalidates every verdict bound to the old hash, and each stale agent is re-dispatched before aggregation (`verify:parallel`).
+- **Never act on an unchecked report.** `check_gate_report.py` runs on every returned report first; a nonzero result is a malformed report, worth exactly one re-dispatch and then a halt — never a loop (`verify:brief`).
 - **Opt-out items skip this gate.** Items with `oracle.opt_out: true` are not dispatched here. The build step reports the opt-out; karta-verify is not invoked.
 - **Visual oracles run boundary-only here; acceptance belongs to karta-validate.** If a work item arrives here with `oracle.type: visual`, run boundary-only mode — never Phase 1, and never a plain refusal. Its acceptance judgment happens in `karta-validate`, after this gate clears.

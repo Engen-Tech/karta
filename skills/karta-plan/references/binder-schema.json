@@ -160,6 +160,7 @@
             "type": { "enum": ["unit", "integration", "e2e", "smoke", "visual"] },
             "assertions": { "type": "array", "items": { "type": "string" } },
             "command": { "type": "string", "description": "the CI-facing check karta runs; floor is compile/type-check/lint" },
+            "expect": { "type": "string", "description": "success-only marker the command's output must contain — a string printed only on genuine success, so the check cannot pass by staying silent (run_oracle.py --expect asserts it)" },
             "cwd": { "type": "string", "description": "worktree-relative directory the command runs in; default is the worktree root" }
           }
         },

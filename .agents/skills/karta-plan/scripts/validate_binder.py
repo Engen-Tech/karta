@@ -453,6 +453,116 @@ def shared_terms_warnings(binder: dict) -> list[str]:
     return out
 
 
+# A command is judged vacuous only when the whole string is one trivially-passing
+# command. Anything joined by `;`, `&&`, `||`, `|`, or a newline is left alone: a
+# compound command may open with `true` or `echo` and still do real work afterwards,
+# and this lint must not cry wolf on it.
+_COMPOUND = re.compile(r"[;|&\n]")
+_LONE_ECHO = re.compile(r"^echo(\s|$)")
+# `true` with or without arguments, `:`, `exit 0`, and the absolute forms. Anchored with a
+# boundary so `truebeam --run` is not caught.
+_ALWAYS_OK = re.compile(r"^(/usr)?(/bin)?/?(true|:)(\s|$)|^exit\s+0\s*$")
+# `a || true`, `a ; true` and `a | true` all take their exit status from the tail, so a
+# vacuous tail makes the whole command vacuous however real the head is. A pipeline is in
+# that list on purpose: without `set -o pipefail` its status is the LAST stage's, so
+# `false | true` exits 0 — verified, not assumed. `&&` is the one separator that does not
+# hand over, since `a && true` still fails when a fails. Split on the three that do and
+# judge the last segment.
+_DEFANG_SPLIT = re.compile(r"\|\||\||;|\n")
+
+
+def _mask_quoted(command: str) -> str:
+    """`command` with quoted and escaped spans blanked, same length, so a separator that is
+    really an argument stops looking like one. `grep -E 'a|true b' f` must not split on the
+    pipe inside those quotes — flagging that command vacuous would be a false positive, and
+    a lint that cries wolf on real commands is worse than one that misses a case."""
+    out = list(command)
+    quote = None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        # A backslash escapes outside quotes and inside double quotes, but never inside
+        # single quotes, where POSIX makes it a literal. Missing the double-quoted case
+        # let an escaped quote close the span early and expose the separators after it.
+        if ch == "\\" and quote != "'" and i + 1 < len(command):
+            out[i] = out[i + 1] = "x"
+            i += 2
+            continue
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            else:
+                out[i] = "x"
+        elif ch in "'\"":
+            quote = ch
+        i += 1
+    return "".join(out)
+
+
+def _is_atom_vacuous(atom: str) -> bool:
+    """One command with no status-handing separator in it."""
+    atom = atom.strip()
+    if not atom:
+        return True
+    return bool(_ALWAYS_OK.match(atom)) or bool(_LONE_ECHO.match(atom))
+
+
+def _is_vacuous_command(command: str) -> bool:
+    stripped = command.strip()
+    if not stripped:
+        return True
+    # The exit status of `a || b` and `a ; b` is b's, so a vacuous tail defangs whatever
+    # ran before it — `pytest -q || true` is green no matter what pytest did. That is the
+    # commonest way an oracle stops being able to fail, so it is judged on the last
+    # status-bearing segment rather than waved through as "compound, therefore real".
+    # Empty segments are dropped before the tail is taken: a command may legitimately end
+    # in its separator, and `pytest -q || true;` split naively yields a trailing "" that
+    # hides the `true` behind it.
+    # Split positions are found on the masked copy and applied to the original, so a
+    # separator inside quotes never splits while the segment text stays real.
+    masked = _mask_quoted(stripped)
+    pieces, last = [], 0
+    for sep in _DEFANG_SPLIT.finditer(masked):
+        pieces.append((stripped[last:sep.start()], masked[last:sep.start()]))
+        last = sep.end()
+    pieces.append((stripped[last:], masked[last:]))
+    segments = [(raw.strip(), msk.strip()) for raw, msk in pieces if raw.strip()]
+    if len(segments) > 1:
+        tail_raw, tail_masked = segments[-1]
+        # Only a tail that is itself one plain command is judged: `a || b && c` hands its
+        # status to `b && c`, which is not a no-op just because it starts with one.
+        if not _COMPOUND.search(tail_masked) and _is_atom_vacuous(tail_raw):
+            return True
+    if _COMPOUND.search(masked):
+        return False
+    return _is_atom_vacuous(stripped)
+
+
+def vacuous_oracle_warnings(binder: dict) -> list[str]:
+    """Advisory (non-fatal): name the check oracles nothing can decide.
+
+    Two shapes qualify. A command that is a bare `true`, a bare `:`, an empty string, or
+    a lone `echo` passes no matter what the code does — it is runnable but unfalsifiable.
+    And a check oracle carrying assertions with neither a command nor an opt-out has
+    nothing runnable behind those assertions at all. Both are warnings, never errors: the
+    binder may legitimately be mid-draft, and the exit code stays the schema's business —
+    exactly like sme_warnings and shared_terms_warnings above."""
+    out: list[str] = []
+    for it in binder.get("work_items", []):
+        oracle = it.get("oracle")
+        if not isinstance(oracle, dict) or oracle.get("opt_out"):
+            continue
+        command = oracle.get("command")
+        if isinstance(command, str) and _is_vacuous_command(command):
+            out.append(f"{it.get('id')}: oracle command {command!r} is vacuous — it passes "
+                       "whatever the code does; give it a real check, or an explicit opt_out "
+                       "with a reason")
+        elif command is None and oracle.get("assertions"):
+            out.append(f"{it.get('id')}: oracle carries assertions but no command and no "
+                       "opt_out — nothing runnable backs them, so the assertions are vacuous")
+    return out
+
+
 def cross_binder_errors(binders: list[dict],
                         archived: frozenset[str] = frozenset()) -> tuple[list[str], list[str]]:
     """Check the cross-binder `after` graph across a whole set of binders.
@@ -643,6 +753,19 @@ def _run_self_test() -> int:
         "st-empty-canon", [{"id": "t", "canonical": "", "items": ["a", "b"]}])
     shared_terms_single_item = _st_binder(
         "st-single", [{"id": "t", "canonical": "c", "items": ["a"]}])
+
+    # oracle `expect`: the optional success-only marker on the check branch. It is a plain
+    # string, so a non-string value must be rejected by the same schema pass that accepts it.
+    def _expect_binder(slug, expect):
+        return {
+            "slug": slug, "title": "T", "summary": "S", "motivation": "x",
+            "scope": {"included": ["x"]},
+            "work_items": [{"id": "a", "title": "A", "summary": "s",
+                            "oracle": {"type": "smoke", "command": "pytest -q",
+                                       "expect": expect}}],
+        }
+    oracle_expect_ok = _expect_binder("oracle-expect-ok", "1 passed")
+    oracle_expect_not_string = _expect_binder("oracle-expect-int", 3)
 
     # design: rule fixtures. _v is a visual oracle with a non-empty assertions list (the shape
     # a valid covering item needs); _u (defined above) is a plain unit oracle.
@@ -875,6 +998,8 @@ def _run_self_test() -> int:
         ("visual_check_waiver empty reason", waiver_empty_reason, False),
         ("visual_check_waiver additional property rejected", waiver_extra_prop, False),
         ("design_reference empty string rejected by minLength", design_reference_empty, False),
+        ("oracle carrying an expect marker validates", oracle_expect_ok, True),
+        ("oracle expect that is not a string is rejected", oracle_expect_not_string, False),
     ]
     failures = 0
     for name, binder, should_pass in cases:
@@ -904,6 +1029,71 @@ def _run_self_test() -> int:
           and len(shared_terms_warnings(st_empty_touches)) == 1
           and len(shared_terms_warnings(shared_terms_ok)) == 0)
     print(f"[{'PASS' if ok else 'FAIL'}] shared_terms warns on a listed item with empty touches")
+    failures += 0 if ok else 1
+
+    # vacuous-oracle lint, part 1 — a command nothing can fail. Each trivially-passing form
+    # draws exactly one warning naming it vacuous, and the paired real commands draw none:
+    # `pytest -q` is a plain check, and the compound command opens with `echo` yet goes on to
+    # do real work, which is the false positive this lint must not produce.
+    def _cmd_binder(command):
+        return {
+            "slug": "vac", "title": "T", "summary": "S", "motivation": "x",
+            "scope": {"included": ["x"]},
+            "work_items": [{"id": "a", "title": "A", "summary": "s",
+                            "oracle": {"type": "smoke", "command": command}}],
+        }
+    # The defang cases are the point of the list, not an afterthought: `pytest -q || true`
+    # is green whatever pytest did, and it was the shape this lint missed until a review
+    # named it. `&&` and `|` stay off the list deliberately — `a && true` still fails when
+    # a fails, so it is not a defang and `echo running && pytest -q` must stay quiet.
+    vacuous_cmds = ["true", ":", "  true  ", "echo ok", "echo", "",
+                    "pytest -q || true", "npm test ; true", "make lint || echo ok",
+                    "/bin/true", "/usr/bin/true", "exit 0", "true --anything",
+                    # A pipeline hands its status to the last stage without `pipefail`
+                    # (`false | true` exits 0, verified), so a pipe defangs exactly like
+                    # `||`. A command may also end in its own separator, which used to
+                    # leave an empty tail segment that hid the no-op behind it.
+                    "pytest -q | true", "make test | :", "pytest -q || true;",
+                    'pytest -q "x\\" y" || true']
+    real_cmds = ["pytest -q", "echo running && pytest -q", "true; pytest -q", "truebeam --run",
+                 "pytest -q || exit 1", "pytest -q | grep -q PASS", "a || b && c",
+                 # A separator inside quotes is an argument, not a separator. Splitting on
+                 # it flagged this real grep as vacuous, which is the false positive a
+                 # review caught after the pipe rule went in.
+                 "grep -E 'failure|true condition' results.txt", "echo x | grep -q 'true'",
+                 # An escaped quote inside double quotes does not close the span; missing
+                 # that exposed the separators after it and flagged this real grep.
+                 'grep -E "failure\\"|true condition" results.txt']
+    fired = [c for c in vacuous_cmds
+             if len(vacuous_oracle_warnings(_cmd_binder(c))) == 1
+             and "vacuous" in vacuous_oracle_warnings(_cmd_binder(c))[0]]
+    quiet = [c for c in real_cmds if vacuous_oracle_warnings(_cmd_binder(c)) == []]
+    ok = (fired == vacuous_cmds and quiet == real_cmds
+          and not validate_binder(_cmd_binder("true")))  # advisory: still a valid binder
+    print(f"[{'PASS' if ok else 'FAIL'}] vacuous command warning fires on {fired} "
+          f"and stays silent on {quiet}")
+    failures += 0 if ok else 1
+
+    # vacuous-oracle lint, part 2 — assertions with nothing runnable behind them. The negative
+    # cases are the same assertions backed by a real command, and the same assertions under an
+    # opt-out (an explicit, recorded escape is not a vacuous oracle).
+    def _assert_binder(oracle):
+        return {
+            "slug": "vac2", "title": "T", "summary": "S", "motivation": "x",
+            "scope": {"included": ["x"]},
+            "work_items": [{"id": "a", "title": "A", "summary": "s", "oracle": oracle}],
+        }
+    bare_assertions = _assert_binder({"type": "unit", "assertions": ["the endpoint returns 200"]})
+    backed_assertions = _assert_binder({"type": "unit", "command": "pytest -q",
+                                        "assertions": ["the endpoint returns 200"]})
+    opted_out = _assert_binder({"opt_out": True, "reason": "covered by the contract suite"})
+    warns = vacuous_oracle_warnings(bare_assertions)
+    ok = (len(warns) == 1 and "vacuous" in warns[0]
+          and vacuous_oracle_warnings(backed_assertions) == []
+          and vacuous_oracle_warnings(opted_out) == []
+          and not validate_binder(bare_assertions))  # advisory: still a valid binder
+    print(f"[{'PASS' if ok else 'FAIL'}] assertions with no command and no opt_out warn as "
+          f"vacuous: {warns}")
     failures += 0 if ok else 1
 
     # waiver summary: one line per waiver stating reason + covered_by, one line per covering
@@ -1010,7 +1200,7 @@ def _run_self_test() -> int:
           f"and the same gate covering a real id is valid")
     failures += 0 if ok else 1
 
-    print(f"\n{len(cases) + 10 + len(cb_cases) - failures}/{len(cases) + 10 + len(cb_cases)} checks passed")
+    print(f"\n{len(cases) + 12 + len(cb_cases) - failures}/{len(cases) + 12 + len(cb_cases)} checks passed")
     return 1 if failures else 0
 
 
@@ -1051,6 +1241,8 @@ def main() -> int:
     for w in sme_warnings(binder):
         print(f"  warning: {w}")
     for w in shared_terms_warnings(binder):
+        print(f"  warning: {w}")
+    for w in vacuous_oracle_warnings(binder):
         print(f"  warning: {w}")
     for w in design_source_advisory(binder):
         print(f"  warning: {w}")

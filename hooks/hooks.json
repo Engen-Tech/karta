@@ -1,5 +1,5 @@
 {
-  "description": "karta phase-1 harness enforcement: binder immutability, pack write validation, fail-closed auditor dispatch, confined-writer surfaces (kaizen and doc-gardner, on Write/Edit/NotebookEdit and on their Bash commands), session status injection, the delivery Stop-gate (a session may not quietly stop with built-but-unmerged items or a complete-but-unarchived binder — blocked once per state, then the identical stop passes), and the SubagentStop whiff advisory (a karta-typed subagent stopping while an item branch stands with no commits over integration and no state ref is told once — stateless, loop-guarded by stop_hook_active — to surface the whiff in its report). Same contract everywhere: hook payload JSON on stdin; exit 0 allows, exit 2 blocks (PreToolUse, Stop, SubagentStop) or feeds corrective stderr back to the model (PostToolUse).",
+  "description": "karta phase-1 harness enforcement: binder immutability, pack write validation, fail-closed auditor dispatch, fail-closed gate-dispatch diff guard (a gate-reviewer dispatch with an empty diff range or a missing/mismatched Diff-size line is denied before two reviewer contexts spin up), confined-writer surfaces (kaizen and doc-gardner, on Write/Edit/NotebookEdit and on their Bash commands), session status injection, the delivery Stop-gate (a session may not quietly stop with built-but-unmerged items or a complete-but-unarchived binder — blocked once per state, then the identical stop passes), and the SubagentStop whiff advisory (a karta-typed subagent stopping while an item branch stands with no commits over integration and no state ref is told once — stateless, loop-guarded by stop_hook_active — to surface the whiff in its report). Same contract everywhere: hook payload JSON on stdin; exit 0 allows, exit 2 blocks (PreToolUse, Stop, SubagentStop) or feeds corrective stderr back to the model (PostToolUse).",
   "hooks": {
     "PreToolUse": [
       {
@@ -28,6 +28,11 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_auditor_dispatch.py\"",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_gate_dispatch.py\"",
             "timeout": 30
           }
         ]
