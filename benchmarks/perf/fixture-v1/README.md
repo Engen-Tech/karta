@@ -75,10 +75,10 @@ may drift between quarters:
    the point — the pinned tag governs the run, not whatever the operator happens
    to have installed at user scope.
 4. `/usr/bin/time -v` wrapping `timeout 90m claude -p '/karta:karta-deliver bench'
-   --output-format stream-json --verbose`, redirected to
-   `$RUN_ROOT/run<i>.jsonl`. See the `KARTA-DEFER` note on that line in
-   `runner.sh`: one flag from the card's step 4 is missing and a human must
-   restore it before the first real baseline run.
+   --output-format stream-json --verbose --permission-mode bypassPermissions`,
+   redirected to `$RUN_ROOT/run<i>.jsonl`. The permission mode is the card's
+   step 4 verbatim: step 5 counts a human prompt as a stall, not a datapoint, so
+   a run that can stop to ask measures nothing.
 
 Override `KARTA_REPO` to pin from a clone URL rather than this checkout;
 override `TIMEOUT` only to reproduce an old run that used a different cap, and

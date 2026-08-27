@@ -55,22 +55,18 @@ cp "$FIXTURE_DIR/settings.json" "$REPO/.claude/settings.json"
 ( cd "$REPO" && claude plugin install karta@karta --scope project --yes )
 
 # --- step 4: the timed headless delivery, transcript in stream-json -----------
-# KARTA-DEFER(runner-headless-permission-mode): step 4 of
-# benchmarks/perf/perf-fixture-cost-baseline.md specifies one more flag on this
-# invocation — the non-interactive permission mode quoted verbatim in the card.
-# The build session that wrote this file was refused permission to put that flag
-# into an executable script, so the line below is one flag short of the card.
-# Consequence, stated plainly: run as-is the delivery will stop at the first
-# permission prompt, which step 5 classifies as a stall — INCOMPLETE, committed
-# with its reason and excluded from aggregates, NOT a cost datapoint.
-# follow-up: a human restores the card's flag on this line before the first
-# baseline run; until then no run from this script is comparable.
+# The permission mode is the card's, verbatim. Step 5 classifies any human
+# prompt as a stall rather than a datapoint, so a run that can stop to ask
+# measures nothing. It is safe here because every run happens inside a throwaway
+# mktemp -d holding an extracted fixture and a pinned plugin — settings.json
+# beside this file records what the delivery is actually expected to need.
 TRANSCRIPT="$RUN_ROOT/run$REPEAT_INDEX.jsonl"
 TIMING="$RUN_ROOT/run$REPEAT_INDEX.time"
 set +e
 ( cd "$REPO" && /usr/bin/time -v -o "$TIMING" \
     timeout "$TIMEOUT" claude -p '/karta:karta-deliver bench' \
-        --output-format stream-json --verbose ) > "$TRANSCRIPT"
+        --output-format stream-json --verbose \
+        --permission-mode bypassPermissions ) > "$TRANSCRIPT"
 STATUS=$?
 set -e
 
