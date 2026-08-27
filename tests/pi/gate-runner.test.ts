@@ -13,8 +13,10 @@ import {
   type KartaEvidencePayload,
 } from "../../extensions/pi/evidence.ts";
 import {
+  evidenceReadGaps,
   executeGateOnEvidence,
   parseGateVerdict,
+  promptGateForGroundedVerdict,
   promptGateForVerdict,
   type GateModelInvoker,
 } from "../../extensions/pi/gate-runner.ts";
@@ -477,4 +479,43 @@ test("a prose-wrapped verdict object is not accepted without repair — gate str
   const result = await promptGateForVerdict(wrapped, "GATE PROMPT");
   assert.equal(result, validVerdict);
   assert.equal(wrapped.calls.length, 2);
+});
+
+test("evidence-read gaps name every unread required section and the role tool", () => {
+  assert.deepEqual(
+    evidenceReadGaps({
+      evidenceToolState: { actions: new Set(["summary", "workItem"]) },
+      roleToolState: { invoked: true },
+    }),
+    ["the diff evidence"],
+  );
+  assert.deepEqual(
+    evidenceReadGaps({
+      evidenceToolState: { actions: new Set() },
+      roleToolState: { invoked: false },
+    }),
+    ["the summary evidence", "the workItem evidence", "the diff evidence", "your required role tool"],
+  );
+  assert.deepEqual(
+    evidenceReadGaps({
+      evidenceToolState: { actions: new Set(["summary", "workItem", "diff"]) },
+      roleToolState: { invoked: true },
+    }),
+    [],
+  );
+});
+
+test("a gate that skipped required evidence gets one grounding repair turn", async () => {
+  const skipped = new FakeGatePrompter([validVerdict, validVerdict]);
+  const result = await promptGateForGroundedVerdict(skipped, "GATE PROMPT", () => ["the diff evidence"]);
+  assert.equal(result, validVerdict);
+  assert.equal(skipped.calls.length, 2);
+  assert.match(skipped.calls[1], /have not yet read: the diff evidence/);
+});
+
+test("a gate that grounded its verdict in all evidence is not re-prompted", async () => {
+  const grounded = new FakeGatePrompter([validVerdict, "unused"]);
+  const result = await promptGateForGroundedVerdict(grounded, "GATE PROMPT", () => []);
+  assert.equal(result, validVerdict);
+  assert.deepEqual(grounded.calls, ["GATE PROMPT"]);
 });

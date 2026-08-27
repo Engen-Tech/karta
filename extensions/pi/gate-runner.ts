@@ -280,6 +280,43 @@ export function promptGateForVerdict(
   );
 }
 
+const REQUIRED_GATE_EVIDENCE = ["summary", "workItem", "diff"] as const;
+
+function gateEvidenceRepairPrompt(gaps: string[]): string {
+  return `You returned a verdict without inspecting all required evidence. You have not yet read: ${gaps.join(
+    ", ",
+  )}. Read each now with your evidence tool, then return ONLY the single JSON gate-verdict object — no prose, no code fence.`;
+}
+
+// A gate must ground its verdict in the evidence: read the summary, work item, and
+// diff, and invoke its role tool. A reviewer sometimes returns a verdict having
+// skipped one (the large diff of a big item is the common miss). These gaps are a
+// protocol lapse, not a finding, so the gate gets one corrective turn to read what
+// it skipped before validateRoleToolResult enforces the same requirement hard.
+export function evidenceReadGaps(profile: {
+  evidenceToolState: { actions: ReadonlySet<string> };
+  roleToolState: { invoked: boolean };
+}): string[] {
+  const gaps: string[] = [];
+  for (const action of REQUIRED_GATE_EVIDENCE) {
+    if (!profile.evidenceToolState.actions.has(action)) gaps.push(`the ${action} evidence`);
+  }
+  if (!profile.roleToolState.invoked) gaps.push("your required role tool");
+  return gaps;
+}
+
+export async function promptGateForGroundedVerdict(
+  session: Parameters<typeof promptForJsonEnvelope>[0],
+  userPrompt: string,
+  evidenceGaps: () => string[],
+): Promise<string> {
+  const text = await promptGateForVerdict(session, userPrompt);
+  if (!looksLikeGateVerdict(text)) return text;
+  const gaps = evidenceGaps();
+  if (gaps.length === 0) return text;
+  return promptGateForVerdict(session, gateEvidenceRepairPrompt(gaps));
+}
+
 export async function invokeGateModel(
   invocation: GateModelInvocation,
 ): Promise<{ text: string; runtime: ChildRuntimeReport }> {
@@ -298,7 +335,11 @@ export async function invokeGateModel(
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
   if (invocation.ctx.signal?.aborted) abort();
   try {
-    const text = await promptGateForVerdict(session, invocation.userPrompt);
+    const text = await promptGateForGroundedVerdict(
+      session,
+      invocation.userPrompt,
+      () => evidenceReadGaps(invocation.profile),
+    );
     return { text: text.trim(), runtime: report };
   } finally {
     invocation.ctx.signal?.removeEventListener("abort", abort);
