@@ -48,7 +48,7 @@ RANGE_TOKEN_RE = re.compile(rf"(?<![A-Za-z0-9_/.~^-])({_REV}\.\.\.?{_REV})")
 # captured token has to look like a path — absolute, explicitly relative, ~-rooted, or a
 # bare dot — and anything else falls back to the payload cwd rather than denying on a
 # worktree the brief never named.
-WORKTREE_RE = re.compile(r"\bworktree\b\s*[:=]?\s*(\S+)", re.I)
+WORKTREE_RE = re.compile(r"\bworktree\b\s*([:=])?\s*(\S+)", re.I)
 _PATHLIKE = re.compile(r"^(\.\.?/|\.\.?$|~|/)")
 # The exact string "Diff-size:" is a shared term — case-sensitive, verbatim.
 DIFF_SIZE_RE = re.compile(r"Diff-size:\s*(\d+)\s*files?,\s*(\d+)\s*bytes?")
@@ -74,6 +74,7 @@ def _split_range(token: str) -> tuple[str, str] | None:
 
 
 _CLAUSE_PUNCT = ';,:)]"\''
+_WRAP_PUNCT = '"\'([{<)]}>;,:'
 
 
 def _unquote(tok: str) -> str:
@@ -107,14 +108,17 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
         # not a path either: it is a malformed brief, and the guard returns None so the
         # dispatch is denied outright rather than judged against the payload cwd, which
         # might well resolve the range and allow.
-        raw = m.group(1)
-        # A token that names something — it holds a separator, or is path-like once
-        # leading quotes and brackets are set aside — is a path the brief meant, however
-        # it was wrapped. If no readable form of it resolves, the mention is malformed and
-        # the dispatch is denied outright: `("/srv/wt/release;` and `foo/bar` alike. Only
-        # a token that names nothing (`worktree at length;`) is prose, and only then does
-        # the payload cwd stand in, as it does for a brief with no mention at all.
-        names_something = "/" in raw or bool(_PATHLIKE.search(raw.lstrip("\"'([{<")))
+        sep, raw = m.group(1), m.group(2)
+        # A token that names something — it follows an explicit `:` or `=`, opens with a
+        # quote or bracket, holds a separator, or is path-like once the punctuation
+        # around it is set aside — is a path the brief meant, however it was wrapped. If
+        # no readable form of it resolves, the mention is malformed and the dispatch is
+        # denied outright: `("/srv/wt/release;`, `(..)`, `worktree: release` and `foo/bar`
+        # alike. Only a bare word with none of those marks (`worktree at length;`) is
+        # prose, and only then does the payload cwd stand in, as it does for a brief with
+        # no mention at all.
+        names_something = (sep is not None or raw[0] in "\"'([{<" or "/" in raw
+                           or bool(_PATHLIKE.search(raw.strip(_WRAP_PUNCT))))
         tok = raw
         first_pathlike = None
         while tok:
@@ -186,7 +190,8 @@ def decide(payload: dict) -> tuple[int, str]:
         return 2, (
             "karta: this is a gate-reviewer dispatch and its `worktree` mention is malformed — "
             "it names a path the guard cannot read (behind an unmatched quote or a bracket, a "
-            "quoted path containing a space, or a relative path without a leading `./`). It "
+            "quoted path containing a space, a name after an explicit `:` or `=`, or a relative "
+            "path holding a slash without a leading `./`). It "
             "fails closed rather than judging the range against the payload cwd. Re-dispatch "
             "with the worktree path written plainly: absolute, unquoted, no spaces.")
 
@@ -360,6 +365,20 @@ def _run_self_test() -> int:
              "denied, not judged against the payload cwd",
              dispatch(f"worktree foo/bar diff range base..feature. {good_size_line}",
                       worktree=repo), 2, "malformed"),
+            ("a dot form behind brackets names the parent, and cannot be read: denied, "
+             "not judged against the payload cwd",
+             dispatch(f"worktree (..) diff range base..feature. {good_size_line}",
+                      worktree=repo), 2, "malformed"),
+            ("a bare word after an explicit separator is a name, not prose: denied",
+             dispatch(f"worktree: release diff range base..feature. {good_size_line}",
+                      worktree=repo), 2, "malformed"),
+            ("a quoted bare word is a name, not prose: denied",
+             dispatch(f'worktree "release" diff range base..feature. {good_size_line}',
+                      worktree=repo), 2, "malformed"),
+            ("a bare word with no separator, quote, bracket or slash is prose and the "
+             "payload cwd stands in — the one reading the guard still makes",
+             dispatch(f"worktree release; diff range base..feature. {good_size_line}",
+                      worktree=repo), 0, None),
             ("a prose word holding a slash is denied too — fail-closed, one re-dispatch",
              dispatch(f"worktree and/or branch diff range base..feature. {good_size_line}",
                       worktree=repo), 2, "malformed"),
