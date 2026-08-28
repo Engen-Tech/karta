@@ -1,0 +1,157 @@
+{
+  "vector": "perf-fixture-cost-baseline",
+  "fixture": "fixture-v1",
+  "fixture_sha256": "2f328f31b74d89ef14f37f12941cb1d0293757867103015946432abf9f773acc",
+  "run_date": "2026-08-28",
+  "claude_cli_version": "2.1.251",
+  "harness_notes": [
+    "/usr/bin/time was absent on the host and installed (package time 1.9) before the first run; a first attempt exited 127 before any delivery and is not counted.",
+    "runner.sh gained CLAUDE_CONFIG_DIR isolation on 2026-08-28 after runs 1 (both versions) showed the operator's ~/.claude in scope: ~/.claude/skills/karta-* symlinks at the live checkout resolved `karta-build` before the pinned plugin's skill. Runs marked isolated_config_dir=false ran before that fix.",
+    "n=1 COMPLETE isolated run per version, of the card's n=3; medians below are single values."
+  ],
+  "plugin_version": "2.32.0",
+  "plugin_tag": "v2.32.0",
+  "plugin_sha": "8d395dcdeea4af1ba7dc73d148f243b87221a71c",
+  "runs": [
+    {
+      "repeat": "1-not-isolated",
+      "run_root": "/tmp/karta-bench.CsvTob",
+      "session_id": "173e24a5-900e-47f2-ad40-683489bf1128",
+      "classification": "NOT-ISOLATED",
+      "isolated_config_dir": false,
+      "wall_clock": "6:17.93",
+      "max_rss_kb": 448316,
+      "duration_api_ms": 567894,
+      "total_cost_usd": 5.7193,
+      "num_turns": 20,
+      "final_result": "success",
+      "ask_user_question_events": 0,
+      "refs_at_end": [
+        "item-greet-cli/built",
+        "item-greet-cli/done",
+        "item-greet-cli/evidence",
+        "item-shout-helper/built",
+        "item-shout-helper/done",
+        "item-shout-helper/evidence"
+      ],
+      "reason": "excluded from aggregates: ran with the operator's ~/.claude in scope. The karta-build skill text came from ~/.claude/skills/karta-build (a symlink to the live checkout, byte-equal to the v2.32.0 tag at the time) and the operator's other user-level skills, plugins and hooks were loaded too. Content-valid for 2.32.0, but not the isolated denominator the card requires.",
+      "metrics_as_mined": {
+        "session": "/home/dev/.claude/projects/-tmp-karta-bench-CsvTob-repo/173e24a5-900e-47f2-ad40-683489bf1128.jsonl",
+        "deliveries": 1,
+        "spawned_contexts_per_item": {
+          "greet-cli": 3,
+          "shout-helper": 3
+        },
+        "phase_turns": {
+          "orchestrator": 69,
+          "builder": 115,
+          "acceptance-reviewer": 15,
+          "safety-auditor": 16,
+          "other": 0
+        },
+        "verify_retries": {
+          "total": 0,
+          "per_item": {},
+          "unattributed_gate_spawns": 0
+        },
+        "denied_dispatches": {
+          "greet-cli": 2,
+          "shout-helper": 3
+        },
+        "merge_revalidations": {
+          "evidenced": 2,
+          "item_merges": 2
+        },
+        "phase_output_tokens": {
+          "orchestrator": 38408,
+          "builder": 22001,
+          "acceptance-reviewer": 5057,
+          "safety-auditor": 5611,
+          "other": 0
+        },
+        "wall_minutes": 6.25,
+        "model_ids": [
+          "claude-opus-5",
+          "claude-sonnet-5"
+        ],
+        "claude_cli_version": "2.1.251"
+      },
+      "notes": [
+        "5 gate dispatches refused by PreToolUse guards (3 empty-diff before the item commit, 1 fictional Diff-size, 1 missing binder path); no reviewer context spun up for them."
+      ]
+    },
+    {
+      "repeat": 1,
+      "run_root": "/tmp/karta-bench.OJckW8",
+      "session_id": "f6f1b20b-c461-40a1-9d18-9c6e440c191b",
+      "classification": "COMPLETE",
+      "isolated_config_dir": true,
+      "wall_clock": "7:00.46",
+      "max_rss_kb": 377840,
+      "duration_api_ms": 739047,
+      "total_cost_usd": 4.8163,
+      "num_turns": 19,
+      "final_result": "success",
+      "ask_user_question_events": 0,
+      "refs_at_end": [
+        "item-greet-cli/built",
+        "item-greet-cli/done",
+        "item-greet-cli/evidence",
+        "item-shout-helper/built",
+        "item-shout-helper/done",
+        "item-shout-helper/evidence"
+      ],
+      "metrics": {
+        "session": "/tmp/karta-bench.OJckW8/claude-config/projects/-tmp-karta-bench-OJckW8-repo/f6f1b20b-c461-40a1-9d18-9c6e440c191b.jsonl",
+        "deliveries": 1,
+        "spawned_contexts_per_item": {
+          "greet-cli": 3,
+          "shout-helper": 3
+        },
+        "phase_turns": {
+          "orchestrator": 85,
+          "builder": 134,
+          "acceptance-reviewer": 28,
+          "safety-auditor": 24,
+          "other": 0
+        },
+        "verify_retries": {
+          "total": 0,
+          "per_item": {},
+          "unattributed_gate_spawns": 0
+        },
+        "denied_dispatches": {
+          "greet-cli": 1
+        },
+        "failed_dispatches": {
+          "unattributed": 1
+        },
+        "merge_revalidations": {
+          "evidenced": 1,
+          "item_merges": 2
+        },
+        "phase_output_tokens": {
+          "orchestrator": 36283,
+          "builder": 27131,
+          "acceptance-reviewer": 9049,
+          "safety-auditor": 9200,
+          "other": 0
+        },
+        "wall_minutes": 6.99,
+        "model_ids": [
+          "claude-opus-5",
+          "claude-sonnet-5"
+        ],
+        "claude_cli_version": "2.1.251"
+      },
+      "notes": [
+        "karta-build and karta-deliver skill text loaded from the pinned tree (transcript 'Base directory' lines).",
+        "1 failed dispatch: the orchestrator asked for subagent_type karta:karta-build, which is not a registered agent; the tool errored and the orchestrator re-dispatched general-purpose. Counted under failed_dispatches, never spawned.",
+        "merge_revalidations evidenced 1 of 2: one run_oracle.py call preceded the first item merge; the second merge followed with no fresh oracle call between."
+      ]
+    }
+  ],
+  "aggregate": {
+    "n_complete": 1
+  }
+}

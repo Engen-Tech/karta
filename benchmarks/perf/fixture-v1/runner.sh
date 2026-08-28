@@ -51,8 +51,27 @@ git clone --quiet --no-tags --branch "$PLUGIN_TAG" --depth 1 \
 
 mkdir -p "$REPO/.claude"
 cp "$FIXTURE_DIR/settings.json" "$REPO/.claude/settings.json"
+# The project-scope pin does not govern the run on its own. The operator's own
+# ~/.claude is in scope for every claude process: a user-level `karta-build`
+# skill there (this repo's maintainers symlink ~/.claude/skills/karta-* at the
+# live checkout) resolves before the plugin's `karta:karta-build`, and the
+# user-scope plugin, hooks and memory all load too. Observed 2026-08-28 on
+# claude 2.1.251: a run pinned at v2.31.0 executed 2.32.0 skill text. So the
+# run gets its own config dir holding nothing but the operator's credentials:
+# no user skills, no user plugins, no user hooks — only the pinned plugin.
+# Transcripts then land under $CLAUDE_CONFIG_DIR/projects/, which the run
+# prints as transcripts_dir= for the miner.
+CLAUDE_CONFIG_DIR="$RUN_ROOT/claude-config"
+mkdir -p "$CLAUDE_CONFIG_DIR"
+if [ -f "${HOME}/.claude/.credentials.json" ]; then
+    cp "${HOME}/.claude/.credentials.json" "$CLAUDE_CONFIG_DIR/.credentials.json"
+    chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json"
+fi
+export CLAUDE_CONFIG_DIR
+
 ( cd "$REPO" && claude plugin marketplace add "$RUN_ROOT/plugin" --scope project )
 ( cd "$REPO" && claude plugin install karta@karta --scope project --yes )
+
 
 # --- step 4: the timed headless delivery, transcript in stream-json -----------
 # The permission mode is the card's, verbatim. Step 5 classifies any human
@@ -71,6 +90,7 @@ STATUS=$?
 set -e
 
 echo "run_root=$RUN_ROOT"
+echo "transcripts_dir=$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$REPO" | tr '/.' '--')"
 echo "transcript=$TRANSCRIPT"
 echo "timing=$TIMING"
 echo "exit_status=$STATUS"
