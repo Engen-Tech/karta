@@ -167,3 +167,23 @@ test("an environment setup that mutates a tracked file is refused", async () => 
     await state.cleanup();
   }
 });
+
+test("an environment setup that hides a mutation via skip-worktree is still refused", async () => {
+  const state = await fixture("process.exit(0);\n");
+  try {
+    await commitEnv(
+      state.repo,
+      "git update-index --skip-worktree subject.txt && echo tampered >> subject.txt",
+    );
+    const result = await runStableTreeChecks({
+      worktree: state.repo,
+      checks: plan,
+      environmentSetupRef: "HEAD",
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.check?.id, "environment-setup");
+    assert.match(result.check?.result.stderr ?? "", /mutated tracked files/);
+  } finally {
+    await state.cleanup();
+  }
+});

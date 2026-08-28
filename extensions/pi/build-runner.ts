@@ -252,7 +252,9 @@ export class KartaBuildItemRunner {
       let attempts = 0;
       let acceptanceAttempts = 0;
       let safetyAttempts = 0;
-      while (attempts < MAX_SAFETY_ATTEMPTS) {
+      while (
+        acceptanceAttempts < MAX_ACCEPTANCE_ATTEMPTS && safetyAttempts < MAX_SAFETY_ATTEMPTS
+      ) {
         attempts += 1;
         const beforeWorker = await deriveItemGitState(worktree, binder, item);
         const recoverCommitted = beforeWorker.state === "committed-unmarked";
@@ -381,7 +383,25 @@ export class KartaBuildItemRunner {
           };
         }
         const kind = retryKind(finalization);
-        if (!kind) throw new Error("Karta retry result has no retryable gate verdict");
+        if (!kind) {
+          // A floor, oracle, or environment-setup check failed — not a gate raising a
+          // retryable concern. There is nothing for the worker to re-implement (a
+          // failing environment or a broken merged tip is not fixed by re-prompting),
+          // so halt cleanly with the check diagnostic instead of looping or crashing.
+          return {
+            schema: "karta-build-item-v1",
+            binder,
+            item,
+            status: "blocked",
+            recoveryState: state.state,
+            attempts,
+            worktree,
+            commit: finalization.commit,
+            message: finalization.message,
+            worker,
+            finalization,
+          };
+        }
         if (kind === "acceptance") acceptanceAttempts += 1;
         else safetyAttempts += 1;
         const capped =

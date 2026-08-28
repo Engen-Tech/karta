@@ -377,3 +377,70 @@ test("an existing built ref recovers without redispatch", async () => {
     await state.cleanup();
   }
 });
+
+test("a finalization retry with no gate verdict halts blocked instead of crashing", async () => {
+  const state = await fixture();
+  try {
+    const build = runner(
+      state.repo,
+      async (_ctx, _worktree, _branch, binder, item) => workerResult(binder, item),
+      {
+        async finalizeCandidate(_ctx, binder, item) {
+          return {
+            status: "retry",
+            binder,
+            item,
+            checkFailure: {
+              status: "failed",
+              passes: 0,
+              targetTree: "a".repeat(40),
+              check: { id: "environment-setup", result: { status: "failed" } },
+            },
+            message: "environment setup mutated tracked files",
+          };
+        },
+      },
+    );
+    const result = await build.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "blocked");
+    assert.equal(result.attempts, 1);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a mixed acceptance-then-safety retry sequence caps without crashing", async () => {
+  const state = await fixture();
+  try {
+    let calls = 0;
+    const sequence = ["acceptance", "safety", "safety", "safety"];
+    let failedRecords = 0;
+    const build = runner(
+      state.repo,
+      async (_ctx, _worktree, _branch, binder, item) => workerResult(binder, item, `attempt ${calls}`),
+      {
+        async finalizeCandidate(_ctx, binder, item) {
+          const kind = sequence[calls++] ?? "safety";
+          return {
+            status: "retry",
+            binder,
+            item,
+            targetTree: "a".repeat(40),
+            verification: { gates: { [kind]: { verdict: "concerns" } } },
+            message: "retry",
+          };
+        },
+        async recordFailedCandidate(_ctx, binder, item) {
+          failedRecords += 1;
+          return { status: "failed", binder, item, commit: "f".repeat(40), message: "failed" };
+        },
+      },
+    );
+    const result = await build.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "failed");
+    assert.equal(failedRecords, 1);
+    assert.equal(calls, 4);
+  } finally {
+    await state.cleanup();
+  }
+});

@@ -106,6 +106,13 @@ async function stageTree(worktree: string): Promise<string> {
   return git(worktree, ["write-tree"]);
 }
 
+// The index with per-file flags. `-v` reveals a skip-worktree/assume-unchanged
+// toggle, which would otherwise hide a working-tree mutation from `git add -A` and
+// let a setup command tamper with tracked content without changing write-tree's output.
+async function indexIdentity(worktree: string): Promise<string> {
+  return git(worktree, ["ls-files", "--stage", "-v", "-z"]);
+}
+
 async function runPlan(
   options: RunCheckConvergenceOptions,
 ): Promise<
@@ -149,6 +156,7 @@ export async function runStableTreeChecks(
     // that mutates a tracked file cannot ride unreviewed into the merged tree and
     // the target-tree stability invariant is preserved.
     const preSetupTree = await stageTree(options.worktree);
+    const preSetupIndex = await indexIdentity(options.worktree);
     const setup = await runBoundCheck({
       worktree: options.worktree,
       command: environmentSetup,
@@ -166,7 +174,8 @@ export async function runStableTreeChecks(
       };
     }
     const postSetupTree = await stageTree(options.worktree);
-    if (postSetupTree !== preSetupTree) {
+    const postSetupIndex = await indexIdentity(options.worktree);
+    if (postSetupTree !== preSetupTree || postSetupIndex !== preSetupIndex) {
       return {
         status: "failed",
         passes: 0,

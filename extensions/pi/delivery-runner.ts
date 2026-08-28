@@ -817,7 +817,9 @@ export class KartaDeliveryRunner {
           let state = await deriveItemGitState(repoRoot, binder, item.id);
           if (state.state === "done") continue;
           if (state.state === "merged-unmarked") {
-            await this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates);
+            // Serial recovery after the wave barrier: nothing is building concurrently,
+            // so only this item's own worktree may churn.
+            await this.#builds.runWithLease(ctx, binder, item.id, lease, owner, [item.id]);
             state = await deriveItemGitState(repoRoot, binder, item.id);
             if (state.state === "done") continue;
           }

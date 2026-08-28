@@ -30,9 +30,19 @@ export async function readEnvironmentSetup(
       { encoding: "utf8", maxBuffer: MAX_CONFIG_BYTES },
     );
     raw = stdout;
-  } catch {
-    // The ref or the path is absent (or the blob is oversized): no declared setup.
-    return undefined;
+  } catch (error) {
+    // `git show` fails with a recognizable message when the ref or the path is absent
+    // — that is the opt-out. Any other failure (repository corruption, permissions, a
+    // blob overflowing maxBuffer) must fail closed rather than silently skip setup.
+    const stderr = ((error as { stderr?: string }).stderr ?? "").trim();
+    if (/does not exist|exists on disk, but not in|invalid object name|unknown revision/i.test(stderr)) {
+      return undefined;
+    }
+    throw new Error(
+      `Karta could not read .karta/environment.json from ${integrationRef}: ${
+        stderr || (error as Error).message
+      }`,
+    );
   }
   let value: unknown;
   try {
