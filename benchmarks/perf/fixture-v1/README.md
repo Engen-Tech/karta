@@ -80,6 +80,19 @@ may drift between quarters:
    step 4 verbatim: step 5 counts a human prompt as a stall, not a datapoint, so
    a run that can stop to ask measures nothing.
 
+**One thing step 3 needs that the first cut did not say (2026-08-28):** project
+scope alone does not govern the run, because the operator's own `~/.claude` is in
+scope for every claude process. A user-level `karta-build` skill there (this repo's
+maintainers symlink `~/.claude/skills/karta-*` at the live checkout) resolves before
+the plugin's `karta:karta-build`; the user-scope plugin, hooks and memory load too.
+On claude 2.1.251 a run pinned at v2.31.0 executed 2.32.0 skill text and went
+looking for scripts its pinned tree did not carry. `runner.sh` therefore gives each
+run its own `CLAUDE_CONFIG_DIR` (`$RUN_ROOT/claude-config`) holding nothing but a
+copy of the operator's credentials, so the pinned plugin is the only karta the run
+can see. Two consequences: the transcripts land under that config dir, not
+`~/.claude/projects` — the runner prints `transcripts_dir=` for the miner — and the
+hooks were never the problem (they fired from the pinned tree throughout).
+
 Override `KARTA_REPO` to pin from a clone URL rather than this checkout;
 override `TIMEOUT` only to reproduce an old run that used a different cap, and
 say so in the results file.

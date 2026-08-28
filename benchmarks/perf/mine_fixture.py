@@ -63,7 +63,7 @@ MINER_PATH = HERE / "mine_sessions.py"
 FIXTURE_REL = Path("benchmarks/perf/fixtures/miner-transcript")
 
 ORACLE_RUNNER_RE = re.compile(r"run_oracle\.py")
-ITEM_MERGE_RE = re.compile(r"git\s+(?:-C\s+\S+\s+)?merge\b.*item-")
+ITEM_MERGE_RE = re.compile(r"git\s+(?:-C\s+\S+\s+)?merge\b.*item-", re.S)  # -m messages span lines
 GATE_PHASES = ("acceptance-reviewer", "safety-auditor")
 PHASES = ("orchestrator", "builder", "acceptance-reviewer", "safety-auditor", "other")
 
@@ -132,6 +132,47 @@ def _revalidation_before_merge(bash_commands: list[str]) -> tuple[int, int]:
     return evidenced, merges
 
 
+HEADLESS_DELIVER_RE = re.compile(r"<command-name>/(?:karta:)?karta-deliver</command-name>")
+
+
+def _unspawned_tool_use_ids(lines: list[dict]) -> dict[str, str]:
+    """tool_use id -> why no subagent transcript is expected for it: "denied" when
+    a PreToolUse hook refused the dispatch, "failed" when the tool itself errored
+    (an unknown agent type, say). Either way no context spun up, so the absence
+    of a transcript is a fact about the run, not a truncated record."""
+    out: dict[str, str] = {}
+    for line in lines:
+        if line.get("type") != "user":
+            continue
+        content = (line.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not (isinstance(block, dict) and block.get("type") == "tool_result"
+                    and block.get("tool_use_id")):
+                continue
+            body = block.get("content")
+            text = body if isinstance(body, str) else json.dumps(body or "")
+            if "hook error" in text:
+                out[str(block["tool_use_id"])] = "denied"
+            elif block.get("is_error") or text.startswith("Agent type "):
+                out[str(block["tool_use_id"])] = "failed"
+    return out
+
+
+def _headless_deliver_start(lines: list[dict], ms) -> "datetime | None":
+    """The timestamp of the first user line that is a slash-invoked karta-deliver
+    (`claude -p '/karta:karta-deliver <slug>'`), else None."""
+    for line in lines:
+        if line.get("type") != "user":
+            continue
+        content = (line.get("message") or {}).get("content")
+        text = content if isinstance(content, str) else json.dumps(content or "")
+        if HEADLESS_DELIVER_RE.search(text):
+            return ms._parse_ts(line.get("timestamp"))
+    return None
+
+
 def mine_run(session_file: Path, binder_paths: list[Path] | None = None) -> dict:
     """One session transcript -> the card's step-6 metric set for that run."""
     ms = load_mine_sessions()
@@ -151,6 +192,14 @@ def mine_run(session_file: Path, binder_paths: list[Path] | None = None) -> dict
     events = ms._iter_tool_events(lines)
     deliver_starts = [e["ts"] for e in events if e["kind"] == "deliver"]
     windows = ms._find_windows(events, session_end)
+    if not windows:
+        # The card's step 4 is `claude -p '/karta:karta-deliver bench'`: the skill is
+        # invoked from the prompt, so there is no Skill tool event to open a window
+        # on. A headless deliver prompt is one delivery spanning the whole session.
+        headless_start = _headless_deliver_start(lines, ms)
+        if headless_start is not None:
+            deliver_starts = [headless_start]
+            windows = [{"events": events, "end_ts": session_end}]
 
     subagents_dir = session_file.parent / session_file.stem / "subagents"
     meta_by_tool_use: dict[str, dict] = {}
@@ -164,10 +213,14 @@ def mine_run(session_file: Path, binder_paths: list[Path] | None = None) -> dict
             if meta.get("toolUseId"):
                 meta_by_tool_use[meta["toolUseId"]] = meta
 
+    unspawned = _unspawned_tool_use_ids(lines)
     spawns_per_item: Counter[str] = Counter()
     phase_turns: Counter[str] = Counter()
     phase_output_tokens: Counter[str] = Counter()
     gate_spawns_per_item: Counter[str] = Counter()
+    denied_dispatches: Counter[str] = Counter()
+    failed_dispatches: Counter[str] = Counter()
+    gate_spawns_per_item_phase: Counter[tuple[str, str]] = Counter()
     models = _models(lines)
     bash_commands: list[str] = []
     wall_minutes = 0.0
@@ -181,6 +234,12 @@ def mine_run(session_file: Path, binder_paths: list[Path] | None = None) -> dict
             if not (event["kind"] == "task" and event.get("id")):
                 continue
             meta = meta_by_tool_use.get(event["id"])
+            if meta is None and event["id"] in unspawned:
+                # No context spun up: a guard refused it, or the tool errored.
+                # Counted, never spawned.
+                (denied_dispatches if unspawned[event["id"]] == "denied"
+                 else failed_dispatches)["unattributed"] += 1
+                continue
             parsed = ms._parse_agent(meta["_jsonl"]) if meta else None
             if parsed is None:  # missing or truncated subagent file
                 return {"session": str(session_file), "unmeasurable": True,
@@ -191,16 +250,45 @@ def mine_run(session_file: Path, binder_paths: list[Path] | None = None) -> dict
             spawns_per_item[item or "unattributed"] += 1
             if phase in GATE_PHASES:
                 gate_spawns_per_item[item or "unattributed"] += 1
+                gate_spawns_per_item_phase[(item or "unattributed", phase)] += 1
             agent_lines = _read_jsonl(meta["_jsonl"])
             phase_turns[phase] += _assistant_turns(agent_lines)
             phase_output_tokens[phase] += parsed["output_tokens"]
             models |= _models(agent_lines)
+            # Gate reviewers are spawned by the builder, one level down: walk the
+            # builder's own tool_use blocks, attributing each to the builder's item.
+            nested_unspawned = _unspawned_tool_use_ids(agent_lines)
+            for nested in ms._iter_tool_events(agent_lines):
+                if not (nested["kind"] == "task" and nested.get("id")):
+                    continue
+                nmeta = meta_by_tool_use.get(nested["id"])
+                if nmeta is None and nested["id"] in nested_unspawned:
+                    (denied_dispatches if nested_unspawned[nested["id"]] == "denied"
+                     else failed_dispatches)[item or "unattributed"] += 1
+                    continue
+                nparsed = ms._parse_agent(nmeta["_jsonl"]) if nmeta else None
+                if nparsed is None:
+                    return {"session": str(session_file), "unmeasurable": True,
+                            "claude_cli_version": cc_version}
+                nphase = ms._classify(str(nmeta.get("agentType", "")), nparsed["first_user_text"])
+                spawns_per_item[item or "unattributed"] += 1
+                if nphase in GATE_PHASES:
+                    gate_spawns_per_item[item or "unattributed"] += 1
+                    gate_spawns_per_item_phase[(item or "unattributed", nphase)] += 1
+                nlines = _read_jsonl(nmeta["_jsonl"])
+                phase_turns[nphase] += _assistant_turns(nlines)
+                phase_output_tokens[nphase] += nparsed["output_tokens"]
+                models |= _models(nlines)
 
     phase_turns["orchestrator"] = _assistant_turns(lines)
     phase_output_tokens["orchestrator"] = _output_tokens(lines)
     evidenced, merges = _revalidation_before_merge(bash_commands)
-    retries = {item: n - 1 for item, n in gate_spawns_per_item.items()
-               if item != "unattributed" and n > 1}
+    # A retry is a SECOND spawn of the SAME gate for one item; the acceptance and
+    # safety gates are both expected once per item, so they are never each other's retry.
+    retries: Counter[str] = Counter()
+    for (item, _phase), n in gate_spawns_per_item_phase.items():
+        if item != "unattributed" and n > 1:
+            retries[item] += n - 1
 
     return {
         "session": str(session_file),
@@ -212,6 +300,8 @@ def mine_run(session_file: Path, binder_paths: list[Path] | None = None) -> dict
             "per_item": dict(sorted(retries.items())),
             "unattributed_gate_spawns": gate_spawns_per_item.get("unattributed", 0),
         },
+        "denied_dispatches": dict(sorted(denied_dispatches.items())),
+        "failed_dispatches": dict(sorted(failed_dispatches.items())),
         "merge_revalidations": {"evidenced": evidenced, "item_merges": merges},
         "phase_output_tokens": {phase: phase_output_tokens.get(phase, 0) for phase in PHASES},
         "wall_minutes": round(wall_minutes, 2),
@@ -349,6 +439,72 @@ def _write_synthetic(root: Path, merge_after_oracle: bool) -> Path:
     return session
 
 
+def _write_headless_synthetic(root: Path) -> Path:
+    """The card's step-4 shape, which the committed fixture does not carry: a
+    headless `claude -p '/karta:karta-deliver <slug>'` session (no Skill tool
+    event opens the window), the subagent tool named `Agent` (2.1.x), a gate
+    reviewer spawned one level down inside the builder, one gate dispatch refused
+    by a PreToolUse guard (a `hook error` tool_result, no transcript), and one
+    builder dispatch whose transcript is simply missing."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "binder.json").write_text(json.dumps({
+        "slug": "synth", "work_items": [
+            {"id": "alpha", "title": "A", "summary": "s",
+             "oracle": {"type": "unit", "command": "true"}}]}))
+
+    def assistant(ts: str, block: dict, model: str = "model-main") -> str:
+        return json.dumps({"type": "assistant",
+                           "message": {"role": "assistant", "model": model,
+                                       "content": [block], "usage": {"output_tokens": 10}},
+                           "timestamp": ts})
+
+    def agent(tid: str, description: str) -> dict:
+        return {"type": "tool_use", "id": tid, "name": "Agent",
+                "input": {"description": description, "prompt": "go"}}
+
+    def result(tid: str, text: str, ts: str) -> str:
+        return json.dumps({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": tid, "content": text}]}, "timestamp": ts})
+
+    rows = [
+        json.dumps({"type": "user", "message": {"role": "user", "content":
+                    "<command-message>karta:karta-deliver</command-message>\n"
+                    "<command-name>/karta:karta-deliver</command-name>\n"
+                    "<command-args>synth</command-args>"},
+                    "timestamp": "2026-07-01T10:00:00.000Z", "version": "9.9.9"}),
+        assistant("2026-07-01T10:01:00.000Z", agent("b1", "Build alpha item")),
+        result("b1", "built", "2026-07-01T10:05:00.000Z"),
+        json.dumps({"type": "user", "message": {"role": "user", "content": "end"},
+                    "timestamp": "2026-07-01T10:06:00.000Z"}),
+    ]
+    session = root / "sess-headless.jsonl"
+    session.write_text("\n".join(rows) + "\n")
+    subagents = root / "sess-headless" / "subagents"
+    subagents.mkdir(parents=True, exist_ok=True)
+    # the builder: one refused gate dispatch, then the real one, nested one level down
+    (subagents / "agent-b1.meta.json").write_text(_SYNTH_META.format(
+        agent_type="general-purpose", description="Build alpha item", tool_use_id="b1"))
+    (subagents / "agent-b1.jsonl").write_text("\n".join([
+        json.dumps({"type": "user", "message": {"role": "user", "content":
+                    "Invoke the karta-build skill for item alpha"},
+                    "timestamp": "2026-07-01T10:01:10.000Z"}),
+        assistant("2026-07-01T10:02:00.000Z", agent("g0", "Acceptance gate for alpha item"), "model-build"),
+        result("g0", "PreToolUse:Agent hook error: karta: this gate-reviewer dispatch names "
+                     "an empty diff", "2026-07-01T10:02:05.000Z"),
+        assistant("2026-07-01T10:03:00.000Z", agent("g1", "Acceptance gate for alpha item"), "model-build"),
+        result("g1", "CONFORMANT", "2026-07-01T10:04:00.000Z"),
+    ]) + "\n")
+    (subagents / "agent-g1.meta.json").write_text(_SYNTH_META.format(
+        agent_type="karta:karta-acceptance-reviewer", description="Acceptance gate for alpha item",
+        tool_use_id="g1"))
+    (subagents / "agent-g1.jsonl").write_text("\n".join([
+        json.dumps({"type": "user", "message": {"role": "user", "content": "gate"},
+                    "timestamp": "2026-07-01T10:03:10.000Z"}),
+        assistant("2026-07-01T10:03:50.000Z", {"type": "text", "text": "CONFORMANT"}, "model-gate"),
+    ]) + "\n")
+    return session
+
+
 def _run_self_test() -> int:
     repo_root = HERE.parent.parent
     fixture = repo_root / FIXTURE_REL
@@ -395,6 +551,34 @@ def _run_self_test() -> int:
                         "nothing, while the merges still count",
                         control_run["merge_revalidations"] == {"evidenced": 0, "item_merges": 2},
                         str(control_run["merge_revalidations"])))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "headless"
+        session = _write_headless_synthetic(root)
+        run = mine_run(session, binder_paths=[root / "binder.json"])
+        results.append(("headless: a slash-invoked karta-deliver prompt opens the delivery "
+                        "window with no Skill tool event",
+                        run.get("deliveries") == 1 and run.get("wall_minutes") == 6.0,
+                        f"{run.get('deliveries')} {run.get('wall_minutes')}"))
+        results.append(("headless: the `Agent` tool name is the subagent tool, and a gate "
+                        "spawned inside the builder is attributed to the builder's item",
+                        run.get("spawned_contexts_per_item") == {"alpha": 2}
+                        and run.get("phase_turns", {}).get("acceptance-reviewer") == 1
+                        and run.get("phase_turns", {}).get("builder") == 2,
+                        f"{run.get('spawned_contexts_per_item')} {run.get('phase_turns')}"))
+        results.append(("headless: a dispatch a PreToolUse guard refused is counted as denied, "
+                        "not spawned and not a retry",
+                        run.get("denied_dispatches") == {"alpha": 1}
+                        and run.get("verify_retries", {}).get("total") == 0,
+                        f"{run.get('denied_dispatches')} {run.get('verify_retries')}"))
+        # negative control: the same session with the gate transcript deleted is
+        # unmeasurable — a missing file is never read as a denial.
+        (root / "sess-headless" / "subagents" / "agent-g1.jsonl").unlink()
+        (root / "sess-headless" / "subagents" / "agent-g1.meta.json").unlink()
+        broken = mine_run(session, binder_paths=[root / "binder.json"])
+        results.append(("headless negative control: a spawned subagent whose transcript is "
+                        "missing makes the run unmeasurable, not a denial",
+                        broken.get("unmeasurable") is True, str(broken)[:120]))
 
     results.append(("the miner reuses mine_sessions rather than forking it",
                     all(hasattr(load_mine_sessions(), name)

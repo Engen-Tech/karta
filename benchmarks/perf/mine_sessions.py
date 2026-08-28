@@ -223,7 +223,7 @@ def _iter_tool_events(lines: list[dict]) -> list[dict]:
             inp = block.get("input") or {}
             if name == "Skill" and DELIVER_RE.search(str(inp.get("skill", ""))):
                 events.append({"ts": ts, "kind": "deliver"})
-            elif name == "Task":
+            elif name in ("Task", "Agent"):  # the subagent tool: Task, renamed Agent in 2.1.x
                 text = f"{inp.get('description', '')} {inp.get('prompt', '')}"
                 events.append({"ts": ts, "kind": "task", "id": block.get("id"),
                                "karta_build": "karta-build" in text})
