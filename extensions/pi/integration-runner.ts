@@ -233,7 +233,7 @@ export class KartaIntegrationRunner {
       const convergence = await runStableTreeChecks({
         worktree: integrationWorktree,
         checks: plan,
-        environmentSetupCwd: ctx.cwd,
+        environmentSetupRef: `refs/heads/karta/${binder}/integration`,
         signal: ctx.signal,
         onProcessStart: processContext
           ? (pid) => processContext.manager.registerProcess(pid, {
@@ -406,7 +406,7 @@ export class KartaIntegrationRunner {
         const convergence = await runStableTreeChecks({
           worktree: proposedWorktree,
           checks: plan,
-          environmentSetupCwd: ctx.cwd,
+          environmentSetupRef: `refs/heads/karta/${binder}/integration`,
           signal: ctx.signal,
           onProcessStart: processContext
             ? (pid) => processContext.manager.registerProcess(pid, {
@@ -643,7 +643,7 @@ export class KartaIntegrationRunner {
         const postAccept = await runStableTreeChecks({
           worktree: integrationWorktree,
           checks: plan,
-          environmentSetupCwd: ctx.cwd,
+          environmentSetupRef: `refs/heads/karta/${binder}/integration`,
           signal: ctx.signal,
           onProcessStart: processContext
             ? (pid) => processContext.manager.registerProcess(pid, {

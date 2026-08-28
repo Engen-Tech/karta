@@ -130,9 +130,17 @@ async function siblingIdentity(
   worktree: string,
   registry: string,
   binder?: string,
+  waveMates?: readonly string[],
 ): Promise<string> {
   const current = await realpath(worktree);
-  const waveMatePrefix = binder ? `karta/${binder}/item-` : undefined;
+  // Only the item worktrees dispatched together in THIS wave legitimately churn
+  // while this worker builds, so exactly those are exempted from the volatile
+  // status hash (HEAD and branch are still kept). Every other sibling — foreign
+  // worktrees, other/prior-wave item worktrees, stale leftovers — keeps full
+  // status checking, so a worker reaching outside its concurrent batch is caught.
+  const waveMateBranches = binder && waveMates && waveMates.length > 0
+    ? new Set(waveMates.map((id) => `karta/${binder}/item-${id}`))
+    : undefined;
   const records: string[] = [];
   for (const path of worktreePaths(registry).sort()) {
     let physical: string;
@@ -157,8 +165,7 @@ async function siblingIdentity(
     // volatile status is therefore excluded so a sibling building in parallel is
     // not mistaken for a protected-surface violation, while HEAD/branch tampering
     // stays caught. Every foreign worktree keeps full status checking.
-    const isWaveMate =
-      waveMatePrefix !== undefined && branch.trim().startsWith(waveMatePrefix);
+    const isWaveMate = waveMateBranches?.has(branch.trim()) ?? false;
     records.push(
       isWaveMate
         ? `${physical}\0${head.trim()}\0${branch.trim()}\0wave-mate`
@@ -171,6 +178,7 @@ async function siblingIdentity(
 export async function snapshotWorkerAuthority(
   worktree: string,
   binder?: string,
+  waveMates?: readonly string[],
 ): Promise<WorkerAuthoritySnapshot> {
   const physical = await realpath(worktree);
   const [branch, head, index, refs, localConfig, worktreeConfig, registry, protectedPaths, hooks] =
@@ -210,7 +218,7 @@ export async function snapshotWorkerAuthority(
     hooks,
     worktrees: hash(registry),
     protectedPaths: hash(protectedPaths),
-    siblings: await siblingIdentity(physical, registry, binder),
+    siblings: await siblingIdentity(physical, registry, binder, waveMates),
   };
 }
 

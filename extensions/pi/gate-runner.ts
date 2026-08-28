@@ -294,7 +294,14 @@ function gateEvidenceRepairPrompt(gaps: string[]): string {
 // protocol lapse, not a finding, so the gate gets one corrective turn to read what
 // it skipped before validateRoleToolResult enforces the same requirement hard.
 export function evidenceReadGaps(profile: {
-  evidenceToolState: { actions: ReadonlySet<string> };
+  role: { id: string };
+  evidenceToolState: {
+    actions: ReadonlySet<string>;
+    requiredPacks: readonly string[];
+    packs: ReadonlySet<string>;
+    requiredCitations: readonly number[];
+    citations: ReadonlySet<number>;
+  };
   roleToolState: { invoked: boolean };
 }): string[] {
   const gaps: string[] = [];
@@ -302,6 +309,22 @@ export function evidenceReadGaps(profile: {
     if (!profile.evidenceToolState.actions.has(action)) gaps.push(`the ${action} evidence`);
   }
   if (!profile.roleToolState.invoked) gaps.push("your required role tool");
+  // The safety gate additionally must read every pinned stack pack and repo-rule
+  // citation; validateRoleToolResult hard-fails otherwise, and that is the read a
+  // reviewer of a large diff skips most. Surface those as gaps so the same one
+  // corrective turn covers the safety gate's most failure-prone requirement.
+  if (profile.role.id === "safety-gate") {
+    const unreadPacks = profile.evidenceToolState.requiredPacks.filter(
+      (id) => !profile.evidenceToolState.packs.has(id),
+    );
+    if (unreadPacks.length > 0) gaps.push(`pinned stack pack(s): ${unreadPacks.join(", ")}`);
+    const unreadCitations = profile.evidenceToolState.requiredCitations.filter(
+      (index) => !profile.evidenceToolState.citations.has(index),
+    );
+    if (unreadCitations.length > 0) {
+      gaps.push(`repo-rule citation(s): ${unreadCitations.map(String).join(", ")}`);
+    }
+  }
   return gaps;
 }
 

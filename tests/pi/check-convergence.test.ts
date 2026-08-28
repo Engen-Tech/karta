@@ -109,21 +109,24 @@ test("check plans reject duplicate ids and unsafe cwd", async () => {
   }
 });
 
+async function commitEnv(repo: string, setup: string): Promise<void> {
+  await writeFile(join(repo, ".gitignore"), "dep/\n");
+  await mkdir(join(repo, ".karta"), { recursive: true });
+  await writeFile(join(repo, ".karta", "environment.json"), `{ "setup": ${JSON.stringify(setup)} }`);
+  await git(repo, ["add", "-A"]);
+  await git(repo, ["commit", "--no-gpg-sign", "-m", "env"]);
+}
+
 test("a declared environment setup runs in the worktree before checks", async () => {
   const state = await fixture(
     "import { existsSync } from 'node:fs'; process.exit(existsSync('dep/marker') ? 0 : 5);\n",
   );
   try {
-    await writeFile(join(state.repo, ".gitignore"), "dep/\n");
-    await mkdir(join(state.repo, ".karta"), { recursive: true });
-    await writeFile(
-      join(state.repo, ".karta", "environment.json"),
-      `{ "setup": "mkdir -p dep && echo ok > dep/marker" }`,
-    );
+    await commitEnv(state.repo, "mkdir -p dep && echo ok > dep/marker");
     const result = await runStableTreeChecks({
       worktree: state.repo,
       checks: plan,
-      environmentSetupCwd: state.repo,
+      environmentSetupRef: "HEAD",
     });
     assert.equal(result.status, "stable");
   } finally {
@@ -134,16 +137,32 @@ test("a declared environment setup runs in the worktree before checks", async ()
 test("a failing environment setup halts before checks with a named result", async () => {
   const state = await fixture("process.exit(0);\n");
   try {
-    await mkdir(join(state.repo, ".karta"), { recursive: true });
-    await writeFile(join(state.repo, ".karta", "environment.json"), `{ "setup": "exit 3" }`);
+    await commitEnv(state.repo, "exit 3");
     const result = await runStableTreeChecks({
       worktree: state.repo,
       checks: plan,
-      environmentSetupCwd: state.repo,
+      environmentSetupRef: "HEAD",
     });
     assert.equal(result.status, "failed");
     assert.equal(result.check?.id, "environment-setup");
     assert.equal(result.check?.result.code, 3);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("an environment setup that mutates a tracked file is refused", async () => {
+  const state = await fixture("process.exit(0);\n");
+  try {
+    await commitEnv(state.repo, "echo drift >> subject.txt");
+    const result = await runStableTreeChecks({
+      worktree: state.repo,
+      checks: plan,
+      environmentSetupRef: "HEAD",
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.check?.id, "environment-setup");
+    assert.match(result.check?.result.stderr ?? "", /mutated tracked files/);
   } finally {
     await state.cleanup();
   }

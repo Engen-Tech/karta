@@ -481,26 +481,64 @@ test("a prose-wrapped verdict object is not accepted without repair — gate str
   assert.equal(wrapped.calls.length, 2);
 });
 
+function gapsProfile(over: {
+  roleId?: string;
+  actions?: string[];
+  invoked?: boolean;
+  requiredPacks?: string[];
+  packs?: string[];
+  requiredCitations?: number[];
+  citations?: number[];
+}) {
+  return {
+    role: { id: over.roleId ?? "acceptance-gate" },
+    evidenceToolState: {
+      actions: new Set(over.actions ?? []),
+      requiredPacks: over.requiredPacks ?? [],
+      packs: new Set(over.packs ?? []),
+      requiredCitations: over.requiredCitations ?? [],
+      citations: new Set(over.citations ?? []),
+    },
+    roleToolState: { invoked: over.invoked ?? true },
+  };
+}
+
 test("evidence-read gaps name every unread required section and the role tool", () => {
+  assert.deepEqual(evidenceReadGaps(gapsProfile({ actions: ["summary", "workItem"] })), [
+    "the diff evidence",
+  ]);
+  assert.deepEqual(evidenceReadGaps(gapsProfile({ actions: [], invoked: false })), [
+    "the summary evidence",
+    "the workItem evidence",
+    "the diff evidence",
+    "your required role tool",
+  ]);
+  assert.deepEqual(evidenceReadGaps(gapsProfile({ actions: ["summary", "workItem", "diff"] })), []);
+});
+
+test("the safety gate also gets gaps for unread pinned packs and citations", () => {
   assert.deepEqual(
-    evidenceReadGaps({
-      evidenceToolState: { actions: new Set(["summary", "workItem"]) },
-      roleToolState: { invoked: true },
-    }),
-    ["the diff evidence"],
+    evidenceReadGaps(
+      gapsProfile({
+        roleId: "safety-gate",
+        actions: ["summary", "workItem", "diff"],
+        requiredPacks: ["minimalism", "skill-authoring"],
+        packs: ["minimalism"],
+        requiredCitations: [0, 2],
+        citations: [0],
+      }),
+    ),
+    ["pinned stack pack(s): skill-authoring", "repo-rule citation(s): 2"],
   );
   assert.deepEqual(
-    evidenceReadGaps({
-      evidenceToolState: { actions: new Set() },
-      roleToolState: { invoked: false },
-    }),
-    ["the summary evidence", "the workItem evidence", "the diff evidence", "your required role tool"],
-  );
-  assert.deepEqual(
-    evidenceReadGaps({
-      evidenceToolState: { actions: new Set(["summary", "workItem", "diff"]) },
-      roleToolState: { invoked: true },
-    }),
+    evidenceReadGaps(
+      gapsProfile({
+        roleId: "acceptance-gate",
+        actions: ["summary", "workItem", "diff"],
+        requiredPacks: ["minimalism"],
+        packs: [],
+      }),
+    ),
     [],
   );
 });

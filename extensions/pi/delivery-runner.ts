@@ -769,6 +769,7 @@ export class KartaDeliveryRunner {
           return state !== "done" && item.depends_on.every((dependency) => states.get(dependency)?.state === "done");
         });
         const batch = collisionBatch(ready);
+        const waveMates = batch.map((waveItem) => waveItem.id);
         if (batch.length === 0) {
           return {
             schema: "karta-delivery-v1",
@@ -780,7 +781,7 @@ export class KartaDeliveryRunner {
           };
         }
         const builds = await Promise.all(
-          batch.map((item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner)),
+          batch.map((item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates)),
         );
         const waveResult: KartaDeliveryWave = {
           wave: waveNumber,
@@ -816,7 +817,7 @@ export class KartaDeliveryRunner {
           let state = await deriveItemGitState(repoRoot, binder, item.id);
           if (state.state === "done") continue;
           if (state.state === "merged-unmarked") {
-            await this.#builds.runWithLease(ctx, binder, item.id, lease, owner);
+            await this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates);
             state = await deriveItemGitState(repoRoot, binder, item.id);
             if (state.state === "done") continue;
           }

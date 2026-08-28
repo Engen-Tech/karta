@@ -105,13 +105,13 @@ test("worker staging and branch movement are detected", async () => {
   }
 });
 
-test("a concurrent wave-mate's working-tree churn is tolerated when the binder is known", async () => {
+test("a concurrent wave-mate's working-tree churn is tolerated when it is in the batch", async () => {
   const state = await fixture();
   try {
-    const before = await snapshotWorkerAuthority(state.item, "demo");
+    const before = await snapshotWorkerAuthority(state.item, "demo", ["item-b"]);
     await writeFile(join(state.waveMate, "subject.txt"), "mate building\n");
     await writeFile(join(state.waveMate, "mate-new.txt"), "mate new\n");
-    const after = await snapshotWorkerAuthority(state.item, "demo");
+    const after = await snapshotWorkerAuthority(state.item, "demo", ["item-b"]);
     assert.equal(attestWorkerAuthority(before, after).passed, true);
 
     // Without the binder context the same class of wave-mate churn trips the guard
@@ -127,19 +127,40 @@ test("a concurrent wave-mate's working-tree churn is tolerated when the binder i
   }
 });
 
-test("a wave-mate's HEAD or branch tampering is still caught with the binder known", async () => {
+test("a wave-mate's HEAD or branch tampering is still caught even inside the batch", async () => {
   const state = await fixture();
   try {
-    const before = await snapshotWorkerAuthority(state.item, "demo");
+    const before = await snapshotWorkerAuthority(state.item, "demo", ["item-b"]);
     await writeFile(join(state.waveMate, "candidate.txt"), "forged\n");
     await git(state.waveMate, ["add", "candidate.txt"]);
     await git(state.waveMate, ["commit", "--no-gpg-sign", "-m", "forged wave-mate commit"]);
-    const attestation = attestWorkerAuthority(before, await snapshotWorkerAuthority(state.item, "demo"));
+    const attestation = attestWorkerAuthority(
+      before,
+      await snapshotWorkerAuthority(state.item, "demo", ["item-b"]),
+    );
     assert.equal(attestation.passed, false);
     assert.ok(
       attestation.issues.includes("worker changed protected authority surface: siblings"),
       `expected a siblings violation, got ${attestation.issues.join(", ")}`,
     );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("an item worktree outside this wave's batch keeps full status checking", async () => {
+  const state = await fixture();
+  try {
+    // item-b is a binder item worktree but NOT in this wave's batch (only item-a is),
+    // so the prior blanket prefix would have blinded it; the exact-set fix does not.
+    const before = await snapshotWorkerAuthority(state.item, "demo", ["item-a"]);
+    await writeFile(join(state.waveMate, "stray.txt"), "outside the batch\n");
+    const attestation = attestWorkerAuthority(
+      before,
+      await snapshotWorkerAuthority(state.item, "demo", ["item-a"]),
+    );
+    assert.equal(attestation.passed, false);
+    assert.deepEqual(attestation.issues, ["worker changed protected authority surface: siblings"]);
   } finally {
     await state.cleanup();
   }

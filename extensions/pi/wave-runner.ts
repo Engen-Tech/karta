@@ -166,7 +166,7 @@ export class KartaWaveRunner {
       const convergence = await runStableTreeChecks({
         worktree: integrationWorktree,
         checks: plan,
-        environmentSetupCwd: ctx.cwd,
+        environmentSetupRef: `refs/heads/karta/${anchor.binder}/integration`,
         signal: ctx.signal,
         onProcessStart: processContext
           ? (pid) => processContext.manager.registerProcess(pid, {

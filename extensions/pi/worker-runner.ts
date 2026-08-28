@@ -224,7 +224,11 @@ export type WorkerInstructionLoader = (
 ) => Promise<WorkerProjectInstruction[]>;
 
 interface WorkerAuthorityInspector {
-  snapshot(worktree: string, binder?: string): Promise<WorkerAuthoritySnapshot>;
+  snapshot(
+    worktree: string,
+    binder?: string,
+    waveMates?: readonly string[],
+  ): Promise<WorkerAuthoritySnapshot>;
   attest(before: WorkerAuthoritySnapshot, after: WorkerAuthoritySnapshot): WorkerAuthorityAttestation;
 }
 
@@ -262,6 +266,7 @@ export class KartaBuildWorkerRunner {
     parentId?: string,
     mode: "implement" | "recover-committed" | "recover-merged" = "implement",
     onFirstMutation?: () => Promise<void> | void,
+    waveMates: readonly string[] = [],
   ): Promise<KartaWorkerResult> {
     const instructions = await this.#loadInstructions(worktree);
     const profile = createBuildWorkerCapabilityProfile(
@@ -270,7 +275,7 @@ export class KartaBuildWorkerRunner {
       instructions,
       onFirstMutation,
     );
-    const before = await this.#authority.snapshot(worktree, binder);
+    const before = await this.#authority.snapshot(worktree, binder, waveMates);
     let response: { text: string; runtime: ChildRuntimeReport } | undefined;
     let invocationError: unknown;
     try {
@@ -297,7 +302,7 @@ export class KartaBuildWorkerRunner {
     } catch (error) {
       invocationError = error;
     }
-    const after = await this.#authority.snapshot(worktree, binder);
+    const after = await this.#authority.snapshot(worktree, binder, waveMates);
     const attestation = this.#authority.attest(before, after);
     if (!attestation.passed) {
       throw new Error(`Karta worker violated host authority: ${attestation.issues.join("; ")}`);

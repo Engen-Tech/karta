@@ -29,7 +29,7 @@ export type CheckConvergenceCheckpoint =
 export interface RunCheckConvergenceOptions {
   worktree: string;
   checks: KartaCheckPlanEntry[];
-  environmentSetupCwd?: string;
+  environmentSetupRef?: string;
   signal?: AbortSignal;
   maxPasses?: number;
   onProcessStart?: (pid: number) => void;
@@ -138,13 +138,17 @@ export async function runStableTreeChecks(
   if (!Number.isInteger(maxPasses) || maxPasses < 1 || maxPasses > 10) {
     throw new Error("Karta check convergence maxPasses must be an integer from 1 to 10");
   }
-  const environmentSetup = options.environmentSetupCwd
-    ? await readEnvironmentSetup(options.environmentSetupCwd)
+  const environmentSetup = options.environmentSetupRef
+    ? await readEnvironmentSetup(options.worktree, options.environmentSetupRef)
     : undefined;
   if (environmentSetup) {
-    // Provision the check worktree's declared environment (e.g. install deps into a
-    // gitignored directory) once, before staging. A gitignored install cannot drift
-    // the staged tree, so this never perturbs the target-tree stability invariant.
+    // Provision the check worktree's declared environment (install deps into a
+    // gitignored directory) once, before staging. The command is read from the
+    // integration ref's committed, gate-approved blob. It must touch only gitignored
+    // paths: we stage before and after and require the tree be unchanged, so a setup
+    // that mutates a tracked file cannot ride unreviewed into the merged tree and
+    // the target-tree stability invariant is preserved.
+    const preSetupTree = await stageTree(options.worktree);
     const setup = await runBoundCheck({
       worktree: options.worktree,
       command: environmentSetup,
@@ -157,8 +161,26 @@ export async function runStableTreeChecks(
       return {
         status: setup.status,
         passes: 0,
-        targetTree: await stageTree(options.worktree),
+        targetTree: preSetupTree,
         check: { id: "environment-setup", result: setup as HaltedUnboundCheckResult },
+      };
+    }
+    const postSetupTree = await stageTree(options.worktree);
+    if (postSetupTree !== preSetupTree) {
+      return {
+        status: "failed",
+        passes: 0,
+        targetTree: postSetupTree,
+        check: {
+          id: "environment-setup",
+          result: {
+            ...setup,
+            status: "failed",
+            stderr:
+              `${setup.stderr}\nKarta environment setup mutated tracked files; it must provision only gitignored paths.`
+                .trim(),
+          } as HaltedUnboundCheckResult,
+        },
       };
     }
   }

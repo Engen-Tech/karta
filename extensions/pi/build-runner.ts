@@ -183,7 +183,7 @@ export class KartaBuildItemRunner {
       throw error;
     }
     try {
-      return await this.#runLocked(ctx, binder, item, lease, owner);
+      return await this.#runLocked(ctx, binder, item, lease, owner, [item]);
     } finally {
       try {
         await this.#processes.stopOwner(owner);
@@ -199,11 +199,12 @@ export class KartaBuildItemRunner {
     item: string,
     lease: DispatchLockLease,
     owner: BinderLifecycleOwner,
+    waveMates: readonly string[] = [item],
   ): Promise<KartaBuildItemResult> {
     if (!(await this.#locks.owns(lease)) || owner.binder !== binder) {
       throw new Error("Karta build item requires its delivery-owned binder lease and lifecycle");
     }
-    return this.#runLocked(ctx, binder, item, lease, owner);
+    return this.#runLocked(ctx, binder, item, lease, owner, waveMates);
   }
 
   async #runLocked(
@@ -212,6 +213,7 @@ export class KartaBuildItemRunner {
     item: string,
     lease: DispatchLockLease,
     owner: BinderLifecycleOwner,
+    waveMates: readonly string[],
   ): Promise<KartaBuildItemResult> {
       let state = await deriveItemGitState(ctx.cwd, binder, item);
       await this.#checkpoint("state-derived");
@@ -267,6 +269,7 @@ export class KartaBuildItemRunner {
           owner.id,
           recoverCommitted ? "recover-committed" : recoverMerged ? "recover-merged" : "implement",
           () => this.#checkpoint("first-worker-edit"),
+          waveMates,
         );
         await this.#checkpoint("worker-attested");
         if (worker.outcome === "blocked") {
