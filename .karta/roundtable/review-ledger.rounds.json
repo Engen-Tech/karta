@@ -1,0 +1,1160 @@
+{
+ "binder": "review-ledger",
+ "kind": "binder",
+ "tool": "roundtable-critique",
+ "agents": [
+  {
+   "provider": "codex"
+  },
+  {
+   "provider": "claude",
+   "model": "claude-opus-4-8[1m]"
+  },
+  {
+   "provider": "antigravity"
+  }
+ ],
+ "note": "Hand-kept per-round ledger (the last one written by hand: this binder builds the mechanism). Same shape as context-economy.rounds.json; staged_blob_sha256 is `git show :.karta/binders/review-ledger.json | sha256sum` at dispatch time.",
+ "rounds": [
+  {
+   "round": 1,
+   "staged_blob_sha256": "ba867a4e828446e7ce8ad8c68e350b43e089a115515b6f51745f5096285cdc1a",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "round-recorder: the migration oracle pinned 2 of 13 hashes → recursive preservation walk against git HEAD (only the header note and the two renamed identity keys may change; outcome block kept)",
+    "ledger-gate: pathspec commits could omit a merely-staged ledger; malformed/empty/keyless ledgers would hit the fail-open handler; keying not proven → three rules in the contract and seven named self-test cases the oracle requires by [PASS] line",
+    "watch-review-history: nothing forbade v-html on free-prose findings → text-only rendering, v-html count pinned at 12, escaping behaviour registered and anchored; a mid-session archive now keeps the strip without widening the archived poll entry",
+    "review-ledger-record: doc-truth probe checks pointers not claims → the new claims (round-13 hash prefix, provider that returned nothing, one ledger per tip) are grepped"
+   ],
+   "findings_refuted_or_deferred": [
+    "hunt point 6 (archive commit tripping the gate) — settled by reading the gate: /archive/ paths are excluded"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 2,
+   "staged_blob_sha256": "17131cdbc2d2594b1d5463a4fc1aac210ed635c16602e24ae6ebcd889dc0357d",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the oracle now drives decide() with unparseable JSON, missing/empty rounds and a keyless last round, requiring a denial without an exception — the fail-open handler cannot be reached by a bad ledger",
+    "round-recorder: preservation walk pinned to the fixed pre-migration commit 4602ecf instead of HEAD (HEAD becomes a tautology once the migration lands); the oracle no longer requires its own method name inside the ledger text"
+   ],
+   "findings_refuted_or_deferred": [
+    "codex returned only its preamble this round — no verdict; counted as no review"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 3,
+   "staged_blob_sha256": "353b5df59340d88c38caab9f9ecf590d68df3ba80104fa181fdc0cb6076500b5",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the malformed-ledger loop now covers every type-wrong shape (array/number top level, rounds as object, null/numeric round, empty/non-string hash) and the contract states the total validation rule",
+    "round-recorder: the oracle asserts below_floor is False on all thirteen migrated rounds, not merely present"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude [low]: pathspec presence and exact keying proven by named self-test lines — accepted, backstopped by the content-addressed hash"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 4,
+   "staged_blob_sha256": "bab36f714126fff35466d2a57173e76bc58ca5ffd91424eeeccfddc949434d64",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: every review-derived string (provider, verdict, status, notes, findings) renders as text with hostile values injected into each; the review component template must contain no v-html (the global count alone could be gamed); record-only binders render their verdicts with an explicit no-rounds state; absent-strip behaviour renamed to no-review"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 5,
+   "staged_blob_sha256": "dbf906dc622870901f2637186e9132907a0415f045f9f1e69c68d0d516e2d807",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: slugs validated against the binder grammar and resolved beneath the roundtable directory before any read (traversal + symlink negative controls)",
+    "watch-review-history: corrupt or half-written review files degrade that binder to an explicit unavailable state; current_state() never raises",
+    "watch-review-history: stale four-behaviour wording and pre-rename name corrected (both reviewers)",
+    "watch-review-history: escaping invariant restated as no raw hostile bytes in the document, round-trip through the inlined state, text-only bindings"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 6,
+   "staged_blob_sha256": "f7d0a1cf16e2812b6000c3f9334e486eda5736864c38403ef5520238a94f33eb",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: complete nested schema (provider entries must be objects with typed fields, hashes non-empty strings, findings lists of strings); a module-level load_review(root, slug) that the oracle drives directly with a valid pair, traversal/bad-grammar/symlink slugs and seven corrupt shapes, each degrading without raising",
+    "watch-review-history: one unified escaping invariant (unchanged round-trip through the inlined state, no payload-originated markup breakout, text-only bindings, no v-html) replacing the contradictory entity-encoding claims (both reviewers)",
+    "watch-review-history: data-kw-review-verdict grepped; stale four-behaviours wording in assertions corrected"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 7,
+   "staged_blob_sha256": "0cfbed26b24804e60f610c78c872832a7588e01505a202c2f8a54261e7050c96",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: containment proven with a sys.addaudithook — the outside sentinel is never opened for a record symlink or a ledger symlink beside a valid record (read-then-reject fails)",
+    "watch-review-history: corruption table extended to provider leaf types, boolean rounds, empty rounds, non-string finding elements, non-object panel entries",
+    "watch-review-history: provider fields pinned as optional keys (absent reads as null) so clause 11 and the migration agree (Claude)",
+    "watch-review-history: whole-file v-html count replaced by a render probe — served page carries no v-html and no raw hostile bytes while values round-trip through the inlined state (Claude)"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": "Executing the new render probe showed the served page inlines this binder's own text (14 `v-html` literals inside the inlined state, 0 outside) and that the inert encoder leaves `onerror=` as harmless text — the probe and clause (10) were corrected to scope v-html outside the inlined state and to assert no markup forms rather than no attribute substring survives."
+  },
+  {
+   "round": 8,
+   "staged_blob_sha256": "f078a19e3ade0c764e191cc8259a2bbd9b4477073c4e6faf5e51079b7f47a6b4",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: the audit-hook probe recorded its own fixture write and compared symlink paths by name (both reviewers, reproduced) → fixtures built before the hook, every opened path resolved with os.path.realpath and compared to the sentinels; proven on stubs: read-then-reject fails, containment-first passes",
+    "watch-review-history: the outside ledger symlink now targets a valid ledger",
+    "watch-review-history: every raw-HTML sink literal (v-html, innerHTML, outerHTML, insertAdjacentHTML, document.write, v-bind:innerhtml) asserted absent, case-insensitively, from the served document outside the inlined state — measured zero of each today (codex)",
+    "watch-review-history: notes/run_at/below_floor and record run_at/tool typed in the schema, with notes-as-list and below_floor-as-string corruption cases (codex)"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 9,
+   "staged_blob_sha256": "9a537bf42811b6986c33a813c5fd803a3af98ab9d9822cb1a37849b21ea01c3c",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: escaping made structural — the review template region (data-kw-review-strip … data-kw-review-end) may bind only :key and :class, no event handler may name a review field, values render through text bindings; sink denylist (now incl. srcdoc) kept as a second net (codex :srcdoc bypass)",
+    "watch-review-history: one corrupt fixture per typed field — record hash/run_at/tool, panel provider/verdict, round run_at, provider verdict/status, second findings list, empty hash (codex)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude low: URL attribute bindings from review data — covered by the structural rule"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 10,
+   "staged_blob_sha256": "779bb7620e9b101e0906723d5f7565cf4a7992d0630d2e24f4d4642c1d892ef0",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: binding tokens in the review template whitelisted by exact spelling (:key, v-bind:key, :class, v-bind:class, v-text) — dynamic :[arg], bare v-bind=/v-on= objects and every handler rejected; no binding or handler outside the region may name a review field; unit-checked on synthetic regions (clean passes; srcdoc, dynamic, bare, single-quoted handler, v-html, :href rejected)",
+    "watch-review-history: omission fixtures for every required field (record hash/panel, non-list panel, round number, providers, either findings list, scalar provider entry) and the empty record hash (codex + claude)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude low: region slice order-dependence — fails closed; accepted"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 11,
+   "staged_blob_sha256": "0877c2f3d0db99a7a49ca3810600f0fdbae87ca1427ca4945a9eb6e9332de945",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: FIELDS pattern lacked a leading word boundary so `background` matched `round` — the real page has seven such :style bindings and the check was unsatisfiable (claude, reproduced) → whole-word matching; probe now proven against the real rendered page with a benign region injected",
+    "watch-review-history: whitespace around = tolerated in both regexes; long-form v-on: covered in the outside-region rule (codex, reproduced); attacks proven rejected on the real page: :srcdoc in region, spaced :href outside, long-form v-on outside",
+    "watch-review-history: omission fixtures for a round reviewed_hash and a panel entry provider/verdict key (verdict must be present even when null) (codex)"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 12,
+   "staged_blob_sha256": "fe6cc01700e7843641c6e695edce006ce75affb80cccb91c521dcc31dd812a80",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "watch-review-history: Vue .prop shorthand (`.href`) recognised by both binding rules (codex, reproduced with the vendored compiler); proven on the real page inside and outside the region",
+    "watch-review-history: the whole-word FIELDS pattern had dropped findings_fixed/findings_refuted_or_deferred — real identifiers listed; attributes packed after a quote or > are recognised (claude)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude: expand-on-click must use native details/summary since no handler is allowed in the region — satisfiable, noted"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 13,
+   "staged_blob_sha256": "e542b8694f677a7c8af03d30191b66817236e1d1bae9bb6014d0a85625ec005f",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the ledger is read from the source git will commit — worktree bytes for a pathspec or -a commit (measured: index `staged`, worktree `worktree`, pathspec commit recorded `worktree`), index otherwise, HEAD as the committed fallback — with two named self-test cases where index and worktree ledgers differ (codex)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude F1: the `.` prefix in the outside rule can match whitespace-led JS like `.textContent = \"…review…\"` — avoidable by the template-driven build; F2: :style rejected in-region by design, pills use :class"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 14,
+   "staged_blob_sha256": "d85da9f56301be2cc4811bcd7e3a4d8ba194abf02e6edfe348b15706d568d9ff",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: explicit source matrix keyed on the LEDGER path — worktree for -a or a pathspec naming it, HEAD for a pathspec that excludes it (git keeps the committed ledger; measured), index for a plain commit — no cross-source fallback; self-test cases with HEAD/index/worktree ledgers all differing and a staged deletion (both reviewers)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude: record_in_commit accepts a merely-staged record under a pathspec commit — latent record-gate bug, noted for a follow-up"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 15,
+   "staged_blob_sha256": "006dcc032f2c81757fc7c00bd2e4a337bccf26c754950b86077ed80fd5f8d639",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: pathspec membership decided by git (ls-files over the pathspec args), amend-without-a is index, -a with an untracked ledger is absent (codex, reproduced); the oracle now drives decide() directly through a stub with differing HEAD/index/worktree ledgers and an ls-files answer — eight commit shapes, each allowed on its fresh source and denied on its stale one"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude: duplicate clause numbering (two (7)s) — cosmetic, deferred"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 16,
+   "staged_blob_sha256": "9d7b2ba7ece556b7b85e75b4352ae221b2dadfcf7f3355ea149a646774e753a8",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the source-matrix stub ignored its pathspec argument, so the git-decided implementation clause (3) prescribes failed the binder-only cases while a token matcher passed (claude, reproduced) → the stub now honours prefix, `.`, glob, `:!` exclusion and HEAD-known deletions via ls-files and ls-tree; proven: a git-decided resolver passes all 17 cases",
+    "ledger-gate: --include commits the whole index (index source unless the ledger is named), --only is the pathspec case, --pathspec-from-file and interactive/patch modes are denied outright, a staged deletion under a directory pathspec is matched through HEAD and absent (codex, reproduced); direct decide() cases added for each",
+    "review-ledger-record: docs wording no longer says the ledger is not the gate freshness check — the record stays authoritative and with ledger: true the gate also checks the final round (codex)"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 17,
+   "staged_blob_sha256": "7564d2bf7ca680d96d0b812ea6a20c5fe7268e6db932037637f1c9f642edc0ad",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: one git-decided source resolver now serves binder detection, the record check and the ledger check (codex 1–3 were defects in the existing gate this item edits): worktree-only files committed through `.`, a directory or a glob are gated; a staged record excluded by --only is denied; plain --amend hands the helper index binder bytes, --amend -a worktree bytes — all driven directly through decide() with the bytes the helper receives asserted",
+    "ledger-gate: every mode spelling driven directly (-i/--include with and without the ledger named, -o/--only, -p/--patch/--interactive, both --pathspec-from-file forms) (codex 4)",
+    "review-ledger-record: doc wording no longer equates the reviewed content with the record (codex 5)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude M1: source classification validated only against the oracle's git emulator — accepted; the emulator now honours pathspecs and a git-decided resolver was proven against it",
+    "Claude L1: the except-TypeError fallback around decide() — accepted, dead for the shipped signature"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 18,
+   "staged_blob_sha256": "c083b31f93e354ce6f0302adf78c1b3e9da573fb0099f4f139b2d24e97c94803",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the worktree-only fixture modelled an impossible commit (an untracked file cannot be committed through a pathspec — both reviewers, measured) → fixtures are tracked files whose worktree bytes differ from HEAD/index; the whole resolver block is now proven satisfiable by a faithful git-decided resolver",
+    "ledger-gate: the helper reads the working-tree record while git may commit a different one (codex) → the gate reads the record from its resolved source and denies on a mismatch (`record source mismatch`); direct cases: fresh worktree over stale staged on a plain commit → denied, fresh worktree over stale HEAD excluded by --only → denied, identical → proceeds",
+    "ledger-gate: shell-expanded ($, backticks, $( ), cd-prefixed and ../ pathspecs are denied outright rather than resolved from the root (codex); direct cases added"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": ""
+  },
+  {
+   "round": 19,
+   "staged_blob_sha256": "74e66a6402fd7bb8f87bab4288595607e9c6fc7497384197a1dc485649155491",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: deny-by-default invocation grammar — git -C, --git-dir, --work-tree, GIT_DIR/GIT_WORK_TREE prefixes and brace expansions denied (codex, measured); direct cases",
+    "ledger-gate: the merge gate reads the branch record and ledger from HEAD only — a merge commits nothing staged; direct cases: fresh in HEAD passes, absent or stale in HEAD denied even with fresh index/worktree (codex)",
+    "ledger-gate: the read-cost bound now counts every git show on the binder-commit path (bound 6), not only ledger reads (codex)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude 4–6 (flag-argument parsing, stub coupling, dirty-worktree false-deny is fail-safe) — accepted as non-blocking"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 20,
+   "staged_blob_sha256": "7ab5d0b3e9ee3171876d4902169c9cad12aecffc7f29536c2650d32ee5ce65d5",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the record is bound to the ledger's final round, not only the hash — committed record must carry rounds_ledger (exact path) and final_round == ledger length; a same-hash round appended after --record blocks until --record is rerun; a pre-ledger record is denied once a ledger exists (codex)",
+    "ledger-gate: GIT_WORK_TREE= prefix and split-argument --git-dir/--work-tree denied with direct cases (codex, claude)",
+    "ledger-gate: cost prose reconciled to at most six git show across binder, record and ledger (both reviewers)",
+    "ledger-gate: metacharacters are judged on pathspec tokens only — -m/-F/--author/--date/--trailer values are removed before classification; a message containing $( ) and braces does not deny a clean-pathspec commit (claude)",
+    "ledger-gate: the branch record is HEAD-sourced too, with a staged-only branch record denied (claude)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude 4: duplicate clause numbering — cosmetic, deferred"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 21,
+   "staged_blob_sha256": "edca507affae3f04989aec5fd56baff38adaaea4f99576878fc17caa04116fad",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "revise"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the hook runs before bash evaluates the command — $( and backticks anywhere and any preceding command segment (other than an assignment prefix) are denied; inert braces/$VAR inside -m/-F values allowed; the probe builds the literal $( with chr(36) so it reaches decide() unexpanded (the previous case had been expanded by the outer shell — codex, reproduced)",
+    "ledger-gate: final_round equality is exact (larger, boolean, string, non-positive denied) and rounds_ledger must equal the exact path (codex, claude)",
+    "ledger-gate: the six-show bound is asserted on every source-matrix case (codex, claude)",
+    "ledger-gate: clause 15 — mismatch and final-round checks defer when no working-tree record exists (claude)"
+   ],
+   "findings_refuted_or_deferred": [
+    "Claude 3: branch-path clause 13 pinned now via the branch record cases; Claude 5: clause numbering — cosmetic"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 22,
+   "staged_blob_sha256": "ca9f169bcdaa69e54e02ca10172799f9dfcd7c3308e74dd6ddbe53175fee7fe8",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: `;` and `|` preceding segments and a GIT_INDEX_FILE= prefix denied by direct cases; final_round True against a one-round ledger denied by type (claude F1–F3)"
+   ],
+   "findings_refuted_or_deferred": [
+    "codex: usage limit reached — no review this round"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 23,
+   "staged_blob_sha256": "9c3d98391c89f4d4bb3824b7d1b3ea7771c1dff11e58eb7b305ebbc17ef1145f",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "merge"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: commit options whitelisted — any unknown or value-bearing option (-C/-c/-t/--fixup …) is denied by name so `--amend -C HEAD` cannot be read as a pathspec commit; `--amend --no-edit` gated on the index (claude, blocking)",
+    "ledger-gate: every shell control operator (||, &, newline) and every GIT_* prefix incl. quoted forms denied; only the two KARTA_* prefixes allowed (qwen)",
+    "ledger-gate: the merge gate compares the HEAD branch record's content and final_round (kimi, qwen); stale denials carry all three remediation literals (qwen)",
+    "review-ledger-record: the doc-truth probe declared pre-existing and unchanged (qwen)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi: merge; qwen: merge (both listed as extra providers); codex: usage limit — no review; kimi low on KARTA_LANDING_APPROVED in merge cases — the landing gate fires only on the default branch merge shape the stub already models without it, accepted"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 24,
+   "staged_blob_sha256": "bbcab427e605c5bca7436e45f07aa33f6e08ecdcd31c1e474e40e3a895aeb915",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: inert metacharacters are allowed only inside quoted values — an unquoted token with brace/glob/parameter/process-substitution characters is denied anywhere (qwen, blocking); cases for every value-bearing spelling quoted (pass) and unquoted (deny), an option named nowhere (deny — whitelist not denylist), a foreign VAR= prefix (deny), KARTA_LANDING_APPROVED=1 as a prefix (pass), merge-path literals (claude/kimi/qwen lows)",
+    "watch-review-history: the outside-region rule matches unquoted attribute values and every review region is examined (qwen)",
+    "review-ledger-record: typo"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi: octopus merge, git pull, -am spellings — inherited coverage limits, fail closed, noted for a later binder; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 25,
+   "staged_blob_sha256": "3b4f1063ec8e3b1fa9ba2e5803a8315903d03e10ae396c75b5b8b4691be25c22",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "revise"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: unquoted redirection operators denied — the shell opens them before git runs (qwen, blocking); a quoted angle bracket inside a value stays allowed",
+    "ledger-gate: `$` in a surviving pathspec token denied even when quoted (claude F1, qwen 2); all leading assignments scanned so a disallowed prefix after an allowed one denies (qwen 3)",
+    "ledger-gate: accepted limits stated plainly — shlex+whitelist parser fails closed (over-denial, never under-denial); stub validated case by case against measured git; real-repository hook run is a later hardening; the hook-to-commit window is inherent to PreToolUse (kimi 1–3)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi 4–5: loader complexity and final_round strictness — the exact final_round rule is what closes the append-after-record bypass (round 20); qwen 5: :class may reference review fields (class names are not sinks) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 26,
+   "staged_blob_sha256": "f636b6349cbbe036bfcdfcd2ae23071da7e2dd3dee001df6c2e86856368bcc8f",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "revise"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "merge"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: unquoted tilde pathspecs denied — bash expands them before git runs and the root lookup matches nothing (kimi, blocking); a control operator anywhere denies (trailing git invocation case); redirection scanned as raw characters outside quotes incl. adjacent/descriptor forms (qwen); merge-path rounds_ledger equality pinned; float/negative final_round denied; clause 14 prefix sentence superseded",
+    "ledger-gate: the ledger switch is read from HEAD:.karta/roundtable.json so a working-tree or same-commit flip to false cannot disable the check for that commit (qwen)",
+    "watch-review-history: the outside-region scan covers the attribute-name position (dynamic argument naming a review field) (qwen)"
+   ],
+   "findings_refuted_or_deferred": [
+    "codex: usage limit; claude lows (except-TypeError wrapper; migration wording) accepted"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 27,
+   "staged_blob_sha256": "1bc6e35fe82a95f7b97c57954665cc4ca69344fef62acd9e0e53835f76d7e4b3",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "revise"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the config-from-HEAD case handed decide() a hardcoded enabled config and proved nothing (kimi, qwen — blocking) → decide() resolves its own config via load_gate_config when config is None; four driven cases (HEAD true/worktree false enforced; HEAD false/worktree true not enforced; HEAD absent enforced; HEAD malformed denied)",
+    "ledger-gate: --amend with a pathspec / -i / -o driven with HEAD, index and worktree all differing (qwen); parser failures are named denials incl. an unbalanced quote (kimi); ~+, ~-, bare ~ cases (claude); inherited merge-by-SHA / git pull limit stated honestly as fail-open (kimi)",
+    "round-recorder: --round/--record targets must match the slug grammar (traversal, slash, absolute, tilde, uppercase refused, nothing written or staged); a torn existing ledger makes both refuse and leave it byte-identical; atomic temp+rename writes (qwen, kimi)",
+    "watch-review-history: dynamic argument names checked for v-on/@ too (qwen)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi 6–7 (-- / --dry-run over-denial; TypeError wrapper) and qwen 6 (O_NOFOLLOW) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 28,
+   "staged_blob_sha256": "7f1d21317521d99364e93323e5c5f8504792586853f5caf146d682be38a9b583",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: symlinks at gated paths denied via an is_symlink seam — git commits the link, not the target (qwen, blocking); driven for binder, record and ledger under . and -a",
+    "ledger-gate: config resolution fails closed in every shape — non-object JSON, non-boolean ledger key, malformed worktree fallback, a git failure other than the canonical missing-path error (qwen, blocking); read bound seven with the config show, asserted on merge paths too (kimi, qwen)",
+    "ledger-gate: relocating GIT_* variables in the hook's own environment deny (qwen); combined short flags stated as denied and driven (kimi, qwen)",
+    "ledger-gate: under -a the binder set includes unstaged tracked changes (git diff --name-only) — surfaced by the satisfiability proof while adding the symlink cases; driven",
+    "round-recorder: one exit code (2) for every refusal; symlinked binder refused (qwen)",
+    "watch-review-history: ledger-only state defined and driven; no-git-work proof counts every Popen (measured 5 today); aliasing limit stated (qwen, kimi)"
+   ],
+   "findings_refuted_or_deferred": [
+    "claude 1 (hook_main wiring assertion) and kimi 1/6 (branch-target refusal case, validator negative drive) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 29,
+   "staged_blob_sha256": "0268de09dcd25479c0feffb7faacd2c212cf213bde5988a8a16e216391e3efc3",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "revise"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the hook anchors to the repository root — payload cwd off-root denies, git runs with -C root (kimi, blocking)",
+    "ledger-gate: symlink objects (mode 120000) denied on HEAD and index paths, driven via stub modes (qwen, blocking)",
+    "ledger-gate: any non-allowlisted GIT_* in the hook environment denies (kimi); a staged config governs a plain commit when HEAD lacks one (qwen); git-failure fixture made discriminating and the first-enable config symlink driven (claude); .gitattributes pins .karta/** free of filters/EOL conversion (kimi); recorder exit code unified (kimi)",
+    "watch-review-history: review field identifiers matched anywhere inside unquoted expressions outside the region (qwen)"
+   ],
+   "findings_refuted_or_deferred": [
+    "qwen 4–5 (O_NOFOLLOW window; non-Popen spawn) and claude F3 (recorder symlink via self-test only, gate backstops) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 30,
+   "staged_blob_sha256": "1177c951753759b577f782aafbb4681a537500213d4d5762232a6e1e990f3e36",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: GIT_* allowlist narrowed to inert exact values — an editor/pager/ssh command value is a program git runs after the hook (qwen, blocking); driven",
+    "watch-review-history: identifiers matched after decoding HTML character references and JS escapes (qwen, blocking); driven on the real page",
+    "ledger-gate: first-enable config goes through the commit-source resolver — under -a the worktree config is what git commits (qwen, blocking); absolute pathspecs denied (qwen); every non-file object mode (120000/160000/040000) denied for binder, record and ledger on HEAD and index (qwen, claude); .gitattributes proven by git check-attr (qwen); cwd comparison realpath'd (claude)",
+    "ledger-gate: fixtures made discriminating — env/prefix deny cases run on a tree that otherwise passes and the git-failure fixture's index config is false (kimi)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi 4–5 (behaviour count arithmetic, clause numbering) and claude 3 (status prose) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 31,
+   "staged_blob_sha256": "519d55a99542cb6c21750e3b218e8cf03eb04d6079e1510b71aee04ecbdda3e9",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: a gated commit without a message source (or --amend without --no-edit) is denied — git would launch the configured editor after the hook (kimi); repo hooks named as an inherited limit",
+    "ledger-gate: an untracked worktree-only config is in no commit source and leaves the switch off; first-enable cases use a staged config (qwen 2)",
+    "ledger-gate: absent cwd stated, clause 19/38 supersession stated, read bound restated as shows-only with the latency floor covering the rest, clause 30 scoped to the selected source, PATH trust for inert values stated (kimi 2–6, qwen 3); no-space non-inert GIT_EDITOR case (claude)"
+   ],
+   "findings_refuted_or_deferred": [
+    "qwen 1 (--include contradiction): fixture F's index ledger is led(H2) — the STALE hash — so the binder-only --include case is index-sourced and correctly denied; the fresh-index pass case is separate. Stated in the contract.",
+    "codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 32,
+   "staged_blob_sha256": "3b17c6dcb7a5f498e37748201515c9031801a42d400dde76d1c10786b1d5a257",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the merge gate requires --no-edit or -m (--ff-only exempt); the documented landing command gains --no-edit (qwen, blocking; claude/kimi low)",
+    "ledger-gate: a payload without cwd is denied rather than assumed at the root (qwen 2); empty messages are no message source (qwen 4); the skip hatch is evaluated first and the unborn-HEAD corner is an accepted limit (kimi)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi 2–3 (early-block stub fidelity, -o first-enable corner) and claude 3–4 (long-form message spellings already whitelisted; GIT_EDITOR=true as a prefix) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 33,
+   "staged_blob_sha256": "4f483bb105beba9e0827fe454cfacc91f738c236d6a76fa8c245141a1bf12b7d",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "revise"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: the LEDGER-SOURCE-MATRIX block's payload builder lacked cwd, contradicting clause 48 (all three reviewers) — fixed, the TypeError fallback removed, and the harness now asserts every payload builder carries cwd",
+    "watch-review-history + round-recorder: a symlinked .karta/roundtable directory resolving outside the repository is refused for reads and writes (qwen 2); driven",
+    "ledger-gate: read bound stated once — six with an explicit config, seven when the gate resolves it (qwen 3); --record's hash+round binding limit documented (qwen 5)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi 2 (empty -m on merges) accepted as fail-safe; qwen 4 (clause numbering) accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 34,
+   "staged_blob_sha256": "9800101649f4ad2e6c0014adf8c142b1005d8c5be608db76b6e2209c771a69d1",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "round-recorder: a refused --record is asserted to leave the record AND the ledger byte-identical (full bytes captured before), and every successful --round is asserted to leave the ledger staged with the worktree content (qwen 1–2)",
+    "ledger-gate: the doctrine grep pins the full landing command with KARTA_LANDING_APPROVED=1 (qwen 4); the source-matrix stub serves a well-formed record and clause 15's shapeless-record reading is stated (kimi 1)",
+    "watch-review-history: reviewed_hash constrained to the sha256 hex grammar with a corrupt case (qwen 5)"
+   ],
+   "findings_refuted_or_deferred": [
+    "qwen 3 (the proof harness lives outside the artifact — it is a planning-time harness; the artifact's own compilation is the builder's floor) — accepted; kimi 2–3 (cwd-or-ROOT conflation; explicit-config bound slack) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 35,
+   "staged_blob_sha256": "226679dc63e60039518424f6439870b5211d77034914f402714863cbcd5ae653",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "revise"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "null"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "revise"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: an unescaped apostrophe in an assertion message closed the sh -c wrapper — the oracle could not execute (claude, blocking); fixed, and the planning harness now syntax-checks the FULL commands (sh -n and bash -n, wrapper included) for all four oracles",
+    "round-recorder: the refusal check compares the index by content (ls-files -s) not by name list (qwen, blocking); the first --round's staged content is checked too (claude 3)",
+    "ledger-gate: a non-record-shaped file at the record path is driven through decide() and denied (claude 4, kimi 3)"
+   ],
+   "findings_refuted_or_deferred": [
+    "kimi 2, 4, 5 (numbering; hand-rolled quote tracking on escape idioms — fail-closed posture; grammar asymmetry) — accepted; codex: usage limit"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 36,
+   "staged_blob_sha256": "d8a93ccc28bbacc046ab9d2505b4c8ff4041fbbd04920c00656fa98201aefa8c",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "merge"
+    },
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": null,
+     "status": "no output — headless read_file permission auto-denied"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "revise"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "merge"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate: three probes carried raw $(…), backticks and $p that the wrapper shell expanded before decide() saw them (kimi, blocking) — rebuilt with chr(36)/chr(96), proven literal through the real wrapper; the harness now greps every oracle for raw substitution syntax outside chr() construction (none)"
+   ],
+   "findings_refuted_or_deferred": [
+    "qwen 1 (Watch roundtable-directory symlink) — already closed in round 33 (watch clause 16, driven); qwen 2 (hatch evaluated first) — settled design; qwen 3 (:class expressions) — accepted earlier; codex: merge (quota restored)"
+   ],
+   "notes": ""
+  },
+  {
+   "round": 37,
+   "staged_blob_sha256": "cae55125fbdfe4d228a87e342eac65102a5db9714a847ba2b133891d906a5c2f",
+   "providers": {
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "merge"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "merge"
+    }
+   },
+   "findings_fixed": [],
+   "findings_refuted_or_deferred": [
+    "kimi/qwen lows: clause-52 grep wording (loop-variable exemption), plain message-less merge case, ${…}/$((…)) generalization, positive assertions on probe strings, end-to-end hook run, oracle size — logged for a consolidation binder"
+   ],
+   "notes": "Unanimous merge on this blob across four providers; recorded as .karta/roundtable/review-ledger.json and committed with the binder."
+  }
+ ],
+ "outcome": {
+  "final_round": 37,
+  "final_blob_sha256": "cae55125fbdfe4d228a87e342eac65102a5db9714a847ba2b133891d906a5c2f",
+  "verdict": "merge",
+  "providers_with_verdict": [
+   "claude",
+   "codex",
+   "fireworks-kimi",
+   "fireworks-qwen"
+  ]
+ }
+}

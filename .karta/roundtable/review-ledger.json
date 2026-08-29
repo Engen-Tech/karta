@@ -1,0 +1,40 @@
+{
+  "reviewed_hash": "cae55125fbdfe4d228a87e342eac65102a5db9714a847ba2b133891d906a5c2f",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "review-ledger",
+  "run_at": "2026-08-29T09:41:32.476988+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "claude",
+      "verdict": "merge",
+      "summary": "Round 37. kimi's round-36 blocking finding (raw $(\u2026)/backticks/$p expanded by the wrapper shell inside the double-quoted python -c layer) is CONFIRMED CLOSED four ways: zero backticks and only six legitimate outer-shell loop variables remain across all four oracles; chr(36)/chr(96) proven to pass through the wrapper untouched; the nine chr()-built probes materialize exactly as intended with correct assertion polarity; all four commands pass sh -n and bash -n and all 17 python3 -c blocks compile (5+6+5+1). Pre-fix the oracle was a false negative (rejected good work); post-fix the injection probes exercise the real property against the real decide() input. No regression introduced. Qwen's three notes concur closed/settled. Verdict: merge"
+    },
+    {
+      "provider": "codex",
+      "verdict": "merge",
+      "summary": "No findings. Round 36's blocking issue is closed: all four oracle commands pass sh -n and bash -n; all 17 embedded Python blocks compile (5+6+5+1); no raw $( or backticks remain in decoded oracle commands; the gate probes construct $p, $VAR, command substitutions and backticks with chr(36)/chr(96) so the wrapper shell cannot expand them before decide(); clause 52 accurately captures the invariant; no unsafe or useless oracle bypass introduced. Verdict: merge"
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "merge",
+      "summary": "Closure genuine: every substitution-carrying probe is built with chr(36)/chr(96) and reaches decide() literal; clauses 14, 19, 21 are exercised, not vacuous. Three low, non-blocking notes: clause 52's grep wording should exempt outer-shell loop variables; a plain message-less `git merge` (no --no-ff) is not driven though the rule is option-agnostic; contract accretion (52 clauses, six supersessions) warrants a consolidation binder. Stated limits remain honestly named. Verdict: merge"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "merge",
+      "summary": "The round-36 blocker is closed the right way: generating $ and backticks at Python runtime prevents wrapper expansion; denial cases fail loudly if the literal does not reach decide(); the allowed quoted $VAR case remains. No blocking defect. Five low hardening notes: the meta-grep is out-of-band and could be generalized to ${\u2026}/$((\u2026)); add positive assertions on constructed probe strings; end-to-end hook execution against a real repository remains a later hardening; oracle size is a maintainability risk. Verdict: merge"
+    }
+  ]
+}
