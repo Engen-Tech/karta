@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "6d68c0e81489822a714f8d736f6d7f180faf9c0aacddfff415b326cd34da4735",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "context-economy",
+  "run_at": "2026-08-29T03:31:34.480980+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": ""
+    },
+    {
+      "provider": "claude",
+      "verdict": "merge",
+      "summary": "Round 13 review. Closure confirmation (Round 12 fix): the forced unwind was proven only on the rejected-success path \u2014 closed. The contract states one shared routine explicitly (\"ONE SHARED UNWIND ROUTINE serves every halt after the merge started \u2014 a failing oracle, dirty-after-oracle, tip-moved, a failed verification \u2014 there is no second, older reset path\"), specified as update-ref \u2192 checkout -f \u2192 reset --hard \u2192 clean -fd \u2192 verify; the divergent-foreign-branch-with-tracked-modification and deleted-integration-ref cases each run twice (oracle exits 0 then rejected; oracle exits nonzero) asserting integration ref + HEAD at the pre-merge tip, empty porcelain, foreign ref unchanged, no done ref; the oracle greps \"checkout -f\". These force the shared routine for the nonzero-oracle path; all safety outcomes are test-pinned regardless of code factoring.\nNon-blocking: [low] residual stale prose in step (e) (\"verify HEAD is still the just-made merge commit \u2026 then git reset --hard\") invites a guarded second path \u2014 reword to defer to the shared routine. [low] if checkout -f fails while a foreign branch is checked out, step (3) reset would rewrite the foreign ref; recommend checking checkout -f's exit before resetting. [info] \"foreign ref unchanged\" is vacuous for the deleted-integration-ref case.\nNone meets the blocking bar. Verdict: merge\n"
+    },
+    {
+      "provider": "codex",
+      "verdict": "merge",
+      "summary": "No findings. Round 12's blocking issue is closed: one shared forced unwind routine covers every post-merge halt; both hazardous states run with successful and nonzero oracles; tests assert restored integration ref and HEAD, clean porcelain, unchanged foreign ref, and no done ref; the oracle requires checkout -f, runs the complete self-test, and explicitly asserts both paths. The binder validator passes: 5 items, no opt-outs or waivers. The Round 12\u219213 diff is limited to this closure and introduces no new blocking issue. Verdict: merge\n"
+    }
+  ]
+}
