@@ -52,6 +52,13 @@ All checks are hard gates. Fail with a clear report rather than prompting.
 
 3. **App dev server is already running.** The caller owns the app server lifecycle. Use a host-native HTTP check or let `capture_view.py` fail on navigation. Do not start the app server here.
 4. **`playwright-cli` is available.** `capture_view.py` checks this before capture. If it is missing, the script exits non-zero with an actionable install CTA — the two-step `npm install -g @playwright/cli@latest` then `playwright-cli install --skills`, plus the docs link. Surface that message and stop; this stays a hard gate (no prompting, no auto-install, no degraded capture).
+5. **The design capture still matches its pin, if one is recorded.** Run:
+
+   ```powershell
+   uv run <skill-dir>/scripts/check_design_pins.py --design-path <design-path> --allow-unpinned
+   ```
+
+   `check_design_pins.py` hashes the caller's design path (resolving a directory through the same `resolve_design_file` used in `validate:serve`, so it pins the file that will actually be served) and compares it against the fingerprint recorded for it in `.karta/design-pins.json`. A capture that has drifted, expired past its own `recapture_after`, or has no entry of its own fails, and a non-zero exit here is a hard stop, the same as the checks above. The two outcomes where the check verified nothing — no pin file at all, or a design resolved from outside the repository — exit non-zero on their own, because a zero exit is read as "this capture was checked" and for those two that is false. This step passes `--allow-unpinned`, which turns exactly those two back into a printed notice and a pass, because pinning is opt-in and a repository that never pinned anything should not be stopped by a check it never asked for. Nothing else moves: with the flag set, a drifted capture, an expired pin, a missing entry and a malformed pin file all still hard-stop. Drop the flag in a repository that has pinned its captures and wants the unverifiable cases to stop it too. On a pass, the run also prints the capture's date, its upstream address, and its recapture triggers — read them before trusting the comparison that follows, since this check never looks upstream itself.
 
 Do not assume Bash, WSL, `/tmp`, `curl`, `grep`, `find`, `lsof`, `kill`, or POSIX background syntax.
 

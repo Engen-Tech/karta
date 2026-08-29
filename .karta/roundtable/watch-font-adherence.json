@@ -1,0 +1,30 @@
+{
+  "reviewed_hash": "1495dea3e783b0f24edaaed1f23506bc05d450068e2174cf935fddef8006f211",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "watch-font-adherence",
+  "run_at": "2026-08-24T01:10:49.017374+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "codex",
+      "verdict": "SHIP",
+      "summary": "Verdict: SHIP. No findings. The binder validates successfully, all cross-references pass, and the post-merge line citations resolve. Its WOFF2 transform rules, STAT requirements, and six-table hinting list agree with the WOFF2 specification, the OpenType specification, and fontTools documentation. The TABLE CONTENT gaps appear completely and consistently disclosed."
+    },
+    {
+      "provider": "claude",
+      "verdict": "SHIP",
+      "summary": "Verdict: SHIP. Built the actual delivery tree read-only (git merge-tree --write-tree main karta/watch-drill-in/integration, clean merge). Checked every file:line citation - 40+ distinct locations across serve_status.py, validate_plugin.py, the design export and the frozen reference - against that merged tree, and against main for the two 'default branch today' numbers. All resolved exactly, including the six tabular-nums sites and the _vendored_weights consumer split down to which call sites read the weight SET (:9657, :14167) vs only the family KEY (:9028, :9878, :9983, :14128), verified against the actual code. Cross-checks against ground truth: fontTools' actual _hinting_tables_default = [cvt, cvar, fpgm, prep, hdmx, VDMX] matches the six-table claim exactly; the fvar byte arithmetic reconciles at 84, 56 and 70 against the OpenType formula; manifest state (pinned_axes.opsz 18, upstream commit, source_sha256) matches byte-for-byte; design export line 13 on main literally reads Newsreader:opsz,wght@6..72,400;6..72,500 and is confirmed absent from the integration branch, so the tree-ambiguity claim in scope.included is accurate in both directions; FINDINGS.md exists as claimed and the 1-based prose assertion refs resolve to the correct entries. Q1 untrue statement or unresolvable citation: none found. Q2 enumeration completeness: the flag walk is exhaustive against the actual pyftsubset flag list; nothing in preserves/exposes/scope claims a check the assertions do not back, beyond what is already disclosed. Q3 internal contradiction: none; the 'no network OFF LOOPBACK' fix is consistent with env_contract. No BLOCK-worthy path found by which a wrong build passes silently."
+    }
+  ]
+}

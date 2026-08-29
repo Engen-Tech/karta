@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html data-theme="light">
+<head>
+<!--
+  Karta Watch -- frozen design reference
+
+  Origin design : claude-design://59832c82-69dc-4841-9c45-c4a8a86730a3/Karta Watch.dc.html
+  Captured      : 2026-08-17
+  Viewport      : 1440x900
+  Theme         : light
+
+  This is a derived, self-contained capture, not the live Claude Design export.
+  The export's only script reference is a sibling support.js it does not carry,
+  it preconnects to two Google Fonts hosts and links a stylesheet for its faces
+  with no local @font-face fallback, and its mascot is a relative path to an
+  asset it does not carry either -- so serving the export as-is would need
+  the network and would drift whenever a font host did. This file inlines the
+  export's styles as they render at 1440x900 in light theme, points the mascot
+  and the seven faces at the copies this repo already vendors under
+  skills/karta-status/assets/, and fetches nothing. It records its origin here
+  because it is derived and can go stale against the living design -- recapture
+  it from the design source rather than hand-editing it. See
+  docs/conventions/watch-design-fidelity.md for how to run the comparison this
+  file exists for.
+
+  This file cannot witness a font difference. Its @font-face rules point at the
+  very files the page serves, so it renders in whatever the page renders in and
+  agrees with the page about fonts by construction -- including when both are
+  wrong, which is how a serif flattened to a pinned optical size sat here
+  unnoticed. Whatever this comparison is good for, typeface fidelity is not it.
+  The check that can tell the two apart has to measure what a browser drew, and
+  it is briefed in docs/backlog/watch-optical-harness/FINDINGS.md.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karta Watch -- design reference (1440x900, light)</title>
+<style>
+/* The seven vendored faces this repo already ships, pointed at the on-disk
+   copies under skills/karta-status/assets/fonts/ so this capture opens with
+   no network. No __ASSET_QS__ token here -- that placeholder only matters to
+   the served page's token-gated hub mode; a static file opened directly has
+   no query string to carry. */
+@font-face{ font-family:"Newsreader"; font-style:normal; font-weight:400 500; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/newsreader-var.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/ibm-plex-sans-400.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/ibm-plex-sans-500.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Sans"; font-style:normal; font-weight:600; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/ibm-plex-sans-600.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+@font-face{ font-family:"IBM Plex Mono"; font-style:normal; font-weight:600; font-display:swap;
+  src:url("../../skills/karta-status/assets/fonts/ibm-plex-mono-600.woff2") format("woff2");
+  unicode-range:U+0000-00FF, U+2000-206F; }
+
+:root, :root[data-theme="light"]{
+  --bg:#F6EFEE; --surface:#FFFFFF; --surface-2:#FBF6F4;
+  --ink:#2E0B12; --mut:#5C3742; --mut-2:#734F58;
+  --line:#DFCBC6; --line-2:#C7A2A6;
+  --accent:#B7364A; --accent-deep:#8E2436; --accent-line:#D9AEB6;
+  --now:#330D15; --now-deep:#330D15; --now-soft:rgba(51,13,21,.065);
+  --halt:#D2400E; --halt-deep:#A83309; --on-halt:#FFFFFF; --halt-soft:rgba(210,64,14,.10); --halt-line:#E9B49C;
+  --green:#4A7544; --green-soft:rgba(74,117,68,.13);
+  --steel:#3F5878; --steel-soft:rgba(63,88,120,.085);
+  --wait:#74581F; --wait-soft:rgba(116,88,31,.10);
+  --band:#330D15; --band-kick:#E88A98;
+}
+:root[data-theme="dark"]{
+  --bg:#2B0F14; --surface:#3B141B; --surface-2:#451A22;
+  --ink:#F6EAEA; --mut:#CDB4B7; --mut-2:#C0A5AB;
+  --line:rgba(240,214,214,.17); --line-2:rgba(240,214,214,.31);
+  --accent:#EE7185; --accent-deep:#F5A3AF; --accent-line:rgba(240,175,186,.40);
+  --now:#F0B7A0; --now-deep:#F5C9B6; --now-soft:rgba(240,183,160,.15);
+  --halt:#FF7A45; --halt-deep:#FF9C74; --on-halt:#2B0F14; --halt-soft:rgba(255,122,69,.17); --halt-line:rgba(255,122,69,.45);
+  --green:#7FC49A; --green-soft:rgba(127,196,154,.15);
+  --steel:#8FA6C7; --steel-soft:rgba(143,166,199,.14);
+  --wait:#C3A16D; --wait-soft:rgba(195,161,109,.13);
+  --band:#1C070C; --band-kick:#F5A3AF;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:#fff}
+a{color:var(--accent-deep);text-decoration:none}
+a:hover{color:var(--accent)}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes kwBreathe{0%,100%{opacity:.45}50%{opacity:1}}
+@keyframes kwSpin{to{transform:rotate(360deg)}}
+@keyframes kwDraw{from{stroke-dashoffset:240}to{stroke-dashoffset:0}}
+@keyframes kwRing{0%{box-shadow:0 0 0 0 var(--now-soft)}70%,100%{box-shadow:0 0 0 9px transparent}}
+@keyframes kwAlarm{0%,55%{opacity:1}70%,100%{opacity:.28}}
+@media (prefers-reduced-motion:reduce){
+  [data-kw-spin],[data-kw-ring],[data-kw-alarm]{animation:kwBreathe 2.4s ease-in-out infinite !important}
+}
+@media (max-width:880px){
+  [data-kw-split]{grid-template-columns:1fr !important}
+  [data-kw-rail]{position:static !important;max-height:none !important;max-width:392px}
+}
+@media (max-width:640px){
+  [data-kw-pad]{padding-left:18px !important;padding-right:18px !important}
+  [data-kw-h1]{font-size:32px !important}
+}
+</style>
+</head>
+<body>
+<div style="min-height:100vh;background:var(--bg);color:var(--ink)">
+
+  <header style="position:sticky;top:0;z-index:40;background:var(--bg);border-bottom:1px solid var(--line)">
+    <div data-kw-pad="1" style="max-width:1440px;margin:0 auto;padding:0 32px;height:70px;display:flex;align-items:center;gap:18px">
+      <div style="display:flex;align-items:center;gap:11px;flex:none">
+        <img src="../../skills/karta-status/assets/mascot.png" alt="" width="34" height="34" style="display:block">
+        <span style="font-family:'Newsreader',serif;font-weight:500;font-size:21px;letter-spacing:-.01em;color:var(--ink)">karta</span>
+      </div>
+      <span style="width:1px;height:26px;background:var(--line-2);flex:none"></span>
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);line-height:1">Repo</span>
+        <span style="position:relative;display:inline-block;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:15px;color:var(--accent-deep);line-height:1.15;white-space:nowrap">notes-app
+          <svg viewBox="0 0 220 14" preserveAspectRatio="none" style="position:absolute;left:0;bottom:-4px;width:100%;height:7px;overflow:visible"><path d="M3 9 C50 3,92 12,131 7 S199 3,217 8" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-dasharray="240" style="animation:kwDraw 1.1s .2s ease-out both"></path></svg>
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;margin-left:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut);flex:none">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--green);animation:kwBreathe 2s ease-in-out infinite;display:inline-block"></span>live from git — read-only
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:8px;flex:none">
+        <span style="display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut);background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:5px 11px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>main
+        </span>
+        <span style="display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut);background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:5px 11px">integration/notifications-redesign</span>
+        <button type="button" onClick="{{ toggleTheme }}" title="toggle light / dark" aria-label="toggle theme" style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--line);background:var(--surface);border-radius:99px;cursor:pointer;color:var(--mut)" style-hover="border-color:var(--accent-line);color:var(--accent)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div data-kw-pad="1" data-kw-split="1" style="max-width:1440px;margin:0 auto;padding:26px 32px 64px;display:grid;grid-template-columns:minmax(248px,296px) 1fr;gap:24px;align-items:start">
+
+    <aside data-kw-rail="1" style="position:sticky;top:96px;max-height:calc(100vh - 122px);overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:5px 6px 14px">
+      <div style="display:flex;align-items:baseline;gap:9px">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--now-deep)">Karta's Map</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">5 binders · click to drill in</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column">
+
+        <div style="display:flex;align-items:center;gap:8px;padding:0 0 8px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--green);font-weight:500">Delivered</span>
+          <span style="flex:1;height:1px;background:var(--line)"></span>
+          <button type="button" data-kw-toggle-delivered="1" onClick="{{ toggleDelivered }}" aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut);background:transparent;border:1px solid var(--line-2);border-radius:99px;padding:3px 9px;cursor:pointer" style-hover="border-color:var(--now);color:var(--now-deep)">
+            <svg data-kw-deliveredbox="1" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg><span data-kw-deliveredlabel="1">show 1</span>
+          </button>
+        </div>
+        <div data-kw-delivered="1" style="display:none;gap:12px">
+          <div style="flex:none;width:11px;display:flex;flex-direction:column;align-items:center;padding-top:16px">
+            <span style="width:11px;height:11px;border-radius:50%;background:var(--green);flex:none"></span>
+            <span style="flex:1;width:2px;background:var(--line-2);margin-top:4px"></span>
+          </div>
+          <div style="flex:1;min-width:0;padding-bottom:14px">
+            <div data-kw-card="tagsnew" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)">
+            <button type="button" data-kw-pick="tagsnew" onClick="{{ pick }}" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:5px;background:transparent;border:0;padding:12px 14px;cursor:pointer;font:inherit;color:inherit" style-hover="background:var(--surface-2)">
+              <span style="display:flex;align-items:center;gap:8px">
+                <span style="font-family:'Newsreader',serif;font-size:17px;line-height:1.15;color:var(--ink);flex:1;min-width:0">Note tag editor</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--green);flex:none">1/1</span>
+              </span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">note-tags-new</span>
+            </button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;padding:0 0 8px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--now-deep);font-weight:500">Now</span>
+          <span style="flex:1;height:2px;background:linear-gradient(to right,var(--now),transparent);opacity:.55"></span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">1</span>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:none;width:11px;display:flex;flex-direction:column;align-items:center;padding-top:16px">
+            <span data-kw-ring="1" style="width:11px;height:11px;border-radius:50%;background:var(--now);flex:none;animation:kwRing 1.9s ease-out infinite"></span>
+            <span style="flex:1;width:2px;margin-top:4px;background:var(--now);opacity:.55"></span>
+          </div>
+          <div style="flex:1;min-width:0;padding-bottom:14px">
+            <div data-kw-card="notif" style="border:2px solid var(--now);border-radius:12px;overflow:hidden;background:var(--surface);outline:2px solid var(--now-deep);outline-offset:3px">
+            <button type="button" data-kw-pick="notif" onClick="{{ pick }}" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:5px;background:var(--now-soft);border:0;padding:12px 14px;cursor:pointer;font:inherit;color:inherit">
+              <span style="display:flex;align-items:center;gap:8px">
+                <span style="font-family:'Newsreader',serif;font-size:17px;line-height:1.15;color:var(--ink);flex:1;min-width:0">Notifications center</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--now-deep);flex:none">1/5</span>
+              </span>
+              <span style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">notifications-redesign</span>
+                <span data-kw-alarm="1" style="display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--on-halt);background:var(--halt);border-radius:99px;padding:1px 7px;color:var(--on-halt);animation:kwAlarm 1.5s steps(1,end) infinite">1 halted</span>
+              </span>
+              <span style="display:block;height:4px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:3px;position:relative">
+                <span style="display:block;height:100%;width:20%;background:var(--now);border-radius:99px"></span>
+                <span style="position:absolute;left:20%;right:0;top:0;bottom:0;background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px);opacity:.3"></span>
+              </span>
+            </button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;padding:0 0 8px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--steel);font-weight:500">Next</span>
+          <span style="flex:1;height:1px;background:var(--line)"></span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">1</span>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:none;width:11px;display:flex;flex-direction:column;align-items:center;padding-top:16px">
+            <span style="width:11px;height:11px;border-radius:50%;border:2px solid var(--steel);background:var(--bg);flex:none"></span>
+            <span style="flex:1;width:2px;background:var(--line-2);margin-top:4px"></span>
+          </div>
+          <div style="flex:1;min-width:0;padding-bottom:14px">
+            <div data-kw-card="winpar" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)">
+            <button type="button" data-kw-pick="winpar" onClick="{{ pick }}" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:5px;background:transparent;border:0;padding:12px 14px;cursor:pointer;font:inherit;color:inherit" style-hover="background:var(--surface-2)">
+              <span style="display:flex;align-items:center;gap:8px">
+                <span style="font-family:'Newsreader',serif;font-size:17px;line-height:1.15;color:var(--ink);flex:1;min-width:0">Make karta's own gates run on Windows</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);flex:none">0/10</span>
+              </span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">windows-parity · 7 → 2 → 1</span>
+            </button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;padding:0 0 8px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--wait);font-weight:500">Later</span>
+          <span style="flex:1;height:1px;background:var(--line)"></span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">2</span>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:none;width:11px;display:flex;flex-direction:column;align-items:center;padding-top:16px">
+            <span style="width:11px;height:11px;border-radius:50%;border:2px dashed var(--wait);background:var(--bg);flex:none"></span>
+            <span style="flex:1;width:2px;background:var(--line-2);margin-top:4px"></span>
+          </div>
+          <div style="flex:1;min-width:0;padding-bottom:14px">
+            <div data-kw-card="wingates" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)">
+            <button type="button" data-kw-pick="wingates" onClick="{{ pick }}" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:5px;background:transparent;border:0;padding:12px 14px;cursor:pointer;font:inherit;color:inherit" style-hover="background:var(--surface-2)">
+              <span style="display:flex;align-items:center;gap:8px">
+                <span style="font-family:'Newsreader',serif;font-size:17px;line-height:1.15;color:var(--ink);flex:1;min-width:0">Mixed parallel and serial waves</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);flex:none">0/10</span>
+              </span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">example-mixed-waves · illustrative</span>
+            </button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:none;width:11px;display:flex;flex-direction:column;align-items:center;padding-top:16px">
+            <span style="width:11px;height:11px;border-radius:50%;border:2px dashed var(--wait);background:var(--bg);flex:none"></span>
+          </div>
+          <div style="flex:1;min-width:0;padding-bottom:6px">
+            <div data-kw-card="tagsdel" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)">
+            <button type="button" data-kw-pick="tagsdel" onClick="{{ pick }}" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:5px;background:transparent;border:0;padding:12px 14px;cursor:pointer;font:inherit;color:inherit" style-hover="background:var(--surface-2)">
+              <span style="display:flex;align-items:center;gap:8px">
+                <span style="font-family:'Newsreader',serif;font-size:17px;line-height:1.15;color:var(--ink);flex:1;min-width:0">Remove the legacy tag input</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);flex:none">0/1</span>
+              </span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2)">note-tags-delete</span>
+            </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:7px">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut-2)">Motion = state</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><span data-kw-ring="1" style="width:9px;height:9px;border-radius:50%;background:var(--now);flex:none;animation:kwRing 1.9s ease-out infinite"></span>pulsing — in flight</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><span style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid var(--now);flex:none"></span>arrowhead — flow direction</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><span style="width:9px;height:9px;background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 6px);opacity:.5;flex:none"></span>hatched — not run yet</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><svg data-kw-alarm="1" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--halt)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;animation:kwAlarm 1.5s steps(1,end) infinite"><path d="M15.3 2a2 2 0 0 1 1.4.6l4.7 4.7a2 2 0 0 1 .6 1.4v6.6a2 2 0 0 1-.6 1.4l-4.7 4.7a2 2 0 0 1-1.4.6H8.7a2 2 0 0 1-1.4-.6l-4.7-4.7a2 2 0 0 1-.6-1.4V8.7a2 2 0 0 1 .6-1.4l4.7-4.7A2 2 0 0 1 8.7 2z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>blinking — halted</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><span style="width:9px;height:9px;border-radius:50%;background:var(--green);flex:none"></span>still — settled</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><span role="img" aria-label="3 runs at once" title="3 runs at once" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span></span>flush lanes — at once</span>
+        <span style="display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut)"><span role="img" aria-label="3 runs, one after another" title="3 runs, one after another" style="display:inline-flex;flex-direction:column;gap:2px;width:32px;flex:none"><span style="height:3px;width:33.3%;margin-left:0.0%;background:var(--now);border-radius:2px"></span><span style="height:3px;width:33.3%;margin-left:33.3%;background:var(--now);border-radius:2px"></span><span style="height:3px;width:33.3%;margin-left:66.7%;background:var(--now);border-radius:2px"></span></span>stepped lanes — in turn</span>
+      </div>
+    </aside>
+
+    <main style="min-width:0;display:flex;flex-direction:column;gap:22px">
+
+      <section data-kw-panel="notif" style="display:flex;flex-direction:column;gap:22px">
+        <div style="background:var(--band);border-radius:16px;padding:20px 26px 22px">
+          <div style="display:flex;align-items:center;gap:9px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--band-kick);margin-bottom:10px">The next action</div>
+          <p style="font-family:'Newsreader',serif;font-size:24px;line-height:1.28;letter-spacing:-.01em;color:#fff;max-width:52ch;text-wrap:pretty">notifications-redesign has a halted item — fix and re-run, or re-plan with <em style="font-style:italic;color:var(--band-kick)">karta-plan</em>.</p>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap">
+            <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#fff;background:rgba(255,255,255,.07);border:1px solid rgba(232,138,152,.28);border-radius:8px;padding:9px 13px">karta-deliver notifications-redesign</code>
+            <button type="button" onClick="{{ copyCmd }}" data-kw-copy="karta-deliver notifications-redesign" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--band);background:#fff;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif" style-hover="background:var(--band-kick)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-kw-copylabel="1">Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:16px">
+          <div style="padding:26px 30px 22px;border-bottom:1px solid var(--line)">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--now-deep)">In flight</span>
+              <span data-kw-ring="1" style="width:7px;height:7px;border-radius:50%;background:var(--now);animation:kwRing 1.9s ease-out infinite"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">notifications-redesign</span>
+            </div>
+            <h1 data-kw-h1="1" style="font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.06;letter-spacing:-.02em;color:var(--ink)">Notifications center</h1>
+            <p style="font-size:16.5px;line-height:1.6;color:var(--mut);margin-top:14px;max-width:66ch;text-wrap:pretty">Replace the old alerts panel with a notifications center people can open, read, and clear. Built from the prototype at design-export/notifications.html on Vue 3 (script setup) + Vite, the internal component library and DTCG tokens.</p>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:22px;flex-wrap:wrap">
+              <span style="flex:1;min-width:200px;height:6px;background:var(--line);border-radius:99px;overflow:hidden;position:relative">
+                <span style="display:block;height:100%;width:20%;background:var(--now);border-radius:99px"></span>
+                <span style="position:absolute;left:20%;right:0;top:0;bottom:0;background-image:repeating-linear-gradient(135deg,var(--now) 0 2px,transparent 2px 7px);opacity:.3"></span>
+              </span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);flex:none">1 of 5 merged</span>
+              <span style="display:flex;align-items:center;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);flex:none">
+                <span style="display:inline-flex;align-items:center;gap:5px"><span data-kw-ring="1" style="width:6px;height:6px;border-radius:50%;background:var(--now);animation:kwRing 1.9s ease-out infinite"></span>1 running</span>
+                <span style="display:inline-flex;align-items:center;gap:5px"><span data-kw-alarm="1" style="width:6px;height:6px;border-radius:50%;background:var(--halt);animation:kwAlarm 1.5s steps(1,end) infinite"></span>1 halted</span>
+                <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>1 passed</span>
+                <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--wait)"></span>2 queued</span>
+              </span>
+            </div>
+          </div>
+
+          <div style="padding:22px 30px 28px;display:flex;flex-direction:column;gap:16px">
+
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">01</span>
+              <span role="img" aria-label="2 runs at once" title="2 runs at once" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">2 parallel</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 1 of 3</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start">
+
+              <div style="border:1px solid var(--line);border-radius:12px;padding:15px 16px;background:var(--green-soft)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--green)">Passed</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">shell · M</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Notifications center shell + routing</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Stand up the notifications center view and its route so the rest of the work has a place to live.</p>
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px">
+                  <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:9px;padding:0;border:0;background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                  <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                    <div style="font-size:13px;line-height:1.55;color:var(--ink)">/notifications route renders without error</div>
+                    <code style="display:block;margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 11px">$ npm run lint &amp;&amp; npm test</code>
+                  </div>
+                  <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)">src/router/index.js · src/views/NotificationsView.vue</code>
+                  <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)">refs/karta/notifications-redesign/item-shell/done</code>
+                </div>
+              </div>
+
+              <div style="border:2px solid var(--halt);border-radius:12px;overflow:hidden">
+                <div style="display:flex;align-items:center;gap:9px;background:var(--halt);color:var(--on-halt);padding:9px 14px">
+                  <svg data-kw-alarm="1" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;animation:kwAlarm 1.5s steps(1,end) infinite"><path d="M15.3 2a2 2 0 0 1 1.4.6l4.7 4.7a2 2 0 0 1 .6 1.4v6.6a2 2 0 0 1-.6 1.4l-4.7 4.7a2 2 0 0 1-1.4.6H8.7a2 2 0 0 1-1.4-.6l-4.7-4.7a2 2 0 0 1-.6-1.4V8.7a2 2 0 0 1 .6-1.4l4.7-4.7A2 2 0 0 1 8.7 2z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase">Halted · needs attention</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;opacity:.9;margin-left:auto">schema-migration · S</span>
+                </div>
+                <div style="padding:15px 16px;background:var(--halt-soft)">
+                  <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Add read_at column to notifications table</div>
+                  <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Runs serialized — it holds the db/migrations shared resource, so nothing else touches migrations while it runs.</p>
+                  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--halt-line);display:grid;grid-template-columns:96px 1fr;gap:9px 14px">
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Oracle</span>
+                    <span style="font-size:13.5px;line-height:1.55;color:var(--ink)">opt-out — verified by the team's existing migration suite in CI, not re-run here</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Contract</span>
+                    <span style="font-size:13.5px;line-height:1.55;color:var(--ink)">adds nullable read_at timestamptz to notifications</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Touches</span>
+                    <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink)">db/migrations/0002_read_at.sql</code>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Ref</span>
+                    <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)">refs/karta/notifications-redesign/item-schema-migration/failed</code>
+                  </div>
+                  <button type="button" onClick="{{ copyCmd }}" data-kw-copy="karta-deliver notifications-redesign" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--on-halt);background:var(--halt);border:0;border-radius:8px;padding:8px 12px;cursor:pointer" style-hover="background:var(--halt-deep)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-kw-copylabel="1">Copy re-run</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">02</span>
+              <span role="img" aria-label="2 runs at once" title="2 runs at once" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">2 parallel · after shell</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 2 of 3</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start">
+              <div style="border:2px solid var(--now);border-radius:12px;background:var(--surface);overflow:hidden">
+                <div style="padding:15px 16px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <svg data-kw-spin="1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--now)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:kwSpin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--now-deep)">Running</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">list-view · L</span>
+                  </div>
+                  <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Notifications list view</div>
+                  <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Show the list of notifications, matching the design.</p>
+                  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px">
+                    <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:9px;padding:0;border:0;background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>visual oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                  <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its visual check when:</div>
+                    <div style="font-size:13px;line-height:1.55;color:var(--ink)">matches the notifications-list view at 1440×900, zero critical or major discrepancies</div>
+                  </div>
+                    <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)">src/views/notifications/NotificationsList.vue · src/composables/useNotifications.js</code>
+                  </div>
+                </div>
+                <div data-kw-ring="1" style="height:2px;background:var(--now);opacity:.5;animation:kwBreathe 3.2s ease-in-out infinite"></div>
+              </div>
+
+              <div style="border:1px solid var(--steel);border-radius:12px;padding:15px 16px;background:var(--steel-soft)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">detail-pane · M</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Notification detail pane</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Open one notification beside the list and read it in full.</p>
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px">
+                  <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:9px;padding:0;border:0;background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>integration oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                  <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its integration check when:</div>
+                    <div style="font-size:13px;line-height:1.55;color:var(--ink)">selecting a row renders its detail pane</div>
+                    <code style="display:block;margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 11px">$ npm run lint &amp;&amp; npm test</code>
+                  </div>
+                  <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut)">src/views/notifications/NotificationDetail.vue</code>
+                </div>
+              </div>
+            </div>
+
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">03</span>
+              <span role="img" aria-label="a single run" title="a single run" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">joins 3 dependencies</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 3 of 3</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start">
+              <div style="border:1px dashed var(--line-2);border-radius:12px;padding:15px 16px;background:var(--wait-soft)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">mark-all-read · S</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Mark-all-read action</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Clear the whole list in one action, writing read_at for every unread row.</p>
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:9px">
+                  <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:9px;padding:0;border:0;background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="6" cy="19" r="3"></circle><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path><circle cx="18" cy="5" r="3"></circle></svg>e2e oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                  <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its e2e check when:</div>
+                    <div style="font-size:13px;line-height:1.55;color:var(--ink)">marking all read empties the unread count and persists across a reload</div>
+                    <code style="display:block;margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 11px">$ npm run lint &amp;&amp; npm test</code>
+                  </div>
+                  <div style="display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap">
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:3px">Blocked by</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--now-deep);background:var(--surface);border:1px solid var(--line-2);border-radius:99px;padding:2px 9px"><svg data-kw-spin="1" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--now)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:kwSpin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>list-view</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel);background:var(--surface);border:1px solid var(--line-2);border-radius:99px;padding:2px 9px"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>detail-pane</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--halt-deep);background:var(--halt-soft);border:1px solid var(--halt-line);border-radius:99px;padding:2px 9px"><svg data-kw-alarm="1" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--halt)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="animation:kwAlarm 1.5s steps(1,end) infinite"><path d="M15.3 2a2 2 0 0 1 1.4.6l4.7 4.7a2 2 0 0 1 .6 1.4v6.6a2 2 0 0 1-.6 1.4l-4.7 4.7a2 2 0 0 1-1.4.6H8.7a2 2 0 0 1-1.4-.6l-4.7-4.7a2 2 0 0 1-.6-1.4V8.7a2 2 0 0 1 .6-1.4l4.7-4.7A2 2 0 0 1 8.7 2z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>schema-migration</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:14px 30px;background:var(--surface-2);border-top:1px solid var(--line);border-radius:0 0 15px 15px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)">
+            <span>default branch <span style="color:var(--ink)">main</span></span>
+            <span style="width:1px;height:12px;background:var(--line-2)"></span>
+            <span>integration <span style="color:var(--ink)">integration/notifications-redesign</span></span>
+            <span style="width:1px;height:12px;background:var(--line-2)"></span>
+            <span>sme <span style="color:var(--ink)">minimalism · vue</span></span>
+          </div>
+        </div>
+      </section>
+
+      <section data-kw-panel="tagsnew" style="display:none;flex-direction:column;gap:22px">
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:16px">
+          <div style="padding:26px 30px 22px;border-bottom:1px solid var(--line)">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--green)">Delivered · merged to main</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">note-tags-new</span>
+            </div>
+            <h1 data-kw-h1="1" style="font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.06;letter-spacing:-.02em;color:var(--ink)">Note tag editor</h1>
+            <p style="font-size:16.5px;line-height:1.6;color:var(--mut);margin-top:14px;max-width:66ch;text-wrap:pretty">Add a self-contained NoteTagEditor component for editing a note's tags. Stage 1 of 3 (new then edit then delete): introduces the new component without wiring it into the app, so it lands green on its own.</p>
+          </div>
+          <div style="padding:22px 30px 28px;display:flex;flex-direction:column;gap:14px">
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">01</span>
+              <span role="img" aria-label="a single run" title="a single run" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">single run</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 1 of 1</span>
+            </div>
+            <div><div style="border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--green-soft)">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--green)">Passed</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">tag-editor-component · M</span>
+              </div>
+              <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink)">NoteTagEditor Vue component + normalizeTags helper</div>
+              <div style="display:grid;grid-template-columns:96px 1fr;gap:9px 14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Oracle</span>
+                <span style="font-size:13.5px;color:var(--ink)">unit</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Asserts</span>
+                <span style="font-size:13.5px;line-height:1.6;color:var(--ink)">NoteTagEditor renders the tags passed to it<br>normalizeTags lowercases, trims, and de-duplicates its input</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Contract</span>
+                <span style="font-size:13.5px;line-height:1.5;color:var(--ink)">exports &lt;NoteTagEditor v-model:tags&gt; and normalizeTags(input: string[]): string[]</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Touches</span>
+                <code style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink)">src/components/NoteTagEditor.vue · src/lib/normalizeTags.ts</code>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Command</span>
+                <code style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;justify-self:start">$ npm run lint &amp;&amp; npm test</code>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-kw-panel="winpar" style="display:none;flex-direction:column;gap:22px">
+        <div style="background:var(--band);border-radius:16px;padding:20px 26px 22px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--band-kick);margin-bottom:10px">Start this binder</div>
+          <p style="font-family:'Newsreader',serif;font-size:24px;line-height:1.28;letter-spacing:-.01em;color:#fff;max-width:52ch">Its predecessors are merged. Nothing is blocking <em style="font-style:italic;color:var(--band-kick)">windows-parity</em>.</p>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap">
+            <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#fff;background:rgba(255,255,255,.07);border:1px solid rgba(232,138,152,.28);border-radius:8px;padding:9px 13px">karta-deliver windows-parity</code>
+            <button type="button" onClick="{{ copyCmd }}" data-kw-copy="karta-deliver windows-parity" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--band);background:#fff;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif" style-hover="background:var(--band-kick)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-kw-copylabel="1">Copy</span>
+            </button>
+          </div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px 30px 28px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--steel)">Next · ready to start</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">windows-parity</span>
+          </div>
+          <h1 data-kw-h1="1" style="font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.06;letter-spacing:-.02em;color:var(--ink)">Make karta's own gates run on Windows</h1>
+          <p style="font-size:16.5px;line-height:1.6;color:var(--mut);margin-top:14px;max-width:66ch;text-wrap:pretty">Give every karta script an explicit encoding at every text boundary — files, subprocess pipes, and its own stdout — repair the self-tests that still fail on Windows, make line endings repo policy rather than per-machine config, and close with a floor that enforces all three.</p>
+                      <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">01</span>
+              <span role="img" aria-label="7 runs at once" title="7 runs at once" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">7 parallel</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 1 of 3</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start">
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">portable-oracle-runner</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the oracle runner strip the environment it inherits</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">A run must observe none of the encoding and locale overrides a developer happens to have set, so the gate reads the same on every machine.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">A fixture sets each of PYTHONUTF8, PYTHONIOENCODING, PYTHONLEGACYWINDOWSSTDIO, PYTHONCOERCECLOCALE, LC_ALL, LC_CTYPE, LANG, LANGUAGE and KARTA_SKIP_GATE in a child environment, runs a probe through the runner, and asserts the probe observes none of them -- the stripping is proven per-variable, not asserted as a list.</div>
+                  <code style="display:block;margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 11px">$ uv run --script scripts/karta_env.py --self-test</code>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">generator-agents</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the Codex agent generator encoding-explicit and give it fixtures</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Give sync_codex_agents.py explicit encodings at every text boundary and the fixtures that prove it.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">sync_codex_agents.py runs green on Windows with no PYTHONUTF8 override</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">generator-skills</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the Codex skills generator encoding-explicit and repair its Windows fixtures</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Give sync_codex_skills.py explicit encodings at every text boundary and repair the five fixtures that fail on Windows.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">sync_codex_skills.py runs green and its five Windows fixtures pass</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">encoding-gate-scripts</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the gate scripts encoding-explicit and their triggers precise</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Give scripts/hooks/*.py and scripts/roundtable/*.py explicit encodings at every text boundary.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">every script under scripts/hooks and scripts/roundtable declares an encoding</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">windows-guard-hooks</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the guard hooks resolve paths, print, and clean up on Windows</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Give hooks/scripts/*.py explicit encodings at every text boundary, teach them Windows path resolution.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the guard hooks resolve, print and clean up on a Windows checkout</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">line-ending-policy</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make line endings repo policy, not per-contributor config</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Commit a .gitattributes that normalizes tracked text to LF and marks the tracked binaries.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">a fresh checkout reports no CRLF in tracked text</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">benchmarks-encoding</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the benchmark harness encoding-explicit</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Give the thirty scripts under benchmarks/ explicit encodings at every text boundary.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the benchmark harness reads and writes with an explicit encoding</div>
+                </div>
+              </div>
+            </div>
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">02</span>
+              <span role="img" aria-label="2 runs at once" title="2 runs at once" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">2 parallel</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 2 of 3</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start">
+              <div style="border:1px dashed var(--line-2);background:var(--wait-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">windows-skill-scripts</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the skill-shipped scripts encoding-explicit and their sockets platform-correct</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Give skills/*/scripts/*.py explicit encodings at every text boundary, repair the two serve_status socket checks that classify differently on Windows.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the skill-shipped scripts and both serve_status socket checks pass on Windows</div>
+                </div>
+              </div>
+              <div style="border:1px dashed var(--line-2);background:var(--wait-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">codex-plugin-hook-copies</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Bring the ungoverned Codex hook copies under a rule</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Decide what .codex-plugin/hooks/scripts/ is — a generated mirror or a separate implementation — then make it encoding-explicit and put it under the rule.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the Codex hook copies are governed by a rule and are encoding-explicit</div>
+                </div>
+              </div>
+            </div>
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">03</span>
+              <span role="img" aria-label="a single run" title="a single run" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">final run</span>
+              
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 3 of 3</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start">
+              <div style="border:1px dashed var(--line-2);background:var(--wait-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">encoding-floor</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the validator encoding-explicit and enforce the floors it now depends on</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Fix the remaining encoding boundaries in validate_plugin.py and check_shared_copies.py, add the checks that reject bare text IO and tracked CRLF, and take the whole gate suite green on Windows.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the whole gate suite runs green on a Windows checkout</div>
+                </div>
+              </div>
+            </div>
+          </div>
+      </section>
+
+      <section data-kw-panel="wingates" style="display:none;flex-direction:column;gap:22px">
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px 30px 28px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--wait)">Example · not a live binder</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">example-mixed-waves</span>
+          </div>
+          <h1 data-kw-h1="1" style="font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.06;letter-spacing:-.02em;color:var(--ink)">Mixed parallel and serial waves</h1>
+          <p style="font-size:16.5px;line-height:1.6;color:var(--mut);margin-top:14px;max-width:66ch;text-wrap:pretty">Ten runs across two waves. Six go in parallel; the four that touch a shared file are serialized behind a lock, so they queue one after another even though they sit in the same wave.</p>
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">01</span>
+              <span role="img" aria-label="6 runs at once" title="6 runs at once" style="display:inline-flex;flex-direction:column;gap:2px;width:16px;flex:none"><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span><span style="height:2px;width:100%;margin-left:0;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">8 runs</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2)">6 parallel, then 2 on a lock</span>
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 1 of 2</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start">
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">encoding-cli</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Give the CLI entrypoints an explicit encoding</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Every text boundary in the plugin CLI reads and writes with an explicit encoding rather than the platform default.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">every CLI entrypoint declares an encoding at each text boundary it opens</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">encoding-plugin-loader</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the plugin loader encoding-explicit</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">validate_plugin.py and the loader it calls open manifests with an explicit encoding.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">validate_plugin.py and the loader it calls open manifests with an explicit encoding</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">encoding-roundtable</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the roundtable scripts encoding-explicit</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">scripts/roundtable/*.py declare an encoding on every file and pipe they touch.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the roundtable scripts declare an encoding on every file and pipe they touch</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">encoding-selftests</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Repair the self-tests that fail for platform reasons</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Separate the genuine Windows failures from the encoding ones and fix the checks that misclassify.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the self-tests separate genuine platform failures from encoding failures</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">crlf-fixtures</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Normalize the fixtures that carry CRLF</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">Tracked fixtures land LF so the gates read the same bytes on every checkout.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">a fresh checkout reports no CRLF in tracked text</div>
+                </div>
+              </div>
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">ascii-guard</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Add the guard that rejects bare text IO</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">A check that fails the gate when a script opens text without declaring an encoding.</p>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the guard fails the gate on any bare text IO</div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              <span role="img" aria-label="2 runs, one after another" title="2 runs, one after another" style="display:inline-flex;flex-direction:column;gap:2px;width:32px;flex:none"><span style="height:3px;width:50.0%;margin-left:0.0%;background:var(--now);border-radius:2px"></span><span style="height:3px;width:50.0%;margin-left:50.0%;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2)">serialized · scripts/hooks · still wave 1</span>
+              <span style="flex:1;height:1px;background:var(--line)"></span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start">
+              <div style="border:1px solid var(--steel);background:var(--steel-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="7 4 19 12 7 20 7 4"></polygon></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--steel)">Ready</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">hooks-encoding</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the guard hooks encoding-explicit</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">hooks/scripts/*.py declare encodings at every boundary.</p>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>serialized · holds scripts/hooks</div>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">hooks/scripts/*.py declare encodings at every boundary</div>
+                </div>
+              </div>
+              <div style="border:1px dashed var(--line-2);background:var(--wait-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">hooks-exit-codes</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Make the hook exit codes consistent on Windows</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">A failing hook exits non-zero the same way on every platform.</p>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>serialized · holds scripts/hooks</div>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">a failing hook exits non-zero identically on every platform</div>
+                </div>
+              </div>
+            </div>
+            <div style="position:sticky;top:70px;z-index:20;display:flex;align-items:center;gap:12px;background:var(--surface);margin:22px -30px 14px;padding:11px 30px 9px;border-bottom:1px solid var(--line-2)">
+              <span style="font-family:'Newsreader',serif;font-size:25px;line-height:1;color:var(--now);font-variant-numeric:tabular-nums">02</span>
+              <span role="img" aria-label="2 runs, one after another" title="2 runs, one after another" style="display:inline-flex;flex-direction:column;gap:2px;width:32px;flex:none"><span style="height:3px;width:50.0%;margin-left:0.0%;background:var(--now);border-radius:2px"></span><span style="height:3px;width:50.0%;margin-left:50.0%;background:var(--now);border-radius:2px"></span></span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)">2 runs</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2)">serialized · .pre-commit-config.yaml</span>
+              <span style="flex:1"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mut-2);flex:none">step 2 of 2</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start">
+              <div style="border:1px dashed var(--line-2);background:var(--wait-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">precommit-gate-order</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Fix the order the gates run in</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">The encoding gate runs before the formatters that would rewrite the files under it.</p>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>serialized · holds .pre-commit-config.yaml</div>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the encoding gate runs before any formatter that would rewrite its files</div>
+                </div>
+              </div>
+              <div style="border:1px dashed var(--line-2);background:var(--wait-soft);border-radius:12px;padding:15px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">precommit-windows-runner</span>
+                </div>
+                <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink);margin-bottom:6px">Point the runner at the Windows interpreter</div>
+                <p style="font-size:13.5px;line-height:1.55;color:var(--mut)">The hook resolves the interpreter rather than assuming a POSIX path.</p>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--mut-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>serialized · holds .pre-commit-config.yaml</div>
+                <button type="button" onClick="{{ oracle }}" style="display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;padding:11px 0 0;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2)" style-hover="color:var(--ink)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M14 2v6l5.5 9.5a2 2 0 0 1-1.7 3H6.2a2 2 0 0 1-1.7-3L10 8V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>smoke oracle<span style="flex:1"></span><svg data-kw-chev="1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;transition:transform .15s"><path d="m6 9 6 6 6-6"></path></svg></button>
+                <div data-kw-oracle="1" style="display:none;margin-top:9px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);margin-bottom:5px">passes its smoke check when:</div>
+                  <div style="font-size:13px;line-height:1.55;color:var(--ink)">the hook resolves the interpreter rather than assuming a POSIX path</div>
+                </div>
+              </div>
+            </div>
+        </div>
+      </section>
+
+      <section data-kw-panel="tagsdel" style="display:none;flex-direction:column;gap:22px">
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px 30px 28px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--wait)">Later · waiting its turn</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">note-tags-delete</span>
+          </div>
+          <h1 data-kw-h1="1" style="font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.06;letter-spacing:-.02em;color:var(--ink)">Remove the legacy tag input</h1>
+          <p style="font-size:16.5px;line-height:1.6;color:var(--mut);margin-top:14px;max-width:66ch;text-wrap:pretty">Remove the legacy inline tag-editing code now that NoteTagEditor owns it. Stage 3 of 3: assumes note-tags-edit is merged, so nothing references the old code.</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:18px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--wait);background:var(--wait-soft);border:1px dashed var(--line-2);border-radius:9px;padding:10px 13px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wait)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg>blocked by note-tags-edit — it must merge first
+          </div>
+          <div style="border:1px dashed var(--line-2);border-radius:12px;padding:16px 18px;background:var(--wait-soft);margin-top:16px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="width:9px;height:9px;border-radius:50%;border:2px solid var(--wait)"></span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--wait)">Waiting</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);margin-left:auto">remove-legacy-tag-input · S</span>
+            </div>
+            <div style="font-family:'Newsreader',serif;font-size:20px;line-height:1.2;color:var(--ink)">Delete legacy tag-input code from AppShell</div>
+            <div style="display:grid;grid-template-columns:96px 1fr;gap:9px 14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Oracle</span>
+              <span style="font-size:13.5px;color:var(--ink)">unit</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Asserts</span>
+              <span style="font-size:13.5px;line-height:1.6;color:var(--ink)">legacy tag-input markup and handlers are removed<br>no references to the removed handlers remain in the tree</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);padding-top:2px">Touches</span>
+              <code style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink)">src/components/AppShell.vue</code>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mut-2);text-align:center;padding-top:4px">karta · derived fresh from git every poll · read-only</footer>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "efb47f1cbcc31b28456ffe37a7a43b914105dbd407e89a5a609ef6158838c594",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "watch-derivation-cost",
+  "run_at": "2026-08-16T02:48:16.157794+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": "no blocking defect (confidence high)",
+      "summary": "No blocking defect. The contract is unusually thorough after ten adversarial rounds; remaining gaps are verification shortfalls, not contract errors. Medium: (1) the benchmark's required git-env cleaning has no oracle check, so a GIT_DIR leak could silently measure the wrong repo and write false numbers into the spec; (2) the cache-key growth check claims to cover bytes read but the oracle only counts calls, so a large packed-refs hashed every request could become a new storm undetected. Low: untested same-thread reentrancy (a plain Lock would pass every assertion and deadlock on the anticipated refactor); a same-tick binder-JSON hole the ref content hash does not reach; lean-box-benchmark depends on client-conditional-poll though it only needs batch-git-facts, delaying the item that proves the thesis behind four unrelated items; poll_decision undefined for visible=False with has_etag=False."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "no blocking defect \u2014 approve (confidence high)",
+      "summary": "Blocking defects: none found. Approve. Ten adversarial rounds have stress-tested this design and the contracts are unusually precise \u2014 every identified failure mode (symref HEAD, same-tick writes, pack-refs path-set drift, failure caching, hook injection, alternates) has a named assertion. Residual non-blocking: no Vary or Cache-Control specified on the state feed, though the localhost Host pin makes real exposure minimal; poll_decision's no-etag branches are not pinned; worktree config could in principle alter ref resolution; the benchmark self-test's need for git on PATH and a writable temp dir is not stated."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "no blocking defect (confidence high)",
+      "summary": "After ten rounds I find no blocking defect in the spec. Two minor gaps, neither gate-blocking: poll_decision is under-specified at the seam \u2014 only three argument triples are asserted, and since the mirrored JS is generated from the Python signature an ambiguous default propagates client-side, so the full truth table should land before the mirror is generated; and the renamed or missing default-branch failure mode should be restated in terms of exit codes rather than textual stderr, which varies across git versions. Contracts are internally consistent, the seven-item chain resolves without cycles, and the round-ten fixes hold. Remaining risk lives in implementation, not in this spec."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "no blocking defect (confidence high, 85%)",
+      "summary": "Final record: no blocking defect. Confidence high, 85%. The last two fixes are coherent. Medium: the cache key mandates content hashes for refs but not binder JSON, so same-tick same-size edits may stay stale up to 60 seconds \u2014 hash binder files too or explicitly accept the bounded staleness; and a pre/post key mismatch discards the derivation without specifying the request's behaviour, so concurrent writes could yield no renderable response \u2014 define the retry or fallback. Low: the benchmark sanitises selected GIT_* variables but omits GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES; and the first-load archived payload remains unbounded, only the polling payload is bounded."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "antigravity",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    }
+  ]
+}

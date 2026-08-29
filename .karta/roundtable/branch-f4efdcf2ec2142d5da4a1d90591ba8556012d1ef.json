@@ -1,0 +1,30 @@
+{
+  "reviewed_hash": "f4efdcf2ec2142d5da4a1d90591ba8556012d1ef",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/watch-derivation-cost/integration",
+  "run_at": "2026-08-16T08:06:28.707983+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "codex",
+      "verdict": "ok",
+      "summary": "VERDICT: MERGE. Findings, ranked: none. No blocking defects found.\n\nA. Clean. _json_key matches the active encoder for all accepted key types, including subclasses; -0.0, non-finite floats, and arbitrarily large encodable integers retain the encoder's spelling. Integers exceeding Python's configured digit limit raise ValueError in both paths and are not encodable.\n\nB. Clean. Ordinary dict/list/tuple recursion is bounded at 100 containers, and ancestor detection terminates cycles. A fixed bound is appropriate for deterministic sanitized bytes. Replacing truncated content with null is lossy, but the ETag correctly certifies the resulting wire representation - not the unsanitized Python object. Unsupported objects or adversarial container subclasses can still raise arbitrary exceptions, as explicitly documented; valid JSON-like state cannot escape through structural recursion.\n\nC. Clean. Tagged responses come only from strict serialization, while the untagged fallback receives a tree with all non-finite floats removed. Conditional handling requires a generated tag, and the hash covers the exact UTF-8 body _text sends. If-None-Match: * remains a valid special case.\n\nD. Clean. No additional plausible correctness, parsing, conditional-request, or ETag-integrity defect found in the reviewed scope.\n\nNOTE ON DISPATCH: obtained by invoking the codex CLI directly (codex-cli 0.147.0), because the roundtable provider probe runs bare `codex`, which exits 1 on a non-interactive stdin; `codex exec` works normally. Same model, same content, same reviewer role."
+    },
+    {
+      "provider": "claude",
+      "verdict": "ok",
+      "summary": "VERDICT: MERGE. Both prior-round fixes verified correct; nothing breaks on any input this server can actually construct. Seven findings, none blocking.\n\nA. _json_key clean. Traced all five branches against both json/encoder.py::_make_iterencode and _json.c::encoder_encode_key_value (the C path is what runs, since indent is None). Order matches, including float before the True/False/None identity tests and int last. float.__repr__/int.__repr__ unbound matches PyFloat_Type.tp_repr/PyLong_Type.tp_repr, so a subclass cannot rename its key. -0.0 -> -0.0. IntEnum/StrEnum keys match. NaN detection via math.isnan matches the C encoder's isfinite() on the raw double, and is MORE faithful than pure-Python's o != o for a float subclass overriding __eq__.\n\nB. Depth bound correct; fixed constant is the right call. len(_ancestors) is exactly the container depth, checked before descending: max ~100 container frames (~200 on <=3.11) against a limit of 1000 with ~30 handler frames live. Catching RecursionError then recursing 100 deep is safe - the stack has unwound and the pre-3.12 overflowed flag clears below the low-water mark. The ETag-stability argument for a fixed constant holds and is the correct trade.\n\nC. 304 correctness clean. _not_modified is reachable only when etag is truthy and the client presented that exact tag (or *), so no 304 can name an untagged representation. Serialize-once-hash-those-bytes holds.\n\nFINDINGS (none blocking):\n1. MEDIUM - the str(k) fallback in _json_key can embed a memory address (<object object at 0x7f...>) or hash-seed-dependent frozenset ordering, so two processes with equal state would emit different bytes and different ETags. That is the exact cross-process invariant JSON_MAX_DEPTH is hardcoded to protect. Fix: a deterministic synthetic name such as f\"<unrepresentable {type(k).__name__}>\". Not blocking: the binder path is json.loads, whose keys are always str.\n2. MEDIUM - _json_safe(payload) sits outside the inner try in state_body, so int.__repr__ on a >4300-digit int (ValueError, Python >=3.11), an object whose __str__ raises, or a dict subclass whose items() raises leaves the request as a dropped connection - the failure mode the cycle fix was written to eliminate, reached by a different door. Fix: move it inside the try and add a last-ditch untagged reply. Not blocking - such a key cannot survive json.loads.\n3. MEDIUM - the comment claiming nothing json could have encoded is ever truncated is false: a deep payload refused for an UNRELATED reason is still truncated at depth 100, and the last resort then serves the truncated tree where the ordinary encoder would have served it whole. The recovery path does not know why json refused. Unreachable today (the derivation is ~6 levels) but the comment is what a maintainer will read. Also, null now conflates genuine-null, non-finite, cycle and depth-cut with no signal.\n4. MEDIUM (verify) - if _inert_json passed a default= hook its output would never be walked, and a non-finite float inside it would reach the browser as bare NaN with a 200.\n5. LOW/MED (verify) - Cache-Control: no-store on the 304 means a conforming browser cache never stores the 200 and so never revalidates; the 304 path is live only because the page's own JS holds the tag and re-sends it.\n6. LOW - _if_none_match splits on ',' without honouring commas inside quoted entity-tags. Fails safe (200 instead of 304); our tags are hex.\n7. LOW (verify) - HEAD is correctly exempted from 304, but body suppression must happen inside _text.\n\nSecurity: clean - read-only, loopback, auth precedes any tag, no injection surface, ETag comparison is over already-authorized state."
+    }
+  ]
+}

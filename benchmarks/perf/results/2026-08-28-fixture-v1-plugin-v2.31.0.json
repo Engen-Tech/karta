@@ -1,0 +1,208 @@
+{
+  "vector": "perf-fixture-cost-baseline",
+  "fixture": "fixture-v1",
+  "fixture_sha256": "2f328f31b74d89ef14f37f12941cb1d0293757867103015946432abf9f773acc",
+  "run_date": "2026-08-28",
+  "claude_cli_version": "2.1.251",
+  "harness_notes": [
+    "/usr/bin/time was absent on the host and installed (package time 1.9) before the first run; a first attempt exited 127 before any delivery and is not counted.",
+    "runner.sh gained CLAUDE_CONFIG_DIR isolation on 2026-08-28 after runs 1 (both versions) showed the operator's ~/.claude in scope: ~/.claude/skills/karta-* symlinks at the live checkout resolved `karta-build` before the pinned plugin's skill. Runs marked isolated_config_dir=false ran before that fix.",
+    "n=1 COMPLETE isolated run per version, of the card's n=3; medians below are single values."
+  ],
+  "plugin_version": "2.31.0",
+  "plugin_tag": "v2.31.0",
+  "plugin_sha": "b991c2f",
+  "runs": [
+    {
+      "repeat": "1-invalid",
+      "run_root": "/tmp/karta-bench.jrOfKR",
+      "session_id": "8374e6c5-27fe-483f-b404-b0a989e68cfb",
+      "classification": "INVALID-PIN",
+      "isolated_config_dir": false,
+      "wall_clock": "5:27.14",
+      "max_rss_kb": 475792,
+      "duration_api_ms": 490735,
+      "total_cost_usd": 4.5495,
+      "num_turns": 15,
+      "final_result": "success",
+      "ask_user_question_events": 0,
+      "refs_at_end": [
+        "item-greet-cli/built",
+        "item-greet-cli/done",
+        "item-shout-helper/built",
+        "item-shout-helper/done",
+        "item-shout-helper/evidence"
+      ],
+      "reason": "excluded: the pin did not govern the run. ~/.claude/skills/karta-build (symlink to the live 2.32.0 checkout) resolved before the pinned plugin's skill; the builder executed 2.32.0 instructions, found no run_oracle.py in the pinned tree, located a 2.32.0 copy with find and used it (one evidence ref written, which 2.31.0 cannot do). Hooks fired from the pinned tree throughout.",
+      "metrics_as_mined": {
+        "session": "/home/dev/.claude/projects/-tmp-karta-bench-jrOfKR-repo/8374e6c5-27fe-483f-b404-b0a989e68cfb.jsonl",
+        "deliveries": 1,
+        "spawned_contexts_per_item": {
+          "greet-cli": 3,
+          "shout-helper": 3
+        },
+        "phase_turns": {
+          "orchestrator": 64,
+          "builder": 112,
+          "acceptance-reviewer": 14,
+          "safety-auditor": 13,
+          "other": 0
+        },
+        "verify_retries": {
+          "total": 0,
+          "per_item": {},
+          "unattributed_gate_spawns": 0
+        },
+        "denied_dispatches": {},
+        "merge_revalidations": {
+          "evidenced": 0,
+          "item_merges": 2
+        },
+        "phase_output_tokens": {
+          "orchestrator": 31383,
+          "builder": 20061,
+          "acceptance-reviewer": 3736,
+          "safety-auditor": 3850,
+          "other": 0
+        },
+        "wall_minutes": 5.4,
+        "model_ids": [
+          "claude-opus-5",
+          "claude-sonnet-5"
+        ],
+        "claude_cli_version": "2.1.251"
+      }
+    },
+    {
+      "repeat": "1b-invalid",
+      "run_root": "/tmp/karta-bench.Rt6CnH",
+      "session_id": "b369456a-980a-4dd6-91c1-72f2e7466fa6",
+      "classification": "INVALID-PIN",
+      "isolated_config_dir": false,
+      "wall_clock": "6:19.10",
+      "max_rss_kb": 408888,
+      "duration_api_ms": 495436,
+      "total_cost_usd": 4.8726,
+      "num_turns": 16,
+      "final_result": "success",
+      "ask_user_question_events": 0,
+      "refs_at_end": [
+        "item-greet-cli/built",
+        "item-greet-cli/done",
+        "item-greet-cli/evidence",
+        "item-shout-helper/built",
+        "item-shout-helper/done",
+        "item-shout-helper/evidence"
+      ],
+      "reason": "excluded: same defect. Re-run with the user-scope karta plugin disabled, which did not help \u2014 the shadow was the user-level skill symlink, not the plugin. Both evidence refs written.",
+      "metrics_as_mined": {
+        "session": "/home/dev/.claude/projects/-tmp-karta-bench-Rt6CnH-repo/b369456a-980a-4dd6-91c1-72f2e7466fa6.jsonl",
+        "deliveries": 1,
+        "spawned_contexts_per_item": {
+          "greet-cli": 3,
+          "shout-helper": 3
+        },
+        "phase_turns": {
+          "orchestrator": 75,
+          "builder": 87,
+          "acceptance-reviewer": 15,
+          "safety-auditor": 17,
+          "other": 0
+        },
+        "verify_retries": {
+          "total": 0,
+          "per_item": {},
+          "unattributed_gate_spawns": 0
+        },
+        "denied_dispatches": {},
+        "merge_revalidations": {
+          "evidenced": 2,
+          "item_merges": 2
+        },
+        "phase_output_tokens": {
+          "orchestrator": 30436,
+          "builder": 15509,
+          "acceptance-reviewer": 4345,
+          "safety-auditor": 5201,
+          "other": 0
+        },
+        "wall_minutes": 6.22,
+        "model_ids": [
+          "claude-opus-5",
+          "claude-sonnet-5"
+        ],
+        "claude_cli_version": "2.1.251"
+      }
+    },
+    {
+      "repeat": 1,
+      "run_root": "/tmp/karta-bench.ZbSxz3",
+      "session_id": "6a179f31-aab9-4fc9-a128-d1e66c6d1bb4",
+      "classification": "COMPLETE",
+      "isolated_config_dir": true,
+      "wall_clock": "7:22.04",
+      "max_rss_kb": 357316,
+      "duration_api_ms": 654610,
+      "total_cost_usd": 4.744,
+      "num_turns": 17,
+      "final_result": "success",
+      "ask_user_question_events": 0,
+      "refs_at_end": [
+        "item-greet-cli/built",
+        "item-greet-cli/done",
+        "item-shout-helper/built",
+        "item-shout-helper/done"
+      ],
+      "metrics": {
+        "session": "/tmp/karta-bench.ZbSxz3/claude-config/projects/-tmp-karta-bench-ZbSxz3-repo/6a179f31-aab9-4fc9-a128-d1e66c6d1bb4.jsonl",
+        "deliveries": 1,
+        "spawned_contexts_per_item": {
+          "greet-cli": 3,
+          "shout-helper": 4
+        },
+        "phase_turns": {
+          "orchestrator": 78,
+          "builder": 75,
+          "acceptance-reviewer": 36,
+          "safety-auditor": 19,
+          "other": 0
+        },
+        "verify_retries": {
+          "total": 1,
+          "per_item": {
+            "shout-helper": 1
+          },
+          "unattributed_gate_spawns": 0
+        },
+        "denied_dispatches": {
+          "shout-helper": 1
+        },
+        "failed_dispatches": {},
+        "merge_revalidations": {
+          "evidenced": 0,
+          "item_merges": 2
+        },
+        "phase_output_tokens": {
+          "orchestrator": 46262,
+          "builder": 16801,
+          "acceptance-reviewer": 11043,
+          "safety-auditor": 7867,
+          "other": 0
+        },
+        "wall_minutes": 7.32,
+        "model_ids": [
+          "claude-opus-5",
+          "claude-sonnet-5"
+        ],
+        "claude_cli_version": "2.1.251"
+      },
+      "notes": [
+        "karta-build and karta-deliver skill text loaded from the pinned tree; no evidence refs at the end, as 2.31.0 has no oracle runner.",
+        "1 denied dispatch (guard_auditor_dispatch: missing binder path) and 1 verify retry on shout-helper (a second acceptance-reviewer spawn)."
+      ]
+    }
+  ],
+  "aggregate": {
+    "n_complete": 1
+  }
+}

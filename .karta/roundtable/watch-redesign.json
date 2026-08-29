@@ -1,0 +1,55 @@
+{
+  "reviewed_hash": "086eea998249d88d145687af5445d87e0b6e9241eb51ba063ad6b861c15070f3",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "watch-redesign",
+  "run_at": "2026-08-16T02:53:16.859374+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "no blocking defect (confidence ~85%)",
+      "summary": "No blocking defect. The two prior fixes hold: visible is now exercised inside refresh_decision across both modes, hidden tabs, and the manual-override case, with the predecessor's parallel backoff explicitly required to be subsumed. The overstated cross-language mirror claim is replaced with what a pure-Python gate can actually check \u2014 a shared vector table plus branch routing \u2014 and the residue, a rewrite that keeps shape but changes behaviour, is honestly named and moved to the human checklist, which now includes the network-silence sweep across tab switch and focus change. One residual, non-blocking: the poll-now one-shot is caller-side state; the spec mandates resetting the elapsed baseline on poll-now but never states the caller must clear manual after consuming it. A stale true flag in manual-only mode would keep any decision-calling path fetching. One sentence closes it."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "no blocking defect (confidence ~0.85)",
+      "summary": "No blocking defect found. The two prior fixes hold up: visibility is now gated inside refresh_decision with direct-call coverage (visible=False in both modes, manual-on-hidden-tab), and the subsumed-not-parallel assertion closes the predecessor-backoff hole. The mirror claim is now honestly scoped \u2014 shared vector table plus structural routing check, with the residual shape-preserving behavioural rewrite explicitly moved to the human checklist. Residual nits: the manual-exactly-once property is caller state a pure function cannot enforce, which the contract already concedes; the hub assertion about using the same rendered refresh_decision is ambiguous across two render paths (same source, two emitted copies); and --now and --band are identical in light mode, likely intentional but worth a glance. The honesty clauses systematically cover what the gate cannot see."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "no blocking defect (confidence high)",
+      "summary": "No blocking defect. Confidence high. Three minor concerns: the cross-language mirror check should pin value-equality of the published input-vector table, not just key presence and call-site routing, since a drift where Python maps an elapsed value to skip and the JS literal maps it to poll would pass a call-site check; the binder does not nominate which step regenerates the Codex mirrors despite every oracle asserting byte-identity, so it should be a precondition rather than a postcondition; and widen-state-feed retains item.assert alongside the new item.assertions array, so the renderer-edit item should assert it reads the plural form. Also noted: refresh-controls carries 23 assertions with some near-duplication, which inflates the failure surface without proportionate gain. The honesty about what a no-browser gate cannot prove is unusually clear, and the residue is consistently named on the human browser checklist rather than papered over."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "no blocking defect (confidence high)",
+      "summary": "No blocking defect. The prior findings are addressed: visibility is gated inside refresh_decision with explicit hidden-tab assertions, and the mirror claim is now honestly limited to shared decision-table verification. Remaining risks are material but not blocking: the pure-Python source-level gate still cannot prove browser quiescence, storage persistence, listener teardown, reduced motion, or visual separation, and the human checklist is the only control for those and is unenforced without CI. Lexical checks like every-fetch-behind-refresh_decision and exactly-one-poll-timer can still miss shape-preserving rewrites or indirect fetch dispatch. Anchor-floor ownership is convention, not mechanically enforced. Confidence high that the binder is coherent and ready; moderate that runtime behaviour will hold in real browsers."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "antigravity",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    }
+  ]
+}

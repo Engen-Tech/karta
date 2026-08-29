@@ -1,0 +1,21 @@
+{
+  "slug": "watch-fidelity-fixture-demo",
+  "title": "Fixture binder for the watch-fidelity comparison rig",
+  "summary": "A hand-written, always-pending binder committed so the watch fidelity checks have a served page whose wave shape never depends on whichever binder happens to be live in this repo when the check runs.",
+  "motivation": "The visual checks in the watch-fidelity binder need a served page that renders the same thing every time. This binder's slug is deliberately fictitious: no karta/watch-fidelity-fixture-demo/* ref exists anywhere in this repo, so every item below always derives as pending and the page always shows one binder, one wave, one card.",
+  "scope": {
+    "included": ["nothing real — this binder is a fixture, not a plan"]
+  },
+  "work_items": [
+    {
+      "id": "fixture-item",
+      "title": "Fixture work item",
+      "summary": "A single item with no dependencies, so the page renders exactly one pending wave holding exactly one card, every time this fixture is served.",
+      "oracle": {
+        "type": "smoke",
+        "command": "true",
+        "assertions": ["the fixture exists so a served page has something to render"]
+      }
+    }
+  ]
+}

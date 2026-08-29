@@ -1,0 +1,35 @@
+{
+  "reviewed_hash": "d5184afa747cfde9bb805dd24bc5da71cb13a487",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/design-reference-gate-2/integration",
+  "run_at": "2026-08-26T06:01:04.837785+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "merge",
+      "summary": "### Review Findings\n\n**No findings.** The delta contains no correctness bugs, logic errors, security\nvulnerabilities, or contract violations.\n\n### Analysis & Answers to Specific Questions\n\n#### 1. Does the widened guard actually close it, and does the delta introduce anything?\n**Yes, it fully closes the defect without introducing new issues.**\n- `resolve_design_file(Path(design_path))` performs user home expansion and path\n  resolution. When supplied with an unresolvable user (e.g., `'~nosuchuser/x'`),\n  `expanduser()` raises `RuntimeError`.\n- Widening the exception handler from `OSError` to `(OSError, RuntimeError)` ensures\n  that both filesystem/permission errors (`OSError`) and user-lookup failures\n  (`RuntimeError`) are cleanly caught and returned as\n  `(1, [\"design path could not be resolved (...)\"])`.\n- The function contract (\"Every outcome is a return, never an exception\") is preserved\n  across all path parameters (`repo_root`, `pin_file`, and `design_path`).\n- The explicit handling of `recapture_triggers` (distinguishing between safety-critical\n  expiration dates and human-facing trigger notes) is defensive, preventing iterator\n  crashes on non-list scalar values while keeping valid passes clean.\n\n#### 2. Is normalising `pin_file` inside `evaluate` when `main` already did it a problem?\n**No, it is safe, idempotent, and improves API robustness.**\n- **Idempotence:** Calling `.expanduser().resolve()` on a `Path` that is already fully\n  resolved (as passed from `main`) is a deterministic no-op. It introduces no\n  double-resolution side effects, path corruption, or behavioural shifts for CLI callers.\n- **Contract Enforcement:** Direct programmatic callers invoking `evaluate(...)` with\n  paths like `\"~/pins.json\"` previously suffered from `Path.exists()` checking a literal\n  `./~` directory in the current working directory. Normalising `pin_file` internally\n  aligns its behaviour with `repo_root` and guarantees identical resolution semantics\n  regardless of whether `evaluate` is called via CLI or directly via API.\n\n### Verdict\n\n**`merge`**"
+    },
+    {
+      "provider": "claude",
+      "verdict": "merge",
+      "summary": "**Round 5 final confirmation - panelist review of the `evaluate` delta.** Text-only,\nas instructed; no filesystem or command access used.\n\n## Answers to your two questions\n\n**Q1 - Does the widened guard close it, and does the delta introduce anything?**\nYes, it closes it. `resolve_design_file` expanduser()s the path, and `~nosuchuser` makes\n`expanduser()` raise `RuntimeError` (\"could not resolve home directory\"). The\n`except (OSError, RuntimeError)` now catches it and converts it to `return 1, [...]`,\nmatching your run (exit 1, no traceback). The exception ordering is safe: `SystemExit`\nderives from `BaseException`, not `OSError`/`RuntimeError`, so the specific\n`except SystemExit` above never shadows or is shadowed by the widened clause, and\n`resolve_design_file`'s own `SystemExit` outcomes still flow through unchanged. No new\npath is introduced.\n\n**Q2 - Is re-normalising `pin_file` inside `evaluate` a problem (double resolution /\nchanged outcome)?**\nNo. It is idempotent and observationally inert:\n- `main` passes an already-`expanduser().resolve()`d absolute path; `expanduser()` on it\n  is a no-op (no leading `~`) and `resolve()` is idempotent, so the value is unchanged.\n- No error message prints the pin-file *path* - all pin failures reference the\n  `PIN_FILE_NAME` constant - so even pre-normalisation the output text was identical;\n  resolving cannot change any observable outcome for any caller.\n- The only new failure mode `resolve()` can add over bare `expanduser()` is `OSError`\n  (ELOOP, name-too-long), which the same guard already catches. So it cannot leak a new\n  exception.\n\n## Findings\n\n**1 - (informational, no defect) The observed-behaviour table is consistent with two\nguard layers.** The table shows `--repo-root`/`--pin-file` failing with \"path argument\ncould not be resolved\", which is `main`'s generic message - those two are resolved in\n`main` first, so `evaluate`'s more specific \"repository root...\" / \"pin file path...\"\nstrings are only reachable by direct (test) callers. Design-path is resolved *only*\ninside `evaluate`, which is exactly why its RuntimeError previously escaped and why the\nfix belongs here. The layering hangs together; nothing to change.\n\n**2 - (low, pre-existing, NOT delta-introduced) Null-byte paths raise uncaught\n`ValueError`.** A path containing a NUL byte (`--design-path` with an embedded null,\nlikewise repo-root/pin-file) makes `resolve()`/`stat()` raise\n`ValueError: embedded null byte`, which `(OSError, RuntimeError)` does not catch ->\ntraceback. This is uniform across all three arguments and predates the delta, so it does\nnot affect this merge. If you ever widen the guards again, fold `ValueError` in; not a\nblocker now.\n\n## Verdict: **merge**\n\nThe delta does exactly what it claims, closes the round-4 design-path gap, and the added\npin-file normalisation is idempotent with no changed outcome. Ordering, guard scope, and\nthe recapture_after/recapture_triggers asymmetry (documented, list-only iteration, PASS\nbranch cannot traceback) are all sound. 15/15 and clean floor commands are consistent\nwith the code shown."
+    },
+    {
+      "provider": "codex",
+      "verdict": "merge",
+      "summary": "No findings.\n\n1. The widened `(OSError, RuntimeError)` guard correctly closes the reported\n`~nosuchuser` traceback and preserves `evaluate`'s return-only contract.\n\n2. Normalizing `pin_file` inside `evaluate` is appropriate defensive handling for direct\ncallers. For calls through `main`, the second resolution is effectively idempotent\nbecause the path is already absolute and resolved. Direct callers using `~`, relative\npaths, or failing path components may receive a different - and more accurate - result.\nThat is the intended contract correction, not a regression.\n\nThe only theoretical difference would involve filesystem components changing between the\ntwo resolutions, but subsequent `exists`, read, and hash operations already have\nunavoidable filesystem races; this delta does not create a meaningful new one.\n\nThe `recapture_after`/`recapture_triggers` asymmetry is clearly documented and internally\nconsistent.\n\nVerdict: **merge**."
+    }
+  ]
+}

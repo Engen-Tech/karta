@@ -253,6 +253,42 @@
       "note": "pack-separation: extends/exclude_rules composition is now expanded at the verify and build gates (was reported at plan time only), and karta retired its managed minimalism shadow to become an ordinary consumer of the built-in minimalism pack \u2014 a plugin-internal enforcement change, no new consumer-repo artifact."
     },
     {
+      "id": "design-pins",
+      "capability": "Design captures pinned by sha256 at .karta/design-pins.json, checked by karta-validate",
+      "karta_version": "2.31.0",
+      "ship_date": "2026-08-26T10:34:18-04:00",
+      "detection": {
+        "kind": "jq",
+        "pattern": ".",
+        "path": ".karta/design-pins.json"
+      },
+      "durable": true
+    },
+    {
+      "id": "visual-check-waiver",
+      "capability": "A binder work item naming a design view must carry a visual oracle or a visual_check_waiver whose covering item names it back in covers",
+      "karta_version": "2.31.0",
+      "ship_date": "2026-08-26T10:34:18-04:00",
+      "detection": {
+        "kind": "grep",
+        "pattern": "visual_check_waiver",
+        "path": ".karta/binders"
+      },
+      "durable": true
+    },
+    {
+      "id": "oracle-evidence-ref",
+      "capability": "One oracle execution leaves a small mechanical evidence record at refs/karta/<slug>/item-<id>/evidence, written by karta-build's run_oracle.py and read by the floor, the gates and the merge instead of the log",
+      "karta_version": "2.32.0",
+      "ship_date": "2026-08-27T18:13:10-04:00",
+      "detection": {
+        "kind": "ref",
+        "pattern": "refs/karta/*/item-*/evidence",
+        "path": ""
+      },
+      "durable": true
+    },
+    {
       "version": "3.0.0",
       "observable": false,
       "note": "first native Pi package release: package-owned fixed dispatch, isolated child runtimes, Git-bound gate evidence, and packed-artifact lifecycle support. The major version marks a new supported host and authority surface; no new durable consumer-repo artifact is introduced."

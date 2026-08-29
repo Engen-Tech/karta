@@ -24,14 +24,33 @@ post-condition a PreToolUse hook cannot see:
       must be in the commit.
   (b) INTEGRATION-MERGE gate: on the default branch, a git merge naming a
       karta/*/integration ref needs a fresh record for that branch tip.
+  (c) LANDING gate: on the default branch, a git merge naming a
+      karta/*/integration ref is blocked outright unless KARTA_LANDING_APPROVED=1
+      is present. This one is NOT about a review at all. karta stops at the
+      assembled integration branch by design — no PR, no push, no auto-merge —
+      so the merge is a separate act, and who decides a delivery ships is
+      always the human. Assembling the branch and running the floor are the
+      agent's; the decision to land is not.
 
 git cherry-pick / rebase / reset --hard / a merge --squash then a separate
 commit are accepted, documented bypasses of the same class as the escape
 hatch: a PreToolUse hook cannot evaluate "will this make the tip an ancestor".
+The landing gate catches every `git merge` form including --squash, but shares
+the cherry-pick / rebase / reset --hard limit, and shares the fail-open rule
+below. Both are named rather than papered over.
 
 Config .karta/roundtable.json gates the gates: absent or enabled:false turns
 everything off; points.plan_commit / points.deliver_merge toggle each detection.
 Escape hatch: KARTA_SKIP_ROUNDTABLE=1 in the command text or the environment.
+
+The landing gate (c) is deliberately outside all of that. The config switch does
+not disable it and KARTA_SKIP_ROUNDTABLE does not bypass it, because that hatch
+means "the review environment is down" — which says nothing about who decides a
+delivery ships. Its own variable, KARTA_LANDING_APPROVED=1, exists for the human
+to type. An agent that sets it has forged an approval it was never given; a
+PreToolUse hook sees only command text and cannot tell the two apart, so the
+rule lives in doctrine (CLAUDE.md, AGENTS.md) and the gate makes the moment
+impossible to pass through silently.
 Internal errors fail OPEN (exit 0) so a broken hook never wedges the repo; a
 missing or stale record is an expected result that blocks (exit 2), not an
 internal error.
@@ -49,6 +68,7 @@ CONFIG_PATH = ".karta/roundtable.json"
 RECORD_DIR = ".karta/roundtable/"
 BRANCH_PREFIX = "branch-"
 SKIP_VAR = "KARTA_SKIP_ROUNDTABLE"
+LAND_VAR = "KARTA_LANDING_APPROVED"  # gate (c); NOT covered by SKIP_VAR
 INTEGRATION_GLOB = "karta/*/integration"  # the shape the merge gate matches
 GIT_TIMEOUT = 30
 
@@ -57,10 +77,13 @@ _SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 # words must be option tokens (each optionally trailing one non-dash argument),
 # matching precommit_gate.py's conservative detection.
 _COMMIT_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+commit\b")
-_MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge\b")
+_MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge(?![-\w])")
 # an integration ref named anywhere in a merge command: karta/<slug>/integration
 _INTEGRATION_REF_RE = re.compile(r"\bkarta/[^\s/]+/integration\b")
 _BINDER_PATH_RE = re.compile(r"\.karta/binders/([^/\s]+)\.json\b")
+# a leading `VAR=value ` shell assignment, so an invocation prefixed with one
+# still reads as its own head for the anchored matcher below
+_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s+")
 
 
 def _segments(command: str) -> list[str]:
@@ -73,6 +96,51 @@ def is_commit_command(command: str) -> bool:
 
 def is_merge_command(command: str) -> bool:
     return any(_MERGE_RE.search(seg) for seg in _segments(command))
+
+
+def _leading_command(segment: str) -> str:
+    """A shell segment with any leading VAR=value assignments stripped, so an
+    invocation prefixed with environment settings still reads as its own head."""
+    seg = segment
+    while True:
+        m = _ENV_ASSIGN_RE.match(seg)
+        if not m:
+            return seg
+        seg = seg[m.end():]
+
+
+def merge_invocation(command: str) -> tuple[str, bool] | None:
+    """For a merge of a karta/<slug>/integration ref that a segment actually
+    STARTS with: (the ref, whether LAND_VAR=1 prefixes that same invocation).
+
+    Two things are deliberately narrower here than in the other two gates.
+
+    Anchored, not searched. The other gates search anywhere in a segment, which
+    is safe while they are inert but not for a gate that always fires: a merge
+    command written inside a heredoc, echoed into a file, or handed to grep is
+    text, not an invocation, and blocking it would stop ordinary work — editing
+    this very file included. Anchoring at the head of the segment (after any
+    VAR=value prefix) tells the two apart. The trade is named rather than
+    hidden: an invocation buried mid-segment, behind a `do` or an `xargs`, reads
+    as text and is not caught — the same class as the cherry-pick / rebase /
+    reset --hard bypasses already documented here. It errs toward letting real
+    work through rather than toward blocking prose about a merge.
+
+    Approval must prefix the merge itself. The skip hatch is matched against the
+    whole command, which is fine for a hatch that only ever loosens a review
+    requirement. This one grants authority, so an accidental grant is worse than
+    an accidental block: the assignment has to sit in front of the invocation it
+    approves, not merely appear somewhere in the same command line."""
+    for seg in _segments(command):
+        stripped = seg.strip()
+        head = _leading_command(stripped)
+        if not _MERGE_RE.match(head):
+            continue
+        ref = merged_integration_ref(head)
+        if ref:
+            prefix = stripped[:len(stripped) - len(head)]
+            return ref, f"{LAND_VAR}=1" in prefix
+    return None
 
 
 def commit_reads_worktree(command: str) -> bool:
@@ -206,6 +274,18 @@ def _deny(reason_core: str, record_cmd: str) -> str:
             f"prefix the command with {SKIP_VAR}=1 (documented escape hatch).")
 
 
+def _deny_landing(ref: str, branch: str) -> str:
+    return (f"Merge blocked: landing {ref} on {branch} is the human's decision, not an agent's.\n"
+            f"karta stops at the assembled integration branch by design — no PR, no push, no "
+            f"auto-merge — so the merge is a separate act. Assembling the branch and running the "
+            f"floor are yours; deciding it ships is not.\n"
+            f"If you are an agent: do not set {LAND_VAR}. Say the branch is assembled, say the "
+            f"floor result, and ask. The human runs the merge.\n"
+            f"If you are the human: run the merge yourself, or prefix it with {LAND_VAR}=1.\n"
+            f"Note that {SKIP_VAR} does not bypass this — that hatch is for a downed review "
+            f"environment, which has nothing to do with who decides a delivery ships.")
+
+
 def decide(payload, env, git, helper, config, read_file=_real_read) -> tuple[int, str]:
     """(exit_code, stderr_message). Pure over its inputs so --self-test can drive
     it with fabricated payloads and stubbed git/helper."""
@@ -217,6 +297,18 @@ def decide(payload, env, git, helper, config, read_file=_real_read) -> tuple[int
     command = tool_input.get("command")
     if not isinstance(command, str):
         return 0, ""
+
+    # (c) LANDING gate. Deliberately ahead of both the skip hatch and the config
+    # switch: neither one speaks to who decides a delivery ships, and that answer
+    # never changes. Always the human.
+    landing = merge_invocation(command)
+    if landing:
+        ref, approved_inline = landing
+        branch = current_branch(git)
+        if branch == default_branch(git) and not (approved_inline
+                                                  or env.get(LAND_VAR) == "1"):
+            return 2, _deny_landing(ref, branch)
+
     if f"{SKIP_VAR}=1" in command or env.get(SKIP_VAR) == "1":
         return 0, ""
     if not isinstance(config, dict) or not config.get("enabled"):
@@ -297,6 +389,12 @@ def _run_self_test() -> int:
     check("detect commit", is_commit_command('git commit -m x') and not is_commit_command("git status"))
     check("detect merge", is_merge_command("git merge --no-ff karta/x/integration")
           and not is_merge_command("git status"))
+    check("detect bare merge", is_merge_command("git merge"))
+    # the verb is the whole subcommand token: read-only plumbing that merely starts
+    # with `merge` moves no ref and is not a merge
+    check("merge-base is not a merge", not is_merge_command("git merge-base --is-ancestor HEAD main"))
+    check("merge-tree is not a merge", not is_merge_command("git merge-tree HEAD main"))
+    check("merge-file is not a merge", not is_merge_command("git merge-file mine.txt base.txt theirs.txt"))
     check("worktree read for -a", commit_reads_worktree("git commit -am x"))
     check("worktree read for --amend", commit_reads_worktree("git commit --amend --no-edit"))
     check("worktree read for binder pathspec", commit_reads_worktree("git commit .karta/binders/x.json -m y"))
@@ -361,8 +459,8 @@ def _run_self_test() -> int:
     gm = git_factory([], cur="main", default="main")
     code, _ = decide(_payload("git merge --no-ff karta/x/integration"), {}, gm, stale, CFG)
     check("merge of integration on default branch, stale, blocks", code == 2)
-    code, _ = decide(_payload("git merge --no-ff karta/x/integration"), {}, gm, fresh, CFG)
-    check("merge of integration on default branch, fresh, allows", code == 0)
+    code, _ = decide(_payload(f"{LAND_VAR}=1 git merge --no-ff karta/x/integration"), {}, gm, fresh, CFG)
+    check("integration merge on default, fresh record + landing approved, allows", code == 0)
     goff = git_factory([], cur="feature", default="main")
     code, _ = decide(_payload("git merge --no-ff karta/x/integration"), {}, goff, stale, CFG)
     check("same merge off the default branch allows (not gated)", code == 0)
@@ -386,9 +484,57 @@ def _run_self_test() -> int:
     code, _ = decide(_payload('git commit -m x'), {}, git_factory([".karta/binders/x.json"]), stale,
                      {"enabled": True, "points": {"plan_commit": False, "deliver_merge": True}})
     check("plan_commit:false disables only the binder gate", code == 0)
-    code, _ = decide(_payload("git merge --no-ff karta/x/integration"), {}, gm, stale,
+    code, _ = decide(_payload(f"{LAND_VAR}=1 git merge --no-ff karta/x/integration"), {}, gm, stale,
                      {"enabled": True, "points": {"plan_commit": True, "deliver_merge": False}})
-    check("deliver_merge:false disables only the merge gate", code == 0)
+    check("deliver_merge:false disables only the roundtable merge gate", code == 0)
+
+    # (c) landing gate — who decides it ships. Independent of the config switch
+    # and of the roundtable skip hatch, and anchored so quoted text is not an act.
+    MERGE = "git merge --ff-only karta/x/integration"
+    code, r = decide(_payload(MERGE), {}, gm, fresh, CFG)
+    check("landing gate blocks even with a fresh roundtable record", code == 2)
+    code, _ = decide(_payload(MERGE), {}, gm, fresh, {})
+    check("landing gate blocks with the roundtable config off", code == 2)
+    code, _ = decide(_payload(MERGE), {}, gm, fresh,
+                     {"enabled": True, "points": {"plan_commit": True, "deliver_merge": False}})
+    check("landing gate blocks with deliver_merge:false", code == 2)
+    code, _ = decide(_payload(f"{SKIP_VAR}=1 {MERGE}"), {}, gm, fresh, {})
+    check("KARTA_SKIP_ROUNDTABLE does NOT bypass the landing gate", code == 2)
+    code, _ = decide(_payload(MERGE), {SKIP_VAR: "1"}, gm, fresh, {})
+    check("KARTA_SKIP_ROUNDTABLE in env does NOT bypass the landing gate", code == 2)
+    code, _ = decide(_payload(f"{LAND_VAR}=1 {MERGE}"), {}, gm, fresh, {})
+    check("landing approved in front of the merge allows", code == 0)
+    code, _ = decide(_payload(MERGE), {LAND_VAR: "1"}, gm, fresh, {})
+    check("landing approved in the env allows", code == 0)
+    code, _ = decide(_payload(MERGE), {}, goff, fresh, {})
+    check("landing gate does not fire off the default branch", code == 0)
+    code, _ = decide(_payload("git merge --squash karta/x/integration"), {}, gm, fresh, {})
+    check("landing gate catches the --squash form too", code == 2)
+    code, _ = decide(_payload("git merge feature/y"), {}, gm, fresh, {})
+    check("landing gate ignores a merge that is not an integration branch", code == 0)
+    for cmd in ["git cherry-pick abc123", "git rebase main", "git reset --hard karta/x/integration"]:
+        code, _ = decide(_payload(cmd), {}, gm, fresh, {})
+        check(f"landing gate shares the accepted bypass: {cmd}", code == 0)
+
+    # anchoring: a merge command as TEXT is not a merge being run
+    for quoted in [f'echo "{MERGE}" > note.txt',
+                   f"grep -n '{MERGE}' docs/how-to/roundtable.md",
+                   f'python3 - <<EOF\ncmd = "{MERGE}"\nEOF']:
+        code, _ = decide(_payload(quoted), {}, gm, fresh, {})
+        check("quoted merge text is not an invocation: "
+              + quoted.split()[0], code == 0, f"code={code}")
+    code, _ = decide(_payload(f"cd /repo && {MERGE}"), {}, gm, fresh, {})
+    check("a real merge after && is still caught", code == 2)
+
+    # approval has to prefix the merge itself, not merely appear in the command
+    code, _ = decide(_payload(f'echo "{LAND_VAR}=1" ; {MERGE}'), {}, gm, fresh, {})
+    check("approval mentioned elsewhere in the command does not grant it", code == 2)
+
+    code, r = decide(_payload(MERGE), {}, gm, fresh, {})
+    check("landing deny names the human as the decider", "the human's decision" in r)
+    check("landing deny names its own variable", LAND_VAR in r)
+    check("landing deny tells an agent not to set it", f"do not set {LAND_VAR}" in r)
+    check("landing deny says the skip hatch will not help", f"{SKIP_VAR} does not bypass" in r)
 
     # fail-open
     code, _ = hook_main("not json", {}, git_factory([]), stale, CFG)

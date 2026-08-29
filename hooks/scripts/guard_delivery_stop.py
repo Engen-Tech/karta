@@ -38,7 +38,10 @@ from pathlib import Path
 
 SENTINEL_NAME = "karta-stop-gate.json"
 SENTINEL_MAX_SESSIONS = 20
-REF_STATES = ("built", "done", "failed")
+# `evidence` is the capped oracle evidence record run_oracle.py writes per item; it is
+# tracked here as a standing state so the ref vocabulary and this gate agree, and it
+# changes no decision — the stranded/complete tests below name built/done/failed.
+REF_STATES = ("built", "done", "failed", "evidence")
 
 BUILT_UNMERGED_MSG = (
     "binder {slug}: items {ids} carry built but no done — the serial merge queue "

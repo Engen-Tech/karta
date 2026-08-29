@@ -1,0 +1,1245 @@
+{
+  "slug": "watch-redesign",
+  "title": "Rebuild the status page on the new design",
+  "summary": "The status page gets the new look — a map rail down the left, a next-action band up top, and cards that show what each work item is actually contracted to do. It widens the data feed first so the page has something to show, hands the reader control of when the page refreshes, fixes a state the design forgot, and rewrites the page's own tests so a restyle can never quietly delete them.",
+  "motivation": "The page shows what git knows but almost nothing of what the binder says, and it refreshes on a fixed timer the reader cannot see or stop.",
+  "after": [
+    "watch-derivation-cost"
+  ],
+  "scope": {
+    "included": [
+      "skills/karta-status/scripts/serve_status.py — the state feed join, the CSS, the Vue template and app, the refresh model, and the self-test",
+      "skills/karta-status/assets/fonts/ — the three vendored font families",
+      "the generated Codex mirrors under .agents/skills/ and plugins/karta/",
+      "docs/how-to/karta-watch.md where operator-visible behaviour changes"
+    ],
+    "excluded": [
+      "the stack: Vue 3 stays vendored, the server stays Python stdlib http.server, the feed stays JSON — no htmx, no build step, no single-file components, no TypeScript, no second front-end library",
+      "the design's 'Example · not a live binder' marker — mock scaffolding, not a feature",
+      "any new git call; every field the redesign needs is already gathered or is string formatting over it",
+      "the engine (karta_next.py) — this binder does not change how state is derived",
+      "the derivation performance work, which lands in its predecessor binder",
+      "prose docs beyond the operator how-to; doc-gardner corrects the rest after delivery"
+    ]
+  },
+  "design_facts": {
+    "source": "claude-design://59832c82-69dc-4841-9c45-c4a8a86730a3/Karta Watch.dc.html",
+    "stack": "Python stdlib http.server + vendored Vue 3 SPA, shipped as a Claude Code / Codex plugin skill"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "token_manifest": {
+    "mechanism": "CSS custom properties. The design switches themes on a data-theme attribute alone; the shipped page must keep its wider cascade — bare :root, a prefers-color-scheme override, and both data-theme selectors — so the system default and the ?theme=light|dark forced override both keep working.",
+    "tokens": {
+      "--bg": {
+        "light": "#F6EFEE",
+        "dark": "#2B0F14"
+      },
+      "--surface": {
+        "light": "#FFFFFF",
+        "dark": "#3B141B"
+      },
+      "--surface-2": {
+        "light": "#FBF6F4",
+        "dark": "#451A22"
+      },
+      "--ink": {
+        "light": "#2E0B12",
+        "dark": "#F6EAEA"
+      },
+      "--mut": {
+        "light": "#5C3742",
+        "dark": "#CDB4B7"
+      },
+      "--mut-2": {
+        "light": "#734F58",
+        "dark": "#C0A5AB"
+      },
+      "--line": {
+        "light": "#DFCBC6",
+        "dark": "rgba(240,214,214,.17)"
+      },
+      "--line-2": {
+        "light": "#C7A2A6",
+        "dark": "rgba(240,214,214,.31)"
+      },
+      "--accent": {
+        "light": "#B7364A",
+        "dark": "#EE7185"
+      },
+      "--accent-deep": {
+        "light": "#8E2436",
+        "dark": "#F5A3AF"
+      },
+      "--accent-line": {
+        "light": "#D9AEB6",
+        "dark": "rgba(240,175,186,.40)"
+      },
+      "--now": {
+        "light": "#330D15",
+        "dark": "#F0B7A0"
+      },
+      "--now-deep": {
+        "light": "#330D15",
+        "dark": "#F5C9B6"
+      },
+      "--now-soft": {
+        "light": "rgba(51,13,21,.065)",
+        "dark": "rgba(240,183,160,.15)"
+      },
+      "--halt": {
+        "light": "#D2400E",
+        "dark": "#FF7A45"
+      },
+      "--halt-deep": {
+        "light": "#A83309",
+        "dark": "#FF9C74"
+      },
+      "--on-halt": {
+        "light": "#FFFFFF",
+        "dark": "#2B0F14"
+      },
+      "--halt-soft": {
+        "light": "rgba(210,64,14,.10)",
+        "dark": "rgba(255,122,69,.17)"
+      },
+      "--halt-line": {
+        "light": "#E9B49C",
+        "dark": "rgba(255,122,69,.45)"
+      },
+      "--green": {
+        "light": "#4A7544",
+        "dark": "#7FC49A"
+      },
+      "--green-soft": {
+        "light": "rgba(74,117,68,.13)",
+        "dark": "rgba(127,196,154,.15)"
+      },
+      "--steel": {
+        "light": "#3F5878",
+        "dark": "#8FA6C7"
+      },
+      "--steel-soft": {
+        "light": "rgba(63,88,120,.085)",
+        "dark": "rgba(143,166,199,.14)"
+      },
+      "--wait": {
+        "light": "#74581F",
+        "dark": "#C3A16D"
+      },
+      "--wait-soft": {
+        "light": "rgba(116,88,31,.10)",
+        "dark": "rgba(195,161,109,.13)"
+      },
+      "--band": {
+        "light": "#330D15",
+        "dark": "#1C070C"
+      },
+      "--band-kick": {
+        "light": "#E88A98",
+        "dark": "#F5A3AF"
+      }
+    },
+    "type_roles": {
+      "Newsreader": "wordmark 21/500, binder headline 40/400, item titles 20, rail card titles 17, hero band 24, wave numerals 25 with tabular-nums",
+      "IBM Plex Sans": "body default, summaries and prose",
+      "IBM Plex Mono": "every label, eyebrow, chip, count, path, ref and inline command"
+    },
+    "keyframes": [
+      "karta-breathe",
+      "karta-spin",
+      "karta-draw",
+      "karta-ring",
+      "karta-alarm"
+    ]
+  },
+  "env_contract": {
+    "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [
+      "KARTA_WATCH_STATE_DIR"
+    ]
+  },
+  "shared_terms": [
+    {
+      "id": "breathe-keyframe",
+      "canonical": "karta-breathe",
+      "items": [
+        "page-design-tokens",
+        "page-shell-header",
+        "binder-map-rail",
+        "item-cards-all-states"
+      ]
+    },
+    {
+      "id": "test-hook-prefix",
+      "canonical": "data-kw-",
+      "items": [
+        "structural-selftest-assertions",
+        "page-shell-header",
+        "refresh-controls",
+        "binder-map-rail",
+        "next-action-hero-band",
+        "binder-panel-waves",
+        "item-cards-all-states",
+        "item-detail-disclosure"
+      ]
+    },
+    {
+      "id": "refresh-off-wording",
+      "canonical": "automatic refresh off",
+      "items": [
+        "refresh-controls",
+        "structural-selftest-assertions"
+      ]
+    },
+    {
+      "id": "auto-refresh-storage-key",
+      "canonical": "karta-auto-refresh",
+      "items": [
+        "refresh-controls",
+        "structural-selftest-assertions",
+        "hub-landing-redesign"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "widen-state-feed",
+      "title": "Carry the missing binder fields through to the page",
+      "summary": "Pass each work item's contract, files, size, serialization and full assertion list — plus an opt-out's reason and the binder's stack packs — into the live feed, without asking git for anything new.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "each item in /state.json gains contract, touches, estimate, serialize, shared_resources, the full assertions array, and oracle_reason; each binder row gains sme",
+        "assertions_change": "today only assertions[0] survives as `assert`; the whole array is now carried. The existing single-value key stays as the first assertion so nothing downstream breaks mid-binder",
+        "opt_out_change": "today an opt-out oracle is flattened to the type string 'opt-out' and its reason discarded; the reason is now carried alongside",
+        "cost": "pure pass-through from already-loaded binder JSON — zero additional git calls, which is what the gap analysis in docs/specs/2026-08-15-watch-performance-baseline.md concluded the redesign needs",
+        "safety": "every added value is engine-derived and must reach the browser through _inert_json like the rest of the state; none of it may be bound with v-html",
+        "absence": "a field the binder does not carry is emitted as null, never as an empty string, so the page can tell 'no contract' from 'a blank contract'",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — /state.json is a published wire surface; every reader of the feed sees a wider shape, and this is the one item the whole binder depends on",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "an item declaring contract, touches, estimate, serialize and shared_resources renders all five in the feed with the binder's own values",
+          "an oracle with three assertions renders all three, in order, not just the first",
+          "an opt-out oracle renders both its type and its recorded reason",
+          "the binder row carries its sme list",
+          "an item that declares none of these renders each as null, and the page still renders",
+          "the derivation issues no more git calls than before this change",
+          "every added value reaches the page through _inert_json: a binder whose contract or touches contain script markup renders inert, and no state-derived string is bound with v-html",
+          "the inertness check uses several vectors, not just a script tag — an img with an error handler, an svg with a load handler, a mixed-case script tag, and a javascript: URL — since escaping that stops one of these can miss the others",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file"
+        ]
+      }
+    },
+    {
+      "id": "structural-selftest-assertions",
+      "title": "Rewrite the page's own tests so a restyle cannot silently delete them",
+      "summary": "Give the markup stable test hooks and convert the checks that match exact CSS text and literal markup into checks on structure, so the redesign can change how things look without coverage quietly disappearing.",
+      "estimate": "L",
+      "depends_on": [
+        "widen-state-feed"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "a stable data-kw-* attribute hook grammar on every region and card the tests care about, borrowed from the design source's own attribute idiom, plus a migrated self-test whose rendered-output checks assert structure — an attribute, an element relationship, a resolved token name — never an exact CSS declaration or a literal markup string",
+        "consumes": "the widened feed, so the migrated checks cover the new fields too",
+        "scope_of_migration": "the exact-string block currently around serve_status.py:3604-3733 — page title, shell hooks, the home link text, the switcher, the delivered-binder colour rules, the reduced-motion rule, aria-expanded and aria-pressed markup, and the chip vocabulary",
+        "no_visual_change": "this item adds hooks and rewrites assertions only; the page must look the same before and after",
+        "ordering_rationale": "this lands second, immediately after the feed widening and before any restyle. Every later item breaks the existing exact-string assertions, so migrating last would leave every restyle item with a red oracle and nothing to merge on. Migrating first gives the later items a green, meaningful gate. This is also the enforced form of house rule hvue.4",
+        "registry_not_a_name_list": "the anti-coverage-loss guard is a CODE-SIDE REGISTRY mapping each behaviour name to the callable that checks it — not a count and not a list of strings. A bare count or name list is defeatable three ways, and the registry closes all three: PADDING (adding trivial checks to satisfy 'at least as many') fails because the registry is keyed on behaviour, so a new check does not substitute for a missing one; WEAKENING (rewriting an equality check into a substring check that still counts) fails because each entry names the specific property asserted, and the migrated check must still distinguish a correct render from a deliberately broken one; RENAMING (renaming a hook so the name list still matches while coverage drifts) fails because the registry binds a behaviour to a callable, and a renamed hook makes that callable fail rather than silently match a stale name",
+        "negative_control": "each migrated check must be demonstrated to FAIL against a deliberately broken render. A check never observed failing is not known to work, and a substring check that matches everything would otherwise pass the migration unnoticed",
+        "preserved_behaviour_inventory": "every one of these keeps a check: routes / and /state.json and /assets/<f>, hub / and /r/<slug>/ and /r/<slug>/state.json and /identity; hub token gating via constant-time comparison, Host pinning to 127.0.0.1:<port> and localhost:<port>, asset-directory confinement, _inert_json escaping; theme persistence under karta-theme, the show-delivered toggle under karta-show-delivered, the poll loop and its interval, the live/paused debounce after two consecutive failures, file:// snapshot mode with no polling, expand and collapse state, the empty state with its mascot, the degraded state, hub landing cards, the 'also watching:' switcher, and the ?theme=light|dark forced override",
+        "external_anchor": "the behaviours that must never disappear are anchored OUTSIDE serve_status.py — the one file every item edits — where validate_plugin.py can compare against them, and no LATER item touches it — this item creates the anchor and wires the comparison, which is why both files are in its touches. The comparison is a FLOOR, not equality: every anchored behaviour must be present in the registry, and extra registered behaviours are fine. Equality would be self-defeating, because later items each introduce new behaviours and a frozen anchor compared by equality would make every one of them a failure. A floor closes the hole that matters — deleting a registry entry together with its expected key in one edit now fails, because the anchor still names it and the anchor is not in the file being edited — while leaving addition open.",
+        "additions_are_the_adding_item_s_job": "each later item registers the behaviours it introduces and asserts its own new data-kw-* hooks are registered. Enforcement stays with the item that creates the region rather than being deferred to a sweep at the end, so an unhooked region fails where it is introduced instead of eleven items later.",
+        "anchor_artifact": "the anchor is a committed file this item CREATES — a plain list of the behaviour names that must never disappear — read by validate_plugin.py. Naming it as living 'outside serve_status.py' without an item creating it would leave the floor check comparing against nothing and passing vacuously, which is the failure mode the anchor exists to prevent. It is in this item's touches, and no later item edits it.",
+        "registry_entries_have_a_kind": "registry entries are of TWO kinds and the distinction is structural, not cosmetic. A RENDERED entry guards something visible and names the data-kw-* hook it binds to. A BEHAVIOUR entry guards something with no markup at all — token gating, the Host pin, asset confinement, inert-JSON escaping, the poll interval — and names the check that exercises it instead. Without the split, any audit demanding that every entry resolve to a hook is unsatisfiable, because roughly a third of the inventory has no hook and never will; the audit would then be permanently red or quietly weakened, which is the very failure the registry exists to prevent.",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "skills/karta-status/scripts/selftest_behaviours.txt",
+        "scripts/validate_plugin.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "destructive — this item rewrites the suite that guards the whole page; the failure mode is deleting coverage rather than migrating it, and no other check would notice",
+          "contract — the data-kw-* hook grammar becomes a cross-item invariant every later item in this binder must honour",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the coverage registry maps every entry in this item's preserved-behaviour inventory to a callable, and the suite fails if any entry maps to nothing — so a later item cannot drop a behaviour by deleting its check",
+          "every behaviour named in the anchor outside serve_status.py is present in the registry — deleting a registry entry and its expected key in one edit fails, because the anchor is not in the file being edited. Extra registered behaviours pass, so a later item can add its own",
+          "every registered check is demonstrated to FAIL against a deliberately broken render of the behaviour it guards, so a check that matches everything cannot survive the migration",
+          "adding an unrelated trivial check does not satisfy a missing registry entry, proving the guard counts behaviours rather than checks",
+          "renaming a hook that a registered check depends on makes that check fail rather than silently pass, proving the registry binds to behaviour rather than to a stale name",
+          "no rendered-output assertion compares against an exact CSS declaration or a literal markup fragment; each asserts an attribute, an element relationship, or a resolved token name",
+          "the delivered-binder treatment is asserted as 'the delivered binder's node carries the delivered hook and resolves to the green token', not as a CSS rule string",
+          "the reduced-motion behaviour is asserted as 'the status indicator still animates under reduced motion using the karta-breathe keyframe', not as a literal rule",
+          "aria-expanded on the binder and work-item disclosures, and aria-pressed on the show-delivered toggle, are asserted as attributes on the right elements",
+          "the rendered page is byte-comparable to the pre-migration page apart from the added hook attributes, proving no visual change rode along",
+          "the harness that builds each negative control confirms its mutation actually changed the rendered bytes before running the check, so a mutation that silently stopped mutating cannot let every control pass vacuously",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "the anchor file exists, is committed, is non-empty, and validate_plugin.py fails when it is emptied — so the floor cannot pass by comparing against nothing",
+          "every registry entry declares its kind, rendered or behaviour; a rendered entry names an existing data-kw-* hook and a behaviour entry names the check that exercises it, and an entry with neither fails"
+        ]
+      }
+    },
+    {
+      "id": "vendor-page-fonts",
+      "title": "Ship the page's three typefaces from the plugin itself",
+      "summary": "Subset and vendor Newsreader, IBM Plex Sans and IBM Plex Mono so the page gets the design's typography without ever reaching a font CDN.",
+      "estimate": "M",
+      "depends_on": [
+        "structural-selftest-assertions"
+      ],
+      "design_reference": "typography",
+      "contract": {
+        "exposes": "EIGHT subset woff2 files under skills/karta-status/assets/fonts/ served through the existing same-origin /assets/<f> route, declared with @font-face and font-display: swap — Newsreader 400 and 500 (2), IBM Plex Sans 400, 500 and 600 (3), IBM Plex Mono 400, 500 and 600 (3). Eight, not nine: the count and the list must agree, and the oracle asserts the number it can actually enumerate",
+        "consumes": "nothing from the feed",
+        "why": "the design loads all three from Google Fonts; karta forbids CDN references, so they are served same-origin instead",
+        "subsetting_by_writing_system_not_by_current_copy": "the subset is cut to a FIXED writing-system range — Basic Latin, Latin-1 Supplement, and General Punctuation — and NOT to 'the characters the page currently renders'. Two reasons, both fatal to the naive approach. First, this item lands early in the chain and later items introduce copy that does not exist yet, so a subset cut now would be missing glyphs by the end of the binder. Second, the page renders binder-authored content — titles, summaries, contract text, file paths — which is unbounded and cannot be enumerated at all. Content outside the range degrades to the system fallback, which is an accepted and documented consequence rather than a defect",
+        "payload_budget": "the eight files together stay under 400 KB. A subset with no stated bound is how a plugin quietly gains megabytes; the number is checkable in pure Python, so it is enforced rather than hoped for",
+        "licensing": "each family ships its licence file alongside the fonts, in every mirror. All three are Open Font Licence families, and a redistributed font without its licence is a licensing defect, not a tidiness one",
+        "fallback": "each family keeps a system-font fallback in its stack, so a missing or blocked font file degrades to readable text rather than an unstyled page",
+        "constraint": "these are font files, not a front-end library — Vue remains the only vendored runtime, per house rule hvue.2",
+        "coverage_is_manifest_declared_not_parsed": "reading a woff2 cmap table to prove glyph coverage needs a font library, and this gate is stdlib Python with zero dependencies — so an assertion that each face 'covers Basic Latin' would either be faked or quietly skipped. Coverage is instead a guarantee of the subsetting step, recorded in a manifest committed beside the fonts: per face, its family, weight, file, size, sha256 and the unicode-range it was cut to. The gate checks what it honestly can — that the manifest, the files on disk and the @font-face declarations agree with each other.",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/assets/fonts/",
+        ".agents/skills/karta-status/assets/fonts/",
+        "plugins/karta/skills/karta-status/assets/fonts/",
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "docs/how-to/karta-watch.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "escalation — new binary assets enter the shipped plugin and a new class of file is served over the asset route; payload size and font licensing both want a human decision",
+          "contract — the assets route gains a subdirectory, and the mirrors must carry byte-identical binaries",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "exactly eight family-and-weight combinations are declared, and each resolves to a file the asset route serves with a woff2 content type — the count asserted matches the count enumerated",
+          "the font manifest, the files on disk and the @font-face declarations agree: every manifest entry has a file whose size and sha256 match, every file is declared, and every declaration's unicode-range matches its manifest entry",
+          "the eight font files together are under 400 KB",
+          "each family ships a licence file, present and byte-identical in the canonical tree and both Codex mirrors",
+          "the rendered page loads nothing over http:// or https:// — checked against fetchable contexts (src, href, url(), @import), so an inline SVG namespace declaration does not false-fail, so nothing leaks to a CDN",
+          "every @font-face src is a relative same-origin /assets/fonts/ path",
+          "asset-directory confinement still rejects a traversal attempt through the new subdirectory",
+          "every font stack names a system fallback after the vendored family",
+          "the vendored font binaries are byte-identical in both Codex mirrors",
+          "no second front-end runtime is vendored: the only JavaScript asset is the existing Vue build",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file"
+        ]
+      }
+    },
+    {
+      "id": "page-design-tokens",
+      "title": "Move the page onto the new palette, type scale and motion",
+      "summary": "Replace the current colour variables with the design's full set, wire the three typefaces to their roles, and define the five motion keyframes the new page uses.",
+      "estimate": "M",
+      "depends_on": [
+        "vendor-page-fonts"
+      ],
+      "design_reference": "tokens",
+      "contract": {
+        "exposes": "every token in the binder's token manifest defined in light and dark, the three font-family roles, and the five keyframes. The manifest is the count, so no number is repeated here to go stale. No token was added for the sixth item state — it reuses --green at a different weight.",
+        "consumes": "the vendored fonts from the previous item",
+        "theming": "the design switches on data-theme alone; the shipped page keeps its four-selector cascade — bare :root, a prefers-color-scheme override, and both data-theme selectors — so the system default and the ?theme=light|dark forced override both survive",
+        "python_side": "the state and phase metadata tables in serve_status.py reference colour variables by name and must move with the palette; the waiting state moves off the steel variable onto its own",
+        "reduced_motion": "ALL FIVE keyframes get a stated behaviour under a reduced-motion preference, not just the breathing indicator — a spinner that ignores the preference is as much a defect as an alarm that keeps blinking. karta-breathe continues, because a status page that stops signalling life reads as broken. karta-spin resolves to a static in-progress mark. karta-draw, a one-shot underline, renders in its finished state with no draw. karta-ring stops pulsing and holds its resting ring. karta-alarm stops blinking and holds its alerting state at full strength, so a halted item still reads as urgent through colour and icon rather than motion. Each choice is deliberate and each is asserted",
+        "retired_token_mapping": "the retired names must each be given a destination, not merely removed. --tree, --star, --chip, --on-accent and --live all currently appear in CSS rules or in the Python state and phase metadata tables. A forward-only check that every referenced variable is defined will NOT catch a metadata entry still naming a retired token, so the mapping from each old name to its replacement is recorded here and asserted",
+        "storage_keys": "the design's own kw-theme and kw-delivered storage keys are NOT adopted; the page keeps karta-theme and karta-show-delivered",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+      },
+      "token_changes": [
+        {
+          "token": "--surface",
+          "from": "--panel",
+          "note": "renamed; a second surface tone --surface-2 is new for the footer meta bar and rail"
+        },
+        {
+          "token": "--now",
+          "from": "--amber",
+          "note": "the in-flight colour; --now-deep and --now-soft are new"
+        },
+        {
+          "token": "--halt",
+          "from": "--block",
+          "note": "the halted colour; --halt-deep, --halt-line and --on-halt are new for the solid halted header bar"
+        },
+        {
+          "token": "--wait",
+          "from": "none",
+          "note": "new — the waiting state moves off --steel, which now means ready only"
+        },
+        {
+          "token": "--accent",
+          "from": "none",
+          "note": "new — wordmark, hand-drawn underline, links; --accent-deep and --accent-line accompany it"
+        },
+        {
+          "token": "--band",
+          "from": "none",
+          "note": "new — the dark next-action band; --band-kick is its highlight"
+        },
+        {
+          "token": "--line-2",
+          "from": "none",
+          "note": "new — the dashed border on waiting cards"
+        },
+        {
+          "token": "--mut-2",
+          "from": "none",
+          "note": "new — the second muted tone for detail-grid labels"
+        },
+        {
+          "token": "--tree, --star, --chip, --on-accent, --live",
+          "from": "current palette",
+          "note": "retired or remapped onto the new set; no orphaned variable may remain referenced"
+        },
+        {
+          "token": "--green",
+          "from": "--green",
+          "note": "unchanged, but now carries two treatments: filled for a merged item, outlined for one built and awaiting merge. No token was added for the sixth state"
+        }
+      ],
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — every visual item in this binder depends on these names; a rename here reaches all of them",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "every token named in the binder's token manifest is defined in both the light and the dark set, with no name defined in only one",
+          "no CSS rule or Python metadata entry references a variable that is not defined",
+          "the light and dark palettes are reachable four ways: the bare root default, the system-preference override, and both explicit theme attributes",
+          "the ?theme=light and ?theme=dark forced overrides still produce their respective palettes",
+          "the state metadata resolves the waiting state to the waiting token and the ready state to the steel token, so the two are visually distinct",
+          "the halted state resolves to the halt token and carries a foreground token for its solid header bar",
+          "all five keyframes are defined, and EACH has a stated behaviour under a reduced-motion preference — none is left animating unconditionally, and the breathing status indicator keeps breathing rather than freezing",
+          "under a reduced-motion preference the halted treatment still reads as urgent through colour and icon without blinking, and the running treatment still reads as in progress without spinning",
+          "no retired token name — --tree, --star, --chip, --on-accent, --live — remains referenced in any CSS rule or in the Python state and phase metadata tables",
+          "the theme and show-delivered preferences are still stored under karta-theme and karta-show-delivered",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file"
+        ]
+      }
+    },
+    {
+      "id": "page-shell-header",
+      "title": "Rebuild the top bar",
+      "summary": "Rework the sticky header into the mascot, the repository name under its hand-drawn underline, the branch chips, and the theme toggle, keeping the hub links and repository switcher that live there today.",
+      "estimate": "M",
+      "depends_on": [
+        "page-design-tokens"
+      ],
+      "design_reference": "header",
+      "component_map": [
+        {
+          "design": "header bar with mascot, wordmark, live dot, branch chips, theme button",
+          "implementation": "the existing header block in the rendered shell, restyled and re-marked with data-kw hooks"
+        },
+        {
+          "design": "hand-drawn underline",
+          "implementation": "an inline SVG path under the repo name, drawn once on load with the karta-draw keyframe"
+        },
+        {
+          "design": "two pill chips (main, integration/…)",
+          "implementation": "chips fed from the engine's default branch and the real integration branch name karta/<slug>/integration — the design's placeholder branch text is a mock, not the shipped format"
+        },
+        {
+          "design": "theme toggle pill",
+          "implementation": "the existing toggle, keeping its accessible label and the karta-theme preference"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "git-branch",
+          "key": "branch",
+          "use": "branch chips"
+        },
+        {
+          "design": "moon",
+          "key": "moon",
+          "use": "theme toggle"
+        }
+      ],
+      "contract": {
+        "exposes": "the restyled header, hooked for the tests, with room reserved for the refresh controls the next item adds",
+        "consumes": "the widened feed's repo row and the existing shell object",
+        "preserved": "the page title stays '<repo> — Karta Watch'; the k-mark square and the bordered home link both remain anchors to the hub landing carrying the access key; the 'also watching:' switcher still lists only other opted-in repositories, never itself; ephemeral mode still renders no hub link and no switcher; the live/paused feed label still reflects the two-failure debounce",
+        "mascot": "the shipped mascot asset keeps its current filename; the design's own cut-out filename is not adopted",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the header renders the repository name, the underline SVG, both branch chips and the theme toggle, each reachable by its hook",
+          "the integration chip renders the real karta/<slug>/integration branch name for the in-flight binder, not the design's placeholder",
+          "the page title is still '<repo> — Karta Watch' with the actual repository name",
+          "in hub mode the k-mark and the home link are both anchors to the landing page and both carry the access key",
+          "in ephemeral mode neither hub link renders and the switcher list is empty",
+          "the switcher lists the other opted-in repositories only — never the current one, never a repository that has not opted in",
+          "the theme toggle keeps its accessible label and writes the karta-theme preference",
+          "the live indicator animates on the karta-breathe keyframe and its label still follows the live/paused debounce",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+        ]
+      }
+    },
+    {
+      "id": "refresh-controls",
+      "title": "Put the reader in charge of when the page refreshes",
+      "summary": "Slow the automatic refresh to every thirty seconds, show a countdown to the next one, add a button that refreshes on demand, and let the reader switch automatic refreshing off entirely.",
+      "estimate": "L",
+      "depends_on": [
+        "page-shell-header"
+      ],
+      "design_reference": "header",
+      "component_map": [
+        {
+          "design": "not in the design source",
+          "implementation": "NEW — a refresh cluster in the header holding the countdown, the manual refresh button, and the automatic-refresh toggle. The design does not draw this; it is designed to sit in the header alongside the theme toggle and follow the same pill treatment"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "refresh-cw",
+          "key": "refresh",
+          "use": "the manual refresh button"
+        },
+        {
+          "design": "square / square-check",
+          "key": "square / square-check",
+          "use": "the automatic-refresh toggle, matching the show-delivered toggle's idiom"
+        }
+      ],
+      "contract": {
+        "interval": "the automatic refresh moves from 2.6 seconds to 30 seconds. On a twenty-binder repo that takes one open tab from 23.6% of a core to 2.0% before any other change lands — see docs/specs/2026-08-15-watch-performance-baseline.md",
+        "three_states": "automatic ON polls every 30 seconds and shows a countdown to the next refresh; automatic OFF polls not at all and shows the AGE of the data in place of the countdown, so staleness stays visible; manual refresh is available in both states, fetches exactly once, and when automatic is on it resets the countdown",
+        "off_means_off": "turning automatic refresh off must genuinely STOP the requests — the timer is cleared and no fetch is issued. Hiding the countdown while continuing to poll is a defect, not a cosmetic shortcut: each poll is real git work, up to 613 ms of it on a twenty-binder repo, which is the entire reason the control exists",
+        "countdown_is_local": "the countdown is a local timer over a known interval and must not itself cost a network request",
+        "persistence": "the automatic-on-or-off choice persists across reloads under the localStorage key `karta-auto-refresh`, following the existing pattern set by karta-theme and karta-show-delivered. The key is NAMED here rather than left to build time: an unnamed key is how two spellings end up in the same file and the setting silently stops persisting",
+        "vocabulary": "'automatic refresh off' is a deliberate reader choice and must never be worded or styled as the existing 'feed paused' state, which means the feed failed twice in a row. The two are separate conditions and the page must not conflate a choice with a fault",
+        "shape": "an ordinary Options API addition to the existing app root — added state, a computed countdown, and methods. The timer and any listener added at mount are torn down in beforeUnmount alongside the existing poll timer, per house rule hvue.1 and the vue.6 teardown rule",
+        "decision_logic": "the refresh branching lands as a PURE PYTHON FUNCTION with a named signature — refresh_decision(mode: str, visible: bool, elapsed_ms: int, interval_ms: int, manual: bool) -> str returning one of 'skip', 'poll', 'poll-now' — mirrored verbatim into the rendered client with the MIRROR comment, exactly as _feed_transition and poll_decision already are. In manual-only mode the function returns 'skip' for every elapsed time and 'poll-now' only for a manual trigger; that is the enforceable form of off-means-off",
+        "what_the_gate_can_and_cannot_see": "the acceptance check is a Python self-test with no browser, no Vue runtime, no localStorage and no network. It verifies the pure decision function by direct call, and static properties of the RENDERED JS SOURCE — that a storage key is read and written, that timers and listeners have matching teardown, that the countdown derives from local state rather than a fetch. It CANNOT observe that a real browser issued no request, and no assertion here may be written as though it could. The behavioural guarantee is stated in the build report as verified by the decision function plus source inspection, not end to end",
+        "preserved": "file:// snapshot mode still never polls in either state; the two-consecutive-failure live/paused debounce is unchanged; the visibility backoff landed by the predecessor binder still applies when automatic refresh is on",
+        "no_bypass_fetch": "off-means-off is only real if the decision function gates EVERY request initiator, not a lexical 'poll path'. The predecessor binder's conditional revalidation is itself a fetch, and a visibility, focus or online handler can start one too — any of which would keep touching git while the page claims refresh is off. The rendered client must therefore have exactly one poll timer, distinct from the countdown ticker, and every fetch call site other than the initial load must sit behind a refresh_decision result.",
+        "baseline_reset_lives_in_the_caller": "a pure function returning a string cannot reset anything; the elapsed baseline is caller state. The caller resets it when the decision returns poll-now, and that wiring is checked at the source level rather than asserted of the function.",
+        "edge_cases": "automatic refresh is ON by default on a first visit; a browser where storage is unavailable falls back to that default rather than failing; and a manual refresh while one is already in flight does not start a second.",
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look.",
+        "visibility_lives_inside_the_decision": "the visible parameter is gated INSIDE refresh_decision, not before the call. If visibility were checked by the caller instead, the parameter would be dead and the claim that every fetch sits behind a refresh_decision result would be false — the visibility gate would be a second, separate, untested path. Inside the function it is covered by the same direct-call assertions as everything else. The predecessor binder's poll_decision handled visibility for the old loop; this function subsumes that and the predecessor's backoff must not survive as a parallel check.",
+        "manual_overrides_hidden": "a manual refresh works on a hidden tab. Someone who clicks refresh has asked for it, and honouring a deliberate action does not reintroduce background polling.",
+        "mirror_check_limits": "one honest limit: a pure-Python gate cannot execute or semantically diff JavaScript, so 'the mirror is logically identical' is not a claim it can make. What it CAN do is hold a shared table of input vectors and expected outcomes, run the Python twin against it directly, and check the rendered JS contains the same table and calls the same function on every branch. That catches drift in the decision table, which is where drift actually happens. It does NOT catch a hostile or careless rewrite that keeps the shape and changes the behaviour — a branch that calls fetch past the decision would satisfy a structural scan. That residue is named here and goes on the human checklist rather than being papered over with a stronger-sounding assertion."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "docs/how-to/karta-watch.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — the refresh model is the page's defining behaviour and this changes it for every reader; the interval moves by a factor of eleven and automatic refreshing becomes optional",
+          "novelty — the design source does not draw these controls, so their placement and treatment are being designed here rather than transcribed",
+          "open-question — whether the countdown should also appear when automatic refresh is off (counting nothing) or be replaced by the data age, as specified here, is worth a human look at the rendered result",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "refresh_decision called directly with mode='auto' returns 'skip' for every elapsed time below the interval and 'poll' at or beyond it, with the interval being 30 seconds and not the former 2.6",
+          "refresh_decision called directly with mode='manual-only' returns 'skip' for EVERY elapsed time, however large — this is the enforceable form of off-means-off, asserted on the function that decides rather than on a countdown being hidden",
+          "refresh_decision with manual=True returns 'poll-now' exactly once in both modes, and the following call with manual=False does not repeat it",
+          "the Python twin is exercised directly against a shared table of input vectors and expected outcomes, and the rendered JS carries the same table and routes every branch through the same function — the drift this can catch is decision-table drift, not a behavioural rewrite that keeps the shape",
+          "the rendered JS registers exactly one poll timer, distinct from the countdown ticker, and EVERY fetch call site other than the initial load sits behind a refresh_decision result — including the conditional revalidation inherited from the predecessor binder, and any visibility, focus or online handler",
+          "the rendered page carries the countdown region when automatic refresh is on and the data-age region when it is off, each reachable by its hook",
+          "the rendered JS source reads and writes the automatic-refresh preference under its own storage key, distinct from karta-theme and karta-show-delivered",
+          "the rendered page words the reader's choice as 'automatic refresh off' and never with the feed-paused wording, and the two states carry different hooks so they cannot be confused in the markup",
+          "the countdown is computed from local state in the rendered source, with no fetch on its code path",
+          "every timer and listener this item adds has a matching teardown inside beforeUnmount in the rendered JS source — a source-level check, since the gate cannot fire a Vue lifecycle hook",
+          "the file:// snapshot registers no timer in either mode",
+          "no new front-end dependency and no external URL appears in the rendered page",
+          "the build report states which guarantees are verified by direct call, which by source inspection, and which are not machine-verifiable at all",
+          "the automatic-refresh preference is read and written under the exact key karta-auto-refresh",
+          "the source resets the elapsed baseline where the decision returns poll-now, since the pure function cannot",
+          "automatic refresh defaults to on when no stored preference exists, and an unavailable storage API falls back to that default rather than throwing",
+          "a manual refresh while one is in flight does not start a second request",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "refresh_decision(mode='auto', visible=False, manual=False) returns 'skip' at every elapsed time, however far past the interval — the visibility backoff is gated inside the function, so a broken check fails here rather than passing the whole suite",
+          "refresh_decision(mode='auto', visible=False, manual=True) returns 'poll-now' — a deliberate click is honoured on a hidden tab",
+          "refresh_decision(mode='manual-only', visible=False, manual=False) returns 'skip', as it does when visible",
+          "no second visibility check exists outside refresh_decision in the rendered source: the predecessor's backoff is subsumed rather than left running in parallel"
+        ]
+      }
+    },
+    {
+      "id": "hub-landing-redesign",
+      "title": "Make the multi-repo landing page match the pages it links to",
+      "summary": "Bring the hub's repository list onto the same palette, typography and motion as the redesigned per-repo page, so someone moving between them does not appear to change product.",
+      "estimate": "M",
+      "depends_on": [
+        "refresh-controls"
+      ],
+      "design_reference": "hub-landing",
+      "component_map": [
+        {
+          "design": "not drawn in the design source",
+          "implementation": "the hub landing is a SEPARATE render path with its own stylesheet, which the design does not cover at all. It is restyled here by applying the same tokens, type roles and motion, following the per-repo page's treatment rather than inventing a second visual language"
+        },
+        {
+          "design": "per-repo card",
+          "implementation": "the existing repo card, restyled — it already carries the next-action verdict, the binder counts and an activity stamp"
+        }
+      ],
+      "contract": {
+        "why": "both render paths live in the same file and the redesign covers only the per-repo page. Left alone, an operator lands on a page that looks nothing like the pages it links to, and the mismatch is most visible to exactly the multi-repo users the hub exists for",
+        "exposes": "the landing page and the switcher on the new tokens, type roles and keyframes",
+        "consumes": "the tokens established earlier in this binder; no new state and no new git call",
+        "refresh_alignment": "the landing refreshes itself with a 10 second meta refresh today, re-deriving EVERY watched repository each tick — the most expensive page in the system on the shortest interval. A meta refresh cannot read a stored preference and is not a fetch call site, so it can neither honour the reader's choice nor be caught by a check that gates fetch calls. It is therefore REPLACED by the same script-driven refresh the per-repo page uses, on the same 30 second interval, reading the same karta-auto-refresh preference. Unconditional navigation-based refresh is removed rather than left beside the new path. It reuses refresh_decision itself rather than reading the preference and the interval directly. A second implementation of the same rule is how the hub ends up still fetching after the reader turned refresh off — the landing is the most expensive page in the system, so it is the last place that should get its own copy of the logic.",
+        "preserved": "every repo card verdict still renders and still reads the same — the running, next-up, clear, wedged and unavailable treatments; card ordering is unchanged; the activity stamp still renders; the empty state for no opted-in repositories still renders; every link still carries the access key; the landing still escapes repository names, and a hostile repository path still renders inert",
+        "scope_limit": "this is a restyle plus one behavioural change that cannot be avoided: the refresh mechanism itself. No new visible controls, but replacing a meta refresh with a script-driven one is a real change and is named here rather than smuggled in under 'restyle'.",
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look.",
+        "ordering_rationale": "this lands AFTER the refresh controls, not before them. It reuses their decision function, their 30 second interval and their stored preference — none of which exist earlier in the chain, so an earlier position would assert against machinery that has not been written. It costs a slightly longer window where the hub and the per-repo page look different, which is the cheaper of the two problems."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+        "docs/how-to/karta-watch.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — the landing is the hub's entry point and the only page a multi-repo operator sees first; it also carries the access key on every link, so a restyle must not disturb link construction",
+          "novelty — the design source does not cover this page, so its treatment is derived from the per-repo page rather than transcribed",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the landing page resolves the same token names as the per-repo page, in both light and dark, with no variable defined for one page and not the other",
+          "every repo card verdict still renders: running, next-up, clear, wedged and unavailable each produce their own distinguishable card",
+          "card ordering is unchanged from before this item",
+          "the activity stamp still renders on a card whose repository reports one, and is absent where it does not",
+          "the empty state for no opted-in repositories still renders",
+          "every link on the landing and in the switcher still carries the access key",
+          "a repository name containing script markup still renders inert",
+          "the landing refreshes on the same interval as the per-repo page rather than the former 10 second cadence",
+          "the landing loads nothing over http:// or https:// — checked against fetchable contexts (src, href, url(), @import), so an inline SVG namespace declaration does not false-fail",
+          "with the automatic-refresh preference off, the landing does not refresh itself either",
+          "the landing contains no meta refresh and no unconditional navigation-based reload — the mechanism is replaced, not supplemented",
+          "with the automatic-refresh preference off, the landing's rendered source issues no scheduled request",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "every fetch call site in the landing's rendered source other than the initial load sits behind a refresh_decision result — the landing does not reimplement the rule by reading the storage key and the interval on its own",
+          "the landing uses the same rendered refresh_decision as the per-repo page rather than carrying its own copy — a second copy on the most expensive page in the system is exactly where a missed fix would hurt most"
+        ]
+      }
+    },
+    {
+      "id": "binder-map-rail",
+      "title": "Add the map down the left-hand side",
+      "summary": "Build the sticky rail that lists every binder grouped into delivered, now, next and later, with the delivered group collapsible and a short legend explaining what the movement on the page means.",
+      "estimate": "L",
+      "depends_on": [
+        "hub-landing-redesign"
+      ],
+      "design_reference": "rail",
+      "component_map": [
+        {
+          "design": "sticky left rail 'Karta's Map'",
+          "implementation": "a new rail region in the shell's two-column grid, sticky above the breakpoint and unstuck below it"
+        },
+        {
+          "design": "group headers Delivered / Now / Next / Later",
+          "implementation": "driven by the existing phase definitions, which already map merged / in-flight / first not-started / the rest"
+        },
+        {
+          "design": "rail cards with dot, title, progress pill",
+          "implementation": "one card per binder, headline from the binder title with the slug-derived fallback intact"
+        },
+        {
+          "design": "collapsible Delivered section with square / square-check toggle",
+          "implementation": "the existing show-delivered toggle, moved into the rail, keeping its pressed state and stored preference"
+        },
+        {
+          "design": "'Motion = state' legend",
+          "implementation": "a static rail footer listing what pulsing, hatched, blinking, still, flush and stepped each mean"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "square",
+          "key": "square",
+          "use": "delivered group hidden"
+        },
+        {
+          "design": "square-check",
+          "key": "square-check",
+          "use": "delivered group shown"
+        }
+      ],
+      "contract": {
+        "exposes": "the rail region and its group ordering",
+        "consumes": "the binder rows and their phase assignment from the feed",
+        "preserved": "the delivered group's shown/hidden state persists under karta-show-delivered and the toggle reports its pressed state; the rail collapses to a single column and unsticks at the narrow breakpoint",
+        "layout": "the shell becomes a two-column grid, rail then main, capped at the design's maximum width",
+        "note": "the predecessor binder may have changed how archived binder detail travels to the page; the Delivered group must still render every archived binder regardless of how its bytes arrive",
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "every binder in the feed appears exactly once in the rail, under the group its phase maps to",
+          "the groups render in the order delivered, now, next, later",
+          "a binder with no title falls back to its slug rendered in title case",
+          "the delivered group's toggle reports its pressed state and flipping it writes the karta-show-delivered preference",
+          "with the delivered group hidden, no delivered binder card is present in the rail",
+          "with the delivered group shown, every archived binder appears",
+          "the in-flight rail dot animates on the karta-breathe keyframe",
+          "the legend lists an entry for each motion the page uses",
+          "the rail is unstuck and the grid is single-column below the narrow breakpoint",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+        ]
+      }
+    },
+    {
+      "id": "next-action-hero-band",
+      "title": "Put the single next action at the top of each binder",
+      "summary": "Add the dark band that states the one thing to do next and offers its command as a single click to copy.",
+      "estimate": "M",
+      "depends_on": [
+        "binder-map-rail"
+      ],
+      "design_reference": "hero-band",
+      "component_map": [
+        {
+          "design": "dark next-action band with eyebrow, sentence and command",
+          "implementation": "a band above the binder header, filled with the band token"
+        },
+        {
+          "design": "copy button with 'Copied' confirmation",
+          "implementation": "a copy handler on the app that reads the command off the button and swaps its label for about a second and a half"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "copy",
+          "key": "copy",
+          "use": "the command copy button"
+        }
+      ],
+      "contract": {
+        "exposes": "the band, and one copy handler the halted card's re-run button reuses later",
+        "consumes": "the feed's next_action object — its level, its human sentence and its command",
+        "edge_cases": "when the next action has no command (everything merged) the band renders the calm end-state sentence with no copy button; the copy handler degrades quietly where the clipboard is unavailable rather than throwing",
+        "shape": "an ordinary Options API method on the existing app root; no clipboard library",
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the band renders the next action's sentence and its command exactly as the engine emits them",
+          "the copy button carries the same command string it displays",
+          "a next action with no command renders the calm end-state sentence and no copy button",
+          "the band's command text passes through the inert-JSON path, so a hostile binder slug cannot break out of it",
+          "the copy handler is a method on the existing app root and pulls in no new dependency",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+        ]
+      }
+    },
+    {
+      "id": "item-cards-all-states",
+      "title": "Give every work-item state a card, including the one the design forgot",
+      "summary": "Render a card for each of the six states the engine can report — passed, built, running, halted, ready and waiting — so an item that is committed but not yet merged no longer vanishes from the page.",
+      "estimate": "L",
+      "depends_on": [
+        "next-action-hero-band"
+      ],
+      "design_reference": "item-card",
+      "component_map": [
+        {
+          "design": "Passed card — thin border, green tint, check",
+          "implementation": "the done state"
+        },
+        {
+          "design": "no card exists",
+          "implementation": "the built state — DEFECT FIX: an item committed on its branch but not yet merged renders nothing at all under the design's five treatments. It gets a card in the green family, distinguished from passed by weight rather than hue: a green border with no fill, against passed's green fill with a neutral border. A git-merge glyph carries the meaning 'ready to land'."
+        },
+        {
+          "design": "Running card — thick now border, breathing footer strip, spinner",
+          "implementation": "the building state"
+        },
+        {
+          "design": "Halted · needs attention — thick halt border, solid halt header bar",
+          "implementation": "the failed state"
+        },
+        {
+          "design": "Ready card — thin steel border, steel tint, play glyph",
+          "implementation": "the ready state"
+        },
+        {
+          "design": "Waiting card — dashed border, wait tint, hourglass",
+          "implementation": "the blocked state, which the page words as waiting rather than blocked"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "check",
+          "key": "check",
+          "use": "passed"
+        },
+        {
+          "design": "loader-circle",
+          "key": "spinner",
+          "use": "running"
+        },
+        {
+          "design": "octagon-alert",
+          "key": "alarm",
+          "use": "halted"
+        },
+        {
+          "design": "play",
+          "key": "play",
+          "use": "ready"
+        },
+        {
+          "design": "hourglass",
+          "key": "hourglass",
+          "use": "waiting"
+        },
+        {
+          "design": "none — new",
+          "key": "built",
+          "use": "built: committed, awaiting merge. A git-merge glyph — two strands joining — distinct from the passed check and the running spinner. Coloured with the existing --green; no new token"
+        }
+      ],
+      "contract": {
+        "exposes": "one card treatment per engine state, and a state metadata table with an entry for all six",
+        "consumes": "each item's status, title and summary from the feed",
+        "defect": "the engine emits six item states and the design covers five; every state must render",
+        "vocabulary": "the waiting state keeps its calm wording — an item waiting its turn is normal flow, not an alarm — and the word 'blocked' still appears nowhere on the rendered page",
+        "counts": "the counts row does not exist yet at this point in the chain — the panel that carries it lands next, and it covers all six states from the outset because all six cards exist by then.",
+        "keys": "each card is keyed on the work-item id, which is stable across polls",
+        "ordering_rationale": "this lands BEFORE the panel that counts these states. The other way round leaves a commit where the counts row tallies six states while only five can render, so the totals provably cannot add up and the tree is knowingly incoherent between two items.",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces.",
+        "built_treatment": "the design source has no card for this state, but it does not need a new colour — it already has a grammar for this. Border weight says how much attention a card wants; fill says which state it is in. Passed is a green FILL with a neutral border. Built is the same green as a BORDER, THIN — matching passed and ready, not the 2px that running and halted use, because an item awaiting merge is calm — with NO green fill. Same hue, inverted weight. No token is added: a new hue would be a seventh in a palette of six related warm tones plus one steel, and would read as foreign beside them.",
+        "weight_alone_is_not_the_whole_signal": "fill-versus-outline is a weight difference, not a hue difference, so it survives colour-blindness and greyscale — but it is deliberately not the only cue. The git-merge glyph and the state word carry the distinction independently. A reader who cannot resolve a pale tint against a thin border still reads the icon and the label. Whether the pair actually separates at a scan is a perceptual question the gate cannot answer, so it goes on the closing sweep's human checklist rather than being asserted.",
+        "metadata_exposes_both_roles": "the state metadata table carries THREE named fields per state: the border token, the fill token, and the border weight as a named role — calm or urgent — not a pixel value. Without the third field the weight assertion has no structural source and collapses into matching an exact CSS string, which the self-test migration forbids. With it, calm covers passed, ready and built; urgent covers running and halted; and waiting is calm with a dashed edge."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "open-question — the design has no treatment for the built state, so how 'committed but not merged' should look is a decision the design source does not answer",
+          "contract — the state metadata table is read by the rail, the counts row and the blocked-by chips, so a missing entry renders blank in three places",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "a fixture binder carrying all six states renders six cards, one per item, with no item missing",
+          "the state metadata resolves built to a --green border role with no fill, and passed to a --green fill role with a neutral border — two named roles, not a CSS string match",
+          "each of the six states has a metadata entry whose badge resolves to a defined icon, so no chip renders blank",
+          "the waiting state renders its calm wording, and the word 'blocked' appears nowhere in the page's own chrome — labels, chips, legends and headings. Binder-authored prose is excluded from the check, since a summary may legitimately say an item is blocked on something external",
+          "the running card animates on the karta-breathe keyframe and stays animated under reduced motion",
+          "each card is keyed on the work-item id",
+          "item titles and summaries reach the page through the inert-JSON path",
+          "the inertness check uses several vectors, not just a script tag — an img with an error handler, an svg with a load handler, a mixed-case script tag, and a javascript: URL — since escaping that stops one of these can miss the others",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "no token named --built or --built-soft exists: the state is expressed with the palette the design already defines",
+          "the built card carries NO green fill: a build that gives it both a green border and a green tint fails, since that is the single slip that would make it near-identical to passed",
+          "built resolves the calm border-weight role, the same as passed and ready, while running and halted resolve the urgent one — read as a named role from the state metadata, not measured off a CSS declaration",
+          "built and passed are distinguished by three independent cues — the border-and-fill roles, the git-merge glyph against the check, and the state word — so losing any one of them still leaves the two readable"
+        ]
+      }
+    },
+    {
+      "id": "binder-panel-waves",
+      "title": "Rebuild the per-binder panel and its wave headers",
+      "summary": "Give each binder its own panel with a progress bar, a counts row, sticky headers marking each wave of work, and a footer stating the branches and stack packs in play.",
+      "estimate": "L",
+      "depends_on": [
+        "item-cards-all-states"
+      ],
+      "design_reference": "binder-panel",
+      "component_map": [
+        {
+          "design": "binder header with headline, eyebrow status and progress bar",
+          "implementation": "restyled binder header; the progress fill uses the hatched treatment for work not yet run"
+        },
+        {
+          "design": "counts row (running / halted / passed / queued)",
+          "implementation": "driven from the existing per-binder counts, covering all six item states — every card treatment already exists, since the cards item lands before this one"
+        },
+        {
+          "design": "sticky wave step header with numeral, lane glyph, label and 'step N of M'",
+          "implementation": "one header per dependency-depth wave from the existing wave grouping, sticky below the page header"
+        },
+        {
+          "design": "footer meta bar",
+          "implementation": "default branch, the real integration branch name, and the binder's stack packs from the widened feed"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "flush lane glyph",
+          "key": "lane-parallel",
+          "use": "a wave whose items run at once"
+        },
+        {
+          "design": "stepped lane glyph",
+          "key": "lane-serial",
+          "use": "a wave whose items run in turn"
+        }
+      ],
+      "contract": {
+        "exposes": "the panel, the wave headers and the footer meta bar",
+        "consumes": "binder counts, the existing dependency-depth wave grouping, and the binder's sme list from the widened feed",
+        "preserved": "the binder disclosure stays a real button reporting its expanded state, and its open or closed state persists as it does today",
+        "accuracy": "the footer renders the real karta/<slug>/integration branch name; the design's placeholder branch text is mock content",
+        "explicitly_not": "wave grouping stays dependency-depth only — grouping by serialization is a separate, flagged item",
+        "counts_row": "the counts row covers all six item states from the outset, because the cards for all six already exist by the time this item runs.",
+        "verification_honesty": "this gate is pure Python with no browser, no Vue runtime and no network. Where an assertion here reads as a claim about what a reader sees — that something renders, that a token resolves, that an animation settles, that a font falls back — it is verified against the rendered source and the resolved token tables, not against a painted page. The build report states which guarantees are proven by direct call, which by source inspection, and which need the human browser checklist the closing sweep produces."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the progress bar's filled proportion equals the binder's finished count over its total",
+          "the counts row totals equal the binder's own counts, and a zero count renders no entry rather than a zero",
+          "a binder with three dependency depths renders three wave headers, each labelled with its position and the total",
+          "each wave header's item count equals the number of items at that depth",
+          "the wave header lane glyph carries an accessible label describing whether the wave runs at once or in turn",
+          "the footer meta bar renders the engine's default branch, the karta/<slug>/integration branch name, and the binder's stack pack list",
+          "a binder with no stack packs renders the footer without an empty packs entry",
+          "the binder disclosure is a button that reports its expanded state, and its open state still persists",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "the counts row totals equal the number of item cards rendered, with the built state included — asserted here because this item owns the counts row, not by the cards item that lands before it",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+        ]
+      }
+    },
+    {
+      "id": "item-detail-disclosure",
+      "title": "Show what each item is actually contracted to do",
+      "summary": "Add the expandable detail under each card — its check and every assertion, its contract, the files it touches, its git ref, and chips for whatever it is waiting on.",
+      "estimate": "M",
+      "depends_on": [
+        "binder-panel-waves"
+      ],
+      "design_reference": "item-detail",
+      "component_map": [
+        {
+          "design": "collapsible oracle disclosure with chevron",
+          "implementation": "the existing per-item expander, restyled; the chevron rotates on open"
+        },
+        {
+          "design": "detail grid with mono labels",
+          "implementation": "a two-column grid rendering oracle, asserts, contract, touches, command, estimate, ref and blocked-by from the widened feed"
+        },
+        {
+          "design": "blocked-by pills carrying the blocker's status",
+          "implementation": "one chip per unmet dependency, coloured and iconed from the blocker's own live state"
+        }
+      ],
+      "icon_map": [
+        {
+          "design": "chevron-down",
+          "key": "chevron",
+          "use": "the disclosure toggle"
+        },
+        {
+          "design": "flask-conical",
+          "key": "smoke",
+          "use": "smoke oracle"
+        },
+        {
+          "design": "eye",
+          "key": "visual",
+          "use": "visual oracle"
+        },
+        {
+          "design": "git-fork",
+          "key": "integration",
+          "use": "integration oracle"
+        },
+        {
+          "design": "link",
+          "key": "e2e",
+          "use": "end-to-end oracle"
+        }
+      ],
+      "contract": {
+        "exposes": "the per-item detail grid and the blocked-by chips",
+        "consumes": "contract, touches, estimate, the full assertions array, the oracle type and command, and the opt-out reason — all from the widened feed",
+        "assertions": "every assertion renders, not just the first",
+        "opt_out": "an opted-out item renders its recorded reason instead of a check command, so the page states what is going unchecked",
+        "absence": "a field the binder does not carry renders no row at all — an absent contract must not read as an empty contract",
+        "blocked_by": "each chip shows the blocking item and that blocker's current state, resolved from the same state metadata the cards use",
+        "preserved": "the expander stays a real button reporting its expanded state, and expand/collapse state persists across polls as it does today",
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "an item with three assertions renders all three in the detail grid",
+          "an item's contract, touches, estimate and git ref each render in their labelled row",
+          "an item missing one of those fields renders no row for it, rather than an empty one",
+          "an opted-out item renders its recorded reason and no check command",
+          "each oracle type resolves to a defined icon, with an unknown type falling back rather than rendering blank",
+          "a waiting item renders one chip per unmet dependency, and each chip carries the blocker's current state",
+          "the disclosure is a button that reports its expanded state, and expanding one item does not expand another",
+          "expand and collapse state survives a poll that replaces the state object",
+          "contract and touches values reach the page through the inert-JSON path, and none is bound as raw markup",
+          "the inertness check uses several vectors, not just a script tag — an img with an error handler, an svg with a load handler, a mixed-case script tag, and a javascript: URL — since escaping that stops one of these can miss the others",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure"
+        ]
+      }
+    },
+    {
+      "id": "redesign-regression-sweep",
+      "title": "Check the pages nobody looks at until something breaks",
+      "summary": "Sweep the states that only appear when things go wrong — no binders yet, the feed down, a saved copy opened offline, a forced theme — and confirm each one arrived on the new design rather than being left behind.",
+      "estimate": "M",
+      "depends_on": [
+        "item-detail-disclosure"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "why": "the earlier items each restyle a region they own. The states nobody demos — empty, degraded, offline snapshot, forced theme — belong to no item, so they are exactly what a chain of eleven restyles leaves on the old design while every check still passes. The self-test migration guards that they still RENDER; nothing until now guards that they render on the NEW design",
+        "exposes": "a closing pass over the states no single item owns, plus the coverage audit the hook grammar needs",
+        "states_swept": "the empty state with its mascot when no binder is planned; the degraded state when derivation fails; the file:// snapshot opened with no server, including that vendored fonts 404 there and the system fallbacks carry it; the ?theme=light and ?theme=dark forced renders used for screenshots; and the 404 page",
+        "hook_audit": "every region a later item added must carry a data-kw-* hook and a matching RENDERED registry entry, and every rendered entry must resolve to a hook that exists. Behaviour entries are audited by their own checks running, not by hook resolution — they have no markup. Item two established the hook grammar as a cross-item invariant and each item now registers its own; this pass is the backstop that catches anything that slipped, not the first line of enforcement.",
+        "reduced_motion_audit": "all five keyframes get a stated reduced-motion behaviour, not just the breathing indicator — the spinner, the one-shot underline draw, the ring and the alarm each either continue, slow, or resolve to a static state, and each choice is deliberate. A blinking alarm that ignores the preference is an accessibility defect",
+        "no_new_surface": "this item adds no feature and no control; it restyles what was missed and asserts what was unguarded",
+        "verification_honesty": "assertions here about what a BROWSER does — a request not issued, a listener torn down, storage persisting across a reload, a layout reflowing at a breakpoint, an animation resolving to a static state, a clipboard call degrading — are verified at the source level, not end to end. The gate has no browser. The build report states which guarantees are proven by direct call, which by source inspection, and which are not machine-verifiable at all and need a human to look.",
+        "human_browser_checklist": "the gate has no browser, so this item also produces a short named checklist for a human to walk in a real browser: first paint on both themes, the empty and degraded states, a saved file:// copy opened offline, one expand and collapse, turning automatic refresh off and confirming the network goes quiet, and the reduced-motion preference applied. Every claim on that list is one the self-test cannot make. Naming them is the honest alternative to asserting them. It also includes one comparison the gate cannot make: a passed card and a built card side by side, in both themes, confirming they separate at a scan rather than only under inspection. It also covers the one thing no static check reaches: with automatic refresh off, watch the network panel across a span that would have produced several requests, through a tab switch and a window focus change, and confirm it stays silent."
+      },
+      "serialize": true,
+      "shared_resources": [
+        "skills/karta-status/scripts/serve_status.py"
+      ],
+      "touches": [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract — this is the last gate before the redesign is considered complete, and it is the only item that checks the states no other item owns",
+          "blast-radius — serve_status.py is edited by every item in this binder",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run --script skills/karta-status/scripts/serve_status.py --self-test && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "the empty state renders on the new palette and type roles, with its mascot, and resolves only defined tokens",
+          "the degraded state renders on the new palette and resolves only defined tokens",
+          "the file:// snapshot renders the whole page with no server: it registers no timer, and with the vendored font routes unavailable every font stack still resolves to a system fallback so the text stays readable",
+          "the ?theme=light and ?theme=dark forced renders each produce their palette and contain the rail, the band and the item-card hooks",
+          "the 404 page renders on the new tokens",
+          "every data-kw-* hook in the rendered page has a RENDERED registry entry, and every rendered entry resolves to a hook that exists. Behaviour entries — token gating, the Host pin, confinement, escaping, the poll interval — are audited by their checks running, since they have no markup to resolve to",
+          "each of the five keyframes has a stated behaviour under a reduced-motion preference, and none of them is left animating unconditionally",
+          "the rendered page loads nothing over http:// or https:// — checked against fetchable contexts (src, href, url(), @import), so an inline SVG namespace declaration does not false-fail in any of these states",
+          "the regenerated Codex mirrors of serve_status.py are byte-identical to the canonical file",
+          "every data-kw-* hook this item introduces is present in the coverage registry, so a missing registration fails here and names this item rather than surfacing later as a sweep failure",
+          "the item produces the named human browser checklist, and it covers every guarantee the build reports marked as not machine-verifiable — so the unverifiable set is enumerated rather than forgotten"
+        ]
+      }
+    }
+  ]
+}

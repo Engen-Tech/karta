@@ -1,0 +1,350 @@
+{
+  "slug": "design-reference-gate-3",
+  "title": "Make a design claim in a binder mean something",
+  "summary": "A work item can name the design view it renders and then be checked by a test that never opens a browser — which is what happened on the status page rework, where ten items named a design view, none carried a visual check, and four large differences reached the merged page unnoticed. This binder makes that combination impossible to write down silently: an item that names a design view must either be checked against the design or carry a recorded waiver naming the item that checks it for them. It also gives a frozen copy of an external design a recorded fingerprint, so a capture that has drifted from what was pinned stops the comparison instead of quietly becoming the design.",
+  "motivation": "The only signal that routes an item to the visual gate is its oracle type, and nothing has ever required that signal to be present on an item that names a design view.\n\nThis file supersedes .karta/binders/design-reference-gate.json, which was committed and never started. It needed one edge added — watch-drill-in must land first, because seven of that binder's items park a visual_check_waiver inside contract, a form the waiver rule's validator cannot read — it checks only the sibling field — so every such item would be rejected by its sweep across every live binder. A committed binder is read-only (hooks/scripts/guard_binder_immutability.py), and the route its own deny message names is a fresh binder file, so that is what this is. The four work items are unchanged. waiver-rule's existing_binders clause describes the live set as of the 2026-08-17 plan; watch-fidelity and watch-redesign have since delivered and are archived. watch-drill-in is now the only live binder the sweep would reject — its eight view-naming items sit under a unit-typed gate and no visual oracle anywhere, so like watch-redesign it cannot be waived into compliance; its seven contract-parked waivers are prose the rule never reads. It leaves the live set by landing first, which is the third after edge.\n\nThis file supersedes .karta/binders/design-reference-gate-2.json, which was itself committed and never started, for the same reason and by the same route: one more after edge is needed and a committed binder cannot be edited. The edge is watch-column-fidelity, planned 2026-08-22, which repairs the watch page's content-sized column and gives the repo a browser-measurement harness. Five of its eight items name a real design view under a unit oracle with no waiver — column-fills-its-page, narrow-widths-do-not-spill, binder-track-pill, head-type-weight-and-tracking and measured-fidelity-gate — which is exactly the shape waiver-rule's assertion 18 refuses to leave standing in a live binder. So it joins watch-drill-in in the set that must land and archive before this binder's sweep can go green. The four work items are unchanged from the 2026-08-17 plan, and the coverage rule still requires a covering item to carry a visual oracle.\n\nThat last sentence is only honest because of a separate repair now planned. Until it lands, no binder in THIS repo can satisfy the coverage rule, because the repo has no working visual gate: karta-validate's serve_design.py roots its server at the design file's own directory (skills/karta-validate/scripts/serve_design.py:73), and this repo's committed export references its eight woff2 faces and its mascot two levels up, so every one of them 404s — while capture_view.py:287 computes compare_ready from app health alone and never reads the design's own failed requests, so the comparison runs anyway against a design rendered in fallback fonts. That is why the last two fidelity gates here were unit-typed. The binder design-gate-serves-its-own-assets fixes both halves; this binder's rule is left visual-only on the strength of that fix rather than widened to route around it. That repair is now the fifth after edge, for two reasons. A rule mandating a visual coverer should not land before the visual gate it mandates can run. And the two binders would otherwise collide: this binder's design-pin-check edits skills/karta-validate/SKILL.md and its two mirrors, and so does that binder's refusal-is-in-the-report. karta serializes wave-mates inside one binder; it does not order two live binders against each other, so the edge is where that ordering has to live.",
+  "after": [
+    "watch-fidelity",
+    "watch-redesign",
+    "watch-drill-in",
+    "watch-column-fidelity",
+    "design-gate-serves-its-own-assets"
+  ],
+  "scope": {
+    "included": [
+      "skills/karta-plan/references/binder-schema.json — one new work-item field, the recorded waiver, and a minimum length on design_reference",
+      "skills/karta-plan/scripts/validate_binder.py — the new design-reference rule, the waiver summary, the design-source advisory, and their self-test fixtures",
+      "skills/karta-validate/scripts/check_design_pins.py — a new stdlib check comparing a committed design capture against its recorded fingerprint",
+      "skills/karta-validate/SKILL.md — one new hard gate in the prerequisites phase that runs that check",
+      ".karta/design-pins.json — this repo's own pin file, and the shape every consumer repo writes",
+      "docs/designs/karta-watch-1440x900-light.html — not edited here; it is the one design capture living in this repository once watch-fidelity lands, and it is what this repo's own pin file records",
+      "scripts/validate_plugin.py — one more numbered opt-in-config block, giving the pin file the commit-time shape gate the other three .karta configs already have",
+      "skills/karta-plan/SKILL.md and references/ui-analysis.md — the planning guidance that currently sanctions naming a view without checking it, plus the review report line that surfaces a waiver",
+      "skills/karta-build/SKILL.md — the UI annex list a build agent is handed, so a builder of a waived item learns the comparison was deferred and which item covers it",
+      "the four references/binder-reference.md field tables under karta-plan, karta-build, karta-deliver and karta-verify",
+      "docs/how-to/design-fidelity.md and docs/specs/2026-08-17-design-reference-gate.md — the operator runbook and the record of what was decided and why",
+      "the generated Codex mirrors of every canonical skill file above, under .agents/skills/ and plugins/karta/"
+    ],
+    "excluded": [
+      "the routing rule itself — an item still reaches the visual gate by carrying oracle type visual, and this binder adds no second route; it only stops the third option of naming a view and checking nothing",
+      "the karta-doc-gardner agent's missing Bash and git tools — a real defect found in the same review, filed separately, and nothing here depends on it",
+      "the roundtable hook reading the wrong worktree's git index — same review, separate defect, no overlap with these files",
+      "a theme input for karta-validate — the same review found that comparing a light design against a dark-defaulting app reports every token as drifted; that is a karta-validate capability change and is out of scope here",
+      "any edit to .karta/binders/watch-fidelity.json — that binder is in flight; this binder is sequenced after it and never touches it",
+      "re-validating delivered binders — karta-deliver archives a binder at end of life and the validator reads archive/*.json for its slug only, so an archived binder is never re-checked",
+      "detecting that a frozen capture has fallen behind the living design upstream. The design lives behind agent-invoked tools, karta's gate scripts are stdlib with no network, and no script here will pretend otherwise. What the pin check can detect offline is two things: the capture no longer matching its recorded fingerprint, and the capture outliving the recapture date its own author set. Whether the upstream moved is a human or agent look, and the runbook says so rather than implying a check raises it.",
+      "a write mode that stamps a pin for you — the check prints the fingerprint it computed, which is all a recapture needs",
+      "the false claim in karta-plan's UI-fields gotcha that the validator catches design_reference on a non-UI item — a real pre-existing doc defect already recorded in the flow seed map, unrelated to either problem here, and not this binder's to fix",
+      "prose docs beyond the runbook and the decision record; doc-gardner corrects the rest after delivery"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "Python stdlib gate scripts plus skill doctrine, shipped as a Claude Code plugin and a Codex CLI plugin"
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-skill-authoring",
+    "karta-house-vue"
+  ],
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": false
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "shared_terms": [
+    {
+      "id": "waiver-field-name",
+      "canonical": "visual_check_waiver",
+      "items": [
+        "waiver-rule",
+        "waiver-doctrine",
+        "fidelity-runbook"
+      ]
+    },
+    {
+      "id": "waiver-failure-clause",
+      "canonical": "has no visual oracle and no visual_check_waiver",
+      "items": [
+        "waiver-rule",
+        "fidelity-runbook"
+      ]
+    },
+    {
+      "id": "design-pin-file",
+      "canonical": ".karta/design-pins.json",
+      "items": [
+        "design-pin-check",
+        "fidelity-runbook"
+      ]
+    },
+    {
+      "id": "pin-drift-message",
+      "canonical": "design capture does not match its pin in .karta/design-pins.json",
+      "items": [
+        "design-pin-check",
+        "fidelity-runbook"
+      ]
+    }
+  ],
+  "work_items": [
+    {
+      "id": "waiver-rule",
+      "title": "Stop a work item claiming a design view it never checks",
+      "summary": "Make the binder validator reject an item that names a design view unless something actually opens that design — the item's own visual check, or a recorded waiver naming the item whose visual check covers it.",
+      "estimate": "L",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "a new optional work-item field, visual_check_waiver, an object of exactly reason and covered_by; a new design: error family in validate_binder.py, sitting beside the existing graph: and shared_terms: families and reported the same way; and a waiver summary printed on the VALID line beside the existing opt-out summary",
+        "problem": "an item's oracle type is the only thing that routes it to the visual gate. design_reference never routes an item into that gate — it only vetoes it once the type is already visual (karta-build skips karta-validate when design_reference is none), and the validator reads the field for nothing at all. So an item could name a design view, be checked by a self-test with no browser in it, pass, and merge — which is exactly how ten items named a view, none opened the design, and four large differences reached the page. A builder reading this should not conclude the field is dead: it carries the skip in dispatch and must keep doing so.",
+        "decided": "the rule is an error, not a warning. validate_binder.py returning a non-empty list prints INVALID and exits 1. That hard-bails karta-deliver at preflight with no continue-anyway, and it equally hard-bails karta-build at Gate 1, which runs the same validator on the same binder for every item — both stop points are intended and both are named here rather than discovered mid-run. A warning would print after the VALID line and change no exit code, which is precisely the strength the previous binder already had: every one of its items disclosed in prose that it had no browser, and the disclosure changed nothing. The house rule is enforced checks over skippable prose, so the check is enforced. The sentinel comparison is exact: only the literal string none is the sentinel, matched byte for byte with no stripping and no case folding, so None and NONE are read as design claims and rejected as such rather than silently excused; the schema gains minLength 1 on design_reference so an empty string cannot be written at all.",
+        "why": "the thing being caught is a claim an item makes about itself. An item that names a design view is asserting the view is what it renders; letting that assertion cost nothing is what made the previous failure invisible. An error is affordable here because the rule is always satisfiable — give the item a visual oracle, record a waiver, or set design_reference to none and stop claiming the view. There is no honest binder the rule locks out.",
+        "waiver_shape": "the waiver is per item, not a binder-level list, and it is a sibling field on the work item rather than a branch of the oracle. Per item because the claim is per item and a reader judging one item should not have to scroll to a separate register to find out whether it was waived. Beside the oracle rather than inside it because both oracle branches are additionalProperties:false and the opt-out branch already means something different — opting out of the acceptance check altogether. This item still runs its check; it is only the design comparison it is excused from. Two required fields, both non-empty: reason, why this item names a view it does not open, and covered_by, the id of the work item that does.",
+        "coverage_rule": "covered_by must name a work item in the same binder whose oracle type is visual, which depends on the waived item directly or through the chain, and whose oracle carries a non-empty assertions list, and whose own design_reference is present and is not the exact string none. Five conditions, each its own error. That is what makes the waiver non-vacuous: it cannot be satisfied by prose, only by pointing at a check that exists, opens the design, runs after the work it covers, and says what it checks. The design_reference condition is what makes 'opens the design' true rather than merely typed: karta-build skips the karta-validate gate when an item's design_reference is none, so a covering item that is visual but names no view is a gate no browser ever runs — and that shape would also silence this item's own known_erosion advisory, which fires only when no visual oracle exists anywhere. The comparison is the same exact match against the none sentinel this rule already uses when reading design_reference on the waived item. The assertions condition matters because assertions is optional in the schema — without it the cheapest compliant shape is one bare closing visual gate absorbing every waiver in the binder, which is the deferred check this rule exists to end. A binder with no visual item anywhere cannot waive anything — it has to add a check or drop the claim, which is the whole point. Coverage may not cross binders: a promise that a later binder will look is exactly what was made last time and it took a separate hand comparison to find out it had not been kept.",
+        "redundant_waiver": "one error, not two, covers a waiver that is not doing any work: a visual_check_waiver is only meaningful on an item that names a design view and has no visual oracle. An item whose design_reference is none or absent, and an item that already carries a visual oracle, are both rejected by that single branch with one violating fixture and one compliant twin. Neither shape can produce an unchecked design claim, so neither earns its own branch — but leaving a waiver inert would let a reader think a comparison was deferred when it was not.",
+        "visibility": "a recorded escape that prints nowhere is a silent escape, and karta already refuses that for the opt-out: validate_binder.py prints the opt-out count on the VALID line with every reason, and karta-plan's review report lists the opted-out items and their reasons for the human approving the plan. The waiver is modelled on the opt-out and gets the same surfacing, not just the same documentation. A waiver_summary function sits beside opt_out_summary, the VALID line states the waiver count, each waiver prints its reason and its covered_by, and each covering item prints how many waivers it absorbs — so one gate covering seven views is stated rather than inferred, and a binder with seven waivers can never read like a binder with none.",
+        "known_erosion": "the cheapest way out of this rule is to set design_reference to none and stop claiming the view. That is a sanctioned resolution and it stays sanctioned — but it costs one token, needs no reason, and is recorded nowhere, so a repo with no design export can reach compliance by making the field always say none. The erosion is named in the decision record and given one detection: the validator emits an advisory warning when a binder names a design source in design_facts and carries no visual oracle on any item. That is exactly the previous failure's shape. It is a warning and not an error on purpose — a binder may legitimately be all backend work under a design-bearing project — but it prints on every run so the shape cannot pass unnoticed.",
+        "existing_binders": "two binders are live in this repo right now and the new rule rejects both of them today; neither is edited by this binder, and both are handled by sequencing. watch-fidelity carries ten work items, seven of which name a design view and are checked deterministically, against a single visual oracle — its closing design fidelity gate — so seven items would need waivers. Its dependency chain is a single spine and that closing gate transitively depends on every one of the seven, so all seven waivers are expressible today and point at the same covering item. Those seven waivers have since been written into watch-fidelity ahead of time, parked inside each item's contract because this rule's sibling field does not exist yet and validate_binder.py rejects an undeclared work-item property outright. That makes the retrofit mechanical — a promotion up one level, with the reasons already reviewed — but it does not satisfy this rule, which reads the sibling field and not a contract clause, so the precondition below is unchanged by it. watch-redesign has ten items naming a design view and no visual oracle anywhere, so it cannot be brought into compliance by any waiver — correctly, since it is the binder this rule exists to prevent; its own integration branch already carries the archive move, so it leaves the live set the moment it lands. The precondition is therefore explicit: this item may not be built until both watch-redesign and watch-fidelity have left the live set, and both are named in this binder's after edges so the ordering lives where karta reads it rather than only in this paragraph. Once each delivers, karta-deliver's end-of-life step archives it and archived binders are read for their slug only, never re-validated.",
+        "enforcement": "acceptance is not only the self-test. Every binder file still living under .karta/binders/ must validate under the new rule when the item is done, and the oracle command proves it by running the validator over each one rather than reporting it in prose. If a live binder in this repo would be rejected, the item is not finished. The recourse when that happens is stated and bounded: a predecessor binder still live at build time means the sequencing did not hold — the item halts for the human rather than editing that binder, because a live binder is immutable to everything downstream of the plan and this binder's scope forbids the edit outright.",
+        "consumer_corpus": "this is a vocabulary tightening and it reaches every repo that installs karta, so the rejection has to be proven against a real pre-rule consumer binder and not only against fixtures written to fit the rule. The self-test carries one fixture in the shape of benchmarks/fixtures/gringotts-browse-refinements-binder-2026-07-17.json — several items whose design_reference is a real multi-clause prose string, no visual item anywhere — so the message a consumer actually sees is the message the runbook's migration paragraph quotes. The migration paragraph itself is the runbook item's to write; this item's job is to make the message it quotes real.",
+        "ruled_out": "keying the rule on whether the repo can run a browser at all was considered and dropped: the validator is stdlib with no network and no way to know, and a rule that changes shape with the machine it runs on is worse than one that is the same everywhere. Making design_reference itself route to the visual gate was also dropped — it would silently make every existing UI item expensive, and this binder does not touch routing.",
+        "regression_risk": "the coverage check needs a transitive walk over depends_on, and validate_binder.py already has one: reachable, with its own visited set, nested inside _wave_collision. It is lifted to a module-level helper and called from both places rather than written a second time, so termination is a property of one shared walk. A cyclic binder is reported by the existing cycle check but still reaches this rule in the same pass, and the self-test keeps a cyclic fixture for the composed rule — the helper's termination is proven where it lives, the rule's behaviour on a cyclic binder is proven where it runs. An opt-out oracle carries no type at all, so an opted-out item that names a design view falls through to the waiver requirement rather than slipping past a type comparison — that is deliberate and gets its own fixture.",
+        "serialization": "no other item in this binder edits the validator or the schema, so nothing here is serialized and the file is this item's alone for the length of the run.",
+        "verification_honesty": "this gate is pure Python with no browser and no network, which is fitting — the rule it adds is about whether a browser will ever be involved, not about what a browser sees. Everything asserted below is proven by direct call: the fixtures are binder dictionaries built in the self-test, and the rule either rejects them or does not. The claim that every live binder in this repo still validates is proven by the oracle command's own sweep over .karta/binders/*.json, not by a line in the build report."
+      },
+      "serialize": false,
+      "touches": [
+        "skills/karta-plan/references/binder-schema.json",
+        ".agents/skills/karta-plan/references/binder-schema.json",
+        "plugins/karta/skills/karta-plan/references/binder-schema.json",
+        "skills/karta-plan/scripts/validate_binder.py",
+        ".agents/skills/karta-plan/scripts/validate_binder.py",
+        "plugins/karta/skills/karta-plan/scripts/validate_binder.py"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract mutation — a binder shape that validated yesterday can be rejected today in every repo that installs karta, and the rejection hard-bails karta-deliver at preflight and karta-build at Gate 1 rather than warning",
+          "explicit open question — error versus warning was a real fork with a named alternative, and the decision to make it an error is recorded in this item's contract rather than left for a reader to settle",
+          "scope of impact — the rule reaches every consumer repo's binders, not just this one's, so the sequencing argument in existing_binders and the consumer fixture in consumer_corpus are the parts most worth a second pair of eyes",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run skills/karta-plan/scripts/validate_binder.py --self-test && uv run scripts/validate_plugin.py --self-test && sh -c 'set -e; for b in .karta/binders/*.json; do uv run skills/karta-plan/scripts/validate_binder.py --binder \"$b\"; done'",
+        "assertions": [
+          "an item naming a real design view with a non-visual oracle and no waiver is rejected, and the message contains the clause an operator is told to search for — has no visual oracle and no visual_check_waiver",
+          "the same item with a visual oracle validates, and the same item with design_reference set to none validates, so the rule fires on the claim and not on the field's presence",
+          "one error branch rejects a waiver that is not doing any work — on an item whose design_reference is none or absent, and on an item that already carries a visual oracle — with a single violating fixture covering both shapes and one compliant twin",
+          "a waiver naming an id no work item has is rejected, and the message names the missing id",
+          "a waiver naming an item whose oracle is not visual is rejected, so a waiver cannot point at another item that also never opens the design",
+          "a waiver naming a visual item whose own design_reference is none, or absent, is rejected — a covering gate karta-build would skip cannot cover anything — and the same waiver validates when that covering item names a real view",
+          "a waiver naming a visual item that does not depend on the waived item, directly or through the chain, is rejected — and the same pair with the dependency edge present validates",
+          "a waiver naming a visual item whose oracle carries no assertions, or an empty assertions list, is rejected — the covering check has to state what it checks before it can cover anything",
+          "an item whose oracle is an opt-out and whose design_reference is a real view is rejected for the missing waiver, proving the rule reads a missing type rather than assuming one",
+          "design_reference set to None or NONE is rejected as a design claim rather than read as the sentinel, and the self-test carries that near-miss fixture so the rejection is a named case and not a confusing one",
+          "every one of the checks above ships with both a violating fixture and a compliant twin in the same self-test, so no check can pass by never firing",
+          "the schema rejects a visual_check_waiver missing reason, missing covered_by, carrying an empty reason, or carrying any additional property, and rejects an empty-string design_reference under the new minLength",
+          "the validator prints a waiver summary the way it prints the opt-out summary — the VALID line states how many items are waived, each waiver prints its reason and its covered_by, and each covering item prints how many waivers it absorbs",
+          "a binder that names a design source in design_facts and carries no visual oracle on any item draws an advisory warning naming that shape, and the warning never changes the exit code",
+          "the self-test carries a pre-rule consumer fixture in the shape of benchmarks/fixtures/gringotts-browse-refinements-binder-2026-07-17.json — several real prose design_reference strings, no visual item anywhere — and the rejection it produces is the message the runbook's migration paragraph quotes",
+          "a binder whose depends_on graph contains a cycle still terminates when the rule walks it, and the self-test includes that fixture",
+          "the self-test's reported total counts every case added here — the totals line still equals the number of checks the run actually performed",
+          "the regenerated Codex mirrors of validate_binder.py and binder-schema.json are byte-identical to the canonical files",
+          "every binder file still living under .karta/binders/, outside archive/, validates under the new rule — proven by the oracle command running the validator over each one, and the item is not done while a live binder in this repo would be rejected by it"
+        ]
+      }
+    },
+    {
+      "id": "design-pin-check",
+      "title": "Catch a frozen design copy that no longer matches what was pinned",
+      "summary": "Record a fingerprint for each committed design capture and check it before the comparison runs, so a capture someone edited or replaced — or one that has outlived its own recapture date — stops the check instead of quietly becoming the design.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "contract": {
+        "exposes": ".karta/design-pins.json — a flat map from a repository-relative design path to its recorded sha256, the upstream address it came from, the date it was taken, the named events that call for taking it again, and an optional date past which the capture must be taken again; skills/karta-validate/scripts/check_design_pins.py, a stdlib check that compares one design path against that record; and one more numbered opt-in-config block in scripts/validate_plugin.py gating the pin file's shape at commit time",
+        "problem": "when the design is a living external artefact, a delivery freezes a local copy so the comparison is reproducible offline. Nothing tracks whether that copy still matches what it was taken from, and nothing notices if someone edits the copy instead of recapturing it. The frozen file then becomes the design by default, and every later comparison agrees with it.",
+        "decided": "the fingerprint is a sha256 over the bytes of the committed capture, the record lives in .karta/design-pins.json beside the binders it serves, and the check runs as one more hard gate in karta-validate's prerequisites phase — the one place that is already a set of hard gates that fail rather than prompt, and the last moment before the design is served where a wrong capture can still be stopped.",
+        "path_resolution": "the caller's design path is not resolved when the prerequisites phase runs — it may legally be a directory, and serve_design.py picks the best HTML file from it in the serve phase, preferring standalone non-print variants. So check_design_pins.py imports resolve_design_file from serve_design.py, which sits in the same scripts directory, and resolves the caller's path the same way before it hashes anything. It does not reimplement the variant preference, and it is not moved into the serve phase: keeping it in the prerequisites phase keeps every hard gate in the one phase that already is nothing but hard gates, and the shared resolver is a one-line import against a function that already exists.",
+        "why": "the pin belongs in the repository rather than in a binder because the capture outlives the binder that froze it and is usually read by more than one. .karta/ already holds the binders, the roundtable records and the stack packs, so a fourth file there needs no new convention. design_facts on a binder was the alternative and was dropped: it is additionalProperties:false with room for a source and a stack, and putting a per-file hash there would tie a repository asset's lifecycle to whichever binder happened to mention it first.",
+        "commit_time_shape": "the pin file is the fourth committed .karta/*.json config in this repo, and the other three — kaizen.json, roundtable.json, doc-gardner.json — each get a numbered opt-in-config block in scripts/validate_plugin.py that gates their shape at commit time. This one gets the same block, so a malformed pin file fails the commit rather than surfacing on someone's next karta-validate run. That block is also the one place this repo's own minimalism pack carves out of the one-runnable-check rule: the validator's own --self-test over the committed config plus the item oracle's malformed-config probe is the runnable check, and no separate per-branch test is owed.",
+        "scope": "what the check can prove is capture-against-pin and capture-against-its-own-recapture-date, and it says exactly that. Capture-against-upstream is not mechanisable from a stdlib script with no network — the design lives behind agent-invoked tools — so the check never claims to have looked upstream. Every run prints the capture date, the upstream address the capture came from, and the recapture triggers the author wrote down, so the person about to trust the comparison is reading the terms and the address a recapture is aimed at, at the moment they matter.",
+        "enforcement": "seven outcomes, in a deliberate ladder, and the count is stated once here so nothing downstream has to guess it. A capture whose bytes match its pin passes. A capture whose bytes disagree with its pin fails with the drift message. A design living inside the repository, with a pin file present but no entry of its own, fails — that repository pins its captures and this one escaped. A pin entry carrying recapture_after whose date has passed fails with its own clause, so a capture that outlives the life its author gave it stops the comparison instead of being disclosed and ignored; recapture_after is optional, so this rung is an opt-in inside an opt-in and no existing pin gains a deadline it did not ask for. No pin file at all means the repository has not opted in: the check prints a notice naming the design it did not verify and passes. A design resolved from outside the repository cannot be pinned and passes with a notice saying so. A malformed pin file — not an object, or an entry missing sha256 — fails as a malformed pin file and is never reported as a matching capture. The ladder is what keeps this from breaking every consumer on the day it lands while still closing the hole for any repository that opts in.",
+        "ruled_out": "a write mode that stamps or restamps a pin was considered and dropped. Every outcome where the check computed a hash prints that hash — the drift failure, the unpinned in-repo design, and the no-pin-file notice — so writing the first pin and restoring a drifted one are both a copy and paste from the check's own output, and a writer would be a second way to do the same thing. A version key on the manifest was dropped for a different reason — nothing would read it, and the house minimalism rule is explicit that a key nothing reads does not get added. recapture_after is not in that category: a rung reads it.",
+        "no_data_loss": "the check reads. It never rewrites a capture, never rewrites the pin file, and never deletes anything.",
+        "serialization": "no other item in this binder edits the karta-validate skill, its scripts, or scripts/validate_plugin.py, so nothing here is serialized.",
+        "verification_honesty": "the self-test builds its manifests and its design files in a temporary directory at run time and commits nothing, because a committed violating capture would fail the check forever. Every outcome in the ladder is proven by direct call against those temporary files, and the repo's own committed pin file is proven separately by running the check against the one design capture that lives here. What is not proven by any check here is that a pinned capture still resembles the living design upstream; the check does not claim it, the runbook says who has to look, and the build report repeats it."
+      },
+      "serialize": false,
+      "touches": [
+        "skills/karta-validate/scripts/check_design_pins.py",
+        ".agents/skills/karta-validate/scripts/check_design_pins.py",
+        "plugins/karta/skills/karta-validate/scripts/check_design_pins.py",
+        "skills/karta-validate/SKILL.md",
+        ".agents/skills/karta-validate/SKILL.md",
+        "plugins/karta/skills/karta-validate/SKILL.md",
+        "scripts/validate_plugin.py",
+        ".karta/design-pins.json"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "capability or resource escalation — a new gated script under a skill's scripts directory, and one more hard gate in karta-validate's prerequisites phase",
+          "contract mutation — bounded on purpose: the gate is inert in any repository with no pin file, so a consumer only meets it after choosing to pin something",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "uv run scripts/validate_plugin.py --self-test && sh -c 'set -e; grep -qF -- \"check_design_pins.py\" skills/karta-validate/SKILL.md; grep -qF -- \"docs/designs/karta-watch-1440x900-light.html\" .karta/design-pins.json; grep -qF -- \"design-pins.json\" scripts/validate_plugin.py' && uv run skills/karta-validate/scripts/check_design_pins.py --design-path docs/designs/karta-watch-1440x900-light.html",
+        "assertions": [
+          "the plugin validator's floor self-tests every script under a skill's scripts directory, so the new check's own --self-test runs as part of this command and a check that did not expose --self-test would be named as its own failure",
+          "a capture whose bytes match its recorded sha256 passes, and the run prints the capture date, the upstream address it was taken from, and every recapture trigger recorded for it",
+          "a capture whose bytes differ from its recorded sha256 fails, and the message contains the exact clause the runbook tells an operator to look for — design capture does not match its pin in .karta/design-pins.json",
+          "every outcome where the check computed a hash prints that hash — the drift failure, the unpinned in-repo design, and the no-pin-file notice — so writing the first pin and restoring a drifted one are both a copy and paste with no second tool involved",
+          "a design living inside the repository with a pin file present but no entry of its own fails, and the message names the path that has no pin",
+          "a pin entry whose optional recapture_after date has passed fails with its own clause naming that date, and the same entry with no recapture_after key passes, so the rung is opt-in and no existing pin gains a deadline it did not ask for",
+          "a repository with no pin file at all passes and prints a notice naming the design it did not verify, so opting in stays a choice and never a silent skip",
+          "a design resolved from outside the repository passes with a notice saying it cannot be pinned, rather than failing for a fingerprint it could never have",
+          "a design path that is a directory is resolved through serve_design.py's own resolve_design_file before anything is hashed, so the check pins the file the serve step will actually serve — the self-test covers a directory-valued path whose chosen file is pinned and a directory-valued path whose chosen file has drifted",
+          "a malformed pin file — not an object, or an entry missing sha256 — is reported as a malformed pin file and never as a matching capture",
+          "each of those seven outcomes has its own fixture built in a temporary directory at run time and committed nowhere, and the passing and failing fixtures differ only in the byte or the date that should decide the outcome",
+          "the self-test prints an N/N totals line and the run fails if the total is not exactly 9 — the seven ladder outcomes, of which the malformed pin file is the seventh, plus the two directory-path cases, so a self-test that quietly executes fewer fixtures cannot green this command",
+          "scripts/validate_plugin.py carries a numbered opt-in-config block for .karta/design-pins.json in the same shape as the kaizen, roundtable and doc-gardner blocks, and a malformed committed pin file is a named failure of validate_plugin --self-test rather than a runtime surprise",
+          "the committed .karta/design-pins.json carries an entry for docs/designs/karta-watch-1440x900-light.html, the one design capture living in this repository, and running check_design_pins.py against that checked-out capture exits 0",
+          "karta-validate's prerequisites phase names the new check as a hard gate alongside the four already there, with its existing numbering left alone",
+          "the regenerated Codex mirrors of check_design_pins.py and the karta-validate skill file are byte-identical to the canonical files"
+        ]
+      }
+    },
+    {
+      "id": "waiver-doctrine",
+      "title": "Teach the planner to pair a design view with a check that opens it",
+      "summary": "Rewrite the planning guidance that currently lets a slice name a view and pick a check that never renders it, surface a waiver on the plan review card and in the build agent's UI annex, and document the field in the four tables a reader looks it up in.",
+      "estimate": "M",
+      "depends_on": [
+        "waiver-rule"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "planning guidance that states the pairing as a requirement rather than a preference, a Waived visual checks line on the plan review report beside the opted-out line, visual_check_waiver in the UI annex fields a build agent is handed, and a row plus a worked example for the field in each of the four binder field references",
+        "inconsistency_being_fixed": "the planning skill never says the word visual once, and the slice guidance in ui-analysis.md offers a choice — a visual or a smoke oracle for a view, the compile and lint floor otherwise — which reads as permission to name a view and check something cheaper. That sentence is the written form of the failure this binder fixes, and it stays wrong until it is rewritten.",
+        "builder_side": "karta-build reads design_reference in three places: the design-source input row, the UI annex fields passed into the build agent, and the dispatch rule that skips karta-validate when the value is none. A builder handed a waived item is currently told the view it names is the design it validates against, with nothing saying the comparison was deliberately deferred. The UI annex list gains visual_check_waiver so the builder learns the deferral and which item covers it. The dispatch rule at oracle.type == visual is untouched — this binder changes no routing.",
+        "decided": "the waiver's copy template is a JSON snippet in the binder field reference, next to the opt-out snippet, and example-binder.json is left alone. The opt-out escape is documented exactly that way already, so a reader looking for the recorded-escape pattern finds both in the same place and the same shape. The example binder is also the validator self-test's valid example, and reshaping it to demonstrate a waiver would tie a teaching example to a rule fixture; it already complies with the new rule untouched, so there is nothing to fix there.",
+        "why": "a rule that only exists in a validator teaches nobody. The planning agent drafts from the skill text and the field reference, so a rule absent from both is one the drafter meets for the first time as a rejection at preflight, having already written the binder wrong. And an escape the human approving the plan never sees is a silent escape, which is the thing karta already refuses for the opt-out.",
+        "consumes": "the field name, the waiver's two required fields, and the waiver summary exactly as the previous item shipped them; this item invents no vocabulary of its own",
+        "preserved": "design_reference stays optional and stays a UI-only field. Nothing here makes it required, and the existing guidance that UI fields are omitted entirely for backend, command-line and data items is untouched — an item with no design surface is unaffected by any of this.",
+        "serialization": "the two items in this wave touch different files — this one the skill doctrine, the other the repository docs — so nothing is serialized.",
+        "verification_honesty": "the oracle greps each edited file individually rather than trusting a mirror check, because the four binder-reference.md copies are not byte-identical to each other and no shared-copies check compares them — a missed copy would otherwise be invisible to every gate. What the greps cannot settle is whether the rewritten guidance reads clearly enough to change what a drafter writes; that is a human judgment and the build report says so rather than implying the greps settled it."
+      },
+      "serialize": false,
+      "touches": [
+        "skills/karta-plan/SKILL.md",
+        ".agents/skills/karta-plan/SKILL.md",
+        "plugins/karta/skills/karta-plan/SKILL.md",
+        "skills/karta-plan/references/ui-analysis.md",
+        ".agents/skills/karta-plan/references/ui-analysis.md",
+        "plugins/karta/skills/karta-plan/references/ui-analysis.md",
+        "skills/karta-build/SKILL.md",
+        ".agents/skills/karta-build/SKILL.md",
+        "plugins/karta/skills/karta-build/SKILL.md",
+        "skills/karta-plan/references/binder-reference.md",
+        ".agents/skills/karta-plan/references/binder-reference.md",
+        "plugins/karta/skills/karta-plan/references/binder-reference.md",
+        "skills/karta-build/references/binder-reference.md",
+        ".agents/skills/karta-build/references/binder-reference.md",
+        "plugins/karta/skills/karta-build/references/binder-reference.md",
+        "skills/karta-deliver/references/binder-reference.md",
+        ".agents/skills/karta-deliver/references/binder-reference.md",
+        "plugins/karta/skills/karta-deliver/references/binder-reference.md",
+        "skills/karta-verify/references/binder-reference.md",
+        ".agents/skills/karta-verify/references/binder-reference.md",
+        "plugins/karta/skills/karta-verify/references/binder-reference.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract mutation — the planning guidance changes what a drafter is told to produce, but the change describes a rule already enforced by the previous item rather than adding a second one",
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "sh -c 'set -e; for f in skills/karta-plan/references/binder-reference.md skills/karta-build/references/binder-reference.md skills/karta-deliver/references/binder-reference.md skills/karta-verify/references/binder-reference.md; do grep -qF -- \"visual_check_waiver\" \"$f\"; done; grep -qF -- \"visual_check_waiver\" skills/karta-plan/SKILL.md; grep -qF -- \"visual_check_waiver\" skills/karta-build/SKILL.md; grep -qF -- \"Waived visual checks\" skills/karta-plan/SKILL.md; if grep -qF -- \"oracle for a view, the compile/type-check/lint floor otherwise\" skills/karta-plan/references/ui-analysis.md; then exit 1; fi' && uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && uv run scripts/sync_codex_skills.py --check",
+        "assertions": [
+          "the planning skill states that an item naming a design view carries a visual oracle or a recorded waiver, in the same place it currently tells a drafter to set design_reference to the view or to none, and the oracle greps that file for the field name",
+          "the sentence in ui-analysis.md that offers a visual or a smoke oracle for a view is gone — the oracle fails if the exact free-choice fragment is still present — and its replacement names the waiver as the way a view's slice is checked by something other than a rendered comparison",
+          "all four binder field references carry a visual_check_waiver row beside the design_reference row, naming both required fields and stating the five conditions the covering item has to meet, and the oracle greps each of the four files individually because they are not byte-identical to each other",
+          "the karta-plan field reference carries a worked JSON waiver snippet in the same shape and the same position as the existing opt-out snippet",
+          "karta-plan's review report list carries a Waived visual checks line beside the existing opted-out line, so the human approving a plan sees every waiver and its covering item before committing the binder",
+          "the UI annex field list karta-build hands a build agent names visual_check_waiver alongside DESIGN_REFERENCE, so a builder of a waived item learns the design comparison was deferred and which item covers it; the dispatch rule keyed on oracle.type is untouched",
+          "example-binder.json is unchanged, and the validator's self-test still loads it as its valid example and passes",
+          "no pointer in any edited file names a phase, step or path this diff moved or renamed",
+          "the canonical files edited here each ship their regenerated Codex mirrors in the same change, and the projection check reports both mirror trees in sync",
+          "the shared copies check still reports the skills/_shared copies in sync, confirming this diff did not drift a file it does not own"
+        ]
+      }
+    },
+    {
+      "id": "fidelity-runbook",
+      "title": "Write down how to waive a visual check and how to refresh a frozen design",
+      "summary": "Give an operator one page covering both new rules — what a waiver has to say, what the failure messages mean, what to do with a binder the new rule now rejects, and how to pin a frozen design and take it again — plus a record of what was decided here and why.",
+      "estimate": "S",
+      "depends_on": [
+        "waiver-rule",
+        "design-pin-check"
+      ],
+      "design_reference": "none",
+      "contract": {
+        "exposes": "docs/how-to/design-fidelity.md, the operator page for both mechanisms, and docs/specs/2026-08-17-design-reference-gate.md, the record of the decisions this binder made and the alternatives it turned down",
+        "decided": "one runbook covering both mechanisms rather than two, because an operator meets them in the same minute: the binder is rejected for a missing waiver, or the comparison stops because the capture drifted, and both times the question is what karta wants before it will open a design. Splitting that across two pages would make a reader find the second one on their own.",
+        "why": "the how-to directory is where this repository puts an operator's procedure and the specs directory is where it puts a decision and its reasoning, and mixing the two produces a page that is neither. The runbook says what to type; the spec says why the rule is an error, why coverage may not cross binders, why the pin ladder passes an unpinned repository, and what was ruled out.",
+        "migration": "this is a vocabulary tightening that reaches every repo installing karta, and a consumer holding a pre-rule binder needs a stated path rather than a silent breakage. The runbook carries it: a binder already committed that the new rule rejects has exactly two honest resolutions — add a visual item and re-plan so the waivers have something to point at, or set the offending items' design_reference to none and record what was lost by dropping the claim. It also names the mid-delivery case, which is sharper: the rule fires at karta-build Gate 1 as well as at karta-deliver preflight, so a consumer whose plugin updates between waves meets it on a binder that is immutable while the run is live. The two answers there are finish the run on the plugin version it started under, or abandon the run and re-plan — editing the live binder is not one of them.",
+        "consumes": "the field name, both failure clauses and the pin file path exactly as the two mechanism items shipped them, so a reader searching the message they were shown lands on the paragraph that explains it",
+        "scope": "the runbook covers writing a waiver, reading the failure messages, what to do with a binder the rule now rejects, pinning a capture, and the recapture step. It does not restate the field tables — it links them — and it does not try to teach visual comparison itself, which karta-validate already documents.",
+        "residuals": "the one thing neither mechanism can do is tell you a frozen capture has fallen behind the living design. The pin check catches a capture that stopped matching its fingerprint, and catches one that outlived the recapture date its author set, but neither of those looks upstream. The runbook names that plainly, says the comparison is only as current as the last recapture, and gives the recapture step as a human or agent action against the upstream design rather than pretending a check will raise it.",
+        "serialization": "this item writes two new files under docs/ that no other item touches, so nothing is serialized.",
+        "verification_honesty": "there is no browser and no rendering here. What is machine-checkable is checked by the oracle itself and not narrated: both files exist, the failure clauses they quote appear byte-identically with the scripts that emit them, the waiver fields and the pin keys they document are named, the decision record carries each decision clause, and every script path the page tells an operator to run is a path that exists in the tree. What the oracle cannot do is run the page's commands as written, because they carry a binder slug and a design path the reader supplies — the build report states that each was run by hand from the repository root with the exit code the page promises. Whether the page reads well enough to be used under pressure is not machine-verifiable and the build report says so too."
+      },
+      "serialize": false,
+      "touches": [
+        "docs/how-to/design-fidelity.md",
+        "docs/specs/2026-08-17-design-reference-gate.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "not-computed:sensitive — this repo configures no sensitive-path convention, so that signal could not be evaluated"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "command": "sh -c 'set -e; for s in \"visual_check_waiver\" \"covered_by\" \"has no visual oracle and no visual_check_waiver\" \"design capture does not match its pin in .karta/design-pins.json\" \".karta/design-pins.json\" \"sha256\" \"recapture\"; do grep -qF -- \"$s\" docs/how-to/design-fidelity.md; done; for s in \"error, not a warning\" \"covered_by\" \"may not cross binders\" \"recapture\"; do grep -qF -- \"$s\" docs/specs/2026-08-17-design-reference-gate.md; done; for p in skills/karta-plan/scripts/validate_binder.py skills/karta-validate/scripts/check_design_pins.py; do grep -qF -- \"$p\" docs/how-to/design-fidelity.md; test -f \"$p\"; done' && uv run scripts/validate_plugin.py --self-test && uv run skills/karta-plan/scripts/validate_binder.py --self-test",
+        "assertions": [
+          "the runbook quotes both failure clauses byte-identically with the scripts that emit them — has no visual oracle and no visual_check_waiver, and design capture does not match its pin in .karta/design-pins.json — and the oracle greps for both",
+          "every script path the runbook tells an operator to run is named in the page and exists in the tree, and the oracle checks both; running the commands themselves is a build-report claim because each carries a binder slug or a design path the reader supplies",
+          "the runbook shows a complete waiver with both fields filled in, and states the five conditions the covering item has to meet",
+          "the runbook shows a complete .karta/design-pins.json entry with every key and says what each one is for, including the optional recapture date and what happens when it passes",
+          "the runbook states what a consumer does with a binder already committed that the new rule now rejects — add a visual item and re-plan, or set design_reference to none and record what the dropped claim cost — and names the mid-delivery case separately: the rule fires at karta-build Gate 1 as well as at karta-deliver preflight, and the binder is immutable while the run is live, so the answers there are finish on the plugin version the run started under or abandon and re-plan",
+          "the runbook states that no check compares a frozen capture against the living design upstream, and gives recapture as a step a person or an agent performs",
+          "the decision record states the error-versus-warning choice, the per-item waiver placement, the refusal to let coverage cross binders, and the seven-outcome pin ladder, each with the alternative it was chosen over",
+          "the decision record names the none-flight as the known erosion path — setting design_reference to none is free and unrecorded — and names the design-source advisory as its detection",
+          "the decision record states what happens to the two binders that existed when this rule was written — that watch-fidelity is sequenced before it and needs seven waivers if that order is ever broken, and that watch-redesign has no visual item at all, so it can only leave the live set by landing and would be rejected outright if it did not",
+          "neither new file changes what a consumer installs — docs/ is outside the plugin projection, and the projection checks confirm both mirror trees are unchanged by this item"
+        ]
+      }
+    }
+  ]
+}

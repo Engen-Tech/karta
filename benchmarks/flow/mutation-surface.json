@@ -514,7 +514,7 @@
    "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "Codex ships a Stop surface and the 2.24.0 bundle carries a Stop-gate twin, trust-gated per hook — until reviewed and trusted, doctrine only"
+   "note": "Codex ships a Stop surface and the 2.24.0 bundle carries a Stop-gate twin, trust-gated per hook \u2014 until reviewed and trusted, doctrine only"
   },
   {
    "id": "integration-merge:terminal",
@@ -524,6 +524,69 @@
    "guard": null,
    "hook_event": null,
    "note": "plain-terminal merges run zero guards"
+  },
+  {
+   "id": "gate-dispatch:write",
+   "mutation_class": "gate-dispatch",
+   "channel": "write",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching a gate reviewer is a Task-tool act"
+  },
+  {
+   "id": "gate-dispatch:edit",
+   "mutation_class": "gate-dispatch",
+   "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching a gate reviewer is a Task-tool act"
+  },
+  {
+   "id": "gate-dispatch:notebookedit",
+   "mutation_class": "gate-dispatch",
+   "channel": "notebookedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching a gate reviewer is a Task-tool act"
+  },
+  {
+   "id": "gate-dispatch:bash",
+   "mutation_class": "gate-dispatch",
+   "channel": "bash",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "no headless gate-reviewer dispatch path exists from Bash inside a session"
+  },
+  {
+   "id": "gate-dispatch:task",
+   "mutation_class": "gate-dispatch",
+   "channel": "task",
+   "status": "enforced",
+   "guard": "guard_gate_dispatch.py",
+   "hook_event": "PreToolUse",
+   "note": "fail-closed on the recognized dispatch shape (karta-acceptance-reviewer / karta-safety-auditor): a `<rev>..<rev>` range, a non-empty diff in the named worktree, and a `Diff-size:` line matching git's recompute; a malformed worktree mention denies rather than judging the payload cwd (2.32.0)"
+  },
+  {
+   "id": "gate-dispatch:codex",
+   "mutation_class": "gate-dispatch",
+   "channel": "codex",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "Codex cannot register plugin subagents \u2014 the gate reviewers run as a read-only subagent karta-verify spawns, outside any hook surface"
+  },
+  {
+   "id": "gate-dispatch:terminal",
+   "mutation_class": "gate-dispatch",
+   "channel": "terminal",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "no agent dispatch from a plain terminal"
   }
  ]
 }

@@ -112,13 +112,29 @@
         },
         "estimate": { "enum": ["S", "M", "L"] },
         "depends_on": { "type": "array", "items": { "type": "string" }, "default": [] },
-        "design_reference": { "type": "string", "description": "view/route id, or the literal 'none'" },
+        "design_reference": { "type": "string", "minLength": 1, "description": "view/route id, or the literal 'none'" },
         "component_map": { "type": "array" },
         "icon_map": { "type": "array" },
         "token_changes": { "type": "array" },
         "contract": {
           "type": ["object", "string", "null"],
           "description": "the open-shape interface this item exposes/consumes"
+        },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "ids of the work items whose design claim this item's visual gate checks; a visual_check_waiver naming this item is only accepted when the waived item's id appears here, so coverage is agreed by both items rather than claimed by one"
+        },
+        "visual_check_waiver": {
+          "type": "object",
+          "required": ["reason", "covered_by"],
+          "additionalProperties": false,
+          "description": "records that this item's design_reference claim is checked by another item's visual gate instead of its own; only meaningful when design_reference names a real view and this item has no visual oracle — validate_binder.py's design: rule enforces the coverage conditions",
+          "properties": {
+            "reason": { "type": "string", "minLength": 1, "description": "why this item names a design view but does not open it itself" },
+            "covered_by": { "type": "string", "minLength": 1, "description": "id of the work item whose visual oracle checks the view this item names" }
+          }
         },
         "serialize": { "type": "boolean", "default": false },
         "shared_resources": { "type": "array", "items": { "type": "string" } },
@@ -144,6 +160,7 @@
             "type": { "enum": ["unit", "integration", "e2e", "smoke", "visual"] },
             "assertions": { "type": "array", "items": { "type": "string" } },
             "command": { "type": "string", "description": "the CI-facing check karta runs; floor is compile/type-check/lint" },
+            "expect": { "type": "string", "description": "success-only marker the command's output must contain — a string printed only on genuine success, so the check cannot pass by staying silent (run_oracle.py --expect asserts it)" },
             "cwd": { "type": "string", "description": "worktree-relative directory the command runs in; default is the worktree root" }
           }
         },

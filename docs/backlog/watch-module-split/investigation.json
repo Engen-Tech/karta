@@ -1,0 +1,747 @@
+{
+ "structure": {
+  "total_lines": 5504,
+  "regions": [
+   {
+    "name": "header_and_module_prelude",
+    "start_line": 1,
+    "end_line": 106,
+    "purpose": "PEP-723 script header, the module docstring that documents every route and the page contract, all stdlib imports, the optional fcntl/msvcrt lock shims, the sys.path hop that imports the sibling engine, and three module identity constants.",
+    "public_symbols": [
+     "ASSETS_DIR",
+     "VERSION",
+     "karta_next (imported module alias)"
+    ],
+    "private_symbols": [
+     "_SCRIPT_PATH"
+    ],
+    "depends_on": [],
+    "notes": "L1-4 PEP-723 block; L5-54 docstring; L55-84 imports; L86-93 fcntl/msvcrt try-imports (module-level names both the store and nothing else read); L95-97 sys.path.insert + `import karta_next`; L99-105 ASSETS_DIR/_SCRIPT_PATH/VERSION. VERSION (L105) must track .claude-plugin/plugin.json. _SCRIPT_PATH is the seed of the process-level ring: five regions re-exec or stat this exact path."
+   },
+   {
+    "name": "state_store",
+    "start_line": 107,
+    "end_line": 361,
+    "purpose": "The per-user watch store: platform state-dir resolution, atomic + merge-on-write JSON state, an inter-process lock, the auth token, port derivation, and the repo roster.",
+    "public_symbols": [
+     "STATE_FILENAME",
+     "LOCK_FILENAME",
+     "TOKEN_FILENAME",
+     "PORT_BASE",
+     "PORT_SPAN",
+     "ROSTER_MAX_AGE_DAYS",
+     "resolve_state_dir",
+     "ensure_state_dir",
+     "derive_port",
+     "load_state",
+     "get_token",
+     "record_port",
+     "upsert_repo"
+    ],
+    "private_symbols": [
+     "_TMP_SWEEP_AGE_SECS",
+     "_chmod_if_posix",
+     "_atomic_write",
+     "_read_state_file",
+     "_store_lock",
+     "_mutate_state",
+     "_slug_for"
+    ],
+    "depends_on": [],
+    "notes": "Zero references outward \u2014 the single cleanest extraction in the file. Reads only stdlib plus the module-level fcntl/msvcrt names from region 1 (L247-265). Consumed by hub_machinery, http_hub_server, hub_bootstrap, daemon_lifecycle, and four self-test blocks. KARTA_WATCH_STATE_DIR (L144) is the seam every self-test redirects."
+   },
+   {
+    "name": "engine_join",
+    "start_line": 362,
+    "end_line": 425,
+    "purpose": "Joins the engine's derived status back to binder work_item detail (_enrich) and appends archived binders to the state as merged rows (_append_archived).",
+    "public_symbols": [],
+    "private_symbols": [
+     "_enrich",
+     "_append_archived"
+    ],
+    "depends_on": [],
+    "notes": "Two pure dict transforms with no outward references. _append_archived stamps `archived: true` (L418), the flag both split_archived and the page's retention map key on."
+   },
+   {
+    "name": "archived_payload_split",
+    "start_line": 426,
+    "end_line": 552,
+    "purpose": "The shed-archived-payload mechanism: compact per-poll entries for delivered binders, the wire-byte ceiling, and the slug-keyed rejoin of held detail with polled entries.",
+    "public_symbols": [
+     "ARCHIVED_ENTRY_BOUND_BYTES",
+     "ARCHIVED_ENTRY_BOUND_SLUG_BYTES",
+     "archived_entry_bound",
+     "split_archived",
+     "join_archived"
+    ],
+    "private_symbols": [
+     "_archived_entry"
+    ],
+    "depends_on": [],
+    "notes": "No outward symbol references. L531 carries an explicit MIRROR contract with joinArchived() in _APP_JS (region app_js, L1105-1122) that selftest_archived enforces by text comparison at L4394-4396 \u2014 a two-way coupling with app_js that no import expresses."
+   },
+   {
+    "name": "current_state",
+    "start_line": 553,
+    "end_line": 574,
+    "purpose": "Derives the CWD repo's enriched state fresh on every call \u2014 load binders, one batched git pass, derive, append archived, enrich.",
+    "public_symbols": [
+     "current_state"
+    ],
+    "private_symbols": [],
+    "depends_on": [
+     "engine_join"
+    ],
+    "notes": "Also the file's only production consumer of the external engine: karta_next.load_binders, load_archived_binders, gather_git_facts, _default_branch, derive_state (L566-570). Called by http_handler_ephemeral (L2338, L2342), cli_main (L5465), and selftest_archived."
+   },
+   {
+    "name": "icons_and_item_metadata",
+    "start_line": 575,
+    "end_line": 673,
+    "purpose": "The design's data tables shipped verbatim to the browser: lucide icon path data, per-item-state color/badge/word metadata, per-phase metadata, phase row definitions, and the oracle-type icon map.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_ICONS",
+     "_STATE_META",
+     "_PHASE_META",
+     "_PHASE_DEFS",
+     "_ORACLE_ICON"
+    ],
+    "depends_on": [],
+    "notes": "Pure data, no symbol references. But the values embed CSS custom-property names (var(--green), var(--amber-soft), \u2026) that only exist because theme_palette_tokens defines them \u2014 a textual dependency on regions theme_palette_tokens/css that a splitter will not see in the import graph. Consumed only by page_shell_helpers:_build_app_js (L1575-1579) and asserted in selftest_runner."
+   },
+   {
+    "name": "theme_palette_tokens",
+    "start_line": 674,
+    "end_line": 695,
+    "purpose": "The two design palettes as CSS custom-property declaration strings (dark and light).",
+    "public_symbols": [],
+    "private_symbols": [
+     "_DARK_VARS",
+     "_LIGHT_VARS"
+    ],
+    "depends_on": [],
+    "notes": "Referenced only by css, via the __DARK__/__LIGHT__ substitutions at L952-953."
+   },
+   {
+    "name": "css",
+    "start_line": 696,
+    "end_line": 956,
+    "purpose": "The whole Karta Watch stylesheet as one string: both themes via data-theme and prefers-color-scheme, the ported design classes, five keyframes, reduced-motion and narrow-viewport blocks.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_CSS"
+    ],
+    "depends_on": [
+     "theme_palette_tokens"
+    ],
+    "notes": "~250 lines of literal CSS. Consumed by render_app_html (L1671) and hub_machinery:render_hub_html (L2014, which concatenates _CSS + _HUB_CSS) \u2014 so the hub landing page and the repo page share one stylesheet definition."
+   },
+   {
+    "name": "feed_indicator",
+    "start_line": 957,
+    "end_line": 993,
+    "purpose": "The live/paused feed light: its two labels, the consecutive-failure debounce threshold, the healthy-status set, and the pure Python mirror of the page's transition function.",
+    "public_symbols": [
+     "FEED_LIVE_LABEL",
+     "FEED_PAUSED_LABEL",
+     "FEED_PAUSE_AFTER",
+     "FEED_OK_STATUSES"
+    ],
+    "private_symbols": [
+     "_feed_transition"
+    ],
+    "depends_on": [],
+    "notes": "L987 declares a MIRROR contract with feedTransition() in _APP_JS (L1070-1074). FEED_PAUSED_LABEL (L976) is a binder-declared shared term whose single definition lives here. The constants are shipped into the page by _build_app_js (L1581-1585)."
+   },
+   {
+    "name": "poll_decision",
+    "start_line": 994,
+    "end_line": 1028,
+    "purpose": "The pure skip/poll/poll-now decision the page's interval tick and visibilitychange listener both route through.",
+    "public_symbols": [
+     "poll_decision"
+    ],
+    "private_symbols": [],
+    "depends_on": [],
+    "notes": "L1021 declares a MIRROR contract with pollDecision() in _APP_JS (L1086-1090); selftest_poll compares the two bodies at L5047-5049. No production caller in Python \u2014 it exists solely as the testable twin of the JS."
+   },
+   {
+    "name": "app_js",
+    "start_line": 1029,
+    "end_line": 1555,
+    "purpose": "The entire Vue 3 application as one Python string literal, with placeholder tokens the server substitutes before serving.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_APP_JS"
+    ],
+    "depends_on": [],
+    "notes": "525 lines, zero Python symbol references \u2014 but ten placeholders (__ICONS__, __STATE_META__, __PHASE_META__, __PHASE_DEFS__, __ORACLE_ICON__, __SHELL__, __FEED_LABELS__, __FEED_PAUSE_AFTER__, __FEED_OK_STATUSES__, __ASSET_QS__) that only _build_app_js fills. Internal structure: feedTransition L1070, pollDecision L1086, joinArchived L1105, Icon component L1125, metaFor L1150, doneCountOf L1154, titleCase L1161, wavesOf L1169, createApp L1185 (data L1187, computed L1214, methods L1270, mounted L1393, beforeUnmount L1406, template L1413-1549), app.mount L1552. Three of its functions are asserted against Python twins by text slicing."
+   },
+   {
+    "name": "page_shell_helpers",
+    "start_line": 1556,
+    "end_line": 1589,
+    "purpose": "Small helpers around the page shell: theme attribute normalization, repo display naming, and the substitution of every Python-owned data table into the Vue source.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_theme_attr",
+     "_repo_display_name",
+     "_build_app_js"
+    ],
+    "depends_on": [
+     "icons_and_item_metadata",
+     "app_js",
+     "feed_indicator",
+     "inert_json"
+    ],
+    "notes": "_build_app_js (L1567) calls _inert_json, which is defined 28 lines LATER at L1615 \u2014 a forward reference that means the file's physical order does not match its dependency order here. _repo_display_name is pulled in three directions: http_handler_ephemeral (L2343), http_hub_server (L2449), and hub_machinery:switcher_entries (L1916)."
+   },
+   {
+    "name": "inert_json",
+    "start_line": 1590,
+    "end_line": 1635,
+    "purpose": "The single JSON-level encoder that neutralizes untrusted binder/repo text on both the HTML and the /state.json paths, with a `pinned` mode for deterministic ETag bytes.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_inert_json"
+    ],
+    "depends_on": [],
+    "notes": "No outward references; 24 lines of banner comment for a 19-line function. Four regions call it (page_shell_helpers, render_app_html, etag_state_body, and three self-test blocks). `pinned=True` (sort_keys + allow_nan=False) is what makes state_body's fingerprint stable across processes."
+   },
+   {
+    "name": "render_app_html",
+    "start_line": 1636,
+    "end_line": 1684,
+    "purpose": "Assembles the one self-contained repo page: theme CSS, inlined first-paint state, vendored Vue, and the substituted app \u2014 with hub key_qs on every asset URL when in hub mode.",
+    "public_symbols": [
+     "render_app_html"
+    ],
+    "private_symbols": [],
+    "depends_on": [
+     "css",
+     "page_shell_helpers",
+     "inert_json"
+    ],
+    "notes": "Builds the `shell` model (L1651-1656) that _build_app_js injects as __SHELL__. Called by both handlers (L2341, L2447) and by four self-test blocks."
+   },
+   {
+    "name": "asset_content_types",
+    "start_line": 1685,
+    "end_line": 1698,
+    "purpose": "Maps an asset file suffix to its Content-Type.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_content_type"
+    ],
+    "depends_on": [],
+    "notes": "Twelve lines, one consumer (_Handler._serve_asset, L2362). Trivially extractable."
+   },
+   {
+    "name": "hub_machinery",
+    "start_line": 1699,
+    "end_line": 2048,
+    "purpose": "Everything the hub needs that is not a route: per-repo cached derivation via child processes, the last-activity probe, the startup identity snapshot, the owner-only rotating log with key redaction, landing-card models, and the landing-page HTML.",
+    "public_symbols": [
+     "ENGINE_CACHE_SECS",
+     "ENGINE_TIMEOUT_SECS",
+     "ACTIVITY_TIMEOUT_SECS",
+     "LOG_FILENAME",
+     "LOG_MAX_BYTES",
+     "LOG_BACKUP_COUNT",
+     "RepoEngine",
+     "hub_cards",
+     "switcher_entries",
+     "render_hub_html"
+    ],
+    "private_symbols": [
+     "_KEY_QS_RE",
+     "_redact_key",
+     "_run_child",
+     "_derive_repo_state",
+     "_repo_last_activity",
+     "_activity_stamp",
+     "_script_digest",
+     "_identity_snapshot",
+     "_OwnerOnlyRotatingHandler",
+     "_hub_logger",
+     "_repo_card",
+     "_HUB_ORDER",
+     "_HUB_CHIP",
+     "_HUB_CSS",
+     "_degraded_state"
+    ],
+    "depends_on": [
+     "header_and_module_prelude",
+     "state_store",
+     "page_shell_helpers",
+     "css"
+    ],
+    "notes": "Exact edges out: _derive_repo_state/_script_digest \u2192 _SCRIPT_PATH (L1743, L1809); _identity_snapshot \u2192 VERSION (L1816); _OwnerOnlyRotatingHandler._open \u2192 _chmod_if_posix (L1827); switcher_entries \u2192 _repo_display_name (L1916); render_hub_html \u2192 _CSS and _theme_attr (L2014, L1965). CRITICAL hidden edge: _derive_repo_state (L1743) spawns `[sys.executable, _SCRIPT_PATH, '--print-state']`, i.e. it depends on cli_main and current_state across a process boundary. This region is two concerns wedged together \u2014 engine/log plumbing (L1707-1842) and landing-page rendering (L1845-2046)."
+   },
+   {
+    "name": "etag_state_body",
+    "start_line": 2049,
+    "end_line": 2223,
+    "purpose": "The conditional-GET fingerprint: JSON-name-faithful key coercion, a depth- and cycle-bounded sanitizing walk, and the one function that serializes and hashes the exact bytes a route will serve.",
+    "public_symbols": [
+     "JSON_MAX_DEPTH",
+     "state_body"
+    ],
+    "private_symbols": [
+     "_json_key",
+     "_json_safe"
+    ],
+    "depends_on": [
+     "inert_json"
+    ],
+    "notes": "L2049-2103 is 55 lines of banner explaining the invariants; the code is L2106-2221. Sole production consumer is _Handler._state_feed (L2267), which both handlers share. Depends on inert_json only."
+   },
+   {
+    "name": "http_handler_ephemeral",
+    "start_line": 2224,
+    "end_line": 2364,
+    "purpose": "The base BaseHTTPRequestHandler: response framing, the shared conditional state feed, If-None-Match matching, the ?key= gate, GET/HEAD routing, and confined asset serving.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_Handler"
+    ],
+    "depends_on": [
+     "header_and_module_prelude",
+     "asset_content_types",
+     "page_shell_helpers",
+     "current_state",
+     "render_app_html",
+     "archived_payload_split",
+     "etag_state_body"
+    ],
+    "notes": "Exact edges: _state_feed \u2192 state_body (L2267); do_GET \u2192 split_archived(current_state()) (L2338) and render_app_html + _repo_display_name (L2341-2343); _serve_asset \u2192 ASSETS_DIR + _content_type (L2354, L2362). Also the base class _HubHandler extends. selftest_etag asserts on inspect.getsource(_Handler._key_ok) at L4620-4621, so this method's SOURCE TEXT is part of the contract."
+   },
+   {
+    "name": "http_hub_server",
+    "start_line": 2365,
+    "end_line": 2469,
+    "purpose": "Hub-mode routing and auth: the repo route regex, the ThreadingHTTPServer subclass carrying token/state-dir/identity/logger/engines, and the handler enforcing Host pin + token on every route including assets.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_REPO_ROUTE",
+     "_HubServer",
+     "_HubHandler"
+    ],
+    "depends_on": [
+     "http_handler_ephemeral",
+     "hub_machinery",
+     "state_store",
+     "page_shell_helpers",
+     "render_app_html",
+     "archived_payload_split"
+    ],
+    "notes": "Exact edges: _HubServer.engine_for \u2192 RepoEngine (L2385); log_message \u2192 _redact_key (L2399); do_GET \u2192 hub_cards + render_hub_html (L2429-2430), _degraded_state (L2439), split_archived (L2445), render_app_html + _repo_display_name + switcher_entries (L2447-2450); _root_for_slug/_identity_payload \u2192 load_state (L2428, L2446, L2458, L2463)."
+   },
+   {
+    "name": "hub_bootstrap",
+    "start_line": 2470,
+    "end_line": 2530,
+    "purpose": "Resolving the hub's port from the store and running the hub server in the foreground \u2014 the same entry the detached daemon execs.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_hub_port",
+     "_run_hub"
+    ],
+    "depends_on": [
+     "state_store",
+     "http_hub_server",
+     "hub_machinery",
+     "daemon_lifecycle",
+     "header_and_module_prelude"
+    ],
+    "notes": "THE CYCLE LIVES HERE. _run_hub calls daemon_lifecycle's lost_bind_race and _probe_hub (L2499) and _self_exit_watch (L2517), all defined 30-400 lines further down, while daemon_lifecycle's run_ensure calls _hub_port (L2776) defined here. Physically it sits under the 'HTTP handler' banner but it is lifecycle code."
+   },
+   {
+    "name": "daemon_lifecycle",
+    "start_line": 2531,
+    "end_line": 2909,
+    "purpose": "The self-managing daemon: /identity probing and classification, the ensure decision table, probe-and-kill for a skewed hub, POSIX double-fork and Windows detached spawn, repo-root discovery, ensure-failure breadcrumbs, opt-in/opt-out, bind-race loss, and the ~60s self-exit watch.",
+    "public_symbols": [
+     "PROBE_TIMEOUT_SECS",
+     "ENSURE_STEP_CAP",
+     "BIND_RACE_ATTEMPTS",
+     "BIND_RACE_TOTAL_SECS",
+     "SELF_CHECK_SECS",
+     "ENSURE_FAILURE_FILENAME",
+     "next_candidate_port",
+     "ensure_plan",
+     "spawn_detached_hub",
+     "find_repo_root",
+     "run_ensure",
+     "run_opt",
+     "lost_bind_race"
+    ],
+    "private_symbols": [
+     "_WIN_DETACHED_PROCESS",
+     "_WIN_CREATE_NO_WINDOW",
+     "_WIN_CREATE_NEW_PROCESS_GROUP",
+     "_probe_hub",
+     "_kill_skewed_hub",
+     "_stdio_to_devnull",
+     "_spawn_detached_posix",
+     "_windows_creationflags",
+     "_record_ensure_failure",
+     "_clear_ensure_failure",
+     "_ensure_fail",
+     "_resolve_opt_target",
+     "_self_exit_reason",
+     "_self_exit_watch"
+    ],
+    "depends_on": [
+     "state_store",
+     "header_and_module_prelude",
+     "hub_machinery",
+     "hub_bootstrap"
+    ],
+    "notes": "Exact outward edges: spawn_detached_hub \u2192 _SCRIPT_PATH (L2701); _ensure_fail \u2192 _SCRIPT_PATH (L2753); _self_exit_reason \u2192 _SCRIPT_PATH (L2873, default arg \u2014 evaluated at def time); run_ensure \u2192 _script_digest (L2772, into hub_machinery) and _hub_port (L2776, into hub_bootstrap); everything else lands in state_store (ensure_state_dir, load_state, get_token, upsert_repo, record_port, PORT_BASE/PORT_SPAN)."
+   },
+   {
+    "name": "selftest_dir_fingerprint",
+    "start_line": 2910,
+    "end_line": 2925,
+    "purpose": "A comparable fingerprint of a directory's contents, used to prove no self-test ever touched the real per-user state dir.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_dir_snapshot"
+    ],
+    "depends_on": [
+     "hub_machinery"
+    ],
+    "notes": "Physically stranded at the tail of the daemon-lifecycle block but it is a self-test-only helper: its only callers are selftest_runner at L5145 and L5420. Its one outward reference is LOG_FILENAME (L2921), which lives in hub_machinery."
+   },
+   {
+    "name": "selftest_store",
+    "start_line": 2926,
+    "end_line": 3162,
+    "purpose": "Self-test block for the watch store: platform state-dir resolution, permissions, atomic + merge-on-write semantics, the inter-process lock, port derivation, token generation, and roster upsert/prune.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_store_self_test_checks"
+    ],
+    "depends_on": [
+     "state_store"
+    ],
+    "notes": "The only self-test block with a single-region dependency \u2014 it references nothing but state_store (resolve_state_dir, ensure_state_dir, derive_port, load_state, get_token, record_port, upsert_repo, plus the four filename/port constants). Named local spies: _spy L3040, _replace_probe L3071, _lock_denied L3106."
+   },
+   {
+    "name": "selftest_hub",
+    "start_line": 3163,
+    "end_line": 3641,
+    "purpose": "Self-test block for hub mode: engine cache/timeout/wedged isolation, activity stamping, log redaction and permissions, card models and ordering, and real loopback HTTP against a hub wired with fake engines.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_hub_self_test_checks"
+    ],
+    "depends_on": [
+     "hub_machinery",
+     "http_hub_server",
+     "state_store",
+     "header_and_module_prelude",
+     "render_app_html"
+    ],
+    "notes": "References RepoEngine, _run_child, _repo_last_activity, _activity_stamp, _redact_key, _hub_logger, _identity_snapshot, _repo_card, hub_cards, render_hub_html, ACTIVITY_TIMEOUT_SECS, LOG_FILENAME (hub_machinery); _HubServer/_HubHandler (http_hub_server); ensure_state_dir/get_token/load_state/upsert_repo (state_store); _SCRIPT_PATH/VERSION (region 1); render_app_html. Also reads karta_next.DONE_HUMAN. Local helpers: counting_runner L3174, wedged_runner L3193, spying_popen L3212, git_spy_popen L3385, req L3443."
+   },
+   {
+    "name": "selftest_lifecycle",
+    "start_line": 3642,
+    "end_line": 4104,
+    "purpose": "Self-test block for the daemon lifecycle: the full ensure decision table with injected probes/spawner/kill, detach choreography with fake fork primitives, bind-race loss, self-exit decisions, and opt-in/opt-out.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_lifecycle_self_test_checks"
+    ],
+    "depends_on": [
+     "daemon_lifecycle",
+     "hub_bootstrap",
+     "http_handler_ephemeral",
+     "http_hub_server",
+     "hub_machinery",
+     "state_store",
+     "header_and_module_prelude"
+    ],
+    "notes": "The widest-reaching self-test block: it straddles both halves of the hub_bootstrap \u2194 daemon_lifecycle cycle (it drives _hub_port and _run_hub as well as run_ensure, ensure_plan, _probe_hub, lost_bind_race, _self_exit_reason/_self_exit_watch, _kill_skewed_hub, _spawn_detached_posix, _windows_creationflags, next_candidate_port, find_repo_root, run_opt). Local fakes: _Exit L3657, _exit_now L3660, run_forks L3663, always_foreign L3736, spy_kill L3761, _kill_gone L3782, _kill_denied L3785, ensure_quiet L3807, kd_kill L3878, denied L3931, _FakeHub L4015."
+   },
+   {
+    "name": "selftest_archived",
+    "start_line": 4105,
+    "end_line": 4425,
+    "purpose": "Self-test block for the shed-archived-payload mechanism, measured against a real git repository holding real archive files, plus the join_archived/joinArchived mirror comparison.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_archived_self_test_checks"
+    ],
+    "depends_on": [
+     "archived_payload_split",
+     "engine_join",
+     "current_state",
+     "http_handler_ephemeral",
+     "inert_json",
+     "app_js",
+     "render_app_html"
+    ],
+    "notes": "L4394-4396 slices joinArchived's body out of _APP_JS by its MIRROR marker and compares it to inspect.getsource(join_archived) \u2014 the enforcement arm of the app_js \u2194 archived_payload_split coupling. Local helpers: git L4118, in_dir L4123, mk_repo L4131, archive_binder L4145, slug_of L4261, polled_bytes L4265, growth L4273, git_calls_in L4348. Creates real git repos under the scratch dir."
+   },
+   {
+    "name": "selftest_etag",
+    "start_line": 4426,
+    "end_line": 4967,
+    "purpose": "Self-test block for the conditional GET: strong-tag byte fidelity, 304 semantics, HEAD exemption, authorisation-before-tag ordering, non-finite/cycle/depth sanitizing, and the ephemeral ?key= gate \u2014 driven over real loopback HTTP in both modes.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_etag_self_test_checks"
+    ],
+    "depends_on": [
+     "etag_state_body",
+     "http_handler_ephemeral",
+     "http_hub_server",
+     "hub_machinery",
+     "inert_json",
+     "archived_payload_split",
+     "state_store",
+     "header_and_module_prelude"
+    ],
+    "notes": "The largest single block (542 lines). L4620-4621 asserts on inspect.getsource(_Handler._key_ok) \u2014 a source-text dependency on http_handler_ephemeral that survives no rename of that method. Local helpers: strict_json L4442, parses_strictly L4450, hit L4457, binder_json L4479, fixture_state L4644, nonfinite_state L4651, reordered L4752, tag_in_child L4778, Unorderable L4791, LyingInt L4806, json_key_name L4810, json_refuses_depth L4836, chain_depth L4858."
+   },
+   {
+    "name": "selftest_poll",
+    "start_line": 4968,
+    "end_line": 5131,
+    "purpose": "Self-test block for the client-side conditional poll: direct calls into poll_decision and _feed_transition, the pollDecision mirror comparison, and static properties of the rendered JS source.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_poll_self_test_checks"
+    ],
+    "depends_on": [
+     "poll_decision",
+     "feed_indicator",
+     "app_js",
+     "render_app_html"
+    ],
+    "notes": "The only self-test block taking no scratch dir. L5047-5049 slices pollDecision out of _APP_JS and compares it to inspect.getsource(poll_decision); L5077-5079 slices the mounted() and beforeUnmount() blocks by literal opener/closer text via the local _block helper (L5073) \u2014 so _APP_JS's indentation and brace layout are part of the contract."
+   },
+   {
+    "name": "selftest_runner",
+    "start_line": 5132,
+    "end_line": 5434,
+    "purpose": "The --self-test driver: builds a fixture through the real engine+enrich pipeline, asserts page invariants and escaping, isolates the state dir, calls the six self-test blocks, proves the real state dir was untouched, and prints the PASS/FAIL roll-up.",
+    "public_symbols": [],
+    "private_symbols": [
+     "_run_self_test"
+    ],
+    "depends_on": [
+     "selftest_store",
+     "selftest_hub",
+     "selftest_lifecycle",
+     "selftest_archived",
+     "selftest_etag",
+     "selftest_poll",
+     "selftest_dir_fingerprint",
+     "engine_join",
+     "icons_and_item_metadata",
+     "feed_indicator",
+     "inert_json",
+     "render_app_html",
+     "hub_machinery",
+     "state_store"
+    ],
+    "notes": "Sets KARTA_WATCH_STATE_DIR to a temp dir for the whole run (L5140-5145) and restores it at L5422-5426. Calls the six blocks at L5412-5417. Its own direct references: resolve_state_dir + _dir_snapshot (L5143-5145), karta_next.derive_state + _enrich + _append_archived (L5179-5181), render_app_html (L5205, L5237-5239), switcher_entries (L5231), _feed_transition + FEED labels, _inert_json (L5387), _ICONS/_STATE_META/_PHASE_META."
+   },
+   {
+    "name": "cli_main",
+    "start_line": 5435,
+    "end_line": 5504,
+    "purpose": "The argparse CLI and dispatch: --self-test, --print-state, --ensure, --opt-in/--opt-out, --hub, --root/--port/--key, and the ephemeral ThreadingHTTPServer loop.",
+    "public_symbols": [
+     "main"
+    ],
+    "private_symbols": [],
+    "depends_on": [
+     "selftest_runner",
+     "current_state",
+     "daemon_lifecycle",
+     "hub_bootstrap",
+     "http_handler_ephemeral"
+    ],
+    "notes": "L5464-5466 is the --print-state branch that hub_machinery._derive_repo_state re-execs as a child \u2014 the closing edge of the process-level ring. L5485-5486 sets _Handler.required_key as class state before constructing the server (a mutable-class-attribute seam, not a constructor argument). L5481 re-imports os inside the function, shadowing the module import."
+   }
+  ],
+  "cycles": [
+   "TRUE SYMBOL CYCLE \u2014 hub_bootstrap (L2470-2530) <-> daemon_lifecycle (L2531-2909). Forward edge: daemon_lifecycle:run_ensure calls hub_bootstrap:_hub_port at L2776 (`port = _hub_port(ensure_state_dir(state_dir))`; _hub_port defined L2470). Back edges: hub_bootstrap:_run_hub calls daemon_lifecycle:lost_bind_race and _probe_hub at L2499 (`outcome = lost_bind_race(lambda: _probe_hub(port, token))`; defined L2852 and L2557) and daemon_lifecycle:_self_exit_watch at L2517 (defined L2893). This is the one cycle that blocks the obvious split at the L2530/L2531 banner: cutting there breaks in both directions. Cheapest break: move _hub_port (8 lines, L2470-2477) into the state_store or daemon_lifecycle side \u2014 it only reads load_state and derive_port \u2014 which leaves a single unidirectional edge hub_bootstrap -> daemon_lifecycle.",
+   "PROCESS-LEVEL RING (not an import cycle, but real) \u2014 hub_machinery -> cli_main -> current_state, closing back through cli_main -> hub_bootstrap -> http_hub_server -> hub_machinery. hub_machinery:_derive_repo_state at L1743 runs `[sys.executable, str(_SCRIPT_PATH), '--print-state']` as a child process; that lands in cli_main:main L5464-5466, which calls current_state (L553). _SCRIPT_PATH is `Path(__file__).resolve()` (L100). Consequence for any split: whichever file ends up being _SCRIPT_PATH must still accept --print-state and must still reach current_state, and spawn_detached_hub (L2701) plus _script_digest (L1809) and _self_exit_reason (L2873) pin the same path for --hub, digest skew, and mtime self-exit. Four regions therefore share an unstated contract that one file is the executable entry point.",
+   "MIRROR-CONTRACT COUPLING \u2014 app_js <-> poll_decision. poll_decision (L1014-1026) carries `# MIRROR: change together with pollDecision() in _APP_JS` at L1021; _APP_JS's pollDecision is L1086-1090 with the matching marker at L1085. selftest_poll enforces it at L5047-5049 by slicing _APP_JS from the marker to the next `\\n}\\n` and comparing against inspect.getsource(poll_decision). Neither region imports the other, so the import graph shows no edge \u2014 but the two cannot be separated without carrying selftest_poll with them.",
+   "MIRROR-CONTRACT COUPLING \u2014 app_js <-> feed_indicator. _feed_transition (L981-991, marker L987) vs feedTransition (L1070-1074, marker L1069). Enforced behaviourally in selftest_poll L5021-5041, which also pins FEED_OK_STATUSES == [200, 304] (L5039) \u2014 and _build_app_js ships FEED_LIVE_LABEL/FEED_PAUSED_LABEL/FEED_PAUSE_AFTER/FEED_OK_STATUSES into the page at L1581-1585, so the Python constants are the single source for both sides.",
+   "MIRROR-CONTRACT COUPLING \u2014 app_js <-> archived_payload_split. join_archived (L511-550, marker L531) vs joinArchived (L1105-1122, marker L1104). Enforced at L4394-4396 in selftest_archived by the same marker-to-brace slice plus inspect.getsource(join_archived).",
+   "SOURCE-TEXT COUPLING \u2014 selftest_etag -> http_handler_ephemeral by literal source. L4620-4621 asserts `'hmac.compare_digest' in inspect.getsource(_Handler._key_ok)` and `'if not self.required_key' in inspect.getsource(_Handler._key_ok)`. Renaming or restructuring _Handler._key_ok fails the self-test even with behaviour unchanged. Likewise selftest_poll L5073-5079 slices _APP_JS's `  mounted() {` / `  beforeUnmount() {` blocks by exact indentation and closing text, so reformatting the JS string breaks tests.",
+   "ORDERING HAZARDS (forward references, not cycles) \u2014 page_shell_helpers:_build_app_js (L1567-1587) calls _inert_json defined later at L1615; hub_bootstrap:_run_hub (L2480) calls three daemon_lifecycle functions defined 77-413 lines later; daemon_lifecycle:_self_exit_reason (L2873) takes `script_path: Path = _SCRIPT_PATH` as a DEFAULT ARGUMENT, so region 1 must be fully evaluated before this def executes, not merely before the call. Legal at runtime, but they mean physical order does not track dependency order in the back half of the file.",
+   "MISPLACED MEMBER (blocks a clean cut, though not a cycle) \u2014 _dir_snapshot (L2910-2923) sits inside the daemon-lifecycle block but is used only by selftest_runner (L5145, L5420), and its one outward reference (LOG_FILENAME, L2921) points at hub_machinery. Any split at the L2909/L2926 boundary must move it with the self-test side and carry LOG_FILENAME's definition or import."
+  ]
+ },
+ "proposal": {
+  "verdict": "SPLIT \u2014 but only in one specific shape, and the strongest justification is the test suite, not the production code.\n\nThe honest case AGAINST, stated fairly: this file's whole value proposition is \"one stdlib file, `uv run --script`, no install.\" Every new `.py` dropped beside it inherits validate_plugin.py:447's floor (`--help` must contain the literal `--self-test`, `--self-test` must exit 0), so a split is not \"move code\" \u2014 it is \"mint N new gated CLI entry points.\" A split also silently narrows three real safety mechanisms that key on `_SCRIPT_PATH` alone: `_script_digest()` (hub self-retire-on-plugin-update, consumed externally at inject_karta_status.py:500), the mtime self-exit baseline (:2513), and two whole-file source scans (:3613, :4089). And ~11 external anchors point at `serve_status.py` by path or by `serve_status.<attr>`, so the module namespace stays the ABI no matter how the file is carved \u2014 nothing actually gets smaller from a caller's view.\n\nThat case loses on three facts.\n\n1. The \"single file\" premise is already false. serve_status.py:96-97 does `sys.path.insert(...)` + `import karta_next` at module top; it has been a two-file program since it shipped. Two other skills already ship sibling-module imports with a pinned idiom (resolve_pack_checklist.py:42-45, serve_status.py:95-97). `uv run --script` from any cwd, both projections, the hub's bare-`sys.executable` children, and the `spec_from_file_location` probe were all proven to import siblings. \"Zero-dependency\" is about third-party packages and survives untouched; only the word \"self-contained\" moves from file to directory.\n\n2. 46% of the file is its own test suite (lines 2910-5432, 2523 lines). That is the part with no defensible reason to live inside its subject, and it is the part that forces serialization: every binder item that adds a fixture edits the same file, which is exactly why the last delivery ran seven serial waves. The suite is a clean contiguous excision with a single entry point at main():5462 and exactly one hard break (the `globals()[\"_script_digest\"]` patch at 3476-3481).\n\n3. The `--self-test` floor is cheap per file, not expensive. It wants an argparse flag that runs that module's own fixtures and exits 0 \u2014 which every extracted suite already is. The floor is a feature here: it forces each new file to stay runnable and self-checking.\n\nTwo things I explicitly do NOT recommend. (a) A subdirectory (`scripts/watch/*.py`) escapes the floor entirely \u2014 the glob is one level deep \u2014 and would drop ~2500 lines of fixtures out of the pre-commit gate. That is gate evasion dressed as tidiness and it contradicts this repo's own doctrine of enforced checks over skippable prose. (b) Carving hub/http/lifecycle apart. `_HubHandler` subclasses `_Handler`, `_run_hub` drives both, and `run_ensure` probes the hub \u2014 that entanglement is genuine, the parallelism payoff is small, and the risk is not. Explicit non-goal.\n\nOne caveat that must be said out loud: the migration itself is mostly serial, because every step deletes from serve_status.py. The parallelism is a payoff for FUTURE binders, not for this one. Anyone selling this refactor as \"it will deliver in two waves\" is wrong.",
+  "layout": "Flat sibling modules in `skills/karta-status/scripts/`, alongside `serve_status.py` and `karta_next.py`. No package, no subdirectory, no `__init__.py`.\n\nWhy the tooling forces this, not taste:\n\n- `validate_plugin.py:447` globs `SKILLS.glob(\"*/scripts/*.py\")` \u2014 one level, non-recursive. Flat siblings are gated; anything under `scripts/<subdir>/` is provably exempt (verified: `skills/*/scripts/*/*.py` matches nothing today, and a scratch-copy file moved into `scripts/watch/` flipped a hard FAIL to PASS with no other change). Choosing the subdirectory means choosing to un-gate the fixtures.\n- There is not one `__init__.py` anywhere in the repo. A package would be first-of-its-kind with no precedent, no generator support, and no benefit \u2014 sibling imports already work from every invocation path in the codebase.\n- Two pinned precedents exist for exactly this shape: `skills/karta-kaizen/scripts/resolve_pack_checklist.py:42-45` and `serve_status.py:95-97`. Copy the idiom verbatim, including the comment stating it is cwd-independent and that the imported module is import-safe.\n- `sync_codex_skills.py` builds both projections with `sd.rglob(\"*\")` and `mkdir(parents=True)`, so new flat files auto-mirror into `.agents/skills/` and `plugins/karta/skills/` with no manifest edit. `.claude-plugin/marketplace.json` enumerates skill directories, never files.\n- `serve_status.py` keeps its exact path and filename and remains the sole entry point. Six external anchors hardcode it (SKILL.md x3 installs, docs/how-to/karta-watch.md x3 commands, karta_next.py:234, inject_karta_status.py:70 plus its :361 `endswith(\"serve_status.py\")` assertion, sec probe :98, dark probe :140-141). Code moves OUT of it; the file never moves.\n\nNaming convention: `watch_<domain>.py` for production leaves, `watch_<domain>_selftest.py` for suites. The `watch_` prefix keeps the two entry-point names (`serve_status`, `karta_next`) visually distinct from internals in a flat directory, and `_selftest` makes the test set greppable and gives a future validator rule something to key on.\n\nserve_status.py becomes: the process ring (`_SCRIPT_PATH`, identity, digest, lifecycle), the HTTP/hub server, the engine join, `main()`, an explicit re-export block that IS the module ABI, and a ~70-line self-test aggregator that owns the isolation seam and lazily imports the six suites.",
+  "modules": [
+   {
+    "file": "skills/karta-status/scripts/serve_status.py",
+    "contains": "Entry point, unchanged path/filename/CLI. Keeps: PEP-723 header + module docstring + imports (1-106), the engine join _enrich/_append_archived (362-425), the archived split/join + current_state (426-574), hub machinery incl. RepoEngine/_script_digest/_identity_snapshot/_hub_logger/_repo_card/hub_cards/render_hub_html (1699-2048), JSON safety + state_body (2049-2223), _Handler/_HubServer/_HubHandler/_hub_port/_run_hub (2224-2530), daemon lifecycle: probe/ensure_plan/_kill_skewed_hub/spawn/run_ensure/run_opt/_self_exit_watch (2531-2908), main() (5435-5504). ADDS: (a) _module_files() \u2014 the pinned sibling set that _script_digest(), the mtime self-exit baseline and the source scans all key on; (b) an explicit re-export block importing the 13+ ABI names from watch_store and watch_page, with a comment naming the three consumers (karta_next.py, hooks/scripts/inject_karta_status.py, benchmarks/probes/dark-status-surface-probes.py); (c) _dir_snapshot + a ~70-line _run_self_test aggregator that sets KARTA_WATCH_STATE_DIR, lazily imports the six suite modules inside the --self-test branch only, concatenates their check lists, asserts the real state dir untouched, and prints 'N/M checks passed'.",
+    "approx_lines": 1620,
+    "exposes_self_test": true,
+    "imports": [
+     "karta_next",
+     "watch_store",
+     "watch_page",
+     "(lazy, inside --self-test only) watch_store_selftest",
+     "watch_page_selftest",
+     "watch_hub_selftest",
+     "watch_lifecycle_selftest",
+     "watch_http_selftest",
+     "watch_archived_selftest"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_store.py",
+    "contains": "The per-user watch store, lifted verbatim from lines 107-361 plus the fcntl/msvcrt shim block at 86-93 that only it reads: STATE_FILENAME, LOCK_FILENAME, TOKEN_FILENAME, PORT_BASE, PORT_SPAN, ROSTER_MAX_AGE_DAYS, _TMP_SWEEP_AGE_SECS, resolve_state_dir, _chmod_if_posix, ensure_state_dir, _atomic_write, derive_port, _read_state_file, load_state, _store_lock, _mutate_state, get_token, record_port, _slug_for, upsert_repo. The single cleanest extraction in the file: zero outward references, stdlib only, and KARTA_WATCH_STATE_DIR stays its isolation seam. Its --self-test lazily imports watch_store_selftest and runs only the store suite.",
+    "approx_lines": 285,
+    "exposes_self_test": true,
+    "imports": [
+     "(stdlib only: os, sys, json, time, hashlib, tempfile, pathlib, contextlib, fcntl/msvcrt shims)",
+     "(lazy, inside --self-test only) watch_store_selftest"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_page.py",
+    "contains": "The whole browser-facing page as one unit, lines 575-1698: _ICONS, _STATE_META, _PHASE_META, _PHASE_DEFS, _ORACLE_ICON, _DARK_VARS/_LIGHT_VARS, the _CSS literal (703-956), the feed labels + _feed_transition + poll_decision (957-1038), the _APP_JS literal with its six MIRROR markers (1040-1555), _theme_attr, _repo_display_name, _build_app_js, _inert_json, render_app_html, _content_type, ASSETS_DIR. Kept as ONE module deliberately: the template strings and the function that formats them change together, and splitting them would make every UI edit a two-file edit \u2014 the opposite of the goal. Also stdlib-only and free of any reference to the store, the hub or karta_next, so it is as clean a leaf as watch_store. This is the module the in-flight watch-redesign work would actually edit. Its --self-test runs only the page/poll suite.",
+    "approx_lines": 1190,
+    "exposes_self_test": true,
+    "imports": [
+     "(stdlib only: json, html, re, pathlib)",
+     "(lazy, inside --self-test only) watch_page_selftest"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_store_selftest.py",
+    "contains": "The store suite, lines 2926-3160 (_store_self_test_checks, 27 checks). The only suite with ZERO private references to serve_status \u2014 it touches nothing but watch_store's public surface and monkeypatches stdlib (secrets.token_urlsafe, os.replace, fcntl.flock, msvcrt.locking), which keeps working cross-module because those are shared module objects resolved at call time. Exports a checks(scratch) -> list[tuple[str, bool]] entry the aggregator calls; its own --self-test runs that list standalone under its own scratch dir.",
+    "approx_lines": 255,
+    "exposes_self_test": true,
+    "imports": [
+     "watch_store",
+     "(stdlib)"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_page_selftest.py",
+    "contains": "The poll suite (4968-5129, 14 checks) plus the render/meta subset of the aggregator's 60 inline checks (5303-5318 _STATE_META/_PHASE_META/_ICONS coverage, 5241-5274 _feed_transition, the render_app_html fixtures). Owns both Python-to-JS mirror comparisons: _APP_JS.index('// MIRROR: change together with poll_decision()') + inspect.getsource(poll_decision) (5047-5049) and the mounted()/beforeUnmount() block extraction (5077-5079). Both survive the move unchanged \u2014 inspect.getsource resolves via the function object's own __code__.co_filename, and _APP_JS is just a string attribute.",
+    "approx_lines": 445,
+    "exposes_self_test": true,
+    "imports": [
+     "watch_page",
+     "serve_status",
+     "(stdlib incl. inspect)"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_hub_selftest.py",
+    "contains": "The hub suite, lines 3163-3639 (51 checks): _run_child, _repo_card, hub_cards, render_hub_html, _activity_stamp, _repo_last_activity, _hub_logger, _redact_key, _identity_snapshot, the /identity startup-snapshot drill, and the whole-file source scan at 3613-3631 (no --bind/--host/--interface flag anywhere; the loopback literal appears at least twice; the queued literal is absent). CARRIES THE ONE HARD BREAK: the globals()['_script_digest'] tamper patch at 3476-3481 must become setattr/restore on the imported serve_status module object, plus a new positive assertion that the patch actually took effect before /identity is re-queried \u2014 a vacuously-passing tamper check is worse than a failing one. Also recomputes the expected digest independently at 3472 (hashlib.sha256(_SCRIPT_PATH.read_bytes())); that line must switch to the widened _module_files() set or /identity will disagree with it.",
+    "approx_lines": 495,
+    "exposes_self_test": true,
+    "imports": [
+     "serve_status",
+     "(stdlib incl. hashlib, subprocess, urllib)"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_lifecycle_selftest.py",
+    "contains": "The lifecycle suite, lines 3642-4102 (43 checks across 22 blocks): _windows_creationflags, _spawn_detached_posix, ensure_plan, _kill_skewed_hub, _probe_hub, lost_bind_race, next_candidate_port, run_ensure/run_opt CLI re-invocations via [sys.executable, str(_SCRIPT_PATH), '--ensure'|'--opt-in'] (4068-4076), _self_exit_reason/_self_exit_watch, and the second whole-file source scan at 4089-4100 (no pidfile literal; the store-lock symbol appears exactly twice). Both source scans must read the concatenation of _module_files(), which preserves today's meaning exactly: the store-lock count stays 2 (def + use) and the split-literal trick still prevents self-matching.",
+    "approx_lines": 480,
+    "exposes_self_test": true,
+    "imports": [
+     "serve_status",
+     "(stdlib incl. subprocess, socket)"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_http_selftest.py",
+    "contains": "The etag/HTTP suite, lines 4426-4965 (33 checks): _Handler routing, the required_key class-attribute patch and restore (4526-4539), _json_key/JSON_MAX_DEPTH/_json_safe depth and cycle guards, state_body ETag determinism including the PYTHONHASHSEED child probe that reloads serve_status by path via spec_from_file_location (4772-4782), and the two inspect.getsource assertions on _Handler._key_ok (4620-4621) \u2014 the only private-method reach in the file, and object-bound so it survives the move.",
+    "approx_lines": 555,
+    "exposes_self_test": true,
+    "imports": [
+     "serve_status",
+     "(stdlib incl. inspect, subprocess, http.client)"
+    ]
+   },
+   {
+    "file": "skills/karta-status/scripts/watch_archived_selftest.py",
+    "contains": "The archived suite, lines 4105-4423 (18 checks), plus the archived/enrich subset of the aggregator's inline checks (5181 _append_archived/_enrich, 5278-5387 _inert_json escaping). Genuinely cross-cutting \u2014 it needs _Handler (http), current_state (engine join), _APP_JS (page) and join_archived/split_archived \u2014 so it stays a serve_status-level suite rather than being forced under one leaf. Owns the third source-introspection mirror: _APP_JS.index('// MIRROR: change together with join_archived()') + inspect.getsource(join_archived) (4394-4396).",
+    "approx_lines": 430,
+    "exposes_self_test": true,
+    "imports": [
+     "serve_status",
+     "karta_next",
+     "(stdlib incl. inspect)"
+    ]
+   }
+  ],
+  "migration_order": [
+   {
+    "step": "Step 0 \u2014 widen the identity/scan primitives IN PLACE, moving zero code. Add `_module_files()` returning a pinned, sorted list that today holds only `[_SCRIPT_PATH]`. Rewire four things onto it: `_script_digest()` (1808) hashes the concatenated bytes of the list; the self-exit mtime baseline (2513) takes the max mtime across the list; both whole-file source scans (3613, 4089) read `''.join(p.read_text() for p in _module_files())`; and the hub suite's independent digest recomputation (3472) uses the same helper. Convert the `globals()['_script_digest']` patch (3476-3481) to setattr/restore on `sys.modules[__name__]` and add a positive assertion that the tamper took effect. Add two new fixtures: `_module_files()` equals the set of sibling .py files serve_status imports, and every name in a new pinned `_PUBLIC_ABI` tuple (ensure_state_dir, _hub_port, get_token, _probe_hub, ENSURE_FAILURE_FILENAME, _SCRIPT_PATH, upsert_repo, _record_ensure_failure, PORT_BASE, PORT_SPAN, record_port, _script_digest, _STATE_META) is reachable as a serve_status attribute.",
+    "why_this_order": "This is the only step that can be verified as a strict no-op: with a one-element list the digest, the mtime and the scans are byte-identical to today, so a green gate proves the rewiring is faithful before any code moves. It also converts every later step into 'append one filename to _module_files()' \u2014 which is what stops the split from silently blinding hub skew detection, the self-exit watch and the source guards. Doing it after a move would mean debugging a real regression instead of proving an identity.",
+    "gate": "uv run --script skills/karta-status/scripts/serve_status.py --self-test | tail -1 && uv run scripts/validate_plugin.py --self-test && git stash && uv run --script skills/karta-status/scripts/serve_status.py --self-test | tail -1 && git stash pop   # the two printed 'N/M checks passed' totals must differ by exactly the 2 new fixtures, with zero failures in both"
+   },
+   {
+    "step": "Step 1 \u2014 extract the store suite to watch_store_selftest.py. Move lines 2926-3160 verbatim into a new sibling exposing `checks(scratch)` plus a PEP-723 header, an argparse `--self-test` that runs its own list under its own scratch dir, and the pinned sibling-import idiom. In serve_status, replace `_store_self_test_checks(scratch)` at 5412 with a lazy `import watch_store_selftest` inside the --self-test branch. Run `uv run scripts/sync_codex_skills.py` and commit all three copies.",
+    "why_this_order": "Smallest, safest suite to move first \u2014 it has zero private references to serve_status and touches only public store symbols, so it isolates the mechanics being proven (lazy import, aggregator wiring, floor compliance, three-way mirror) from any semantic risk. If the pattern is wrong, it is wrong on 235 lines instead of 2523.",
+    "gate": "uv run --script skills/karta-status/scripts/watch_store_selftest.py --self-test && uv run --script skills/karta-status/scripts/serve_status.py --self-test | tail -1 && uv run scripts/validate_plugin.py --self-test && uv run scripts/sync_codex_skills.py --check   # the aggregate total must be unchanged from Step 0"
+   },
+   {
+    "step": "Step 2 \u2014 extract the remaining five suites in one item: watch_hub_selftest.py (3163-3639, including the setattr tamper fix and the widened digest recomputation), watch_lifecycle_selftest.py (3642-4102), watch_http_selftest.py (4426-4965), watch_archived_selftest.py (4105-4423 + the archived/inert inline checks), watch_page_selftest.py (4968-5129 + the render/meta inline checks). Reduce serve_status's `_run_self_test` to the ~70-line aggregator: scratch dir, KARTA_WATCH_STATE_DIR seam, `_dir_snapshot` before/after, six lazy imports, concatenate, print, exit. Add a fixture asserting that a fresh `import serve_status` leaves no `*_selftest` module in sys.modules.",
+    "why_this_order": "Deliberately ONE item, not five: every one of these deletes from serve_status.py, so five items would serialize on that filename anyway while multiplying the number of times the aggregator is rewired. As one mechanical move it has an exact gate \u2014 the same ~246 checks, same totals \u2014 and it removes 46% of the file in a single reviewable diff. The cold-path fixture is required here because karta_next.py:1029 and inject_karta_status.py:436 both assert a non-opted repo imports neither module; eager test imports would break that and add 2500 lines of parse cost to every hub --print-state child.",
+    "gate": "uv run --script skills/karta-status/scripts/serve_status.py --self-test | tail -1 && for f in watch_store watch_page watch_hub watch_lifecycle watch_http watch_archived; do uv run --script skills/karta-status/scripts/${f}_selftest.py --self-test >/dev/null || echo \"FAIL $f\"; done && uv run scripts/validate_plugin.py --self-test && uv run scripts/sync_codex_skills.py --check   # aggregate total unchanged from Step 1 (\u00b1 the 1 new cold-path fixture); wc -l serve_status.py must be ~2980"
+   },
+   {
+    "step": "Step 3 \u2014 extract watch_store.py (production lines 107-361 plus the fcntl/msvcrt shims at 86-93). Add an explicit re-export in serve_status (`from watch_store import ensure_state_dir, get_token, record_port, upsert_repo, load_state, resolve_state_dir, derive_port, PORT_BASE, PORT_SPAN, STATE_FILENAME, LOCK_FILENAME, TOKEN_FILENAME, ROSTER_MAX_AGE_DAYS, _store_lock, _mutate_state, _atomic_write, _slug_for`) and append watch_store.py to `_module_files()`. Point watch_store_selftest.py at watch_store instead of serve_status. Give watch_store.py a `--self-test` that lazily runs its suite.",
+    "why_this_order": "First production move, and the one with the least that can go wrong: the region has zero outward references, is covered by 27 fixtures that already exist and already run, and its consumers (karta_next.py 8 attributes, inject_karta_status.py 7 attributes) are pinned by the Step 0 ABI fixture. It is also the step that proves the re-export pattern works for the two external importers before anything larger moves. The store-lock count invariant (== 2) is preserved because the source scan now reads the concatenation.",
+    "gate": "uv run --script skills/karta-status/scripts/serve_status.py --self-test | tail -1 && uv run --script skills/karta-status/scripts/watch_store.py --self-test && uv run --script skills/karta-status/scripts/karta_next.py --self-test && python3 hooks/scripts/inject_karta_status.py --self-test && uv run scripts/validate_plugin.py --self-test && uv run scripts/sync_codex_skills.py --check"
+   },
+   {
+    "step": "Step 4 \u2014 extract watch_page.py (production lines 575-1698: icons, all three meta tables, theme vars, _CSS, feed labels, _feed_transition, poll_decision, _APP_JS, _theme_attr, _repo_display_name, _build_app_js, _inert_json, render_app_html, _content_type, ASSETS_DIR). Re-export from serve_status at minimum `_STATE_META, _PHASE_META, _ICONS, _APP_JS, _CSS, _inert_json, render_app_html, poll_decision, _feed_transition, FEED_OK_STATUSES, join_archived-adjacent page helpers, ASSETS_DIR`. Append watch_page.py to `_module_files()`. Point watch_page_selftest.py at watch_page; leave watch_archived_selftest.py importing serve_status (it needs _Handler and current_state too).",
+    "why_this_order": "Largest single win (~1120 lines) and the module the in-flight watch-redesign binder would actually edit \u2014 but it moves last among the production cuts because it is the step that can break the most watchers: benchmarks/probes/dark-status-surface-probes.py imports `serve_status._STATE_META` with a plain `python -c` and FAILS LOUD on ImportError, the four stranded-states grading anchors pin its badge words, and the six MIRROR markers plus two getsource comparisons live across the page/test boundary. Doing it after Steps 0-3 means the digest widening, the ABI fixture and the re-export pattern are all already proven.",
+    "gate": "uv run --script skills/karta-status/scripts/serve_status.py --self-test | tail -1 && uv run --script skills/karta-status/scripts/watch_page.py --self-test && (cd skills/karta-status/scripts && python3 -c 'import json, serve_status; print(json.dumps(serve_status._STATE_META))') && uv run scripts/validate_plugin.py --self-test && uv run scripts/sync_codex_skills.py --check"
+   },
+   {
+    "step": "Step 5 \u2014 prose and pack sweep, no code change. Update skills/karta-status/SKILL.md:57 ('zero-dependency stdlib, self-contained' now means the scripts directory, not one file \u2014 keep the zero-dependency claim, it is still true), docs/how-to/karta-watch.md if it describes the file's internals, .karta/sme/karta-house-vue.md:14 (which names serve_status.py as the file holding the embedded Vue template and justifies its vue.1/2/3 excludes \u2014 that file is now watch_page.py), and the six MIRROR marker comments that name 'the archived/feed/poll self-test' as the third party to change in step. Do NOT reword the marker strings at 531 and 1021 themselves \u2014 they are asserted verbatim by the getsource comparisons; change only the surrounding prose.",
+    "why_this_order": "Last because it is the only step whose correct content depends on where every piece finally landed. Deliberately a separate item so a prose edit can never be the thing that reds a code gate, and so karta-doc-gardner has a clean commit to attribute. Stale line citations (benchmarks/bench-spec.json:92 and benchmarks/results/2026-07-17-baseline.md:114 both say 'serve_status.py:182 _STATE_META', already wrong by 450 lines) get corrected here or explicitly left as known-advisory.",
+    "gate": "uv run scripts/validate_plugin.py --self-test && uv run scripts/check_shared_copies.py --self-test && ! grep -rn 'serve_status.py' .karta/sme/ docs/how-to/karta-watch.md skills/karta-status/SKILL.md | grep -iv 'uv run\\|--opt-in\\|--opt-out\\|--ensure\\|--self-test\\|--root'   # no prose left claiming serve_status.py holds the page or the fixtures"
+   }
+  ],
+  "risks": [
+   "HUB SKEW GOES BLIND (highest severity, and the reason Step 0 exists). `_script_digest()` (serve_status.py:1809) is sha256 of `_SCRIPT_PATH` bytes only, and it is the value a running hub compares against to retire itself on a plugin update \u2014 consumed externally at hooks/scripts/inject_karta_status.py:500 and driven by `expected = _script_digest()` at :2772. Move any logic to a sibling without widening it and editing that sibling no longer changes the digest: a stale hub keeps serving old code across an upgrade, silently. The same applies to the self-exit mtime baseline at :2513. Mitigation: `_module_files()` in Step 0, plus the fixture asserting the list equals the set of siblings serve_status imports, so a forgotten file is a hard failure, not a silent narrowing. Second-order: the hub suite recomputes the expected digest independently at 3472 \u2014 miss that line and /identity disagrees with its own test.",
+   "THE ONE HARD BREAK: `globals()['_script_digest'] = lambda: 'tampered-post-boot'` at serve_status.py:3476-3481 is the only use of `globals()` in the entire file. In a separate test module `globals()` is that module's namespace, so `_identity_snapshot` \u2014 which resolves `_script_digest` through serve_status's globals \u2014 would never see the tampered function and the 'identity is a startup snapshot, not a re-read' check would pass VACUOUSLY. A vacuously green check is worse than a red one because nobody investigates it. Must become setattr on the imported module object, restored in `finally`, with an added positive assertion that the patch took effect before /identity is re-queried.",
+   "SOURCE-SCAN NARROWING. Three invariants read `_SCRIPT_PATH.read_text()` and would silently cover only the shrunken file after a split: the no-`--bind`/`--host`/`--interface` flag scan (3613-3631), the no-pidfile scan (4089-4100), and `src.count('_store_' + 'lock(') == 2`. The last one BREAKS OUTRIGHT if the store moves out; the other two go blind, which is worse \u2014 a future edit could reintroduce a bind-to-all-interfaces flag in watch_page.py unpoliced. Mitigation: read the concatenation of `_module_files()`, which preserves today's meaning exactly (store-lock stays 2: def at 235 + use at 282; the loopback literal stays >= 2). The split-literal trick that stops the checks self-matching still works because the test modules also spell them split.",
+   "MODULE ABI BREAK. Three independent consumers reach into serve_status by attribute: karta_next.py (ensure_state_dir, _hub_port, get_token, _probe_hub, ENSURE_FAILURE_FILENAME, _SCRIPT_PATH, upsert_repo, _record_ensure_failure, PORT_BASE, PORT_SPAN, record_port), inject_karta_status.py (upsert_repo, get_token, _script_digest, record_port, _record_ensure_failure, ensure_state_dir, ENSURE_FAILURE_FILENAME), and benchmarks/probes/dark-status-surface-probes.py (`serve_status._STATE_META`, imported with a bare `python -c` at cwd=scripts, FAIL-LOUD on ImportError, with four grading anchors in benchmarks/fixtures/stranded-states/expected.json pinning its badge words). `from watch_store import *` will NOT carry underscore-prefixed names \u2014 the re-exports must be explicit, name by name, and the Step 0 `_PUBLIC_ABI` fixture must list all 13.",
+   "CODEX PROJECTION DRIFT. Every new file lands three times: skills/, .agents/skills/, plugins/karta/skills/. The generator rglobs and creates parents, so nothing needs a manifest edit \u2014 but `sync_codex_skills.py` must be RUN and all three copies committed together, or validate_plugin fails twice ('missing from .agents/skills mirror' and 'missing from Codex install projection'), and a leftover projection reports 'orphaned (no canonical source)'. Executable bits are compared per file too. Expect roughly 3x the file churn in every commit. Also note orphan cleanup only unlinks files \u2014 an emptied projected directory lingers (harmless for git and --check, but not self-healing).",
+   "THE --self-test FLOOR IS A PER-FILE TAX AND A RUNTIME MULTIPLIER. validate_plugin.py:447 runs `--help` (substring-matching the literal `--self-test`) then `--self-test` on every one of the 8 new flat files, with a 120s timeout each. Two consequences: (a) no file may do heavy or blocking work at import time \u2014 the `--help` probe executes each module as __main__, so entry points must stay behind argparse/`if __name__`; (b) validate_plugin's wall time roughly doubles, because the hub and lifecycle suites bind loopback sockets and spawn detached processes and now run once standalone plus once via the aggregator. Hard rule to keep it at 2x and not 8x: a test module's `--self-test` runs ONLY its own checks and never calls back into serve_status's aggregator.",
+   "COLD-PATH IMPORT REGRESSION. karta_next.py:1029-1031 and inject_karta_status.py:436 both assert, in a fresh process, that a non-opted repo never pulls serve_status into sys.modules \u2014 and the hub spawns a `--print-state` child per repo on every derivation. Importing any `*_selftest` module at serve_status top level would add ~2500 lines of parse cost to every one of those children and could perturb the cold-path assertions. The six suite imports must live strictly inside the `--self-test` branch of `main()`, pinned by the new fixture.",
+   "IN-FLIGHT BINDER COLLISION. .karta/binders/watch-redesign.json is planned against the monolith: its binder-level oracle and all 7 item oracles run `serve_status.py --self-test && validate_plugin.py --self-test`, every item's `touches` lists serve_status.py plus both mirrors, and :281 cites 'serve_status.py:3604-3733' as a migration scope. Landing this split mid-flight leaves those touches lists under-declaring the new files, which is exactly the collision-detection input karta relies on. Either land the split before that binder starts building, or replan it after \u2014 do not interleave. (:301 also names a not-yet-existing anchor, skills/karta-status/scripts/selftest_behaviours.txt, whose relationship to this split needs a decision.)",
+   "CHILD-SPAWN AND PEP-723 SURFACE. The hub spawns `[sys.executable, str(_SCRIPT_PATH), '--print-state']` (1743) and `--hub --port N` (2701) with the BARE interpreter, never `uv run --script`, and karta_next.py:263 and inject_karta_status.py:362 do the same. So third-party dependencies stay banned in every new module regardless of what a PEP-723 block says \u2014 only `dependencies = []` survives. Sibling imports themselves are proven safe on all four paths (direct uv run from any cwd, both projections, the bare-interpreter children, and the `spec_from_file_location` probe) because serve_status.py:96 puts the script dir on sys.path for the whole process. But a module that is itself an entry point needs its OWN insert: karta_next.py has none at top level today (only the lazy one in `_load_watch`), so each new directly-invoked sibling must carry the pinned idiom.",
+   "SOURCE-INTROSPECTION FALSE ALARMS. Four introspection sites cross the new boundary: `inspect.getsource(join_archived)` vs `_APP_JS.index('// MIRROR: change together with join_archived()')` (4394-4396), the same shape for `poll_decision` (5047-5049), the mounted()/beforeUnmount() block extraction (5077-5079), and `inspect.getsource(_Handler._key_ok)` (4620-4621). All four are object-bound and survive the move unchanged \u2014 but the marker STRINGS at serve_status.py:531 and :1021 are themselves asserted verbatim by those comparisons, so the Step 5 prose sweep must not reword them, only the surrounding comment text. If _APP_JS and join_archived end up in different modules (page vs serve_status), the mirror comparison spans two files and its failure message should name both.",
+   "ENVIRONMENTAL FLAKES ON THIS HOST WILL BE MISREAD AS SPLIT BUGS. Two are already documented from the investigation: (a) `serve_status.py --ensure` exits 139 (SIGSEGV) under bare python3 3.13.5 while being fully green under `uv run`, which cascades into inject_karta_status.py and karta_next.py hub e2e cases; (b) intermittent, non-reproducible validator subprocess flakes falsely reporting scripts as not exposing --self-test. Every gate above must be run under `uv run`, and a red gate must be re-run once before being treated as a real regression. Also: running the validator has real side effects \u2014 it touches ~/.local/state/karta and can leave a `serve_status.py --hub --port 8765` process running against the real repo.",
+   "SEMANTIC DRIFT IN WHAT THE HUB CONSIDERS 'ITSELF'. Once `_module_files()` exists, someone will ask whether karta_next.py belongs in it \u2014 it is the derivation engine, a plugin update changes it, and it arguably should retire a stale hub too. Today it does NOT participate in the digest. Adding it is defensible but it is a behavior change to make deliberately with its own item, not a side effect of a refactor. Keep the pinned list to serve_status + the new siblings unless someone decides otherwise on purpose.",
+   "FILE COUNT AS ITS OWN COST. This ends at 10 files in one flat directory (~5715 total lines, about 200 MORE than today once per-file headers, argparse blocks and imports are counted). The line total goes UP; only the per-file maximum goes down, from 5504 to ~1620. Anyone measuring success by total lines will read this as a regression. The metric that matters is: how many binder items can edit disjoint files, and whether the test for a thing lives outside the thing."
+  ],
+  "open_questions": [
+   "Are the two whole-file source scans (3613, 4089) INTENDED to police test code as well as production code? Their comments say 'appears nowhere in this script's source', which today means the whole 5504-line file including fixtures. The proposal preserves that by scanning the concatenation of `_module_files()`, but if the intent was only ever to police shipped behavior, the test modules should be excluded \u2014 and that changes what `_module_files()` means for the digest too. Someone who knows the original intent should decide, not infer.",
+   "Should the `--self-test` floor grow a rule for `*_selftest.py` files, so the suites are not run twice per validate_plugin (once standalone, once via the aggregator)? That is a validator edit and therefore a doctrine call: the floor's value is that every gated file is independently runnable, which the standalone run is exactly what proves. Recommend leaving the floor alone and accepting ~2x wall time, but the alternative deserves an explicit decision rather than a silent acceptance.",
+   "Should karta_next.py join `_module_files()` (and therefore the hub identity digest and the source scans)? It is the derivation engine, it ships in the same plugin update, and a hub running against a stale karta_next is the same class of problem the digest exists to catch. Today it is outside. Changing that is a real behavior change and belongs in its own item.",
+   "Sequencing against .karta/binders/watch-redesign.json \u2014 land the split first and replan the redesign binder against the new file set, or finish the redesign on the monolith and split after? Both are defensible; interleaving is not, because that binder's `touches` lists and its :281 line-range citation are written against the single file.",
+   "Does `skills/karta-status/scripts/selftest_behaviours.txt` (named at watch-redesign.json:301 as a validate_plugin-read anchor, absent from disk, with no code reading it yet) belong to this split or to that binder? If it is meant to be a checked inventory of fixture behaviors, this split is the moment it would be populated \u2014 or the moment it becomes six files instead of one.",
+   "Do any consumer repos outside this checkout (parchmark, gringotts) pin serve_status.py internals in their own tooling? Only this repo was searched. The re-export block covers attribute access, but a consumer that greps the file or cites line numbers would not be covered.",
+   "Is `watch_` the right prefix, given the skill is named karta-status and the product surface is 'Karta Watch'? The prefix keeps the two entry-point filenames visually distinct in a flat directory, but `status_` would match the skill name. Cosmetic, worth settling once before eight files carry it."
+  ]
+ }
+}
