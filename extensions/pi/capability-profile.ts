@@ -27,6 +27,8 @@ export interface GateEvidenceToolState {
   citations: Set<number>;
   requiredPacks: string[];
   requiredCitations: number[];
+  diffReads: Array<[number, number]>;
+  diffTotal: number;
 }
 
 export interface GateCapabilityProfile {
@@ -68,6 +70,8 @@ export function createGateCapabilityProfile(
     citations: new Set(),
     requiredPacks: manifest.payload.packs.map((pack) => pack.id),
     requiredCitations: manifest.payload.citations.map((citation) => citation.index),
+    diffReads: [],
+    diffTotal: 0,
   };
   const evidence: AnyToolDefinition = createEvidenceReadTool(manifest);
   const executeEvidenceTool = evidence.execute.bind(evidence);
@@ -80,7 +84,21 @@ export function createGateCapabilityProfile(
     if (action === "citation" && Number.isInteger((params as { index?: unknown }).index)) {
       evidenceToolState.citations.add((params as { index: number }).index);
     }
-    return executeEvidenceTool(toolCallId, params, signal, onUpdate, ctx);
+    const result = await executeEvidenceTool(toolCallId, params, signal, onUpdate, ctx);
+    if (action === "diff") {
+      // Record the byte range this read covered so grounding can require the whole
+      // diff, not just one page. offset defaults to 0; a null nextOffset means the
+      // read reached the end (totalLength).
+      const details = result.details as { totalLength?: unknown; nextOffset?: unknown } | undefined;
+      const total = Number.isInteger(details?.totalLength) ? Number(details?.totalLength) : 0;
+      const offset = Number.isInteger((params as { offset?: unknown }).offset)
+        ? Number((params as { offset?: unknown }).offset)
+        : 0;
+      const end = Number.isInteger(details?.nextOffset) ? Number(details?.nextOffset) : total;
+      evidenceToolState.diffTotal = total;
+      evidenceToolState.diffReads.push([offset, end]);
+    }
+    return result;
   };
   const roleToolState: GateRoleToolState = { invoked: false };
   const roleTool: AnyToolDefinition =

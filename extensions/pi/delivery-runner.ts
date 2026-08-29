@@ -472,8 +472,13 @@ export class KartaDeliveryRunner {
             await deriveItemGitState(repoRoot, binder, item.id),
           ] as const)),
         );
-        if (document.work_items.every((item) => states.get(item.id)?.state === "done")) {
-          const pending = await this.#pendingWaveAnchor(repoRoot, binder);
+        // Recover a pending wave anchor BEFORE deriving a new frontier, whether or not
+        // every item is done: starting a fresh wave over an unfinalized anchor lets the
+        // later all-done recovery roll that anchor back and destroy the newer wave's work.
+        const pending = await this.#pendingWaveAnchor(repoRoot, binder);
+        if (
+          document.work_items.every((item) => states.get(item.id)?.state === "done") || pending
+        ) {
           if (pending) {
             const landed = new Set((await git(repoRoot, [
               "rev-list",

@@ -293,6 +293,19 @@ function gateEvidenceRepairPrompt(gaps: string[]): string {
 // skipped one (the large diff of a big item is the common miss). These gaps are a
 // protocol lapse, not a finding, so the gate gets one corrective turn to read what
 // it skipped before validateRoleToolResult enforces the same requirement hard.
+function diffFullyRead(state: {
+  diffReads: readonly (readonly [number, number])[];
+  diffTotal: number;
+}): boolean {
+  if (state.diffTotal <= 0) return true;
+  let covered = 0;
+  for (const [start, end] of [...state.diffReads].sort((a, b) => a[0] - b[0])) {
+    if (start > covered) break;
+    if (end > covered) covered = end;
+  }
+  return covered >= state.diffTotal;
+}
+
 export function evidenceReadGaps(profile: {
   role: { id: string };
   evidenceToolState: {
@@ -301,12 +314,18 @@ export function evidenceReadGaps(profile: {
     packs: ReadonlySet<string>;
     requiredCitations: readonly number[];
     citations: ReadonlySet<number>;
+    diffReads: readonly (readonly [number, number])[];
+    diffTotal: number;
   };
   roleToolState: { invoked: boolean };
 }): string[] {
   const gaps: string[] = [];
   for (const action of REQUIRED_GATE_EVIDENCE) {
     if (!profile.evidenceToolState.actions.has(action)) gaps.push(`the ${action} evidence`);
+  }
+  // A large diff pages; reading page one is not reading the diff. Require full coverage.
+  if (profile.evidenceToolState.actions.has("diff") && !diffFullyRead(profile.evidenceToolState)) {
+    gaps.push("the rest of the diff (you read only part of it)");
   }
   if (!profile.roleToolState.invoked) gaps.push("your required role tool");
   // The safety gate additionally must read every pinned stack pack and repo-rule

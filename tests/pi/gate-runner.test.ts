@@ -489,6 +489,8 @@ function gapsProfile(over: {
   packs?: string[];
   requiredCitations?: number[];
   citations?: number[];
+  diffReads?: Array<[number, number]>;
+  diffTotal?: number;
 }) {
   return {
     role: { id: over.roleId ?? "acceptance-gate" },
@@ -498,6 +500,8 @@ function gapsProfile(over: {
       packs: new Set(over.packs ?? []),
       requiredCitations: over.requiredCitations ?? [],
       citations: new Set(over.citations ?? []),
+      diffReads: over.diffReads ?? [],
+      diffTotal: over.diffTotal ?? 0,
     },
     roleToolState: { invoked: over.invoked ?? true },
   };
@@ -514,6 +518,25 @@ test("evidence-read gaps name every unread required section and the role tool", 
     "your required role tool",
   ]);
   assert.deepEqual(evidenceReadGaps(gapsProfile({ actions: ["summary", "workItem", "diff"] })), []);
+});
+
+test("a gate that read only part of a large diff is nudged to read the rest", () => {
+  assert.deepEqual(
+    evidenceReadGaps(
+      gapsProfile({ actions: ["summary", "workItem", "diff"], diffReads: [[0, 30]], diffTotal: 100 }),
+    ),
+    ["the rest of the diff (you read only part of it)"],
+  );
+  assert.deepEqual(
+    evidenceReadGaps(
+      gapsProfile({
+        actions: ["summary", "workItem", "diff"],
+        diffReads: [[0, 60], [60, 100]],
+        diffTotal: 100,
+      }),
+    ),
+    [],
+  );
 });
 
 test("the safety gate also gets gaps for unread pinned packs and citations", () => {
