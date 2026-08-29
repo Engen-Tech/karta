@@ -99,6 +99,7 @@ async function invokeBuildWorker(
   });
   const abort = () => void session.abort();
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
+  if (invocation.ctx.signal?.aborted) abort();
   try {
     const text = await promptWorkerForEnvelope(session, invocation.userPrompt);
     return { text, runtime: report };

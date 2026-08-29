@@ -339,19 +339,25 @@ export class KartaDeliveryRunner {
   }
 
   async #deliveryBase(repoRoot: string, binder: string): Promise<string> {
-    const refs = (await git(repoRoot, [
+    // The earliest wave base is the delivery's start. Sort the wave-*-base tags by
+    // wave NUMBER, not refname — lexical order puts wave-10-base before wave-2-base.
+    const bases = (await git(repoRoot, [
       "for-each-ref",
-      "--sort=refname",
-      "--format=%(objectname)",
+      "--format=%(refname) %(objectname)",
       `refs/tags/karta/${binder}/wave-*-base`,
-    ])).split("\n").filter(Boolean);
-    if (refs[0]) return refs[0];
+    ])).split("\n").filter(Boolean).map((line) => {
+      const [ref, object] = line.split(" ");
+      return { object, wave: Number(ref.match(/\/wave-(\d+)-base$/)?.[1] ?? Infinity) };
+    }).sort((left, right) => left.wave - right.wave);
+    if (bases[0]) return bases[0].object;
+    // Degenerate fallback (no wave tags): the integration branch's root. Take the
+    // first of a multi-root history rather than crashing the delivery.
     const roots = (await git(repoRoot, [
       "rev-list",
       "--max-parents=0",
       `refs/heads/karta/${binder}/integration`,
     ])).split("\n").filter(Boolean);
-    if (roots.length !== 1) throw new Error("Karta cannot derive one delivery diff base");
+    if (roots.length === 0) throw new Error("Karta cannot derive one delivery diff base");
     return roots[0];
   }
 

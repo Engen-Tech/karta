@@ -118,6 +118,7 @@ async function invokeWriter(
   });
   const abort = () => void session.abort();
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
+  if (invocation.ctx.signal?.aborted) abort();
   try {
     const text = await promptForJsonEnvelope(
       session,
