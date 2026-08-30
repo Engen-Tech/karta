@@ -129,9 +129,13 @@ _MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge(?![-\w])")
 # an integration ref named anywhere in a merge command: karta/<slug>/integration
 _INTEGRATION_REF_RE = re.compile(r"\bkarta/[^\s/]+/integration\b")
 _INTEGRATION_REF_FULL_RE = re.compile(r"^karta/[^\s/]+/integration$")
-# a leading `VAR=value ` shell assignment, so an invocation prefixed with one
-# still reads as its own head for the anchored matcher below
-_ENV_ASSIGN_RE = re.compile(r"""^['"]?[A-Za-z_][A-Za-z0-9_]*=[^\s'"]*['"]?\s+""")
+# a leading `VAR=value ` shell assignment — value bare, single- or double-quoted
+# (spaces included), or the whole assignment quoted — so an invocation prefixed
+# with one still reads as its own head for the anchored matcher below
+_ENV_ASSIGN_RE = re.compile(r"""^['"]?[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|[^\s'"])*['"]?\s+""")
+# a leading `(` or `{ ` group opener: `(git commit ...)` and `{ git commit ...; }`
+# are the same invocation wrapped, and the closer is trailing text
+_GROUP_OPEN_RE = re.compile(r"^[({]\s*")
 _ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _MODE_RE = re.compile(r"^[0-7]{6}$")
 
@@ -139,7 +143,8 @@ _MODE_RE = re.compile(r"^[0-7]{6}$")
 # value-bearing option would leave its argument to be read as a pathspec.
 COMMIT_VALUE_OPTS = ("-m", "--message", "-F", "--file", "--author", "--date", "--trailer")
 COMMIT_FLAG_OPTS = ("-a", "--all", "-i", "--include", "-o", "--only", "--amend", "--no-edit",
-                    "-q", "--quiet", "-v", "--verbose", "-s", "--signoff", "--no-verify", "-n")
+                    "-q", "--quiet", "-v", "--verbose", "-s", "--signoff", "--no-verify", "-n",
+                    "--allow-empty", "--allow-empty-message")  # stage nothing new: a plain commit
 COMMIT_DENIED_MODES = ("-p", "--patch", "--interactive", "--pathspec-from-file", "--pathspec-file-nul")
 MERGE_FLAG_OPTS = ("--no-ff", "--ff-only", "--no-edit")
 MERGE_VALUE_OPTS = ("-m",)
@@ -155,11 +160,12 @@ def _segments(command: str) -> list[str]:
 
 
 def _leading_command(segment: str) -> str:
-    """A shell segment with any leading VAR=value assignments stripped, so an
-    invocation prefixed with environment settings still reads as its own head."""
+    """A shell segment with any leading VAR=value assignments and `(` / `{`
+    group openers stripped, so an invocation prefixed with environment settings
+    or wrapped in a subshell still reads as its own head."""
     seg = segment
     while True:
-        m = _ENV_ASSIGN_RE.match(seg)
+        m = _GROUP_OPEN_RE.match(seg) or _ENV_ASSIGN_RE.match(seg)
         if not m:
             return seg
         seg = seg[m.end():]
@@ -360,7 +366,9 @@ def parse_commit(words: list[Tok]) -> CommitSpec:
     while i < n:
         tok = words[i]
         t = tok.text
-        if after_dashdash or not t.startswith("-") or tok.quoted and not tok.unquoted.startswith("-"):
+        # option-vs-pathspec is decided on the text git receives: bash quoting is
+        # invisible to git, so `"-m"` is the -m option, not a pathspec
+        if after_dashdash or not t.startswith("-"):
             _check_pathspec(tok)
             spec.pathspecs.append(t)
             i += 1
@@ -709,6 +717,14 @@ def head_config(git) -> dict | None:
     return None
 
 
+def _config_staged(git) -> bool:
+    """Whether the index carries the config at all — with no config in HEAD, a
+    tracked config is by definition an addition, so `diff --cached` lists it
+    whichever source (index or worktree) the commit will finally read."""
+    code, out = git(["diff", "--cached", "--name-only"])
+    return code == 0 and CONFIG_PATH in _lines(out)
+
+
 def load_gate_config(git, sources: Sources | None, read_file=_real_read) -> dict:
     """HEAD's config; only when HEAD has none is it read from the source the
     commit itself will record (first enable). An absent config is {} (everything
@@ -936,9 +952,13 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
     try:
         # the switch comes first: enabled:false (or no config) turns every review
         # rule off, the grammar included. Only a first enable — no config in HEAD
-        # — has to parse the command to find the config the commit will record.
+        # and the config staged for this commit — has to parse the command to find
+        # the config the commit will record; a consumer repo with the hook and no
+        # config never meets the grammar at all.
         if config is None:
             config = head_config(git)
+            if config is None and not (commit and _config_staged(git)):
+                return 0, ""
         if config is not None and not enabled(config):
             return 0, ""
         _check_cwd(payload)
@@ -1281,6 +1301,56 @@ def _run_self_test() -> int:
         check(f"a gated commit without a message source is denied: {cmd!r}", code == 2 and "message" in msg, msg)
     code, msg, _ = run("git commit --amend --no-edit", PLAIN, ON)
     check("--amend --no-edit is gated on the index and needs no message", code == 0 and seen[-1] == B1, msg)
+
+    # quoting is invisible to git: an option is classified on its dequoted text
+    qs = parse_commit(tokenize('git commit "-m" x')[2:])
+    check('a fully quoted "-m" is the message option, not a pathspec', qs.messages == ["x"] and qs.pathspecs == [])
+    qs = parse_commit(tokenize('git commit "-a" -m x')[2:])
+    check('a fully quoted "-a" sets all', qs.all and qs.pathspecs == [])
+    qs = parse_commit(tokenize('git commit "-"m x')[2:])
+    check('a partly quoted "-"m is still -m', qs.messages == ["x"] and qs.pathspecs == [])
+    qs = parse_commit(tokenize('git commit -m x -- "-dashed.json"')[2:])
+    check("a quoted pathspec that starts with a dash after -- is a pathspec", qs.pathspecs == ["-dashed.json"] and qs.messages == ["x"])
+    code, _, _ = run('git commit "-a" -m x', WT, ON, helper_=stale)
+    check('git commit "-a" gates the worktree binder like -a', code == 2)
+    code, _, _ = run('git commit "-m" x', PLAIN, ON, helper_=stale)
+    check('git commit "-m" x is a plain commit and is gated on the index', code == 2)
+    code, msg, _ = run('git commit "-m" x', PLAIN, ON)
+    check('git commit "-m" x passes with a fresh record', code == 0, msg)
+
+    # --allow-empty stages nothing new: a plain commit
+    code, msg, _ = run("git commit --allow-empty -m x", {}, ON)
+    check("--allow-empty on a clean tree passes", code == 0, msg)
+    code, msg, _ = run("git commit --allow-empty --allow-empty-message -m x", {}, ON)
+    check("--allow-empty-message is recognised", code == 0, msg)
+    code, _, _ = run("git commit --allow-empty -m x", PLAIN, ON, helper_=stale)
+    check("--allow-empty with a staged binder is still gated on the index", code == 2)
+    code, msg, _ = run("git commit --allow-empty -m x", PLAIN, ON)
+    check("--allow-empty with a staged binder and a fresh record passes", code == 0 and seen[-1] == B1, msg)
+
+    # quoted assignment values and group openers are seen through, not bypassed
+    for cmd in ('A="" git commit -m x', "A='' git commit -m x", 'FOO="a b" git commit -m x', "FOO='a b' BAR=c git commit -m x",
+                "(git commit -m x)", "( git commit -m x )", "{ git commit -m x; }", "{ git commit -m x ; }",
+                '(A="" git commit -m x)'):
+        check(f"detected as a commit: {cmd!r}", is_commit_command(cmd))
+        code, _, _ = run(cmd, PLAIN, ON, helper_=stale)
+        check(f"a quoted prefix or a subshell does not bypass the review gate: {cmd!r}", code == 2)
+    MI = "git merge --no-ff --no-edit karta/x/integration"
+    MRECQ = {BR: {"head": rec(TIP, 1, BL)}, BL: {"head": led(TIP)}}
+    for cmd in (f'FOO="a b" {MI}', f"FOO='a b' {MI}", f'A="" {MI}', f"({MI})", f"{{ {MI}; }}", f'(FOO="a b" {MI})'):
+        check(f"detected as a merge: {cmd!r}", is_merge_command(cmd) and merge_invocation(cmd) == ("karta/x/integration", False))
+        code, _, _ = run(cmd, MRECQ, ON, tip=TIP)
+        check(f"a quoted prefix or a subshell does not bypass the landing gate: {cmd!r}", code == 2)
+        code, _, _ = run(cmd, {}, CFG, env={LAND_VAR: "1"}, tip=TIP, helper_=stale)
+        check(f"a quoted prefix or a subshell does not bypass the merge review gate: {cmd!r}", code == 2)
+    for cmd in (f"{LAND_VAR}=1 {MI}", f"{LAND_VAR}=1 FOO='a b' {MI}", f"({LAND_VAR}=1 {MI})", f"{{ {LAND_VAR}=1 {MI}; }}"):
+        check(f"the inline landing approval is still recognised: {cmd!r}", merge_invocation(cmd) == ("karta/x/integration", True))
+    code, msg, _ = run(f"{LAND_VAR}=1 {MI}", MRECQ, ON, tip=TIP)
+    check("the inline landing approval still lands with a fresh record", code == 0, msg)
+    code, _, _ = run(f"{SKIP_VAR}=1 (git commit -m x)", PLAIN, ON, helper_=stale)
+    check("the skip hatch still applies ahead of a subshell", code == 0)
+    code, _, _ = run(f"{SKIP_VAR}=1 FOO='a b' git commit -m x", PLAIN, ON, helper_=stale)
+    check("the skip hatch still applies ahead of a quoted prefix", code == 0)
     code, _, _ = run("KARTA_SKIP_ROUNDTABLE=1 git commit .karta", PLAIN, ON)
     check("the skip hatch is evaluated before every other rule", code == 0)
     nocwd = _payload("git commit . -m x"); del nocwd["cwd"]
@@ -1326,6 +1396,22 @@ def _run_self_test() -> int:
     check("HEAD has no config, staged config true: enforced (first enable through the commit's source)", code == 2)
     code, _, _ = run("git commit . -m x", cfgtree(None, None, ONB), None)
     check("an untracked config is in no commit source: the switch is off for that commit", code == 0)
+    # no config anywhere (a consumer repo with the hook installed): every gate is
+    # off, the grammar included — nothing is denied by name
+    NOCFG = {BP: PLAIN[BP]}
+    for cmd in ("git commit -am x", "git add -A && git commit -m x", "git commit -m x", "(git commit -m x)"):
+        code, msg, _ = run(cmd, NOCFG, None, cwd=str(ROOT / ".karta"))
+        check(f"no config in HEAD: an unusual shape from a subdirectory is not denied: {cmd!r}", code == 0, msg)
+    code, msg, _ = run("git commit -m x", NOCFG, None, env={"GIT_EDITOR": "vim"})
+    check("no config in HEAD: GIT_EDITOR in the environment is not denied", code == 0, msg)
+    code, _, _ = run("git commit -am x", cfgtree(None, ONB, ONB), None, cwd=str(ROOT / ".karta"))
+    check("no config in HEAD but a staged enabled config: the first enable still meets the grammar", code == 2)
+    code, _, _ = run("git commit -m x", cfgtree(None, ONB, ONB), None)
+    check("no config in HEAD, staged config true, staged binder with a stale ledger: still gated", code == 2)
+    code, msg, _ = run("git commit -m x", {**cfgtree(None, ONB, ONB), LP: PLAIN[LP]}, None)
+    check("the same first enable with a fresh ledger passes", code == 0, msg)
+    code, _, _ = run("git commit -am x", cfgtree(None, None, ONB), None, cwd=str(ROOT / ".karta"))
+    check("no config in HEAD and none staged: -am from a subdirectory is not denied", code == 0)
     code, _, _ = run("git commit -a -m x", cfgtree(None, OFFB, ONB), None)
     check("HEAD absent, index false, worktree true under -a: the worktree config git commits is what governs", code == 2)
     code, msg, _ = run("git commit -m x", cfgtree(b"{not json", ONB, ONB), None)
