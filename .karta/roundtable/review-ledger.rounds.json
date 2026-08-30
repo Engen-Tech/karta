@@ -1144,13 +1144,45 @@
     "kimi/qwen lows: clause-52 grep wording (loop-variable exemption), plain message-less merge case, ${…}/$((…)) generalization, positive assertions on probe strings, end-to-end hook run, oracle size — logged for a consolidation binder"
    ],
    "notes": "Unanimous merge on this blob across four providers; recorded as .karta/roundtable/review-ledger.json and committed with the binder."
+  },
+  {
+   "round": 38,
+   "staged_blob_sha256": "781e2b407edd1fb31593d653cbe87c3d86c40f2099d160e3b7eec64eb3267a82",
+   "providers": {
+    "antigravity": {
+     "model": "cli-default",
+     "verdict": "merge"
+    },
+    "claude": {
+     "model": "claude-opus-4-8",
+     "verdict": "merge"
+    },
+    "codex": {
+     "model": "cli-default",
+     "verdict": "merge"
+    },
+    "fireworks-kimi": {
+     "model": "accounts/fireworks/models/kimi-k3",
+     "verdict": "merge"
+    },
+    "fireworks-qwen": {
+     "model": "Qwen 3.8 Max",
+     "verdict": "merge"
+    }
+   },
+   "findings_fixed": [
+    "ledger-gate oracle: the two merge drivers (runm, runm2) passed an empty env, so the landing gate denied every merge case before the ledger gate was measured — contradicting assertion 5; both now pass KARTA_LANDING_APPROVED=1 (found by the delivery: SPEC-SUSPECT halt at the acceptance gate, 33/34 conform; amended oracle proven exit 0 on the built item branch)"
+   ],
+   "findings_refuted_or_deferred": [],
+   "notes": "Delivery-time amendment round. Reviewed on the staged blob; committed on main with this record, then merged onto karta/review-ledger/integration."
   }
  ],
  "outcome": {
-  "final_round": 37,
-  "final_blob_sha256": "cae55125fbdfe4d228a87e342eac65102a5db9714a847ba2b133891d906a5c2f",
+  "final_round": 38,
+  "final_blob_sha256": "781e2b407edd1fb31593d653cbe87c3d86c40f2099d160e3b7eec64eb3267a82",
   "verdict": "merge",
   "providers_with_verdict": [
+   "antigravity",
    "claude",
    "codex",
    "fireworks-kimi",
