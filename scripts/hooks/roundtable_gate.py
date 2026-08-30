@@ -70,7 +70,8 @@ SHA, and `git pull` are accepted, documented bypasses of the same class as the
 escape hatch: a PreToolUse hook cannot evaluate "will this make the tip an
 ancestor". The ref itself is read in every spelling git accepts for a branch —
 `karta/<slug>/integration`, `refs/heads/karta/<slug>/integration`,
-`refs/remotes/<remote>/karta/<slug>/integration`.
+`refs/remotes/<remote>/karta/<slug>/integration` and the remote-tracking
+shorthand `<remote>/karta/<slug>/integration`.
 Detection is anchored at the head of each shell segment (split outside quotes
 on `&&`, `||`, `;`, `|`, a newline and a bare `&` — never the `&` of `2>&1` or
 `&>`), looking through assignment prefixes, `(`/`{` openers, `!`, redirections
@@ -153,10 +154,14 @@ INERT_GIT_ENV = {"GIT_EDITOR": ("true", ":"), "GIT_PAGER": ("cat",), "GIT_TERMIN
 _COMMIT_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+commit\b")
 _MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge(?![-\w])")
 # an integration ref named anywhere in a merge command: karta/<slug>/integration,
-# in its short spelling or the full one git also accepts — refs/heads/karta/...
-# and refs/remotes/<remote>/karta/... A raw SHA is not a ref spelling and stays
-# on the accepted-bypass list.
-_REF_PREFIX = r"(?:refs/heads/|refs/remotes/[^\s/]+/)?"
+# in its short spelling or the full ones git also accepts — refs/heads/karta/...,
+# refs/remotes/<remote>/karta/... and the remote-tracking shorthand
+# <remote>/karta/... (`origin/karta/x/integration`, one path component before
+# `karta/`, the spelling git resolves to the same refs/remotes ref). The
+# shorthand over-matches a local branch that happens to be named
+# `<word>/karta/<slug>/integration`; that over-denial is accepted. A raw SHA is
+# not a ref spelling and stays on the accepted-bypass list.
+_REF_PREFIX = r"(?:refs/heads/|refs/remotes/[^\s/]+/|[^\s/]+/)?"
 _INTEGRATION_REF_RE = re.compile(r"\b" + _REF_PREFIX + r"karta/[^\s/]+/integration\b")
 _INTEGRATION_REF_FULL_RE = re.compile(r"^" + _REF_PREFIX + r"karta/[^\s/]+/integration$")
 # a leading `(` or `{ ` group opener: `(git commit ...)` and `{ git commit ...; }`
@@ -164,6 +169,11 @@ _INTEGRATION_REF_FULL_RE = re.compile(r"^" + _REF_PREFIX + r"karta/[^\s/]+/integ
 _GROUP_OPEN_RE = re.compile(r"^[({]\s*")
 # a shell assignment word, on its dequoted text: NAME=value or NAME+=value
 _ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
+# an assignment word as GNU env reads it: any name without `=` (`X-Y=1`,
+# `1X=1`, `a.b=1` are all set, and the command after them runs). Applied only
+# to a word that is not an option (does not start with `-`) or that follows
+# `--`, so env's own options are still read as options.
+_ENV_ASSIGN_RE = re.compile(r"^[^=\s]+=")
 _MODE_RE = re.compile(r"^[0-7]{6}$")
 # executing wrappers the anchored matcher looks through, keyed on the command
 # word's basename (`/usr/bin/env`, `/usr/bin/timeout` are the same programs):
@@ -236,6 +246,10 @@ def _segments(command: str, bare_amp: bool = False) -> list[str]:
     cur: list[str] = []
     i, n = 0, len(text)
     in_single = in_double = False
+    # whether the previous character was an UNQUOTED, UNESCAPED `>` or `<` —
+    # only that is a redirection operator a following `&` / `|` belongs to;
+    # `\>&`, `'>'&` and `">"|` are a literal argument and then a real operator
+    prev_op = False
     while i < n:
         c = text[i]
         if in_single:
@@ -253,19 +267,21 @@ def _segments(command: str, bare_amp: bool = False) -> list[str]:
         elif c == '"':
             in_double = True
         elif c == "\n" or c == ";":
-            out.append("".join(cur)); cur = []; i += 1; continue
+            out.append("".join(cur)); cur = []; prev_op = False; i += 1; continue
         elif c in "&|":
-            prev = cur[-1] if cur else ""
             nxt = text[i + 1] if i + 1 < n else ""
-            if (c == "&" and (prev in "<>" or nxt == ">")) or (c == "|" and prev == ">"):
+            if (c == "&" and (prev_op or nxt == ">")) or (c == "|" and prev_op):
                 # the & of 2>&1 / >&f / <&0 / &>log, the | of >|: a redirection, not an operator
-                cur.append(c); i += 1; continue
+                cur.append(c); prev_op = False; i += 1; continue
             if nxt == c:
                 i += 1
             elif c == "&" and not bare_amp:
-                cur.append(c); i += 1; continue
-            out.append("".join(cur)); cur = []; i += 1; continue
+                cur.append(c); prev_op = False; i += 1; continue
+            out.append("".join(cur)); cur = []; prev_op = False; i += 1; continue
+        else:
+            cur.append(c); prev_op = c in "<>"; i += 1; continue
         cur.append(c)
+        prev_op = False
         i += 1
     out.append("".join(cur))
     return out
@@ -425,7 +441,7 @@ def _leading_command(segment: str) -> tuple[list[_Word], list[str], tuple[str, s
         after_dashdash = False
         while i < n:
             t = words[i].text
-            if is_env and _ASSIGN_TOKEN_RE.match(t):
+            if is_env and (after_dashdash or not t.startswith("-")) and _ENV_ASSIGN_RE.match(t):
                 assigns.append(words[i]); i += 1; continue  # env's own assignments; the option scan resumes
             if after_dashdash:
                 break
@@ -597,8 +613,10 @@ def _integration_ref_in(words: list[str]) -> str | None:
 
 
 def merge_invocations(command: str) -> list[tuple[str, bool]]:
-    """Every segment that merges a karta/<slug>/integration ref (short or
-    refs/heads / refs/remotes spelling), as (the ref, whether LAND_VAR=1
+    """Every segment that merges a karta/<slug>/integration ref (short,
+    refs/heads / refs/remotes, or <remote>/karta/... shorthand — the last also
+    matches an oddly named local branch `<word>/karta/<slug>/integration`,
+    an accepted over-denial), as (the ref, whether LAND_VAR=1
     prefixes that same segment). A segment whose command env -S hides counts
     when its dequoted words mention `git merge` and an integration ref: the
     hook cannot read what env runs, so it fails closed, and only the approval
@@ -2404,7 +2422,8 @@ def _run_self_test() -> int:
         check(f"an option outside the commit whitelist is still denied by name: {cmd!r}", code == 2 and "recognises" in msg, msg)
 
     # (17) the full-ref spellings of an integration branch are the same ref
-    FULL = ("refs/heads/karta/x/integration", "refs/remotes/origin/karta/x/integration", "refs/remotes/fork-1/karta/x/integration")
+    FULL = ("refs/heads/karta/x/integration", "refs/remotes/origin/karta/x/integration", "refs/remotes/fork-1/karta/x/integration",
+            "origin/karta/x/integration", "upstream/karta/x/integration", "fork-1/karta/x/integration")
     for full in FULL:
         for cmd in (f"git merge {full}", f"git merge --no-ff {full}", f"git merge --ff-only {full}", f"git merge --no-ff --no-edit {full}",
                     f"git merge -m x {full}", f'git merge "{full}"', f"git merge --no-ff -- {full}"):
@@ -2425,10 +2444,25 @@ def _run_self_test() -> int:
         check(f"an undecidable shape mentioning a full-ref spelling fails closed: {full!r}",
               merge_invocation(f"git merge --unknown-opt {full}") == (full, False))
     check("a full-ref mention inside a message is not a landing",
-          merge_invocation('git merge -m "refs/heads/karta/x/integration" feature/topic') is None)
+          merge_invocation('git merge -m "refs/heads/karta/x/integration" feature/topic') is None
+          and merge_invocation('git merge -m "origin/karta/x/integration" feature/topic') is None)
+    check("the remote shorthand is read whole, not as its karta/ tail",
+          merge_invocation("git merge origin/karta/x/integration") == ("origin/karta/x/integration", False)
+          and merge_invocation("git merge --unknown-opt origin/karta/x/integration") == ("origin/karta/x/integration", False)
+          and merge_invocation("git merge --unknown-opt refs/heads/karta/x/integration") == ("refs/heads/karta/x/integration", False))
+    check("the shorthand also matches an oddly named local branch — the accepted over-denial",
+          merge_invocation("git merge heads/karta/x/integration") == ("heads/karta/x/integration", False)
+          and merge_invocation("git merge tags/karta/x/integration") == ("tags/karta/x/integration", False))
+    for cmd in ("git merge --no-ff --no-edit origin/karta/x/integration", "git merge --ff-only upstream/karta/x/integration"):
+        check(f"the review merge gate reads the shorthand: {cmd!r}", merged_integration_ref(cmd) == cmd.split()[-1])
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, ON, tip=TIP, helper_=stale)
+        check(f"the review merge gate fires on the shorthand: {cmd!r}", code == 2 and "review" in msg.lower(), msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, ON, tip=TIP)
+        check(f"the review merge gate resolves the shorthand to the same tip and passes: {cmd!r}", code == 0, msg)
     for cmd in ("git merge refs/tags/karta/x/integration", "git merge refs/heads/karta/x/integration2", "git merge refs/heads/karta/integration",
-                "git merge heads/karta/x/integration", "git merge refs/remotes/karta/x/integration", "git merge origin/karta/x/integration",
-                f"git merge {TIP}"):
+                "git merge refs/remotes/karta/x/integration", "git merge origin/x/karta/x/integration", "git merge remotes/origin/karta/x/integration",
+                "git merge refs/tags/v1", "git merge refs/tags/karta/x/integration", "git merge origin/karta/x/integration2",
+                f"git merge {TIP}", f"git merge origin/{TIP}"):
         check(f"not an integration branch spelling (a raw SHA stays a documented bypass): {cmd!r}", merge_invocation(cmd) is None, str(merge_invocation(cmd)))
         code, _, _ = run(cmd, MREC, {}, tip=TIP)
         check(f"the landing gate does not fire on it: {cmd!r}", code == 0)
@@ -2501,6 +2535,25 @@ def _run_self_test() -> int:
           and merge_invocation("true &>log && git merge karta/x/integration") == IREF)
     check("a bare & still splits", merge_invocation("sleep 1 & git merge karta/x/integration") == IREF
           and merge_invocation("git merge karta/x/integration & true") == IREF)
+    for cmd in ("true \\>& git merge karta/x/integration", "true \\>| git merge karta/x/integration", "true '>'& git merge karta/x/integration",
+                "true '>'| git merge karta/x/integration", 'true ">"& git merge karta/x/integration', "true \\<& git merge karta/x/integration",
+                "echo a\\>&git merge karta/x/integration", "true \\>&& git merge karta/x/integration", "true \\>|| git merge karta/x/integration"):
+        check(f"an escaped or quoted redirection char is a literal; the & / | after it is an operator: {cmd!r}",
+              merge_invocation(cmd) == IREF and is_merge_command(cmd), str(_segments(cmd, bare_amp=True)))
+        code, msg, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"the landing gate fires after an escaped redirection char: {cmd!r}", code == 2 and "human" in msg, msg)
+    for cmd in ("true \\>& git commit -m x", "true \\>| git commit -m x", "true '>'& git commit -m x", "true '<'| git commit -m x",
+                "true \\<& git commit -m x"):
+        check(f"an escaped or quoted redirection char does not hide a commit: {cmd!r}", is_commit_command(cmd), str(_segments(cmd, bare_amp=True)))
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"the review gate meets the commit after an escaped redirection char: {cmd!r}", code == 2, msg)
+    for cmd in ("git merge 2>&1 karta/x/integration", "git merge >&2 karta/x/integration", "git merge <&0 karta/x/integration",
+                "git merge >|log karta/x/integration", "git merge &>log karta/x/integration", "git merge 2>&1 >|log karta/x/integration"):
+        check(f"a real redirection is still one segment: {cmd!r}", _segments(cmd, bare_amp=True) == [cmd]
+              and merge_invocation(cmd) == IREF, str(_segments(cmd, bare_amp=True)))
+    check("a real redirection then a bare & still splits", _segments("true 2>&1 & git merge karta/x/integration", bare_amp=True)
+          == ["true 2>&1 ", " git merge karta/x/integration"])
+    check("an escaped backslash before > is not an escape of the >", _segments("true \\\\>&1 & true", bare_amp=True) == ["true \\\\>&1 ", " true"])
     check("a quoted redirection is text, not an operator", merge_invocation('git merge -m "a > b 2>&1" karta/x/integration') == IREF
           and merge_invocation("git merge -m '&>log' karta/x/integration") == IREF)
     check("a redirection target is not a ref", merge_invocation("git merge feature/topic >karta/x/integration") is None
@@ -2515,6 +2568,28 @@ def _run_self_test() -> int:
     check("a wrapped, redirected merge is still read", merge_invocation("env -i git merge 2>&1 karta/x/integration") == IREF
           and merge_invocation("timeout 5 git merge karta/x/integration >log") == IREF)
     check("a heredoc operator's delimiter is its target", not is_commit_command("cat <<EOF") and not is_merge_command("cat <<'EOF'"))
+
+    # (19b) env sets any name without `=`: the command after a non-identifier assignment runs
+    for a in ("X-Y=1", "1X=1", "a.b=1", "X-Y=1 1X=2 a.b=3", "-i X-Y=1", "X-Y=1 -u FOO", "-- X-Y=1", "-- -x=1", "-i -- 1X=1",
+              "@=1", "X-Y=", "a.b+=1"):
+        cmd = f"env {a} git merge --ff-only karta/x/integration"
+        check(f"env's non-identifier assignment does not hide a landing: {cmd!r}", merge_invocation(cmd) == IREF, str(merge_invocation(cmd)))
+        code, msg, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"the landing gate fires through it: {cmd!r}", code == 2 and "human" in msg, msg)
+        check(f"the review merge gate reads through it: {cmd!r}", merged_integration_ref(cmd) == "karta/x/integration")
+        cmd = f"env {a} git commit -m x"
+        check(f"env's non-identifier assignment does not hide a commit: {cmd!r}", is_commit_command(cmd))
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"the review gate meets the commit through it: {cmd!r}", code == 2 and "hides" not in msg, msg)
+    for cmd in ("env --unset=FOO git commit -m x", "env --chdir=. git commit -m x", "env -u=FOO git commit -m x", "env --u=FOO git merge karta/x/integration"):
+        check(f"an env option with = is still an option, not an assignment: {cmd!r}",
+              is_commit_command(cmd) or merge_invocation(cmd) == IREF)
+    check("env -S with a = word is still the hiding option", hidden_invocation("env X-Y=1 -S 'git commit -m x'") is not None)
+    check("the shell-prefix assignment keeps the identifier rule",
+          not is_commit_command("X-Y=1 git commit -m x") and not is_commit_command("1X=1 git commit -m x")
+          and is_commit_command("X_Y=1 git commit -m x"))
+    check("env assignment words are the segment's assigns",
+          [w.text for w in _leading_command("env X-Y=1 1X=2 git commit -m x")[0]] == ["X-Y=1", "1X=2"])
 
     # (20) env -a / --argv0 renames argv[0] only: the command after it is read
     for cmd in ("env -a spoof git merge --ff-only karta/x/integration", "env --argv0=spoof git merge --ff-only karta/x/integration",
