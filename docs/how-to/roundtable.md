@@ -128,8 +128,11 @@ A PreToolUse hook sees a command before it runs. It can match command text and r
 - `git cherry-pick`
 - `git rebase`
 - `git reset --hard`
+- `git update-ref` / `git symbolic-ref` moving the default branch to an integration tip — the same class as the three above
+- a merge that names the tip by raw SHA (the ref itself is read in every branch spelling: `karta/<slug>/integration`, `refs/heads/karta/<slug>/integration`, `refs/remotes/<remote>/karta/<slug>/integration`)
 - `git merge --squash` followed by a separate `git commit`
-- an `env -S '...'` string whose further quoting hides the integration ref from the text reader (an `env -S`/`--split-string` or `env -a`/`--argv0` segment that does show `git merge` and an integration ref is denied outright — the hook cannot read what env will run, so it fails closed)
+- an invocation the hook only sees as text: behind `sh -c '...'`, `eval`, `sudo`, `su -c`, `bash <file>`, `coproc`, a shell function or alias, a `$VAR` that expands to `git`, a history expansion, or a `$(...)` / backtick substitution (with the config on the review grammar denies any raw substitution outright; with it off the text is not read)
+- an `env -S '...'` string whose further quoting hides the integration ref from the text reader (an `env -S`/`--split-string` segment that does show `git merge` and an integration ref is denied outright — the hook cannot read a split string, so it fails closed; `env -a`/`--argv0` only renames argv[0], so the command after it is read like any other)
 
 The doctrine lists them plainly rather than pretending the gate is airtight. If you land integration content this way, run the review yourself — the gate will not remind you.
 

@@ -64,28 +64,40 @@ root-relatively. The cost of that posture is over-denial of unusual but valid
 spellings, never under-denial. Malformed ledgers, records and configs are
 denials with the defect named, never internal errors.
 
-git cherry-pick / rebase / reset --hard, a merge that names the tip by SHA, and
-`git pull` are accepted, documented bypasses of the same class as the escape
-hatch: a PreToolUse hook cannot evaluate "will this make the tip an ancestor".
+git cherry-pick / rebase / reset --hard, `git update-ref` / `git symbolic-ref`
+moving the default branch to an integration tip, a merge that names the tip by
+SHA, and `git pull` are accepted, documented bypasses of the same class as the
+escape hatch: a PreToolUse hook cannot evaluate "will this make the tip an
+ancestor". The ref itself is read in every spelling git accepts for a branch —
+`karta/<slug>/integration`, `refs/heads/karta/<slug>/integration`,
+`refs/remotes/<remote>/karta/<slug>/integration`.
 Detection is anchored at the head of each shell segment (split outside quotes
-on `&&`, `||`, `;`, `|`, a newline and a bare `&`), looking through assignment
-prefixes, `(`/`{` openers, `!`, and the executing wrappers time / env /
-command / builtin / exec / nice / nohup / timeout / stdbuf — their options
+on `&&`, `||`, `;`, `|`, a newline and a bare `&` — never the `&` of `2>&1` or
+`&>`), looking through assignment prefixes, `(`/`{` openers, `!`, redirections
+with their targets (`2>&1`, `>log`, `&>log` — git never sees them), and the
+executing wrappers time / env / command / builtin / exec / nice / nohup /
+timeout / stdbuf, matched by basename (`/usr/bin/env`) — their options
 wherever GNU getopt permutes them, before or after the wrapper's own positional
-— on dequoted words, and the command word is git when its basename is git
-(`/usr/bin/git`, `./git`, `~/bin/git`). Every gated segment is judged on its
-own: a landing is approved only by the prefix on that very segment, and the
-skip hatch covers only the segment it prefixes. Two env spellings hide the
-command from a text reader, `env -S`/`--split-string` (re-splits its string)
-and `env -a`/`--argv0` (renames the program): those FAIL CLOSED — the review
-gates deny the segment by the option's name, and the landing gate denies it
-whenever the dequoted words mention `git merge` and an integration ref. What
-the gate still cannot see, and does not pretend to: an invocation behind `do`,
-`xargs`, `sh -c '...'`, `eval`, `sudo`, `su -c`, `bash <file>`, a shell
-function or alias, a `$VAR` that expands to `git`, a history expansion, or an
-`env -S` string whose further quoting hides the ref itself — those read as
-text, and the review gates' deny-by-default grammar catches only the ones it
-is handed. The landing gate shares them. A repository hook
+or an env assignment, short clusters char by char (`-iu X`, `exec -ca spoof`),
+long options by unambiguous GNU prefix (`--un X`), env's legacy `-` as `-i` —
+on dequoted words, and the command word is git when its basename is git
+(`/usr/bin/git`, `./git`, `~/bin/git`). Git's optional-argument options
+(`-S[key]`, `--gpg-sign[=key]`, `--log[=n]`) carry their value attached only,
+so a following word is the ref. `env -a NAME` only renames argv[0]: the program
+env runs is still the next word, and it is read. Every gated segment is judged
+on its own: a landing is approved only by the prefix on that very segment, and
+the skip hatch covers only the segment it prefixes. One env spelling hides the
+command from a text reader, `env -S`/`--split-string` (re-splits its string):
+that FAILS CLOSED — the review gates deny the segment by the option's name, and
+the landing gate denies it whenever the dequoted words mention `git merge` and
+an integration ref. What the gate still cannot see, and does not pretend to:
+an invocation behind `do`, `xargs`, `sh -c '...'`, `eval`, `sudo`, `su -c`,
+`bash <file>`, `coproc`, a shell function or alias, a `$VAR` that expands to
+`git`, a history expansion, a `$(...)` or backtick substitution (with the
+config on the grammar denies any raw substitution; with it off the text is not
+read), or an `env -S` string whose further quoting hides the ref itself — those
+read as text, and the review gates' deny-by-default grammar catches only the
+ones it is handed. The landing gate shares them. A repository hook
 (.git/hooks/pre-commit) is the same channel as an editor and is not something
 a text gate can close. All are named rather than papered over.
 
@@ -140,39 +152,68 @@ INERT_GIT_ENV = {"GIT_EDITOR": ("true", ":"), "GIT_PAGER": ("cat",), "GIT_TERMIN
 # head of a segment, so `"git"`, `\git` and `git''` are all git.
 _COMMIT_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+commit\b")
 _MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge(?![-\w])")
-# an integration ref named anywhere in a merge command: karta/<slug>/integration
-_INTEGRATION_REF_RE = re.compile(r"\bkarta/[^\s/]+/integration\b")
-_INTEGRATION_REF_FULL_RE = re.compile(r"^karta/[^\s/]+/integration$")
+# an integration ref named anywhere in a merge command: karta/<slug>/integration,
+# in its short spelling or the full one git also accepts — refs/heads/karta/...
+# and refs/remotes/<remote>/karta/... A raw SHA is not a ref spelling and stays
+# on the accepted-bypass list.
+_REF_PREFIX = r"(?:refs/heads/|refs/remotes/[^\s/]+/)?"
+_INTEGRATION_REF_RE = re.compile(r"\b" + _REF_PREFIX + r"karta/[^\s/]+/integration\b")
+_INTEGRATION_REF_FULL_RE = re.compile(r"^" + _REF_PREFIX + r"karta/[^\s/]+/integration$")
 # a leading `(` or `{ ` group opener: `(git commit ...)` and `{ git commit ...; }`
 # are the same invocation wrapped, and the closer is trailing text
 _GROUP_OPEN_RE = re.compile(r"^[({]\s*")
 # a shell assignment word, on its dequoted text: NAME=value or NAME+=value
 _ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 _MODE_RE = re.compile(r"^[0-7]{6}$")
-# executing wrappers the anchored matcher looks through: the word, the options
-# that take a separate value, and how many positional words precede the command
-_WRAPPERS: dict[str, tuple[tuple[str, ...], int]] = {
-    "time": ((), 0), "command": ((), 0), "builtin": ((), 0), "exec": (("-a",), 0),
-    "nohup": ((), 0), "nice": (("-n", "--adjustment"), 0), "timeout": (("-k", "-s", "--kill-after", "--signal"), 1),
-    "stdbuf": (("-i", "-o", "-e", "--input", "--output", "--error"), 0),
-    "env": (("-u", "-C", "-S", "-a", "--unset", "--chdir", "--split-string", "--argv0"), 0),
+# executing wrappers the anchored matcher looks through, keyed on the command
+# word's basename (`/usr/bin/env`, `/usr/bin/timeout` are the same programs):
+# (the short option letters that take a value — attached or as the next word,
+# read char by char through a cluster, so `-iu X` unsets X and `-ca spoof` is
+# exec's -c plus -a's value; the long options that take a value; the long
+# options that take none, both matched on any unambiguous GNU prefix; and how
+# many positional words precede the command). Any other short letter is a flag;
+# an unknown long option is read as a flag. An optional-argument long option
+# (`--default-signal[=SIG]`) only ever carries its value attached, so it is a
+# flag here.
+_WRAPPERS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...], int]] = {
+    "time": ("of", ("--output", "--format"), ("--append", "--portability", "--verbose", "--quiet"), 0),
+    "command": ("", (), (), 0), "builtin": ("", (), (), 0), "exec": ("a", (), (), 0),
+    "nohup": ("", (), ("--help", "--version"), 0),
+    "nice": ("n", ("--adjustment",), ("--help", "--version"), 0),
+    "timeout": ("ks", ("--kill-after", "--signal"), ("--foreground", "--preserve-status", "--verbose", "--help", "--version"), 1),
+    "stdbuf": ("ioe", ("--input", "--output", "--error"), ("--help", "--version"), 0),
+    "env": ("uCSa", ("--unset", "--chdir", "--split-string", "--argv0"),
+            ("--ignore-environment", "--null", "--debug", "--default-signal", "--ignore-signal", "--block-signal",
+             "--list-signal-handling", "--help", "--version"), 0),
 }
-# env options after which the command is no longer readable from the text: -S
-# re-splits its string by env's own rules, -a renames the program. Long forms
-# are matched on any unambiguous GNU prefix (`--split`, `--argv`, `--s`, `--a`).
-_ENV_HIDING_SHORT = {"S": "-S", "a": "-a"}
-_ENV_HIDING_LONG = ("--split-string", "--argv0")
-_ENV_VALUED_SHORT = "uCSa"
+# the one env option after which the command is no longer readable from the
+# text: -S re-splits its string by env's own rules. (-a/--argv0 only renames
+# argv[0]; the program env runs is still the next word, so it is read through.)
+_ENV_HIDING_SHORT = {"S": "-S"}
+_ENV_HIDING_LONG = ("--split-string",)
 
 # commit options the hook knows. Anything else is denied by name: a skipped
 # value-bearing option would leave its argument to be read as a pathspec.
 COMMIT_VALUE_OPTS = ("-m", "--message", "-F", "--file", "--author", "--date", "--trailer")
 COMMIT_FLAG_OPTS = ("-a", "--all", "-i", "--include", "-o", "--only", "--amend", "--no-edit",
                     "-q", "--quiet", "-v", "--verbose", "-s", "--signoff", "--no-verify", "-n",
-                    "--allow-empty", "--allow-empty-message")  # stage nothing new: a plain commit
+                    "--allow-empty", "--allow-empty-message",  # stage nothing new: a plain commit
+                    "-S", "--gpg-sign", "--no-gpg-sign")
 COMMIT_DENIED_MODES = ("-p", "--patch", "--interactive", "--pathspec-from-file", "--pathspec-file-nul")
-MERGE_FLAG_OPTS = ("--no-ff", "--ff-only", "--no-edit")
+MERGE_FLAG_OPTS = ("--no-ff", "--ff-only", "--no-edit", "-S", "--gpg-sign", "--no-gpg-sign")
 MERGE_VALUE_OPTS = ("-m",)
+# git's optional-argument options: the value is only ever ATTACHED (`-Skey`,
+# `--gpg-sign=key`); a separate next word is a pathspec or the ref. So the bare
+# spelling is a flag, and the attached spelling is the same flag with a value.
+OPTIONAL_ATTACHED_LONG = ("--gpg-sign",)
+OPTIONAL_ATTACHED_SHORT = ("-S",)
+
+
+def _optional_attached(t: str) -> bool:
+    """Whether `t` is an optional-argument option carrying its value attached."""
+    name = t.partition("=")[0]
+    return (name in OPTIONAL_ATTACHED_LONG and "=" in t) or (
+        not t.startswith("--") and len(t) > 2 and t[:2] in OPTIONAL_ATTACHED_SHORT)
 
 
 class Denial(Exception):
@@ -214,7 +255,12 @@ def _segments(command: str, bare_amp: bool = False) -> list[str]:
         elif c == "\n" or c == ";":
             out.append("".join(cur)); cur = []; i += 1; continue
         elif c in "&|":
-            if i + 1 < n and text[i + 1] == c:
+            prev = cur[-1] if cur else ""
+            nxt = text[i + 1] if i + 1 < n else ""
+            if (c == "&" and (prev in "<>" or nxt == ">")) or (c == "|" and prev == ">"):
+                # the & of 2>&1 / >&f / <&0 / &>log, the | of >|: a redirection, not an operator
+                cur.append(c); i += 1; continue
+            if nxt == c:
                 i += 1
             elif c == "&" and not bare_amp:
                 cur.append(c); i += 1; continue
@@ -226,18 +272,27 @@ def _segments(command: str, bare_amp: bool = False) -> list[str]:
 
 
 class _Word:
-    __slots__ = ("text", "unquoted")
+    __slots__ = ("text", "unquoted", "redirect")
 
     def __init__(self) -> None:
         self.text = ""      # the word after quote removal
         self.unquoted = ""  # the characters that sat outside any quoting
+        self.redirect = 0   # a redirection operator: 1 = its target is the next word, 2 = self-contained
+
+
+_REDIRECT_RE = re.compile(r"(?:&>>?|<<<|<<|<>|<&|>&|>\||>>|<|>)")
 
 
 def _loose_words(segment: str) -> list[_Word]:
     """shlex-style word split with quote removal, lenient where tokenize() is
     strict: no denials, an unbalanced quote runs to the end, and control
-    characters are ordinary text. Only for the anchored DETECTION of a gated
-    invocation; the deny-by-default grammar re-lexes with tokenize()."""
+    characters are ordinary text. An unquoted redirection operator (`>`, `>>`,
+    `<`, `2>`, `2>&1`, `&>`, `&>>`, `<&`, `>&`, `>|`, `<<`, `<>`) is its own
+    word, marked, with a leading unquoted digit string (`2>`) folded into it;
+    `>&1` / `<&0` / `>&-` carry their target attached and are self-contained,
+    every other operator's target is the word that follows, attached or not.
+    Only for the anchored DETECTION of a gated invocation; the deny-by-default
+    grammar re-lexes with tokenize(), which denies every redirection."""
     words: list[_Word] = []
     cur: _Word | None = None
     i, n = 0, len(segment)
@@ -259,6 +314,27 @@ def _loose_words(segment: str) -> list[_Word]:
         elif c in " \t":
             if cur is not None:
                 words.append(cur); cur = None
+        elif c in "<>" or (c == "&" and i + 1 < n and segment[i + 1] == ">"):
+            op = _REDIRECT_RE.match(segment, i).group(0)
+            if cur is not None and not (cur.text.isdigit() and cur.unquoted == cur.text and c != "&"):
+                words.append(cur); cur = None  # the fd digits stay with the operator
+            if cur is None:
+                cur = _Word()
+            cur.text += op; cur.unquoted += op
+            cur.redirect = 1
+            i += len(op)
+            if op.endswith("&"):
+                j = i
+                while j < n and segment[j].isdigit():
+                    j += 1
+                if j == i and i < n and segment[i] == "-":
+                    j += 1
+                if j > i:
+                    cur.text += segment[i:j]; cur.unquoted += segment[i:j]
+                    cur.redirect = 2
+                    i = j
+            words.append(cur); cur = None
+            continue
         else:
             if cur is None:
                 cur = _Word()
@@ -276,23 +352,29 @@ def _loose_words(segment: str) -> list[_Word]:
     return words
 
 
-def _env_hiding_option(opt: str) -> str | None:
-    """The env option in `opt` that hides the command from a text reader, or
-    None: `-S`/`-a` anywhere in a short cluster (`-iS`, `-S'git ...'`, `-aname`),
-    or any unambiguous GNU prefix of `--split-string` / `--argv0`."""
-    if opt.startswith("--"):
-        name = opt.split("=", 1)[0]
-        if len(name) > 2:
-            for long in _ENV_HIDING_LONG:
-                if long.startswith(name):
-                    return long
-        return None
-    for ch in opt[1:]:
-        if ch in _ENV_HIDING_SHORT:
-            return _ENV_HIDING_SHORT[ch]
-        if ch in _ENV_VALUED_SHORT:
-            return None  # the rest of the cluster is that option's value
-    return None
+def _strip_redirections(words: list[_Word]) -> list[_Word]:
+    """The words with every redirection operator and its target dropped: git
+    never sees `2>&1` or `>log`, so neither does the ref detection."""
+    out: list[_Word] = []
+    skip = False
+    for w in words:
+        if skip:
+            skip = False; continue
+        if w.redirect:
+            skip = w.redirect == 1
+            continue
+        out.append(w)
+    return out
+
+
+def _long_option(name: str, known: tuple[str, ...]) -> str | None:
+    """The long option `name` (`--` and the name, no value) spells, by exact
+    match or any unambiguous GNU prefix of the wrapper's `known` list; None
+    when it is unknown or ambiguous."""
+    if name in known:
+        return name
+    hits = [k for k in known if k.startswith(name)]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _leading_command(segment: str) -> tuple[list[_Word], list[str], tuple[str, str] | None]:
@@ -301,24 +383,29 @@ def _leading_command(segment: str) -> tuple[list[_Word], list[str], tuple[str, s
     stripped, and the hiding env option with the dequoted words after `env` —
     or None):
     `(` / `{` group openers, VAR=value and VAR+=value assignments (quoted values
-    and backslash-escaped spaces included), a `!` negation, and the executing
-    wrappers in _WRAPPERS — `time`, `env` with its own assignments, `command`,
-    `builtin`, `exec`, `nice -n N`, `nohup`, `timeout <dur>`, `stdbuf <opts>`.
-    A wrapper's options are read wherever GNU getopt permutes them — before or
-    after its positional (`timeout 5 -s KILL git ...`) — and a bare `--` ends
-    them, so the command follows. Each of those runs the same git the shell
-    would; none of them is a place for an invocation to hide. `env -S` and
-    `env -a` are the exception: env itself rewrites what it runs, so the head is
-    empty and the third slot names the option for the caller to deny on. The
-    command word is matched on its dequoted text, so `"git"`, `\\git` and
-    `git''` are all git, and by its basename, so `/usr/bin/git` is too."""
+    and backslash-escaped spaces included), a `!` negation, redirections with
+    their targets (git never sees `2>&1` or `>log`), and the executing wrappers
+    in _WRAPPERS — `time`, `env` with its own assignments, `command`, `builtin`,
+    `exec`, `nice -n N`, `nohup`, `timeout <dur>`, `stdbuf <opts>` — matched on
+    the wrapper word's basename. A wrapper's options are read wherever GNU
+    getopt permutes them — before or after its positional (`timeout 5 -s KILL
+    git ...`), after an env assignment (`env F=1 -i git ...`) — short clusters
+    char by char with the valued letter taking the rest of the cluster or the
+    next word (`-iu X`, `-ca spoof`), long options by exact name or unambiguous
+    GNU prefix (`--un X`), env's legacy `-` as `-i`, and a bare `--` ends them,
+    so the command follows. Each of those runs the same git the shell would;
+    none of them is a place for an invocation to hide. `env -S` is the
+    exception: env itself re-splits what it runs, so the head is empty and the
+    third slot names the option for the caller to deny on. The command word is
+    matched on its dequoted text, so `"git"`, `\\git` and `git''` are all git,
+    and by its basename, so `/usr/bin/git` is too."""
     seg = segment.strip()
     while True:
         m = _GROUP_OPEN_RE.match(seg)
         if not m:
             break
         seg = seg[m.end():]
-    words = _loose_words(seg)
+    words = _strip_redirections(_loose_words(seg))
     assigns: list[_Word] = []
     i, n = 0, len(words)
     while i < n:
@@ -327,32 +414,52 @@ def _leading_command(segment: str) -> tuple[list[_Word], list[str], tuple[str, s
             assigns.append(w); i += 1; continue
         if w.text == "!":
             i += 1; continue
-        spec = _WRAPPERS.get(w.text)
+        name = os.path.basename(w.text) if w.text else ""
+        spec = _WRAPPERS.get(name)
         if spec is None:
             break
-        valued, remaining = spec
+        is_env = name == "env"
+        short_valued, long_valued, long_flags, remaining = spec
         i += 1
         after_env = i
+        after_dashdash = False
         while i < n:
             t = words[i].text
-            if t == "--":
-                i += 1
+            if is_env and _ASSIGN_TOKEN_RE.match(t):
+                assigns.append(words[i]); i += 1; continue  # env's own assignments; the option scan resumes
+            if after_dashdash:
                 break
-            if t.startswith("-") and t != "-":
-                if w.text == "env":
-                    hiding = _env_hiding_option(t)
-                    if hiding:
-                        return assigns, [], (hiding, " ".join(x.text for x in words[after_env:]))
+            if t == "--":
+                after_dashdash = True; i += 1; continue
+            if t == "-" and is_env:
+                i += 1; continue  # the legacy spelling of -i
+            if t.startswith("--"):
+                lname, eq, _ = t.partition("=")
+                long = _long_option(lname, long_valued + long_flags)
+                if is_env and long in _ENV_HIDING_LONG:
+                    return assigns, [], (long, " ".join(x.text for x in words[after_env:]))
                 i += 1
-                if t in valued and i < n:
-                    i += 1
+                if long in long_valued and not eq and i < n:
+                    i += 1  # the value is the next word
+                continue
+            if t.startswith("-") and t != "-":
+                i += 1
+                if name == "nice" and t[1:].isdigit():
+                    continue  # nice -5: the legacy adjustment
+                k = 1
+                while k < len(t):
+                    ch = t[k]
+                    if is_env and ch in _ENV_HIDING_SHORT:
+                        return assigns, [], (_ENV_HIDING_SHORT[ch], " ".join(x.text for x in words[after_env:]))
+                    if ch in short_valued:
+                        if k + 1 >= len(t) and i < n:
+                            i += 1  # the value is the next word
+                        break  # attached: the rest of the cluster is the value
+                    k += 1
                 continue
             if remaining > 0:
                 remaining -= 1; i += 1; continue
             break
-        if w.text == "env":
-            while i < n and _ASSIGN_TOKEN_RE.match(words[i].text):
-                assigns.append(words[i]); i += 1
     if i < n and words[i].text != "git" and os.path.basename(words[i].text) == "git":
         words[i].text = "git"
     if words and words[-1].unquoted.endswith(")") and words[-1].text.endswith(")"):
@@ -386,10 +493,10 @@ def is_merge_command(command: str) -> bool:
 
 
 def hidden_invocation(command: str) -> str | None:
-    """The env option that hides a segment's command from the hook (`-S`,
-    `--split-string`, `-a`, `--argv0`), or None. The hook cannot read what env
-    will run after re-splitting or renaming, so such a segment is treated as a
-    gated invocation and denied by name — never silently allowed."""
+    """The env option that hides a segment's command from the hook (`-S` or
+    `--split-string`), or None. The hook cannot read what env will run after
+    re-splitting its string, so such a segment is treated as a gated invocation
+    and denied by name — never silently allowed."""
     for seg in _segments(command, bare_amp=True):
         _, _, hidden = _leading_command(seg)
         if hidden:
@@ -427,10 +534,12 @@ _MERGE_NOVALUE_OPTS = frozenset((
     "--log", "--no-log", "--signoff", "--no-signoff", "--progress", "--no-progress", "--autostash",
     "--no-autostash", "--allow-unrelated-histories", "--rerere-autoupdate", "--no-rerere-autoupdate",
     "--overwrite-ignore", "--no-overwrite-ignore", "--verify-signatures", "--no-verify-signatures",
-    "--no-gpg-sign", "--summary", "--no-summary", "--abort", "--continue", "--quit"))
+    "--no-gpg-sign", "--summary", "--no-summary", "--abort", "--continue", "--quit",
+    # optional-argument options: the value is only ever attached (`--gpg-sign=key`, `--log=n`),
+    # so the bare spelling takes no value and the next word is the ref
+    "--gpg-sign"))
 _MERGE_VALUED_SHORT = ("-m", "-F", "-s", "-X")
-_MERGE_VALUED_LONG = ("--message", "--file", "--strategy", "--strategy-option", "--gpg-sign", "--cleanup",
-                      "--into-name")
+_MERGE_VALUED_LONG = ("--message", "--file", "--strategy", "--strategy-option", "--cleanup", "--into-name")
 _UNKNOWN = "?"
 
 
@@ -488,11 +597,12 @@ def _integration_ref_in(words: list[str]) -> str | None:
 
 
 def merge_invocations(command: str) -> list[tuple[str, bool]]:
-    """Every segment that merges a karta/<slug>/integration ref, as (the ref,
-    whether LAND_VAR=1 prefixes that same segment). A segment whose command
-    env -S / env -a hides counts when its dequoted words mention `git merge`
-    and an integration ref: the hook cannot read what env runs, so it fails
-    closed, and only the approval prefix on that segment lets it through."""
+    """Every segment that merges a karta/<slug>/integration ref (short or
+    refs/heads / refs/remotes spelling), as (the ref, whether LAND_VAR=1
+    prefixes that same segment). A segment whose command env -S hides counts
+    when its dequoted words mention `git merge` and an integration ref: the
+    hook cannot read what env runs, so it fails closed, and only the approval
+    prefix on that segment lets it through."""
     out: list[tuple[str, bool]] = []
     for seg in _segments(command, bare_amp=True):
         assigns, words, hidden = _leading_command(seg)
@@ -719,6 +829,9 @@ def parse_commit(words: list[Tok]) -> CommitSpec:
                 spec.message_files.append(value)
             i += 1
             continue
+        if _optional_attached(t):
+            i += 1
+            continue  # -Skey / --gpg-sign=key: the value rides attached, the next word is a pathspec
         if eq or t not in COMMIT_FLAG_OPTS:
             raise Denial(f"commit option {t!r} is not one the hook recognises")
         if t in ("-a", "--all"):
@@ -762,6 +875,8 @@ def parse_merge(words: list[Tok]) -> MergeSpec:
                 spec.ff_only = True
             elif t == "--no-edit":
                 spec.no_edit = True
+            elif t in MERGE_FLAG_OPTS or _optional_attached(t):
+                pass  # -S / --gpg-sign[=key]: signing, with any key id attached — the next word is the ref
             else:
                 raise Denial(f"merge option {t!r} is not one the hook recognises")
         else:
@@ -1330,8 +1445,9 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
         if config is not None and not enabled(config):
             return 0, ""
         if hidden is not None:
-            raise Denial(f"env {hidden} hides the command it runs from the hook — env re-splits or "
-                         f"renames what it executes, so the gate cannot read it. Run git directly.")
+            raise Denial(f"env {hidden} hides the command it runs from the hook: env re-splits that "
+                         f"string by its own rules, and the hook cannot read a split string. Spell the "
+                         f"invocation as separate words instead of an env {hidden} string.")
         _check_cwd(payload)
         _check_environment(env)
         _, words = parse_invocation(command)
@@ -1458,7 +1574,7 @@ def _run_self_test() -> int:
                     return (128, b"") if unborn else (1, b"") if headfail else (0, b"0" * 40 + b"\n")
                 return (1, b"") if unborn else (0, b"0" * 40 + b"\n")
             if argv[0] == "rev-parse":
-                return (0, (tip + "\n").encode()) if tip and argv[-1].startswith("karta/") else (1, b"")
+                return (0, (tip + "\n").encode()) if tip and _INTEGRATION_REF_FULL_RE.match(argv[-1]) else (1, b"")
             if argv[0] == "show":
                 key, _, p = argv[1].partition(":")
                 key = "head" if key == "HEAD" else "index"
@@ -2080,15 +2196,16 @@ def _run_self_test() -> int:
     # (10) env -S / env -a hide the command: fail closed, never silent
     HIDE_COMMIT = ("env -S 'git commit -m x'", 'env -S "git commit -m x"', "env --split-string='git commit -m x'",
                    "env --split-string 'git commit -m x'", "env --split='git commit -m x'", "env --s='git commit -m x'",
-                   "env -iS 'git commit -m x'", "env -S'git commit -m x'", "env -a spoof git commit -m x",
-                   "env --argv0=spoof git commit -m x", "env --argv0 spoof git commit -m x", "env --argv spoof git commit -m x",
-                   "env -ia spoof git commit -m x", "env -aspoof git commit -m x", "FOO=1 env -u BAR -S 'git commit -m x'",
-                   "time env -S 'git commit -m x'", "(env -S 'git commit -m x')")
+                   "env -iS 'git commit -m x'", "env -S'git commit -m x'", "FOO=1 env -u BAR -S 'git commit -m x'",
+                   "time env -S 'git commit -m x'", "(env -S 'git commit -m x')", "env -a spoof -S 'git commit -m x'",
+                   "env FOO=1 -S 'git commit -m x'", "/usr/bin/env -S 'git commit -m x'", "env - -S 'git commit -m x'")
     for cmd in HIDE_COMMIT:
-        check(f"a hiding env option is reported: {cmd!r}", hidden_invocation(cmd) in ("-S", "--split-string", "-a", "--argv0"), str(hidden_invocation(cmd)))
+        check(f"a hiding env option is reported: {cmd!r}", hidden_invocation(cmd) in ("-S", "--split-string"), str(hidden_invocation(cmd)))
         check(f"a hidden commit is not read as a plain commit: {cmd!r}", not is_commit_command(cmd))
         code, msg, _ = run(cmd, PLAIN, ON)
-        check(f"a hidden command is denied by name with the config on: {cmd!r}", code == 2 and "env" in msg and "hides" in msg, msg)
+        check(f"a hidden command is denied by name with the config on: {cmd!r}",
+              code == 2 and "env" in msg and "hides" in msg and "split string" in msg and "run git directly" not in msg.lower()
+              and (" -S " in msg or "--split-string" in msg), msg)
         code, msg, _ = run(cmd, {}, ON)
         check(f"a hidden command is denied even with nothing staged: {cmd!r}", code == 2, msg)
         code, _, _ = run(cmd, PLAIN, {})
@@ -2107,8 +2224,8 @@ def _run_self_test() -> int:
     check("-uS: the S is -u's value, not an option", hidden_invocation("env -uS git commit -m x") is None)
     check("the hiding scan is anchored: a quoted env -S is text", hidden_invocation("echo \"env -S 'git commit'\"") is None)
     HIDE_MERGE = ("env -S 'git merge --no-ff --no-edit karta/x/integration'", 'env -S "git merge --ff-only karta/x/integration"',
-                  "env --split-string='git merge karta/x/integration'", "env -a spoof git merge --ff-only karta/x/integration",
-                  "env --argv0=spoof git merge --ff-only karta/x/integration", "env -iS 'git merge -m x karta/x/integration'")
+                  "env --split-string='git merge karta/x/integration'", "env -a spoof -S 'git merge --ff-only karta/x/integration'",
+                  "/usr/bin/env -S 'git merge --ff-only karta/x/integration'", "env -iS 'git merge -m x karta/x/integration'")
     for cmd in HIDE_MERGE:
         check(f"a hidden merge of an integration ref is a landing: {cmd!r}", merge_invocation(cmd) == ("karta/x/integration", False), str(merge_invocation(cmd)))
         code, msg, _ = run(cmd, MREC, {}, tip=TIP)
@@ -2247,6 +2364,177 @@ def _run_self_test() -> int:
         check(f"the review grammar denies the undecidable shape too: {cmd!r}", code == 2)
     check("an undecidable shape without any integration ref is not a landing",
           merge_invocation("git merge --unknown-opt feature/topic") is None)
+
+    # (16) git's optional-argument options carry their value attached only: the next word is the ref
+    IREF = ("karta/x/integration", False)
+    for cmd in ("git merge --gpg-sign karta/x/integration", "git merge --gpg-sign=KEY karta/x/integration",
+                "git merge -S karta/x/integration", "git merge -SKEY karta/x/integration", "git merge --log karta/x/integration",
+                "git merge --log=5 karta/x/integration", "git merge --no-ff --gpg-sign --no-edit karta/x/integration",
+                "git merge -S --no-ff -m x karta/x/integration", "git merge --no-verify karta/x/integration",
+                "git merge --cleanup=strip karta/x/integration", "git merge --cleanup strip karta/x/integration",
+                "git merge --into-name main karta/x/integration"):
+        check(f"an optional-attached option leaves the ref positional: {cmd!r}", merge_invocation(cmd) == IREF, str(merge_invocation(cmd)))
+        code, _, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"the landing gate fires past the optional-attached option: {cmd!r}", code == 2)
+    for cmd in ("git merge --gpg-sign feature/topic", "git merge -S feature/topic", "git merge -SKEY feature/topic",
+                "git merge --cleanup karta/x/integration feature/topic", "git merge --into-name karta/x/integration feature/topic"):
+        check(f"a topic merge past an optional-attached or valued option is not a landing: {cmd!r}", merge_invocation(cmd) is None, str(merge_invocation(cmd)))
+    for cmd in ("git merge --no-ff --no-edit -S karta/x/integration", "git merge --no-ff --no-edit -SKEY karta/x/integration",
+                "git merge --no-ff --no-edit --gpg-sign karta/x/integration", "git merge --gpg-sign=KEY --no-ff --no-edit karta/x/integration",
+                "git merge --no-gpg-sign --no-ff --no-edit karta/x/integration"):
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, ON, tip=TIP)
+        check(f"the merge grammar accepts a signed merge with a fresh record: {cmd!r}", code == 0, msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, ON, tip=TIP, helper_=stale)
+        check(f"the merge grammar still gates a signed merge on the record: {cmd!r}", code == 2, msg)
+    code, msg, _ = run(f"{LAND_VAR}=1 git merge --no-ff --no-edit -S KEY karta/x/integration", MREC, ON, tip=TIP)
+    check("a separate word after -S is a second ref to the grammar (git reads it so), and is denied", code == 2, msg)
+    code, msg, _ = run(f"{LAND_VAR}=1 git merge --no-ff --no-edit --gpg-sign=KEY karta/x/integration", MREC, ON, tip=TIP, helper_=stale)
+    check("--gpg-sign=KEY is not read as a spelling that skips the review", code == 2, msg)
+    for cmd in ("git commit -S -m x .karta", "git commit -SKEY -m x .karta", "git commit --gpg-sign -m x .karta",
+                "git commit --gpg-sign=KEY -m x .karta", "git commit --no-gpg-sign -m x .karta", "git commit -S .karta -m x"):
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"the commit grammar accepts a signed commit with a fresh record: {cmd!r}", code == 0, msg)
+        code, msg, _ = run(cmd, PLAIN, ON, helper_=stale)
+        check(f"the commit grammar still gates a signed commit on the record: {cmd!r}", code == 2, msg)
+    git_, rf_, isl_, _ = make(PLAIN)
+    check("a separate word after commit -S is a pathspec to git, and the hook resolves it as one",
+          commit_source(LP, "git commit -S KEY -m x", git_, rf_, isl_) == "HEAD" and commit_source(LP, "git commit -SKEY -m x", git_, rf_, isl_) == "index")
+    for cmd in ("git commit --cleanup=strip -m x .karta", "git commit --cleanup strip -m x .karta", "git commit --log -m x .karta"):
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"an option outside the commit whitelist is still denied by name: {cmd!r}", code == 2 and "recognises" in msg, msg)
+
+    # (17) the full-ref spellings of an integration branch are the same ref
+    FULL = ("refs/heads/karta/x/integration", "refs/remotes/origin/karta/x/integration", "refs/remotes/fork-1/karta/x/integration")
+    for full in FULL:
+        for cmd in (f"git merge {full}", f"git merge --no-ff {full}", f"git merge --ff-only {full}", f"git merge --no-ff --no-edit {full}",
+                    f"git merge -m x {full}", f'git merge "{full}"', f"git merge --no-ff -- {full}"):
+            check(f"a full-ref spelling is a landing: {cmd!r}", merge_invocation(cmd) == (full, False), str(merge_invocation(cmd)))
+            check(f"a full-ref spelling is the merge gate's ref: {cmd!r}", merged_integration_ref(cmd) == full)
+            code, msg, _ = run(cmd, MREC, {}, tip=TIP)
+            check(f"the landing gate fires on a full-ref spelling: {cmd!r}", code == 2 and full in msg, msg)
+            code, _, _ = run(cmd, MREC, {}, tip=TIP, cur="feature")
+            check(f"off the default branch a full-ref spelling is not a landing: {cmd!r}", code == 0)
+        code, msg, _ = run(f"{LAND_VAR}=1 git merge --no-ff --no-edit {full}", MREC, ON, tip=TIP)
+        check(f"an approved full-ref merge with a fresh record passes both gates: {full!r}", code == 0, msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 git merge --no-ff --no-edit {full}", MREC, ON, tip=TIP, helper_=stale)
+        check(f"the merge review gate fires on a full-ref spelling: {full!r}", code == 2 and "review" in msg.lower(), msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 git merge --no-ff --no-edit {full}", {}, ON, tip=TIP)
+        check(f"a full-ref merge with no record in HEAD is denied: {full!r}", code == 2, msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 git merge --no-ff {full}", MREC, ON, tip=TIP)
+        check(f"a full-ref merge without --no-edit or -m is denied like the short one: {full!r}", code == 2 and "--no-edit" in msg, msg)
+        check(f"an undecidable shape mentioning a full-ref spelling fails closed: {full!r}",
+              merge_invocation(f"git merge --unknown-opt {full}") == (full, False))
+    check("a full-ref mention inside a message is not a landing",
+          merge_invocation('git merge -m "refs/heads/karta/x/integration" feature/topic') is None)
+    for cmd in ("git merge refs/tags/karta/x/integration", "git merge refs/heads/karta/x/integration2", "git merge refs/heads/karta/integration",
+                "git merge heads/karta/x/integration", "git merge refs/remotes/karta/x/integration", "git merge origin/karta/x/integration",
+                f"git merge {TIP}"):
+        check(f"not an integration branch spelling (a raw SHA stays a documented bypass): {cmd!r}", merge_invocation(cmd) is None, str(merge_invocation(cmd)))
+        code, _, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"the landing gate does not fire on it: {cmd!r}", code == 0)
+
+    # (18) wrapper lexing: clusters, GNU long prefixes, permuted options, legacy `-`, wrappers by path
+    WRAP2 = ("env -iu X ", "env --un X ", "env --unset X ", "env --u X ", "env F=1 -i ", "env F=1 -u X G=2 ", "env - ", "env - F=1 ",
+             "env -i - ", "exec -ca spoof ", "exec -c -a spoof ", "exec -cl ", "exec -a spoof ", "/usr/bin/env ", "/usr/bin/env -i ",
+             "/usr/bin/timeout 5 ", "/usr/bin/timeout -k 2 5 ", "/usr/bin/nice -n 5 ", "/usr/bin/time ", "/usr/bin/time -p ",
+             "/usr/bin/time -o out ", "/usr/bin/time --output=out -f fmt ", "/usr/bin/stdbuf -oL ", "/usr/bin/nohup ",
+             "./env ", "timeout --kill-after=2 --sig KILL 5 ", "timeout -k2 -sKILL 5 ", "timeout -pk 2 5 ", "timeout --fore 5 ",
+             "nice -5 ", "nice --adj 5 ", "nice --adjustment=5 ", "stdbuf -oL -eL ", "stdbuf -o L -i 0 ", "stdbuf --out=L ",
+             "env -C . -u X ", "env -uX ", "env -Cx/ -iuX ", "env --chdir . ", "env --ch . ", "env --null ", "env -0i ",
+             "env --default-signal ", "env --default-signal=INT ", "env --ignore-environment ", "env -a spoof ", "env --argv0 spoof ",
+             "env --argv0=spoof ", "env --argv spoof ", "env -ia spoof ", "env -aspoof ", "env -a spoof F=1 ", "env F=1 -a spoof ",
+             "env -- ", "env -i -- F=1 ", "env -u X -- ", "command -pv ", "time -p env -i ", "nohup /usr/bin/env -u X ")
+    for w in WRAP2:
+        check(f"the wrapper is read through to a commit: {w!r}", is_commit_command(f"{w}git commit -m x") and hidden_invocation(f"{w}git commit -m x") is None)
+        check(f"the wrapper is read through to a merge: {w!r}", is_merge_command(f"{w}{MI}") and merge_invocation(f"{w}{MI}") == IREF, str(merge_invocation(f"{w}{MI}")))
+        code, _, _ = run(f"{w}git commit -m x", PLAIN, ON, helper_=stale)
+        check(f"the wrapped commit meets the review gate: {w!r}", code == 2)
+        code, _, _ = run(f"{w}{MI}", MRECQ, ON, tip=TIP)
+        check(f"the wrapped merge meets the landing gate: {w!r}", code == 2)
+        code, _, _ = run(f"{w}{MI}", {}, CFG, env=E, tip=TIP, helper_=stale)
+        check(f"the wrapped merge meets the merge review gate: {w!r}", code == 2)
+        check(f"the approval prefix on the wrapped segment is recognised: {w!r}", merge_invocation(f"{LAND_VAR}=1 {w}{MI}") == ("karta/x/integration", True))
+    for cmd in ("env -iu git commit -m x", "env --un git commit -m x", "env -u git commit -m x", "exec -a git commit -m x", "exec -ca git commit -m x",
+                "timeout -k git commit -m x", "timeout -s git commit -m x", "stdbuf -o git commit -m x", "nice -n git commit -m x",
+                "/usr/bin/time -o git commit -m x", "env -C git commit -m x", "env --chdir git commit -m x", "env -a git commit -m x"):
+        check(f"a valued wrapper option's next word is its value, not the command: {cmd!r}", not is_commit_command(cmd))
+    for cmd in ("env -a x printf ok", "env -a harmless printf ok", "env --argv0=x printf ok", "env -ia spoof true", "env - true",
+                "env -iu X sh -c 'true'", "/usr/bin/env python3 -c 1", "exec -ca spoof ls", "env -a spoof echo git commit -m x",
+                "/usr/bin/timeout 5 sleep 1", "env --un X printf ok", "env F=1 -i printf ok"):
+        check(f"a wrapped command that is not git is harmless: {cmd!r}", not is_commit_command(cmd) and not is_merge_command(cmd)
+              and hidden_invocation(cmd) is None and merge_invocation(cmd) is None)
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"and passes the hook untouched: {cmd!r}", code == 0, msg)
+    check("a wrapper by path is matched on its basename, not on any path ending in the name",
+          not is_commit_command("/usr/bin/envy git commit -m x") and not is_commit_command("env/ git commit -m x")
+          and not is_commit_command("myenv git commit -m x"))
+    check("an ambiguous GNU prefix is not a valued option (env would refuse it): the next word is still read",
+          is_commit_command("env --i git commit -m x"))
+    check("a legacy `-` is env's alone: to timeout it is the duration positional, to nice it is the command word",
+          is_commit_command("timeout - git commit -m x") and not is_commit_command("nice - git commit -m x"))
+
+    # (19) redirections are not words git sees
+    for cmd in ("git merge 2>&1 karta/x/integration", "git merge &>log karta/x/integration", "git merge &>>log karta/x/integration",
+                "git merge karta/x/integration>log", "git merge>log karta/x/integration", "git merge karta/x/integration 2>&1",
+                "git merge karta/x/integration >log", "git merge karta/x/integration >>log 2>&1", "git merge karta/x/integration > log",
+                "git merge karta/x/integration 2> err", "git merge --no-ff >out karta/x/integration", "git merge <in karta/x/integration",
+                "git merge karta/x/integration >|log", "git merge karta/x/integration >&2", "git merge karta/x/integration 0<&3",
+                "git merge karta/x/integration <<<x", "git merge karta/x/integration 3>&-", "git merge karta/x/integration <>f",
+                "git merge --no-ff --no-edit karta/x/integration > /dev/null 2>&1", "git merge 2>/dev/null karta/x/integration",
+                "git merge --no-ff -m x karta/x/integration&>log", "git merge --no-ff 1>log karta/x/integration"):
+        check(f"a redirection does not hide the ref: {cmd!r}", merge_invocation(cmd) == IREF, str(merge_invocation(cmd)))
+        check(f"a redirection does not hide the merge from the review detector: {cmd!r}", is_merge_command(cmd) and merged_integration_ref(cmd) == "karta/x/integration")
+        code, msg, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"the landing gate fires past a redirection: {cmd!r}", code == 2 and "human" in msg, msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, ON, tip=TIP)
+        check(f"the review grammar still denies the redirection itself: {cmd!r}", code == 2 and "redirection" in msg, msg)
+        code, _, _ = run(cmd, MREC, {}, tip=TIP, cur="feature")
+        check(f"off the default branch it is not a landing: {cmd!r}", code == 0)
+    for cmd in ("git commit 2>&1 -m x", "git commit -m x 2>&1", "git commit -m x >log", "git commit -m x &>log", "git commit >log -m x",
+                "git commit -m x 2>err >out", "git commit -m x >&2", "git commit -m x <in"):
+        check(f"a redirection does not hide a commit: {cmd!r}", is_commit_command(cmd))
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"the review grammar denies the redirection on a commit: {cmd!r}", code == 2 and "redirection" in msg, msg)
+    check("the & of 2>&1 does not split the segment", [r for r, _ in merge_invocations("git merge 2>&1 karta/x/integration")] == ["karta/x/integration"]
+          and merge_invocation("true 2>&1 && git merge karta/x/integration") == IREF)
+    check("the & of &> does not split the segment", merge_invocation("git merge &>log karta/x/integration") == IREF
+          and merge_invocation("true &>log && git merge karta/x/integration") == IREF)
+    check("a bare & still splits", merge_invocation("sleep 1 & git merge karta/x/integration") == IREF
+          and merge_invocation("git merge karta/x/integration & true") == IREF)
+    check("a quoted redirection is text, not an operator", merge_invocation('git merge -m "a > b 2>&1" karta/x/integration') == IREF
+          and merge_invocation("git merge -m '&>log' karta/x/integration") == IREF)
+    check("a redirection target is not a ref", merge_invocation("git merge feature/topic >karta/x/integration") is None
+          and merge_invocation("git merge >karta/x/integration feature/topic") is None
+          and merge_invocation("git merge feature/topic 2>karta/x/integration") is None)
+    check("a redirection target that is an integration ref with no positional is not a landing",
+          merge_invocation("git merge >karta/x/integration") is None)
+    check("the redirect lexer: fd digits fold into the operator, a non-digit word does not",
+          [(w.text, w.redirect) for w in _loose_words("a 2>&1 b>c 3<&- >|d &>>e f>g")]
+          == [("a", 0), ("2>&1", 2), ("b", 0), (">", 1), ("c", 0), ("3<&-", 2), (">|", 1), ("d", 0), ("&>>", 1), ("e", 0), ("f", 0), (">", 1), ("g", 0)])
+    check("the redirect lexer: a quoted digit is a word, not an fd", [w.text for w in _loose_words("'2'>x")] == ["2", ">", "x"])
+    check("a wrapped, redirected merge is still read", merge_invocation("env -i git merge 2>&1 karta/x/integration") == IREF
+          and merge_invocation("timeout 5 git merge karta/x/integration >log") == IREF)
+    check("a heredoc operator's delimiter is its target", not is_commit_command("cat <<EOF") and not is_merge_command("cat <<'EOF'"))
+
+    # (20) env -a / --argv0 renames argv[0] only: the command after it is read
+    for cmd in ("env -a spoof git merge --ff-only karta/x/integration", "env --argv0=spoof git merge --ff-only karta/x/integration",
+                "env --argv0 spoof git merge --ff-only karta/x/integration", "env -ia spoof git merge karta/x/integration",
+                "env -aspoof git merge --no-ff --no-edit karta/x/integration", "env -a git git merge karta/x/integration"):
+        check(f"env -a does not hide a landing: {cmd!r}", merge_invocation(cmd) == IREF and hidden_invocation(cmd) is None, str(merge_invocation(cmd)))
+        code, msg, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"the landing gate fires through env -a: {cmd!r}", code == 2 and "human" in msg, msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, {}, tip=TIP)
+        check(f"an approved env -a landing passes with the config off: {cmd!r}", code == 0, msg)
+        code, msg, _ = run(f"{LAND_VAR}=1 {cmd}", MREC, ON, tip=TIP)
+        check(f"with the config on the grammar denies the wrapper, not a hidden command: {cmd!r}", code == 2 and "hides" not in msg, msg)
+    for cmd in ("env -a spoof git commit -m x", "env --argv0=spoof git commit -m x", "env -ia spoof git commit -m x", "env -aspoof git commit -m x"):
+        check(f"env -a does not hide a commit: {cmd!r}", is_commit_command(cmd) and hidden_invocation(cmd) is None)
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"the review gate meets the commit and denies the wrapper by the grammar: {cmd!r}", code == 2 and "hides" not in msg, msg)
+        code, _, _ = run(cmd, PLAIN, {})
+        check(f"with the config off an env -a commit is not gated: {cmd!r}", code == 0)
+    check("env -S still fails closed beside env -a", hidden_invocation("env -a spoof -S 'git commit -m x'") == "-S"
+          and hidden_invocation("env -aS 'git commit -m x'") is None and is_commit_command("env -aS git commit -m x"))
 
     # the standalone resolver
     git, rf, isl, _ = make(PLAIN)
