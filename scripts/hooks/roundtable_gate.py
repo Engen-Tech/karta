@@ -67,6 +67,14 @@ denials with the defect named, never internal errors.
 git cherry-pick / rebase / reset --hard, a merge that names the tip by SHA, and
 `git pull` are accepted, documented bypasses of the same class as the escape
 hatch: a PreToolUse hook cannot evaluate "will this make the tip an ancestor".
+Detection is anchored at the head of each shell segment (split outside quotes),
+looking through assignment prefixes, `(`/`{` openers, `!`, and the executing
+wrappers time / env / command / builtin / exec / nice / nohup / timeout /
+stdbuf, on dequoted words. What it still cannot see, and does not pretend to:
+an invocation behind `do`, `xargs`, `sh -c '...'`, `eval`, `sudo`, `su -c`,
+`bash <file>`, a shell function or alias, a `$VAR` that expands to `git`, or a
+history expansion — those read as text, and the review gates' deny-by-default
+grammar catches only the ones it is handed. The landing gate shares them.
 A repository hook (.git/hooks/pre-commit) is the same channel as an editor
 and is not something a text gate can close. Both are named rather than papered
 over.
@@ -76,8 +84,9 @@ everything off; points.plan_commit / points.deliver_merge toggle each detection;
 ledger:true adds the round-ledger conditions. The switch is read from HEAD (the
 committed configuration) so a same-commit flip cannot disable the check that
 would catch it; only when HEAD has no config at all is it read from the source
-the commit will record. Escape hatch: KARTA_SKIP_ROUNDTABLE=1 in the command
-text or the environment, evaluated before every other rule.
+the commit will record. Escape hatch: KARTA_SKIP_ROUNDTABLE=1 as an exact
+assignment word prefixing the gated invocation, or in the environment,
+evaluated before every other rule — never a substring of the command text.
 
 The landing gate (c) is deliberately outside all of that. The config switch does
 not disable it and KARTA_SKIP_ROUNDTABLE does not bypass it, because that hatch
@@ -115,29 +124,29 @@ ALLOWED_PREFIXES = (f"{SKIP_VAR}=1", f"{LAND_VAR}=1")
 # a program git would run after the hook (an editor, a pager, an ssh command)
 INERT_GIT_ENV = {"GIT_EDITOR": ("true", ":"), "GIT_PAGER": ("cat",), "GIT_TERMINAL_PROMPT": ("0",)}
 
-# the landing gate's segment split — unchanged from before the ledger work, so a
-# `&` inside a merge message cannot split the ref away from the invocation
-_SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
-# candidate detection for the review gates splits on a bare `&` too, so a
-# backgrounded preceding command still exposes the git invocation at a segment head
-_CANDIDATE_SPLIT_RE = re.compile(r"&&|\|\||;|\||&|\n")
 # `git commit` / `git merge`: word-boundary match where anything between the two
 # words must be option tokens (each optionally trailing one non-dash argument),
-# matching precommit_gate.py's conservative detection.
+# matching precommit_gate.py's conservative detection. Applied to the DEQUOTED
+# head of a segment, so `"git"`, `\git` and `git''` are all git.
 _COMMIT_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+commit\b")
 _MERGE_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+merge(?![-\w])")
 # an integration ref named anywhere in a merge command: karta/<slug>/integration
 _INTEGRATION_REF_RE = re.compile(r"\bkarta/[^\s/]+/integration\b")
 _INTEGRATION_REF_FULL_RE = re.compile(r"^karta/[^\s/]+/integration$")
-# a leading `VAR=value ` shell assignment — value bare, single- or double-quoted
-# (spaces included), or the whole assignment quoted — so an invocation prefixed
-# with one still reads as its own head for the anchored matcher below
-_ENV_ASSIGN_RE = re.compile(r"""^['"]?[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|[^\s'"])*['"]?\s+""")
 # a leading `(` or `{ ` group opener: `(git commit ...)` and `{ git commit ...; }`
 # are the same invocation wrapped, and the closer is trailing text
 _GROUP_OPEN_RE = re.compile(r"^[({]\s*")
-_ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# a shell assignment word, on its dequoted text: NAME=value or NAME+=value
+_ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 _MODE_RE = re.compile(r"^[0-7]{6}$")
+# executing wrappers the anchored matcher looks through: the word, the options
+# that take a separate value, and how many positional words precede the command
+_WRAPPERS: dict[str, tuple[tuple[str, ...], int]] = {
+    "time": ((), 0), "command": ((), 0), "builtin": ((), 0), "exec": (("-a",), 0),
+    "nohup": ((), 0), "nice": (("-n", "--adjustment"), 0), "timeout": (("-k", "-s", "--kill-after", "--signal"), 1),
+    "stdbuf": (("-i", "-o", "-e", "--input", "--output", "--error"), 0),
+    "env": (("-u", "-C", "-S", "--unset", "--chdir", "--split-string"), 0),
+}
 
 # commit options the hook knows. Anything else is denied by name: a skipped
 # value-bearing option would leave its argument to be read as a pathspec.
@@ -155,31 +164,183 @@ class Denial(Exception):
     turned into (2, message) there — never reaches hook_main's fail-open handler."""
 
 
-def _segments(command: str) -> list[str]:
-    return _SPLIT_RE.split(command)
+def _segments(command: str, bare_amp: bool = False) -> list[str]:
+    """Split a command into shell segments the way bash would: on `&&`, `||`,
+    `;`, `|` and newlines OUTSIDE quotes, never inside them — a `;` in a merge
+    message does not end the merge. A backslash-newline is a line continuation
+    and is collapsed first. Candidate detection for the review gates also splits
+    on a bare `&`, so a backgrounded preceding command still exposes the git
+    invocation at a segment head; the landing gate does not, so a `&` inside a
+    merge message cannot split the ref away from the invocation. An unbalanced
+    quote swallows the rest of the text (bash would refuse the line)."""
+    text = command.replace("\\\n", "")
+    out: list[str] = []
+    cur: list[str] = []
+    i, n = 0, len(text)
+    in_single = in_double = False
+    while i < n:
+        c = text[i]
+        if in_single:
+            if c == "'":
+                in_single = False
+        elif in_double:
+            if c == '"':
+                in_double = False
+            elif c == "\\" and i + 1 < n:
+                cur.append(c); i += 1; c = text[i]
+        elif c == "\\" and i + 1 < n:
+            cur.append(c); i += 1; c = text[i]
+        elif c == "'":
+            in_single = True
+        elif c == '"':
+            in_double = True
+        elif c == "\n" or c == ";":
+            out.append("".join(cur)); cur = []; i += 1; continue
+        elif c in "&|":
+            if i + 1 < n and text[i + 1] == c:
+                i += 1
+            elif c == "&" and not bare_amp:
+                cur.append(c); i += 1; continue
+            out.append("".join(cur)); cur = []; i += 1; continue
+        cur.append(c)
+        i += 1
+    out.append("".join(cur))
+    return out
 
 
-def _leading_command(segment: str) -> str:
-    """A shell segment with any leading VAR=value assignments and `(` / `{`
-    group openers stripped, so an invocation prefixed with environment settings
-    or wrapped in a subshell still reads as its own head."""
-    seg = segment
+class _Word:
+    __slots__ = ("text", "unquoted")
+
+    def __init__(self) -> None:
+        self.text = ""      # the word after quote removal
+        self.unquoted = ""  # the characters that sat outside any quoting
+
+
+def _loose_words(segment: str) -> list[_Word]:
+    """shlex-style word split with quote removal, lenient where tokenize() is
+    strict: no denials, an unbalanced quote runs to the end, and control
+    characters are ordinary text. Only for the anchored DETECTION of a gated
+    invocation; the deny-by-default grammar re-lexes with tokenize()."""
+    words: list[_Word] = []
+    cur: _Word | None = None
+    i, n = 0, len(segment)
+    in_single = in_double = False
+    while i < n:
+        c = segment[i]
+        if in_single:
+            if c == "'":
+                in_single = False
+            else:
+                cur.text += c
+        elif in_double:
+            if c == '"':
+                in_double = False
+            elif c == "\\" and i + 1 < n and segment[i + 1] in '"\\$`':
+                i += 1; cur.text += segment[i]
+            else:
+                cur.text += c
+        elif c in " \t":
+            if cur is not None:
+                words.append(cur); cur = None
+        else:
+            if cur is None:
+                cur = _Word()
+            if c == "'":
+                in_single = True
+            elif c == '"':
+                in_double = True
+            elif c == "\\" and i + 1 < n:
+                i += 1; cur.text += segment[i]
+            else:
+                cur.text += c; cur.unquoted += c
+        i += 1
+    if cur is not None:
+        words.append(cur)
+    return words
+
+
+def _leading_command(segment: str) -> tuple[list[_Word], str]:
+    """(the assignment words that prefix the invocation, the dequoted head of
+    the segment with everything that merely wraps the invocation stripped):
+    `(` / `{` group openers, VAR=value and VAR+=value assignments (quoted values
+    and backslash-escaped spaces included), a `!` negation, and the executing
+    wrappers in _WRAPPERS — `time`, `env` with its own assignments, `command`,
+    `builtin`, `exec`, `nice -n N`, `nohup`, `timeout <dur>`, `stdbuf <opts>`.
+    Each of those runs the same git the shell would; none of them is a place
+    for an invocation to hide. The command word is matched on its dequoted
+    text, so `"git"`, `\\git` and `git''` are all git."""
+    seg = segment.strip()
     while True:
-        m = _GROUP_OPEN_RE.match(seg) or _ENV_ASSIGN_RE.match(seg)
+        m = _GROUP_OPEN_RE.match(seg)
         if not m:
-            return seg
+            break
         seg = seg[m.end():]
+    words = _loose_words(seg)
+    assigns: list[_Word] = []
+    i, n = 0, len(words)
+    while i < n:
+        w = words[i]
+        if _ASSIGN_TOKEN_RE.match(w.text):
+            assigns.append(w); i += 1; continue
+        if w.text == "!":
+            i += 1; continue
+        spec = _WRAPPERS.get(w.text)
+        if spec is None:
+            break
+        valued, positional = spec
+        i += 1
+        while i < n and words[i].text.startswith("-") and words[i].text != "-":
+            opt = words[i].text
+            i += 1
+            if opt in valued and i < n:
+                i += 1
+        if w.text == "env":
+            while i < n and _ASSIGN_TOKEN_RE.match(words[i].text):
+                assigns.append(words[i]); i += 1
+        i += positional
+    return assigns, " ".join(w.text for w in words[i:])
+
+
+def _exact_flag(assigns: list[_Word], name: str) -> bool:
+    """Whether the prefix carries NAME=1 as its own assignment word: the name
+    and the `=` unquoted (a quoted name is a command word to bash, not an
+    assignment), the value exactly `1` — bare, '1' or "1". A substring is not
+    an assignment: X=NAME=1, NAME=10 and FOO="NAME=1" all read as something else."""
+    return any(w.unquoted.startswith(f"{name}=") and w.text == f"{name}=1" for w in assigns)
 
 
 def is_commit_command(command: str) -> bool:
-    """A segment that STARTS with `git ... commit` (after any VAR=value prefix).
-    Anchored, not searched: a commit command quoted inside an echo or a grep is
-    text, not an invocation."""
-    return any(_COMMIT_RE.match(_leading_command(seg.strip())) for seg in _CANDIDATE_SPLIT_RE.split(command))
+    """A segment that STARTS with `git ... commit` (after any VAR=value prefix
+    or executing wrapper). Anchored, not searched: a commit command quoted
+    inside an echo or a grep is text, not an invocation."""
+    return any(_COMMIT_RE.match(_leading_command(seg)[1]) for seg in _segments(command, bare_amp=True))
 
 
 def is_merge_command(command: str) -> bool:
-    return any(_MERGE_RE.match(_leading_command(seg.strip())) for seg in _CANDIDATE_SPLIT_RE.split(command))
+    return any(_MERGE_RE.match(_leading_command(seg)[1]) for seg in _segments(command, bare_amp=True))
+
+
+def has_skip_prefix(command: str) -> bool:
+    """Whether the gated invocation itself is prefixed with SKIP_VAR=1 as an
+    exact assignment word. Not a substring match over the whole text: a commit
+    message that quotes the hatch does not invoke it, and an assignment on a
+    different segment is a different command's environment."""
+    for seg in _segments(command, bare_amp=True):
+        assigns, head = _leading_command(seg)
+        if (_COMMIT_RE.match(head) or _MERGE_RE.match(head)) and _exact_flag(assigns, SKIP_VAR):
+            return True
+    return False
+
+
+def _integration_ref_in(head: str) -> str | None:
+    """The integration ref a dequoted `git merge` head names: a whole word first
+    (what git receives), then any mention, so a ref inside the message text
+    still arms the landing gate rather than slipping under it."""
+    for word in head.split()[2:]:
+        if _INTEGRATION_REF_FULL_RE.match(word):
+            return word
+    m = _INTEGRATION_REF_RE.search(head)
+    return m.group(0) if m else None
 
 
 def merge_invocation(command: str) -> tuple[str, bool] | None:
@@ -191,38 +352,39 @@ def merge_invocation(command: str) -> tuple[str, bool] | None:
     Anchored, not searched. A merge command written inside a heredoc, echoed
     into a file, or handed to grep is text, not an invocation, and blocking it
     would stop ordinary work — editing this very file included. Anchoring at
-    the head of the segment (after any VAR=value prefix) tells the two apart.
-    The trade is named rather than hidden: an invocation buried mid-segment,
-    behind a `do` or an `xargs`, reads as text and is not caught — the same
-    class as the cherry-pick / rebase / reset --hard bypasses already
-    documented here. It errs toward letting real work through rather than
-    toward blocking prose about a merge.
+    the head of the segment (after any VAR=value prefix or executing wrapper)
+    tells the two apart. The trade is named rather than hidden: an invocation
+    buried mid-segment, behind a `do` or an `xargs`, reads as text and is not
+    caught — the same class as the cherry-pick / rebase / reset --hard bypasses
+    already documented here. It errs toward letting real work through rather
+    than toward blocking prose about a merge.
 
-    Approval must prefix the merge itself. The skip hatch is matched against the
-    whole command, which is fine for a hatch that only ever loosens a review
-    requirement. This one grants authority, so an accidental grant is worse than
-    an accidental block: the assignment has to sit in front of the invocation it
-    approves, not merely appear somewhere in the same command line."""
+    Approval must prefix the merge itself, as an exact assignment word. The skip
+    hatch only ever loosens a review requirement; this one grants authority, so
+    an accidental grant is worse than an accidental block: the assignment has to
+    sit in front of the invocation it approves, spelled NAME=1 and nothing else
+    — not X=NAME=1, not NAME=10, not FOO="NAME=1", and not merely somewhere in
+    the same command line."""
     for seg in _segments(command):
-        stripped = seg.strip()
-        head = _leading_command(stripped)
+        assigns, head = _leading_command(seg)
         if not _MERGE_RE.match(head):
             continue
-        ref = merged_integration_ref(head)
+        ref = _integration_ref_in(head)
         if ref:
-            prefix = stripped[:len(stripped) - len(head)]
-            return ref, f"{LAND_VAR}=1" in prefix
+            return ref, _exact_flag(assigns, LAND_VAR)
     return None
 
 
 def merged_integration_ref(command: str) -> str | None:
-    """The karta/<slug>/integration ref named in a `git merge` segment, or None."""
-    for seg in _segments(command):
-        if not _MERGE_RE.search(seg):
+    """The karta/<slug>/integration ref named in a `git merge` segment, or None.
+    Read on the dequoted words, so `integr""ation` is the ref git sees."""
+    for seg in _segments(command, bare_amp=True):
+        _, head = _leading_command(seg)
+        if not _MERGE_RE.match(head):
             continue
-        m = _INTEGRATION_REF_RE.search(seg)
-        if m:
-            return m.group(0)
+        ref = _integration_ref_in(head)
+        if ref:
+            return ref
     return None
 
 
@@ -344,7 +506,7 @@ def parse_invocation(command: str) -> tuple[list[str], list[Tok]]:
     KARTA_* ones and any invocation that is not a plain `git <subcommand>`."""
     toks = tokenize(command)
     prefixes: list[str] = []
-    while toks and _ASSIGN_TOKEN_RE.match(toks[0].text):
+    while toks and _ASSIGN_TOKEN_RE.match(toks[0].unquoted):
         prefixes.append(toks.pop(0).text)
     for p in prefixes:
         if p not in ALLOWED_PREFIXES:
@@ -591,10 +753,11 @@ class Sources:
 
     def binders(self) -> list[str]:
         """The binder plan files this commit would record: staged ones always;
-        under -a or a pathspec also the ones changed only in the worktree, and
-        the ones the pathspec names outright."""
+        under -a also the ones changed only in the worktree; under a pathspec
+        the ones it names outright. A binder edited only in the worktree and
+        not named by the pathspec is not in the commit, and is not gated."""
         paths = set(_binder_paths(sorted(self.staged)))
-        if self.spec.all or self.spec.pathspecs:
+        if self.spec.all:
             code, out = self.git(["diff", "--name-only"])
             if code == 0:
                 paths |= set(_binder_paths(_lines(out)))
@@ -705,8 +868,12 @@ def _parse_config(data: bytes, where: str) -> dict:
 
 def head_config(git) -> dict | None:
     """The switch as HEAD committed it, or None when HEAD has no config file at
-    all (git's canonical missing-path error only). Any other failure, or a
-    config that parses wrong, is a Denial."""
+    all (git's canonical missing-path error only) or when there is no HEAD to
+    read (an unborn branch: a fresh repository making its first commit). Any
+    other failure, or a config that parses wrong, is a Denial."""
+    code, _ = git(["rev-parse", "--verify", "--quiet", "HEAD"])
+    if code != 0:
+        return None
     code, out = git(["show", f"HEAD:{CONFIG_PATH}"])
     if code == 0:
         return _parse_config(out, "HEAD")
@@ -788,6 +955,8 @@ def _has_message(spec: CommitSpec, read_file) -> bool:
     if any(m for m in spec.messages):
         return True
     for f in spec.message_files:
+        if f == "-":
+            return True  # the message arrives on stdin; git opens no editor
         data = read_file(f)
         if data:
             return True
@@ -809,9 +978,7 @@ def _binder_gate(spec: CommitSpec, config: dict, git, helper, read_file, is_syml
         if data is None:
             continue  # nothing readable to commit for this path
         rec_path = f"{RECORD_DIR}{slug}.json"
-        _, rec_bytes = sources.read(rec_path)
-        if is_symlink(rec_path):
-            raise Denial(f"gated path {rec_path} is a symlink — git commits the link, not its target's bytes")
+        _, rec_bytes = sources.read(rec_path)  # a symlinked worktree record is denied in there
         wt_rec = read_file(rec_path)
         if wt_rec is not None and record_shaped(wt_rec) is None:
             raise Denial(_deny(
@@ -828,6 +995,11 @@ def _binder_gate(spec: CommitSpec, config: dict, git, helper, read_file, is_syml
                 f"Commit blocked: record source mismatch: the record git will commit is not the one "
                 f"on disk ({rec_path}) — the freshness helper reads the working-tree record, so the "
                 f"two must be identical.",
+                _record_cmd(slug, "binder")))
+        if record_shaped(rec_bytes) is None:
+            raise Denial(_deny(
+                f"Commit blocked: the record git will commit at {rec_path} is not a review record "
+                f"(no string reviewed_hash), so plan file {path} has no recorded review.",
                 _record_cmd(slug, "binder")))
         rc = helper(["--check", "--target", slug, "--kind", "binder", "--bytes-stdin"], data)
         if rc != 0:
@@ -909,6 +1081,26 @@ def _merge_gate(mspec: MergeSpec, ref: str, config: dict, git, helper, read_file
             check_record_binding(record, ledger_path, n_rounds, "Merge")
 
 
+def _first_enable_possible(command: str, env, git, read_file) -> bool:
+    """With no config in HEAD, whether this commit could still record an enabled
+    config. A single-segment, prefix-free commit records the index (or the
+    worktree), so `diff --cached` is a complete answer. Any other shape — a
+    preceding segment that may stage the config before git runs, an assignment
+    prefix, a GIT_* variable in the prefix or the environment that may point git
+    at an index the hook is not reading — is answered by the grammar instead,
+    but only when a config exists somewhere the commit could take it from: a
+    repository with the hook and no config at all never meets the grammar."""
+    if _config_staged(git):
+        return True
+    segs = _segments(command, bare_amp=True)
+    first = _loose_words(segs[0]) if segs else []
+    simple = (len(segs) == 1 and bool(first) and first[0].text == "git" and first[0].unquoted == "git"
+              and not any(isinstance(k, str) and k.startswith("GIT_") for k in env))
+    if simple:
+        return False
+    return read_file(CONFIG_PATH) is not None
+
+
 def decide(payload, env, git, helper, config, read_file=_real_read,
            is_symlink=_real_is_symlink) -> tuple[int, str]:
     """(exit_code, stderr_message). Pure over its inputs so --self-test can drive
@@ -934,12 +1126,13 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
                                                   or env.get(LAND_VAR) == "1"):
             return 2, _deny_landing(ref, branch)
 
-    # the skip hatch is evaluated before every other rule
-    if f"{SKIP_VAR}=1" in command or env.get(SKIP_VAR) == "1":
+    # the skip hatch is evaluated before every other rule — as an exact leading
+    # assignment on the gated invocation, or in the environment; never as text
+    if has_skip_prefix(command) or env.get(SKIP_VAR) == "1":
         return 0, ""
 
     commit = is_commit_command(command)
-    merge = is_merge_command(command) and _INTEGRATION_REF_RE.search(command) is not None
+    merge = is_merge_command(command) and merged_integration_ref(command) is not None
     if not commit and not merge:
         return 0, ""
 
@@ -957,7 +1150,7 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
         # config never meets the grammar at all.
         if config is None:
             config = head_config(git)
-            if config is None and not (commit and _config_staged(git)):
+            if config is None and not (commit and _first_enable_possible(command, env, git, read_file)):
                 return 0, ""
         if config is not None and not enabled(config):
             return 0, ""
@@ -1048,7 +1241,7 @@ def _run_self_test() -> int:
     check("no ref for unrelated merge", merged_integration_ref("git merge feature/x") is None)
 
     # a fabricated repository: {path: {"head":bytes, "index":bytes, "work":bytes, "link":bool, "<key>_mode":str}}
-    def make(tree, cur="main", default="main", tip=None):
+    def make(tree, cur="main", default="main", tip=None, unborn=None):
         def hit(p, s):
             s = s.rstrip("/")
             return s in (".", "") or s == p or p.startswith(s + "/") or fnmatch.fnmatch(p, s)
@@ -1078,6 +1271,8 @@ def _run_self_test() -> int:
                         return p + "\n"
                     return (f"{mode} {'0' * 40} 0\t{p}\n") if argv[0] == "ls-files" else (f"{mode} blob {'0' * 40}\t{p}\n")
                 return 0, "".join(line(p, t) for p, t in tree.items() if t.get(key) is not None and matched(p, specs)).encode()
+            if argv[:3] == ["rev-parse", "--verify", "--quiet"]:
+                return (128, b"") if unborn else (0, b"0" * 40 + b"\n")
             if argv[0] == "rev-parse":
                 return (0, (tip + "\n").encode()) if tip and argv[-1].startswith("karta/") else (1, b"")
             if argv[0] == "show":
@@ -1085,7 +1280,9 @@ def _run_self_test() -> int:
                 key = "head" if key == "HEAD" else "index"
                 ent = tree.get(p) or {}
                 if ent.get("gitfail") and key == "head":
-                    return 128, b"fatal: bad object HEAD"
+                    return 128, b"fatal: unable to read blob object"
+                if unborn and key == "head":
+                    return 128, unborn
                 v = ent.get(key)
                 if v is not None:
                     return 0, v
@@ -1546,6 +1743,126 @@ def _run_self_test() -> int:
     check("git exception fails open", code == 0)
     code, _, _ = run("ls -la", {}, helper_=stale)
     check("non-command allows", code == 0)
+
+    # (1) landing approval and the skip hatch are exact assignment words, not substrings
+    for cmd in (f"{LAND_VAR}=1 {MERGE}", f"{LAND_VAR}='1' {MERGE}", f'{LAND_VAR}="1" {MERGE}',
+                f"{LAND_VAR}=1 FOO=bar {MERGE}", f"FOO=bar {LAND_VAR}=1 {MERGE}", f"({LAND_VAR}=1 {MERGE})"):
+        check(f"exact landing approval token is recognised: {cmd!r}", merge_invocation(cmd) == ("karta/x/integration", True))
+        code, _, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"exact landing approval token lands: {cmd!r}", code == 0)
+    for cmd in (f"X={LAND_VAR}=1 {MERGE}", f"{LAND_VAR}=10 {MERGE}", f'FOO="{LAND_VAR}=1" {MERGE}',
+                f"FOO='{LAND_VAR}=1' {MERGE}", f"{LAND_VAR}=1x {MERGE}", f"{LAND_VAR}= {MERGE}",
+                f'"{LAND_VAR}=1" {MERGE}', f"{LAND_VAR}+=1 {MERGE}", f"{LAND_VAR}=1; {MERGE}",
+                f"{LAND_VAR}=1 true && {MERGE}"):
+        check(f"a lookalike is not an approval: {cmd!r}", merge_invocation(cmd) == ("karta/x/integration", False), str(merge_invocation(cmd)))
+        code, _, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"a lookalike does not land: {cmd!r}", code == 2)
+    for cmd in (f"{SKIP_VAR}=1 git commit -m x", f"{SKIP_VAR}='1' git commit -m x", f'{SKIP_VAR}="1" git commit -m x',
+                f"FOO=bar {SKIP_VAR}=1 git commit -m x", f"({SKIP_VAR}=1 git commit -m x)"):
+        check(f"exact skip token is recognised: {cmd!r}", has_skip_prefix(cmd))
+        code, _, _ = run(cmd, NOLEDGER, ON, helper_=stale)
+        check(f"exact skip token skips: {cmd!r}", code == 0)
+    for cmd in (f'git commit -m "{SKIP_VAR}=1"', f"git commit -m '{SKIP_VAR}=1' .karta", f"X={SKIP_VAR}=1 git commit -m x",
+                f"{SKIP_VAR}=10 git commit -m x", f'FOO="{SKIP_VAR}=1" git commit -m x', f"{SKIP_VAR}+=1 git commit -m x",
+                f"{SKIP_VAR}=1 true; git commit -m x", f"{SKIP_VAR}=1 git add .karta && git commit -m x"):
+        check(f"a lookalike skip is not the hatch: {cmd!r}", not has_skip_prefix(cmd))
+        code, _, _ = run(cmd, NOLEDGER, ON, helper_=stale)
+        check(f"a lookalike skip does not skip: {cmd!r}", code == 2)
+    code, _, _ = run(f"{SKIP_VAR}=1 {MERGE}", MREC, {}, tip=TIP)
+    check("the exact skip token still does not touch the landing gate", code == 2)
+
+    # (2) `-F -` / `--file=-` read the message from stdin: a present message source
+    for cmd in ("git commit -q -F - .karta/binders/x.json .karta/roundtable/x.json .karta/roundtable/x.rounds.json",
+                "git commit --file=- .karta", "git commit --file - .karta"):
+        code, msg, _ = run(cmd, PLAIN, ON)
+        check(f"a stdin message file is a present message: {cmd!r}", code == 0, msg)
+    code, msg, _ = run("git commit -F missing.txt .karta", PLAIN, ON)
+    check("a missing message file is still no message", code == 2 and "message" in msg, msg)
+
+    # (3) executing wrappers and command-word quoting do not hide the invocation
+    WRAP = ("time ", "time -p ", "env ", "env -i ", "env -u FOO ", "env FOO=bar ", "command ", "command -p ", "builtin ",
+            "exec ", "nice ", "nice -n 5 ", "nice -n5 ", "nohup ", "timeout 5 ", "timeout -k 2 5s ", "stdbuf -oL ",
+            "stdbuf -o L -e L ", "! ", "FOO=a\\ b ", "FOO+=1 ", "FOO='a b' time ", "time env nice -n 5 ")
+    for w in WRAP:
+        check(f"wrapper does not hide a commit: {w!r}", is_commit_command(f"{w}git commit -m x"))
+        check(f"wrapper does not hide a merge: {w!r}", is_merge_command(f"{w}{MI}")
+              and merge_invocation(f"{w}{MI}") == ("karta/x/integration", False))
+        code, _, _ = run(f"{w}git commit -m x", PLAIN, ON, helper_=stale)
+        check(f"wrapped commit meets the review gate: {w!r}", code == 2)
+        code, _, _ = run(f"{w}{MI}", MRECQ, ON, tip=TIP)
+        check(f"wrapped merge meets the landing gate: {w!r}", code == 2)
+        code, _, _ = run(f"{w}{MI}", {}, CFG, env={LAND_VAR: "1"}, tip=TIP, helper_=stale)
+        check(f"wrapped merge meets the merge review gate: {w!r}", code == 2)
+    for g in ('"git"', "\\git", "git''", "'git'", 'g"it"', '"git" "commit"', "git \\commit"):
+        cmd = f"{g} -m x" if "commit" in g else f"{g} commit -m x"
+        check(f"a quoted command word is git: {cmd!r}", is_commit_command(cmd))
+        code, _, _ = run(cmd, PLAIN, ON, helper_=stale)
+        check(f"a quoted command word meets the review gate: {cmd!r}", code == 2)
+    for g in ('"git"', "\\git", "git''"):
+        cmd = f"{g} merge --ff-only karta/x/integration"
+        check(f"a quoted command word is a merge: {cmd!r}", merge_invocation(cmd) == ("karta/x/integration", False))
+        code, _, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"a quoted command word meets the landing gate: {cmd!r}", code == 2)
+    check("a backslash-newline is a continuation, not a segment break",
+          is_commit_command("git \\\ncommit -m x") and merge_invocation("git merge \\\n --ff-only karta/x/integration") == ("karta/x/integration", False))
+    code, _, _ = run("git \\\ncommit -m x", PLAIN, ON, helper_=stale)
+    check("a continued commit meets the review gate", code == 2)
+    check("a wrapper word that is not a wrapper is still text", not is_commit_command("echo time git commit -m x")
+          and not is_commit_command("timeit git commit -m x") and not is_commit_command("envy git commit -m x"))
+
+    # (4) quoting inside the ref and a control character inside a quoted message
+    for cmd in ('git merge karta/x/integr""ation', "git merge --ff-only karta/x/integr'ation'", 'git merge --ff-only "karta/x/integration"',
+                'git merge -m "x;y" karta/x/integration', "git merge -m 'a && b' karta/x/integration", 'git merge -m "p|q" karta/x/integration',
+                'git merge -m "line1\nline2" karta/x/integration', "git merge -m 'x;y' --no-ff karta/x/integr\\ation"):
+        check(f"the ref is read dequoted and the segment is split outside quotes: {cmd!r}",
+              merge_invocation(cmd) == ("karta/x/integration", False) and merged_integration_ref(cmd) == "karta/x/integration", str(merge_invocation(cmd)))
+        code, _, _ = run(cmd, MREC, {}, tip=TIP)
+        check(f"landing gate holds: {cmd!r}", code == 2)
+        code, _, _ = run(cmd, {}, CFG, env={LAND_VAR: "1"}, tip=TIP, helper_=stale)
+        check(f"merge review gate holds: {cmd!r}", code == 2)
+    code, msg, _ = run('git merge --no-ff -m "x;y" karta/x/integration', MREC, ON, env=E, tip=TIP)
+    check("a quoted `;` in the merge message is not a second segment for the grammar", code == 0, msg)
+    check("a quoted `;` before a merge is not a segment break", merge_invocation('echo "a;b"; git merge --ff-only karta/x/integration') == ("karta/x/integration", False))
+    check("a quoted control character does not expose text as an invocation",
+          not is_commit_command('echo "a; git commit -m x"') and merge_invocation("echo 'x && git merge karta/x/integration'") is None)
+    code, _, _ = run('echo "a; git commit -m x"', PLAIN, ON, helper_=stale)
+    check("quoted commit text behind a quoted `;` is not gated", code == 0)
+
+    # (5) a pathspec commit records only what it names: a dirty unrelated binder is not in it
+    YP, YR = ".karta/binders/y.json", ".karta/roundtable/y.json"
+    DIRTY = {**PLAIN, YP: {"head": B0, "index": B0, "work": B2}, YR: {"head": rec(H0), "index": rec(H0), "work": rec(H0)}}
+    code, msg, _ = run("git commit .karta/binders/x.json .karta/roundtable/x.json .karta/roundtable/x.rounds.json -m x", DIRTY, ON)
+    check("a pathspec commit of binder x is not denied by a worktree-edited binder y it does not name", code == 0, msg)
+    code, _, _ = run("git commit -a -m x", DIRTY, ON)
+    check("-a still gates the worktree-edited binder y", code == 2)
+    code, _, _ = run("git commit .karta -m x", DIRTY, ON)
+    check("a pathspec that names y gates y on its worktree bytes", code == 2)
+
+    # (6) an unborn HEAD has no config: the first commit of a fresh repository is not wedged
+    for message in (b"fatal: invalid object name 'HEAD'.", b"fatal: bad object HEAD",
+                    b"fatal: your current branch 'main' does not have any commits yet"):
+        code, msg, _ = run("git commit -m x", {BP: {"index": B1, "work": B1}}, None, unborn=message)
+        check(f"an unborn HEAD reads as no config: {message[:30]!r}", code == 0, msg)
+        code, _, _ = run("git commit -m x", {BP: {"index": B1, "work": B1}, CONFIG_PATH: {"index": ONB, "work": ONB}}, None, unborn=message)
+        check(f"an unborn HEAD with a staged enabled config is still a first enable: {message[:30]!r}", code == 2)
+    code, msg, _ = run("git commit -m x", gf, None)
+    check("a HEAD that exists but cannot be read is still a denial", code == 2 and "config" in msg, msg)
+
+    # (7) the no-config fast path trusts the index only for a shape that records the index
+    FE = cfgtree(None, None, ONB)
+    for cmd in ("git add -A && git commit -m x", "git add .karta; git commit -m x", "GIT_INDEX_FILE=/tmp/alt git commit -m x",
+                "FOO=bar git commit -m x", "(git commit -m x)", "env git commit -m x", "git add -A\ngit commit -m x"):
+        code, _, _ = run(cmd, FE, None)
+        check(f"no config in HEAD, an enabled config in the worktree: a chained or prefixed commit meets the grammar: {cmd!r}", code == 2)
+    code, _, _ = run("git commit -m x", FE, None, env={"GIT_INDEX_FILE": "/tmp/alt"})
+    check("no config in HEAD, worktree config, GIT_INDEX_FILE in the environment: the grammar denies it", code == 2)
+    code, msg, _ = run("git commit -m x", FE, None)
+    check("no config in HEAD, worktree config, a plain single commit: the index is the whole answer", code == 0, msg)
+    code, msg, _ = run("git commit -m x", FE, None, env={"GIT_EDITOR": "true"})
+    check("an inert GIT_* in the environment still meets the grammar and passes", code == 0, msg)
+    for cmd in ("git add -A && git commit -m x", "GIT_INDEX_FILE=/tmp/alt git commit -m x", "FOO=bar git commit -m x"):
+        code, msg, _ = run(cmd, NOCFG, None, env={"GIT_EDITOR": "vim"})
+        check(f"no config anywhere: the same shapes are not denied (consumer repos): {cmd!r}", code == 0, msg)
 
     # the standalone resolver
     git, rf, isl, _ = make(PLAIN)
