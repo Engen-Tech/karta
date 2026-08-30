@@ -497,6 +497,94 @@ moment anything reads the record for what actually happened at merge time.
 **Fix.** Write the merge-time record to the ref after a successful re-execution, before the ref-last
 writes. Raised by codex on 2026-08-27.
 
+---
+
+## 21. a binder whose work landed outside karta reads as not-started forever — *Ready* (filed 2026-08-30)
+
+**What.** When a binder's work reaches the default branch through ordinary PRs instead of karta's own
+merge machinery, no `refs/karta/<slug>/item-*/done` refs exist, so `karta-status` reports it
+`not_started` and keeps pointing at `karta-deliver`. Re-delivering re-dispatches workers that all
+whiff on `no-change` — an endless loop whose only exit is archiving the binder by hand.
+
+**Why it matters.** Observed live twice this session (a 5-item binder and a 1-item binder both
+already on `main`). A user without karta internals reads "○ not-started, next: karta-deliver" as
+truth and re-runs a delivery that can never converge. Status lies, confidently.
+
+**Root cause.** `skills/karta-status/scripts/karta_next.py` `_binder_status` (~line 51) derives state
+**only** from the `refs/karta/` namespace — there is no reconciliation against what the default
+branch actually contains. Pure git-ref state is elegant but blind to work done by another hand.
+
+**Unblock path.** Status is read-only and must stay so (no oracle runs). The tractable, honest fix is
+a cheap read-only *hint*, not a state change: when a `not_started` binder's declared `touches` all
+already exist on the default branch, surface "possibly already delivered — archive?" alongside the
+next action, and make `archive` a one-verb affordance. Do **not** auto-mark done. Full evidence:
+[`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding A).
+
+---
+
+## 22. the delivery runtime records `env_contract` / `runtime_contract` but never acts on them — *Ready* (filed 2026-08-30)
+
+**What.** A binder can spell out its environment precondition ("needs Docker; reachable only via
+Incus/CI") in `env_contract`, and declare `runtime_contract.on_unavailable: halt`. The runtime reads
+neither. It runs the floor/oracle command blindly; when the precondition is absent the command fails
+deep inside the tool (here: every DB-backed pytest `ERROR`ed at fixture setup) and surfaces a wall of
+truncated log whose decisive signal is buried.
+
+**Why it matters.** The binder already carries the diagnosis and the remediation; throwing it away
+and emitting an opaque tool failure is strictly worse than the information on hand. The failure also
+misclassifies as a generic `blocked`/`retry` (finding #23-adjacent), so retry loops re-run the same
+impossible command.
+
+**Root cause.** The entire `preflight` apparatus in `extensions/pi/` concerns the **gate
+provider/model** (`child-runtime.ts`, `gate-runner.ts`, `dispatch-tool.ts` `preflightGate`). A grep
+of `delivery-runner.ts` / `wave-runner.ts` / `build-finalizer.ts` shows **no** read of `env_contract`,
+`runtime_contract`, `on_unavailable`, or any Docker probe. So `on_unavailable: halt` is inert schema.
+
+**Unblock path.** Add an optional declared precondition probe (e.g. `env_contract.preflight`, a cheap
+command like `docker info`) that the build/wave runner runs before the floor; on failure, halt with a
+distinct terminal status (`env-unavailable` / `precondition-unmet`) that echoes the binder's own
+remediation text — never run the real command into the wall. Medium: schema + build-finalizer/
+wave-runner + a new status enum value. Evidence:
+[`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding B, and the
+cross-cutting `blocked`-overloading note).
+
+---
+
+## 23. no-change / blocked deliveries leave scaffolding, and a pre-commit floor failure leaves work uncommitted — *Ready* (filed 2026-08-30)
+
+**What.** Two nits in delivery hygiene, both hit this session. (1) A `no-change` or `blocked` run
+leaves its per-item and integration worktrees + branches parked at the `main` tip with no refs
+(6 worktrees the first run, 2 the second) — removed by hand both times. (2) When an item's floor
+fails **before** the worker commits, the correct changes sit unstaged in the item worktree (the branch
+never advances past `main`), recoverable only via `git diff > patch`.
+
+**Why it matters.** Leftover worktrees accumulate silently and confuse the next run's leftover
+detection; uncommitted salvage makes a genuinely-good build look lost.
+
+**Unblock path.** (1) On a run that produces no mergeable checkpoint for an item, either clean up that
+item's scratch worktree/branch or name it explicitly in the result as retained-for-diagnosis (today
+it is neither). (2) Have the worker commit its candidate to the item branch **before** the floor runs,
+so a floor failure leaves a committed branch (already the wave-worker contract per
+`integration-branch.md`; the single-item / pre-commit-floor path does not honor it). Evidence:
+[`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding C).
+
+---
+
+## 24. `detect_stack.py` scans repo-root only, under-matching packs in a monorepo — *Ready (small)* (filed 2026-08-30)
+
+**What.** In a monorepo (`backend/` + `ui/`), `uv run --script skills/karta-plan/scripts/detect_stack.py .`
+returned `{"dependencies": [], "languages": []}`; pointing it at `backend/` produced the real set.
+`plan:sme` pack matching consumes this output as its only input, so a root-only scan silently
+under-matches every pack in a repo whose manifests live in sub-trees.
+
+**Why it matters.** A FastAPI backend under `backend/` would get an empty `sme` (only the always-on
+packs) with no signal that detection missed the manifest — the plan looks fine and is quietly
+under-advised.
+
+**Unblock path.** Walk a bounded depth for manifests (or accept multiple roots / a glob) and union the
+results, instead of scanning only the passed directory's top level. Keep it stdlib-only. Evidence:
+[`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding D).
+
 
 
 ## Done (recent)
