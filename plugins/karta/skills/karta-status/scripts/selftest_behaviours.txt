@@ -494,3 +494,17 @@ binder-header-tints-composite-over-the-card-surface
 woff2-table-directory-round-trips
 font-manifest-agrees-with-variation-table
 font-hinting-tables-stripped
+
+# The review strip (review-ledger / watch-review-history): what the roundtable
+# said about a plan, on its binder card — read from .karta/roundtable/<slug>.json
+# and <slug>.rounds.json, validated in full, rendered as text only.
+review-strip-counts-the-rounds
+review-round-row-names-its-blob-and-verdicts
+review-strip-absent-when-no-review
+review-detail-never-enters-the-archived-poll-entry
+review-strings-render-as-text-never-markup
+review-component-template-has-no-v-html
+review-record-only-shows-verdicts-and-no-rounds
+review-strip-survives-a-mid-session-archive
+review-slug-cannot-escape-the-roundtable-directory
+review-file-corruption-degrades-to-unavailable

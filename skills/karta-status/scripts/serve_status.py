@@ -603,6 +603,178 @@ def join_archived(detail_by_slug: dict, compact_entries: list) -> list[dict]:
     return rows
 
 
+# ---------------------------------------------------------------------------
+# The review block. Every binder row carries `review`: what the roundtable said
+# about the plan, read from two files found by convention from the slug —
+# `.karta/roundtable/<slug>.json` (the record the binder-commit gate checks)
+# and `.karta/roundtable/<slug>.rounds.json` (the round ledger). Found by
+# convention and never through the record's own pointer, so a record written
+# before the ledger existed still finds its ledger.
+#
+# Three things a row's `review` can be, and they are kept apart on purpose:
+#   None                       neither file exists (or the slug cannot be a
+#                              path — see below): no strip, no empty frame.
+#   {"unavailable": reason}    a file exists but cannot be read or is not the
+#                              shape below: the strip says so, the page stays up.
+#   {"record", "rounds"}       the validated block. `record` is the gate's
+#                              record cut down to {reviewed_hash, run_at, tool,
+#                              panel:[{provider, verdict}]} — the panel PROSE is
+#                              dropped, it is the full model responses and would
+#                              ride every poll — or None with no record; `rounds`
+#                              is the ledger's rounds array passed through
+#                              unchanged, or None with no ledger.
+#
+# Two file reads per binder and no git work: the read sits beside the binder
+# load. A slug is a path only after it is checked — it must match the binder
+# slug grammar, and both files (and the roundtable directory itself) resolve
+# with symlinks followed to a path still beneath the resolved parent before
+# anything is opened. Anything else is None and one stderr line, never a read.
+# Validation is total: a permissive loader that shows a partial review is what
+# the corruption fixtures in the self-test exclude.
+# ---------------------------------------------------------------------------
+
+ROUNDTABLE_DIR = os.path.join(".karta", "roundtable")
+REVIEW_RECORD_SUFFIX = ".json"
+REVIEW_LEDGER_SUFFIX = ".rounds.json"
+_REVIEW_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+_BLOB_HEX_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_ROUND_REQUIRED = ("round", "reviewed_hash", "providers",
+                   "findings_fixed", "findings_refuted_or_deferred")
+
+
+class _ReviewShape(ValueError):
+    """A review file that parsed but is not the shape the page reads."""
+
+
+def _beneath(path: str, parent: str) -> bool:
+    return path == parent or path.startswith(parent.rstrip(os.sep) + os.sep)
+
+
+def _review_note(slug, why: str) -> None:
+    print(f"karta-status: review for {slug!r} skipped: {why}", file=sys.stderr)
+
+
+def _review_paths(root, slug) -> tuple[str, str] | None:
+    """The resolved record and ledger paths for `slug`, or None when the slug
+    cannot be a path here: it fails the binder slug grammar, the roundtable
+    directory resolves outside the repository, or either file resolves outside
+    the roundtable directory. Resolution follows symlinks; nothing is opened."""
+    if not isinstance(slug, str) or not _REVIEW_SLUG_RE.match(slug):
+        _review_note(slug, "not a binder slug")
+        return None
+    root_real = os.path.realpath(root)
+    rt = os.path.realpath(os.path.join(root_real, ROUNDTABLE_DIR))
+    if not _beneath(rt, root_real):
+        _review_note(slug, "roundtable directory resolves outside the repository")
+        return None
+    out = []
+    for suffix in (REVIEW_RECORD_SUFFIX, REVIEW_LEDGER_SUFFIX):
+        p = os.path.realpath(os.path.join(rt, slug + suffix))
+        if not _beneath(p, rt):
+            _review_note(slug, f"{slug}{suffix} resolves outside the roundtable directory")
+            return None
+        out.append(p)
+    return out[0], out[1]
+
+
+def _str_or_none(v) -> bool:
+    return v is None or isinstance(v, str)
+
+
+def _validate_record(raw) -> dict:
+    """The record cut to what the page shows. Every consumed field is typed;
+    `verdict` must be PRESENT on each panel entry even when null."""
+    if not isinstance(raw, dict):
+        raise _ReviewShape("record is not an object")
+    h = raw.get("reviewed_hash")
+    if not isinstance(h, str) or not _SHA256_HEX_RE.match(h):
+        raise _ReviewShape("record reviewed_hash is not a sha256 hex string")
+    panel = raw.get("panel")
+    if not isinstance(panel, list):
+        raise _ReviewShape("record panel is not a list")
+    out = []
+    for e in panel:
+        if (not isinstance(e, dict) or "provider" not in e or "verdict" not in e
+                or not isinstance(e["provider"], str)
+                or not _str_or_none(e["verdict"])):
+            raise _ReviewShape("record panel entry is not {provider: str, verdict: str|null}")
+        out.append({"provider": e["provider"], "verdict": e["verdict"]})
+    for k in ("run_at", "tool"):
+        if k in raw and not isinstance(raw[k], str):
+            raise _ReviewShape(f"record {k} is not a string")
+    return {"reviewed_hash": h, "run_at": raw.get("run_at"),
+            "tool": raw.get("tool"), "panel": out}
+
+
+def _validate_ledger(raw) -> list:
+    """The ledger's rounds, passed through unchanged once every nested field
+    has been checked. `round` is an int (never a bool), `reviewed_hash` a blob
+    hash (40 or 64 hex), every provider entry an object whose model / verdict /
+    status are string-or-null WHEN present, both findings lists lists of
+    strings; notes / run_at strings and below_floor a bool when present."""
+    if not isinstance(raw, dict):
+        raise _ReviewShape("ledger is not an object")
+    rounds = raw.get("rounds")
+    if not isinstance(rounds, list) or not rounds:
+        raise _ReviewShape("ledger rounds is not a non-empty list")
+    for r in rounds:
+        if not isinstance(r, dict):
+            raise _ReviewShape("a round is not an object")
+        for k in _ROUND_REQUIRED:
+            if k not in r:
+                raise _ReviewShape(f"a round has no {k}")
+        if type(r["round"]) is not int:
+            raise _ReviewShape("a round number is not an integer")
+        h = r["reviewed_hash"]
+        if not isinstance(h, str) or not _BLOB_HEX_RE.match(h):
+            raise _ReviewShape("a round reviewed_hash is not a blob hash")
+        if not isinstance(r["providers"], dict):
+            raise _ReviewShape("a round's providers is not an object")
+        for name, pv in r["providers"].items():
+            if not isinstance(pv, dict):
+                raise _ReviewShape(f"provider {name!r} entry is not an object")
+            for k in ("model", "verdict", "status"):
+                if k in pv and not _str_or_none(pv[k]):
+                    raise _ReviewShape(f"provider {name!r} {k} is not a string or null")
+        for k in ("findings_fixed", "findings_refuted_or_deferred"):
+            if not isinstance(r[k], list) or not all(isinstance(x, str) for x in r[k]):
+                raise _ReviewShape(f"a round's {k} is not a list of strings")
+        for k in ("notes", "run_at"):
+            if k in r and not isinstance(r[k], str):
+                raise _ReviewShape(f"a round's {k} is not a string")
+        if "below_floor" in r and not isinstance(r["below_floor"], bool):
+            raise _ReviewShape("a round's below_floor is not a boolean")
+    return rounds
+
+
+def _read_json_file(path: str):
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def load_review(root, slug):
+    """The review block for binder `slug` under repository `root`: None,
+    {"unavailable": reason}, or {"record", "rounds"} — see the note above.
+    Never raises: a corrupt or half-written file (the page polls while the
+    recorder rewrites) degrades that one binder to `unavailable`."""
+    paths = _review_paths(root, slug)
+    if paths is None:
+        return None
+    rec_path, led_path = paths
+    has_rec, has_led = os.path.isfile(rec_path), os.path.isfile(led_path)
+    if not has_rec and not has_led:
+        return None
+    try:
+        record = _validate_record(_read_json_file(rec_path)) if has_rec else None
+        rounds = _validate_ledger(_read_json_file(led_path)) if has_led else None
+    except _ReviewShape as e:
+        return {"unavailable": str(e)}
+    except Exception as e:  # noqa: BLE001 — a read/parse failure is a state, not a crash
+        return {"unavailable": f"{type(e).__name__}: {str(e)[:120]}"}
+    return {"record": record, "rounds": rounds}
+
+
 def current_state() -> dict:
     """The engine state for the CWD's .karta + git, enriched.
 
@@ -622,7 +794,13 @@ def current_state() -> dict:
     state = karta_next.derive_state(binders, facts,
                                     frozenset(b["slug"] for b in archived))
     # archived first so a live binder wins the join over an archived namesake
-    return _enrich(_append_archived(state, archived), archived + binders)
+    state = _enrich(_append_archived(state, archived), archived + binders)
+    # the review block, read beside the binder load: two file reads per binder,
+    # no git work — every binder row, live or archived, carries the key
+    root = os.getcwd()
+    for ob in state["binders"]:
+        ob["review"] = load_review(root, ob["slug"])
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -1319,6 +1497,7 @@ _RADIUS_CONTAINERS: tuple[tuple[str, str], ...] = (
     (".item__detail", "disclosure"),
     (".band__cmd", "chip"),
     (".band__copy", "chip"),
+    (".rev__round", "chip"),
 )
 
 # Which container sits on a step's corners at the BOTTOM only. The binder card's
@@ -1352,6 +1531,7 @@ _ROUND_DOTS: tuple[str, ...] = (
 _ROUND_PILLS: tuple[str, ...] = (
     ".hctl--icon", ".branch-chip", ".shell__home", ".rail__gtoggle",
     ".rail__bar", ".rail__fill", ".rail__pick .rail__halt",
+    ".rev__pill",
 )
 _ROUND_DOT_VALUE = "50%"
 _ROUND_PILL_PX = 99
@@ -2042,6 +2222,49 @@ body{
   text-transform:uppercase; color:var(--mut-2); flex:none;
 }
 .bmeta__value{ font-family:var(--mono); font-size:10.5px; color:var(--mut); overflow-wrap:anywhere; }
+
+/* The review strip: the round count, each provider's final verdict, and one
+   collapsed row per round (a native <details>, so opening one is no script).
+   A provider that returned nothing keeps its pill, dashed, wearing its status. */
+.rev{ display:grid; gap:8px; padding:10px 18px; border-top:1px solid var(--line); }
+.rev__head{ display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; }
+.rev__kicker{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2); flex:none;
+}
+.rev__count{
+  font-family:var(--mono); font-size:12px; color:var(--ink); flex:none;
+  font-variant-numeric:tabular-nums;
+}
+.rev__finals,.rev__pills{ display:inline-flex; flex-wrap:wrap; gap:5px; }
+.rev__pill{
+  display:inline-flex; align-items:baseline; gap:5px; padding:1px 7px;
+  border:1px solid var(--line-2); border-radius:99px;
+  font-family:var(--mono); font-size:10px; color:var(--ink);
+}
+.rev__pill--none{ color:var(--mut); border-style:dashed; }
+.rev__prov{ color:var(--mut-2); }
+.rev__note{ margin:0; font-family:var(--mono); font-size:10.5px; color:var(--mut); }
+.rev__note--unavailable{ color:var(--halt); }
+.rev__rounds{ display:grid; gap:4px; }
+.rev__round{ border:1px solid var(--line); border-radius:__RADCHIP__px; }
+.rev__row{
+  display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; padding:5px 9px;
+  cursor:pointer; font-family:var(--mono); font-size:10.5px; color:var(--mut);
+  list-style:none;
+}
+.rev__row::-webkit-details-marker{ display:none; }
+.rev__n{ color:var(--ink); font-variant-numeric:tabular-nums; min-width:2ch; }
+.rev__hash{ color:var(--mut-2); }
+.rev__tally{ margin-left:auto; flex:none; }
+.rev__body{ display:grid; gap:6px; padding:2px 9px 9px; border-top:1px solid var(--line); }
+.rev__notes{ margin:0; font-size:11px; color:var(--mut); }
+.rev__list{ display:grid; gap:2px; }
+.rev__llabel{
+  font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--mut-2);
+}
+.rev__ul{ margin:0; padding-left:16px; font-size:11px; color:var(--mut); overflow-wrap:anywhere; }
 
 /* A work item. Six engine states, six treatments, and the colours come off the
    state metadata as inline custom values rather than living here as six more
@@ -2926,6 +3149,107 @@ def binder_panel(binder: dict, state: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# The review strip — how many rounds the plan took and what each one said.
+# One strip per binder card, built from the row's `review` block (above). The
+# model below is the shape the page binds; reviewStrip() in _APP_JS is its
+# mirror, and the self-test drives this twin. Every string in it is either one
+# of the Python-owned labels here or a value that came out of roundtable output
+# — provider names, verdicts, statuses, notes, findings — and the component
+# renders all of those through text bindings only.
+# ---------------------------------------------------------------------------
+
+REVIEW_KICKER = "Review"
+REVIEW_ROUNDS_FMT = "{n} rounds"
+REVIEW_ROUND_ONE = "1 round"
+REVIEW_NO_ROUNDS_COUNT = "no rounds"
+REVIEW_NO_ROUNDS = "no round ledger — only the record was filed"
+REVIEW_NO_RECORD = "no record filed — only the round ledger is on disk"
+REVIEW_UNAVAILABLE = "review unavailable:"
+REVIEW_NO_VERDICT = "no verdict"
+REVIEW_FIXED_FMT = "{n} fixed"
+REVIEW_REFUTED_FMT = "{n} refuted"
+REVIEW_FIXED_LABEL = "fixed"
+REVIEW_REFUTED_LABEL = "refuted or deferred"
+REVIEW_HASH_CHARS = 7
+_REVIEW_LABELS = {
+    "kicker": REVIEW_KICKER, "rounds_fmt": REVIEW_ROUNDS_FMT,
+    "round_one": REVIEW_ROUND_ONE, "no_rounds_count": REVIEW_NO_ROUNDS_COUNT,
+    "no_rounds": REVIEW_NO_ROUNDS, "no_record": REVIEW_NO_RECORD,
+    "unavailable": REVIEW_UNAVAILABLE, "no_verdict": REVIEW_NO_VERDICT,
+    "fixed_fmt": REVIEW_FIXED_FMT, "refuted_fmt": REVIEW_REFUTED_FMT,
+    "fixed": REVIEW_FIXED_LABEL, "refuted": REVIEW_REFUTED_LABEL,
+    "hash_chars": REVIEW_HASH_CHARS,
+}
+
+
+def _review_pill(provider: str, entry: dict) -> dict:
+    """One provider's pill: its verdict, or — when it returned nothing — the
+    status it gave instead. The absence is shown, never omitted."""
+    # MIRROR: change together with reviewPill() in _APP_JS.
+    verdict = entry.get("verdict")
+    status = entry.get("status")
+    return {"provider": provider, "verdict": verdict, "status": status,
+            "word": verdict or status or REVIEW_NO_VERDICT,
+            "none": verdict is None}
+
+
+def review_strip(review) -> dict | None:
+    """The strip model for one binder's `review` block: None when there is no
+    review (no strip, no empty frame); otherwise the round count label, the
+    final verdict pill per provider, one row per round, and the explicit
+    unavailable / no-rounds / no-record states."""
+    # MIRROR: change together with reviewStrip() in _APP_JS and the review self-test.
+    if not isinstance(review, dict):
+        return None
+    if review.get("unavailable"):
+        return {"unavailable": str(review["unavailable"]), "countLabel": "",
+                "finals": [], "rows": [], "empty": None, "missing": None}
+    record = review.get("record") or None
+    rounds = review.get("rounds") if isinstance(review.get("rounds"), list) else None
+    rows = []
+    for r in rounds or []:
+        fixed = r.get("findings_fixed") or []
+        refuted = r.get("findings_refuted_or_deferred") or []
+        providers = r.get("providers") or {}
+        rows.append({
+            "n": r.get("round"),
+            "hash": str(r.get("reviewed_hash") or "")[:REVIEW_HASH_CHARS],
+            "pills": [_review_pill(name, providers[name]) for name in providers],
+            "fixed": fixed, "refuted": refuted,
+            "fixedLabel": REVIEW_FIXED_FMT.replace("{n}", str(len(fixed))),
+            "refutedLabel": REVIEW_REFUTED_FMT.replace("{n}", str(len(refuted))),
+            "notes": r.get("notes") or "",
+        })
+    if record:
+        finals = [_review_pill(p["provider"], p) for p in record.get("panel") or []]
+    else:
+        finals = rows[-1]["pills"] if rows else []
+    n = len(rows)
+    if rounds is None:
+        count_label = REVIEW_NO_ROUNDS_COUNT
+    elif n == 1:
+        count_label = REVIEW_ROUND_ONE
+    else:
+        count_label = REVIEW_ROUNDS_FMT.replace("{n}", str(n))
+    return {"unavailable": None, "countLabel": count_label,
+            "finals": finals, "rows": rows,
+            "empty": REVIEW_NO_ROUNDS if rounds is None else None,
+            "missing": None if record else REVIEW_NO_RECORD}
+
+
+def with_held_review(rows: list[dict], review_by_slug: dict) -> list[dict]:
+    """A binder archived while the page is open arrives as a thin row with no
+    `review` key: give it the block the page still holds for that slug from the
+    last live payload, so its strip survives the move. Rows that carry the key
+    already are left alone."""
+    # MIRROR: change together with withHeldReview() in _APP_JS and the review self-test.
+    for row in rows:
+        if "review" not in row:
+            row["review"] = review_by_slug.get(row["slug"])
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # The per-item detail grid — what one work item is actually contracted to do.
 #
 # The feed was widened for exactly this: every item already carries its contract,
@@ -3133,6 +3457,8 @@ const TICK_MS = __TICK_MS__;
 const REFRESH_KEY = __REFRESH_KEY__;
 const REFRESH = __REFRESH_LABELS__;
 const REFRESH_VECTORS = __REFRESH_VECTORS__;
+// The review strip's labels, Python-owned like every other wording on the page.
+const REVIEW = __REVIEW__;
 
 // The map rail's own constants, handed over from the server: its title, which
 // group is the collapsible one, and the "Motion = state" legend table. The
@@ -3245,6 +3571,106 @@ function joinArchived(detailBySlug, entries) {
   });
   return rows;
 }
+
+// MIRROR: change together with _review_pill() in serve_status.py.
+function reviewPill(provider, entry) {
+  const e = entry || {};
+  const verdict = (e.verdict === undefined) ? null : e.verdict;
+  const status = (e.status === undefined) ? null : e.status;
+  return { provider: provider, verdict: verdict, status: status,
+           word: verdict || status || REVIEW.no_verdict, none: verdict === null };
+}
+// The strip model for one binder's review block. Null for no review (no strip,
+// no empty frame); otherwise the count label, the final pill per provider, one
+// row per round and the explicit unavailable / no-rounds / no-record states.
+// MIRROR: change together with review_strip() in serve_status.py and the review self-test.
+function reviewStrip(review) {
+  if (!review || typeof review !== 'object') return null;
+  if (review.unavailable) {
+    return { unavailable: String(review.unavailable), countLabel: '',
+             finals: [], rows: [], empty: null, missing: null };
+  }
+  const record = review.record || null;
+  const rounds = Array.isArray(review.rounds) ? review.rounds : null;
+  const rows = (rounds || []).map(r => {
+    const fixed = r.findings_fixed || [];
+    const refuted = r.findings_refuted_or_deferred || [];
+    const providers = r.providers || {};
+    return {
+      n: r.round,
+      hash: String(r.reviewed_hash || '').slice(0, REVIEW.hash_chars),
+      pills: Object.keys(providers).map(name => reviewPill(name, providers[name])),
+      fixed: fixed, refuted: refuted,
+      fixedLabel: REVIEW.fixed_fmt.replace('{n}', String(fixed.length)),
+      refutedLabel: REVIEW.refuted_fmt.replace('{n}', String(refuted.length)),
+      notes: r.notes || '',
+    };
+  });
+  let finals = [];
+  if (record) finals = (record.panel || []).map(p => reviewPill(p.provider, p));
+  else if (rows.length) finals = rows[rows.length - 1].pills;
+  const n = rows.length;
+  let countLabel;
+  if (rounds === null) countLabel = REVIEW.no_rounds_count;
+  else if (n === 1) countLabel = REVIEW.round_one;
+  else countLabel = REVIEW.rounds_fmt.replace('{n}', String(n));
+  return { unavailable: null, countLabel: countLabel, finals: finals, rows: rows,
+           empty: rounds === null ? REVIEW.no_rounds : null,
+           missing: record ? null : REVIEW.no_record };
+}
+// A thin archived row (a binder archived while this page was open) carries no
+// review key: hand it the block held from the last live payload for its slug.
+// MIRROR: change together with with_held_review() in serve_status.py and the review self-test.
+function withHeldReview(rows, reviewBySlug) {
+  rows.forEach(row => {
+    if (!('review' in row)) row.review = (reviewBySlug[row.slug] === undefined) ? null : reviewBySlug[row.slug];
+  });
+  return rows;
+}
+
+// The review strip. Every value it shows that is not one of the REVIEW labels
+// came out of roundtable output — provider names, verdicts, statuses, notes,
+// findings — and every one is bound as TEXT: interpolation only, the only
+// attribute bindings in this template are :key and :class, and it carries no
+// handler at all (the round rows expand through a native <details>). The
+// strip's opening hook and its closing end hook bound the region the
+// self-test and the oracle enforce that rule over.
+const REVIEW_STRIP_TEMPLATE = `
+<div class="rev" data-kw-review-strip :class="{ 'rev--unavailable': !!strip.unavailable }">
+  <div class="rev__head">
+    <span class="rev__kicker">{{ L.kicker }}</span>
+    <span class="rev__count" data-kw-review-count v-if="strip.countLabel">{{ strip.countLabel }}</span>
+    <span class="rev__finals" v-if="strip.finals.length">
+      <span class="rev__pill" data-kw-review-verdict v-for="(f, i) in strip.finals" :key="i" :class="{ 'rev__pill--none': f.none }"><span class="rev__prov">{{ f.provider }}</span><span class="rev__word">{{ f.word }}</span></span>
+    </span>
+  </div>
+  <p class="rev__note rev__note--unavailable" data-kw-review-unavailable v-if="strip.unavailable">{{ L.unavailable }} {{ strip.unavailable }}</p>
+  <p class="rev__note" data-kw-review-missing v-if="strip.missing">{{ strip.missing }}</p>
+  <p class="rev__note" data-kw-review-empty v-if="strip.empty">{{ strip.empty }}</p>
+  <div class="rev__rounds" v-if="strip.rows.length">
+    <details class="rev__round" data-kw-review-round v-for="r in strip.rows" :key="r.n">
+      <summary class="rev__row">
+        <span class="rev__n">{{ r.n }}</span>
+        <span class="rev__hash">{{ r.hash }}</span>
+        <span class="rev__pills"><span class="rev__pill" data-kw-review-verdict v-for="(p, i) in r.pills" :key="i" :class="{ 'rev__pill--none': p.none }"><span class="rev__prov">{{ p.provider }}</span><span class="rev__word">{{ p.word }}</span></span></span>
+        <span class="rev__tally">{{ r.fixedLabel }} · {{ r.refutedLabel }}</span>
+      </summary>
+      <div class="rev__body">
+        <p class="rev__notes" v-if="r.notes">{{ r.notes }}</p>
+        <div class="rev__list" v-if="r.fixed.length"><span class="rev__llabel">{{ L.fixed }}</span><ul class="rev__ul"><li v-for="(f, i) in r.fixed" :key="i">{{ f }}</li></ul></div>
+        <div class="rev__list" v-if="r.refuted.length"><span class="rev__llabel">{{ L.refuted }}</span><ul class="rev__ul"><li v-for="(f, i) in r.refuted" :key="i">{{ f }}</li></ul></div>
+      </div>
+    </details>
+  </div>
+  <span data-kw-review-end aria-hidden="true"></span>
+</div>
+`;
+const ReviewStrip = {
+  name: 'KartaReviewStrip',
+  props: { strip: { type: Object, required: true } },
+  data: function () { return { L: REVIEW }; },
+  template: REVIEW_STRIP_TEMPLATE,
+};
 
 // A render helper for inline <svg> icons, matching the design's icon() factory.
 const Icon = {
@@ -3585,7 +4011,7 @@ function binderPanel(b, state) {
 }
 
 const app = createApp({
-  components: { Icon },
+  components: { Icon, ReviewStrip },
   data() {
     const initial = window.__KARTA_STATE__ || { binders: [], repo: { default_branch: 'main' }, next_action: {} };
     // The retention map: archived detail arrives ONCE, inlined with this page,
@@ -3593,9 +4019,14 @@ const app = createApp({
     // Built here, at load, and never refreshed — a poll has no prose to give.
     const archivedDetail = {};
     (initial.binders || []).forEach(b => { if (b && b.archived) archivedDetail[b.slug] = b; });
+    // The review blocks held per slug, refreshed from every live payload, so a
+    // binder archived mid-session keeps its strip on the thin row it becomes.
+    const reviewHeld = {};
+    (initial.binders || []).forEach(b => { if (b && b.slug && b.review !== undefined) reviewHeld[b.slug] = b.review; });
     return {
       state: initial,
       archivedDetail: archivedDetail,
+      reviewHeld: reviewHeld,
       expanded: {},      // 'slug/itemId' -> bool
       open: {},          // slug -> bool (binder open/collapse; default-open for `now`)
       shell: SHELL,
@@ -3821,6 +4252,8 @@ const app = createApp({
         counts: panel.counts, meta: panel.meta,
         open: this.isOpen(b.slug, key),
         queueLabel, waves,
+        // the review strip's model, or null for a binder with no review at all
+        ledger: reviewStrip(b.review),
       };
     },
 
@@ -3873,7 +4306,9 @@ const app = createApp({
     withArchived(s) {
       if (!s || !s.archived) return s;
       const merged = Object.assign({}, s);
-      merged.binders = (s.binders || []).concat(joinArchived(this.archivedDetail, s.archived));
+      (s.binders || []).forEach(b => { if (b && b.slug && b.review !== undefined) this.reviewHeld[b.slug] = b.review; });
+      const archivedRows = withHeldReview(joinArchived(this.archivedDetail, s.archived), this.reviewHeld);
+      merged.binders = (s.binders || []).concat(archivedRows);
       return merged;
     },
     // The reader's choice: automatic refresh on or off. Off genuinely STOPS the
@@ -4142,6 +4577,8 @@ const app = createApp({
           </span>
         </div>
 
+        <review-strip v-if="shown.ledger" :strip="shown.ledger"></review-strip>
+
         <div class="binder__waves" data-kw-binder-waves v-if="shown.open">
           <div class="queue"><span class="queue__icon"><icon name="fork" :size="12" color="var(--mut)" /></span><span>{{ shown.queueLabel }}</span></div>
 
@@ -4304,6 +4741,7 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__REFRESH_LABELS__", _inert_json({"on": REFRESH_ON_LABEL,
                                                     "off": REFRESH_OFF_LABEL}))
         .replace("__REFRESH_VECTORS__", _inert_json(REFRESH_VECTORS))
+        .replace("__REVIEW__", _inert_json(_REVIEW_LABELS))
         .replace("__FOOT__", FOOT_LINE)
         .replace("__ASSET_QS__", asset_qs)
     )
@@ -16116,6 +16554,770 @@ def _anchored_behaviours(anchor: Path | None = None) -> list[str]:
             if ln.strip() and not ln.lstrip().startswith("#")]
 
 
+# --- the review strip: what the roundtable said, on the binder card ---------
+
+_REVIEW_HOSTILE = "<script>alert(1)</script><img src=x onerror=alert(2)>"
+_REVIEW_REGION_ALLOWED = {":key", "v-bind:key", ":class", "v-bind:class", "v-text"}
+_REVIEW_SINKS = ("v-html", "innerHTML", "outerHTML", "insertAdjacentHTML",
+                 "document.write", "srcdoc")
+# the audit hook is process-wide and cannot be removed, so it is installed once
+# and only records while a containment check has switched it on
+_REVIEW_OPEN_AUDIT = {"installed": False, "active": False, "seen": []}
+
+
+def _review_round(n: int, blob: str, providers: dict, fixed=(), refuted=(),
+                  notes: str = "") -> dict:
+    return {"round": n, "reviewed_hash": blob, "providers": providers,
+            "findings_fixed": list(fixed),
+            "findings_refuted_or_deferred": list(refuted), "notes": notes}
+
+
+def _review_fixture(n_rounds: int = 3, *, record: bool = True,
+                    ledger: bool = True) -> dict:
+    """A review block the way current_state() hands it over: a record cut to
+    provider/verdict pairs, and a ledger whose last round has one provider
+    that returned nothing (null verdict, a status saying why)."""
+    blob = "%064x" % 0xabcdef
+    rounds = []
+    for i in range(1, n_rounds + 1):
+        b = ("%064x" % (0xabcdef + i)) if i < n_rounds else blob
+        provs = {"claude": {"model": "m", "verdict": "merge"},
+                 "codex": {"model": "cli", "verdict": "merge" if i == n_rounds else "revise"}}
+        if i == n_rounds:
+            provs["antigravity"] = {"model": "cli", "verdict": None,
+                                    "status": "no output — permission denied"}
+        rounds.append(_review_round(i, b, provs, fixed=["f%d" % i] * i,
+                                    refuted=["r%d" % i], notes="round %d" % i))
+    rec = {"reviewed_hash": blob, "run_at": "2026-08-29T00:00:00Z",
+           "tool": "roundtable-critique",
+           "panel": [{"provider": "claude", "verdict": "merge"},
+                     {"provider": "codex", "verdict": "merge"},
+                     {"provider": "antigravity", "verdict": None}]}
+    return {"record": rec if record else None, "rounds": rounds if ledger else None}
+
+
+def _review_state(review) -> dict:
+    """A one-binder state whose row carries `review`, for a render."""
+    return {"repo": {"default_branch": "main"}, "order": None,
+            "binders": [{"slug": "reviewed", "after": [], "status": "ready",
+                         "is_next": True, "title": "Reviewed", "summary": "s",
+                         "motivation": None, "sme": None, "review": review,
+                         "items": {"total": 1, "done": 0, "built": 0, "failed": 0,
+                                   "building": 0, "ready": 1, "blocked": 0,
+                                   "detail": [{"id": "one", "status": "ready"}]}}],
+            "next_action": {"level": "ready", "command": None, "human": "x"},
+            "warnings": [], "errors": []}
+
+
+def _review_regions(doc: str) -> list[str]:
+    """Every review-template region of `doc`: from the strip's opening hook to
+    its closing end hook, in document order."""
+    out, k = [], 0
+    while True:
+        i = doc.find("data-kw-review-strip", k)
+        if i < 0:
+            return out
+        j = doc.find("data-kw-review-end", i)
+        if j < 0:
+            return out + [doc[i:]]
+        out.append(doc[i:j])
+        k = j
+
+
+def _review_region_tokens(region: str) -> list[str]:
+    """Every binding / directive attribute token in a review region — the ones
+    the structural rule allows are :key, :class and v-text, nothing else."""
+    return re.findall(r"(?:^|[\s\"'>])((?:v-bind|v-on|v-html|v-text|v-model|:|@|#|\.)[^\s=]*)\s*=",
+                      region)
+
+
+def _review_root(files: dict) -> str:
+    """A throwaway repository root with the given roundtable files. A None
+    value makes that name a symlink to a sentinel OUTSIDE the roundtable
+    directory (a valid record or a valid ledger, so a loader that follows the
+    link would find something to show)."""
+    d = tempfile.mkdtemp()
+    rt = os.path.join(d, ".karta", "roundtable")
+    os.makedirs(rt)
+    blob = "b" * 64
+    with open(os.path.join(d, "outside.json"), "w", encoding="utf-8") as fh:
+        json.dump({"reviewed_hash": blob, "panel": [{"provider": "p", "verdict": "merge"}]}, fh)
+    with open(os.path.join(d, "outside_ledger.json"), "w", encoding="utf-8") as fh:
+        json.dump({"rounds": [_review_round(1, blob, {})]}, fh)
+    for name, content in files.items():
+        p = os.path.join(rt, name)
+        if content is None:
+            target = "outside_ledger.json" if name.endswith(".rounds.json") else "outside.json"
+            os.symlink(os.path.join(d, target), p)
+        else:
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(content)
+    return d
+
+
+def _review_audit_hook(event, args):
+    if event == "open" and _REVIEW_OPEN_AUDIT["active"]:
+        try:
+            _REVIEW_OPEN_AUDIT["seen"].append(os.path.realpath(str(args[0])))
+        except Exception:  # noqa: BLE001 — an unreadable event is not a read
+            pass
+
+
+def _review_opened_during(fn) -> list[str]:
+    """The resolved paths opened while `fn` ran."""
+    if not _REVIEW_OPEN_AUDIT["installed"]:
+        sys.addaudithook(_review_audit_hook)
+        _REVIEW_OPEN_AUDIT["installed"] = True
+    _REVIEW_OPEN_AUDIT["seen"] = []
+    _REVIEW_OPEN_AUDIT["active"] = True
+    try:
+        fn()
+    finally:
+        _REVIEW_OPEN_AUDIT["active"] = False
+    return list(_REVIEW_OPEN_AUDIT["seen"])
+
+
+def _naive_load_review(root, slug):
+    """The loader this item exists to exclude: builds the path from the slug
+    and opens whatever is there. The control for the containment checks."""
+    p = os.path.join(root, ROUNDTABLE_DIR, slug + REVIEW_RECORD_SUFFIX)
+    try:
+        with open(p, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except OSError:
+        return None
+    return {"record": raw, "rounds": None}
+
+
+def _permissive_load_review(root, slug):
+    """A loader that shows whatever half-parses — `.get(…, default)` all the
+    way down. The control for the corruption checks."""
+    p = os.path.join(root, ROUNDTABLE_DIR, slug + REVIEW_RECORD_SUFFIX)
+    try:
+        with open(p, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError):
+        return {"record": None, "rounds": None}
+    if not isinstance(raw, dict):
+        return {"record": None, "rounds": None}
+    return {"record": {"reviewed_hash": raw.get("reviewed_hash"),
+                       "panel": raw.get("panel") or []}, "rounds": None}
+
+
+def _review_count_label(labels: dict, n: int) -> str:
+    """The count wording for `n` rounds, from the labels the page ships."""
+    return labels["round_one"] if n == 1 else labels["rounds_fmt"].replace("{n}", str(n))
+
+
+def _review_tally_label(labels: dict, key: str, n: int) -> str:
+    return labels[key].replace("{n}", str(n))
+
+
+def _review_strip_miscounted(ctx):
+    def strip(review):
+        out = ctx["review_strip"](review)
+        if out and out.get("rows"):
+            out["countLabel"] = _review_count_label(ctx["review_labels"], len(out["rows"]) + 1)
+        return out
+    return {"review_strip": strip}
+
+
+def _review_strip_dropping_silent_providers(ctx):
+    def strip(review):
+        out = ctx["review_strip"](review)
+        if out:
+            for row in out["rows"]:
+                row["pills"] = [p for p in row["pills"] if not p["none"]]
+            out["finals"] = [p for p in out["finals"] if not p["none"]]
+        return out
+    return {"review_strip": strip}
+
+
+def _review_strip_framing_nothing(ctx):
+    def strip(review):
+        out = ctx["review_strip"](review)
+        return out if out is not None else {"unavailable": None, "countLabel": "",
+                                            "finals": [], "rows": [],
+                                            "empty": None, "missing": None}
+    return {"review_strip": strip}
+
+
+def _review_render_with(ctx, old: str, new: str):
+    """A render whose served document has `old` replaced by `new` — the
+    control for a sink or a binding smuggled into the component."""
+    return {"render": lambda s: ctx["render"](s).replace(old, new)}
+
+
+@_covers("review-strip-counts-the-rounds", kind="rendered",
+         hook="data-kw-review-count",
+         breaks=[lambda c: _renamed(c, "data-kw-review-count", "page"),
+                 _review_strip_miscounted,
+                 lambda c: {"review_inlined": dict(c["review_inlined"], rounds_fmt="{n}")}])
+def _c_review_strip_counts_the_rounds(ctx):
+    """The strip's first fact is how many rounds the plan took. The model
+    counts the ledger's rounds and words the count with the Python-owned
+    label; the page binds that label on the count element and ships the same
+    labels to the app it inlines."""
+    strip, labels = ctx["review_strip"], ctx["review_labels"]
+    three = strip(_review_fixture(3))
+    one = strip(_review_fixture(1))
+    if not (three and three["countLabel"] == _review_count_label(labels, 3)
+            and len(three["rows"]) == 3
+            and one and one["countLabel"] == _review_count_label(labels, 1)):
+        return False
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-review-count")
+    if len(tags) != 1 or "countLabel" not in _text_in(page, "data-kw-review-count"):
+        return False
+    # the strip element opens the region the count sits inside
+    return (bool(_tags_with(page, "data-kw-review-strip"))
+            and ctx["review_inlined"] == labels)
+
+
+@_covers("review-round-row-names-its-blob-and-verdicts", kind="rendered",
+         hook="data-kw-review-round",
+         breaks=[lambda c: _renamed(c, "data-kw-review-round", "page"),
+                 lambda c: {"page": c["page"].replace(
+                     'data-kw-review-round v-for="r in strip.rows" :key="r.n"',
+                     'data-kw-review-round v-for="r in strip.rows" :key="r.hash"')},
+                 _review_strip_dropping_silent_providers])
+def _c_review_round_row_names_its_blob_and_verdicts(ctx):
+    """One row per round: the round number, the first seven characters of the
+    blob it reviewed, one pill per provider — a provider that returned nothing
+    keeps its pill and wears its status — and the fixed / refuted counts. The
+    row is keyed on the round number."""
+    fx = _review_fixture(3)
+    strip = ctx["review_strip"](fx)
+    if not strip or len(strip["rows"]) != 3:
+        return False
+    for r, src in zip(strip["rows"], fx["rounds"]):
+        if r["n"] != src["round"] or r["hash"] != src["reviewed_hash"][:7] or len(r["hash"]) != 7:
+            return False
+        if [p["provider"] for p in r["pills"]] != list(src["providers"]):
+            return False
+        if r["fixedLabel"] != _review_tally_label(ctx["review_labels"], "fixed_fmt", len(src["findings_fixed"])):
+            return False
+    last = strip["rows"][-1]["pills"]
+    silent = [p for p in last if p["provider"] == "antigravity"]
+    if not (silent and silent[0]["none"] and silent[0]["verdict"] is None
+            and silent[0]["word"] == fx["rounds"][-1]["providers"]["antigravity"]["status"]):
+        return False
+    if not any(p["none"] for p in strip["finals"]):
+        return False
+    page = ctx["page"]
+    rows = _tags_with(page, "data-kw-review-round")
+    if len(rows) != 1 or _attrs(rows[0]).get(":key") != "r.n":
+        return False
+    inside = _subtree(page, rows[0])
+    return bool(_tags_with(inside, "data-kw-review-verdict"))
+
+
+@_covers("review-strip-absent-when-no-review", kind="behaviour",
+         breaks=[_review_strip_framing_nothing,
+                 lambda c: {"page": c["page"].replace(
+                     '<review-strip v-if="shown.ledger" :strip="shown.ledger">',
+                     '<review-strip :strip="shown.ledger || {}">')},
+                 lambda c: {"load_review": lambda root, slug: {"record": None, "rounds": None}}])
+def _c_review_strip_absent_when_no_review(ctx):
+    """A binder with neither file renders no strip and no empty frame: the
+    loader answers None, the model answers None, and the page mounts the strip
+    only behind that null."""
+    if ctx["load_review"](_review_root({}), "nothing") is not None:
+        return False
+    if ctx["review_strip"](None) is not None:
+        return False
+    page = ctx["page"]
+    mounts = [t for t in _start_tags(page) if _tag_name(t) == "review-strip"]
+    if len(mounts) != 1:
+        return False
+    attrs = _attrs(mounts[0])
+    if attrs.get("v-if") != "shown.ledger":
+        return False
+    doc = ctx["render"](_review_state(None))
+    row = _inlined_state(doc)["binders"][0]
+    return "review" in row and row["review"] is None
+
+
+@_covers("review-detail-never-enters-the-archived-poll-entry", kind="behaviour",
+         breaks=[lambda c: {"archived_entry": lambda row: dict(
+                     c["archived_entry"](row), review=row.get("review"))},
+                 lambda c: {"archived_bound": lambda *a: c["archived_bound"](*a) + 1},
+                 lambda c: {"split_archived": lambda s: dict(
+                     s, archived=[r for r in s["binders"] if r.get("archived")])}])
+def _c_review_detail_never_enters_the_archived_poll_entry(ctx):
+    """An archived binder's strip comes from the load-time detail like the
+    rest of its prose: the compact poll entry is still exactly {slug, total,
+    done}, its bound is still 96 bytes, and the polled form of a state whose
+    archived row carries a rich review has no review in it."""
+    row = {"slug": "old-one", "after": [], "status": "merged", "is_next": False,
+           "archived": True, "review": _review_fixture(13),
+           "items": {"total": 2, "done": 2, "built": 0, "failed": 0, "building": 0,
+                     "ready": 0, "blocked": 0, "detail": []}}
+    entry = ctx["archived_entry"](row)
+    if sorted(entry) != ["done", "slug", "total"] or ctx["archived_bound"]() != 96:
+        return False
+    if len(ctx["inert"](entry).encode("utf-8")) + 1 > ctx["archived_bound"]():
+        return False
+    state = {"repo": {"default_branch": "main"}, "binders": [row],
+             "next_action": {}, "warnings": [], "errors": []}
+    wire = ctx["inert"](ctx["split_archived"](state)["archived"])
+    return "review" not in wire and "reviewed_hash" not in wire
+
+
+@_covers("review-strings-render-as-text-never-markup", kind="behaviour",
+         breaks=[lambda c: _review_render_with(
+                     c, 'data-kw-review-count v-if="strip.countLabel"',
+                     'data-kw-review-count v-html="strip.countLabel"'),
+                 lambda c: {"render": lambda s: c["render"](s).replace("\\u003c", "<")},
+                 lambda c: _review_render_with(
+                     c, 'class="rev__prov">{{ f.provider }}',
+                     'class="rev__prov" :title="f.provider">{{ f.provider }}')])
+def _c_review_strings_render_as_text_never_markup(ctx):
+    """Every review-derived string is untrusted — provider names, verdicts,
+    statuses, notes, both findings lists all come out of roundtable output —
+    and every one renders as text. Hostile values in each of them go through
+    the real render path: they round-trip unchanged through the inlined
+    state, form no markup in the served document, and the region between the
+    strip's opening and closing hooks binds nothing but :key, :class and
+    v-text. A sink denylist is kept as a second net over the whole document
+    outside the inlined state."""
+    H = _REVIEW_HOSTILE
+    review = {"record": {"reviewed_hash": "a" * 64, "run_at": None, "tool": None,
+                         "panel": [{"provider": H, "verdict": H}]},
+              "rounds": [_review_round(1, "a" * 64, {H: {"model": H, "verdict": H, "status": H}},
+                                       fixed=[H], refuted=[H], notes=H)]}
+    state = _review_state(review)
+    doc = ctx["render"](state)
+    inl = ctx["inert"](state)
+    if doc.count(inl) != 1:
+        return False
+    outside_state = doc.replace(inl, "")
+    if any(re.search(re.escape(s), outside_state, re.I) for s in _REVIEW_SINKS):
+        return False
+    regions = _review_regions(outside_state)
+    if not regions:
+        return False
+    region = "".join(regions)
+    if not re.search(r"\{\{|v-text=", region):
+        return False
+    if any(t not in _REVIEW_REGION_ALLOWED for t in _review_region_tokens(region)):
+        return False
+    if "<script>alert(1)" in doc or "<img src=x" in doc:
+        return False
+    back = _inlined_state(doc)["binders"][0]["review"]
+    return (back["rounds"][0]["findings_fixed"] == [H]
+            and back["rounds"][0]["findings_refuted_or_deferred"] == [H]
+            and back["rounds"][0]["notes"] == H
+            and list(back["rounds"][0]["providers"]) == [H]
+            and back["rounds"][0]["providers"][H]["status"] == H
+            and back["record"]["panel"][0] == {"provider": H, "verdict": H}
+            and "data-kw-review-end" in doc)
+
+
+@_covers("review-component-template-has-no-v-html", kind="behaviour",
+         breaks=[lambda c: {"app_src": c["app_src"].replace(
+                     'data-kw-review-count v-if="strip.countLabel"',
+                     'data-kw-review-count v-html="strip.countLabel"')},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     'class="rev__word">{{ f.word }}', 'class="rev__word" v-html="f.word">')}])
+def _c_review_component_template_has_no_v_html(ctx):
+    """The review component's own template — the source region between the
+    strip's opening hook and its end hook — carries no v-html, so the global
+    count cannot be kept level by moving a directive around, and every value
+    in it is a text binding."""
+    regions = _review_regions(ctx["app_src"])
+    if len(regions) != 1:
+        return False
+    region = regions[0]
+    return ("v-html" not in region and "{{" in region
+            and "data-kw-review-strip" in region
+            and not any(t not in _REVIEW_REGION_ALLOWED
+                        for t in _review_region_tokens(region)))
+
+
+@_covers("review-record-only-shows-verdicts-and-no-rounds", kind="rendered",
+         hook="data-kw-review-empty",
+         breaks=[lambda c: _renamed(c, "data-kw-review-empty", "page"),
+                 lambda c: {"review_strip": lambda r: (lambda o: (
+                     o if not o or o["rows"] else dict(o, empty=None, missing=None)))(
+                     c["review_strip"](r))},
+                 lambda c: _renamed(c, "data-kw-review-missing", "page")])
+def _c_review_record_only_shows_verdicts_and_no_rounds(ctx):
+    """Most of this repo's archived history is a record with no ledger. That
+    shows the record half — each provider's verdict — and an explicit no-rounds
+    state, never dressed up as anything else. The mirror case, a ledger with no
+    record, shows its rounds with an explicit no-record state."""
+    strip, labels = ctx["review_strip"], ctx["review_labels"]
+    rec_only = strip(_review_fixture(3, ledger=False))
+    if not (rec_only and rec_only["rows"] == [] and rec_only["empty"] == labels["no_rounds"]
+            and rec_only["missing"] is None
+            and rec_only["countLabel"] == labels["no_rounds_count"]
+            and [p["word"] for p in rec_only["finals"]] == ["merge", "merge", labels["no_verdict"]]):
+        return False
+    led_only = strip(_review_fixture(3, record=False))
+    if not (led_only and len(led_only["rows"]) == 3 and led_only["empty"] is None
+            and led_only["missing"] == labels["no_record"]
+            and led_only["finals"] == led_only["rows"][-1]["pills"]):
+        return False
+    page = ctx["page"]
+    empty = _tags_with(page, "data-kw-review-empty")
+    missing = _tags_with(page, "data-kw-review-missing")
+    return (len(empty) == 1 and _attrs(empty[0]).get("v-if") == "strip.empty"
+            and "strip.empty" in _text_in(page, "data-kw-review-empty")
+            and len(missing) == 1 and _attrs(missing[0]).get("v-if") == "strip.missing")
+
+
+@_covers("review-strip-survives-a-mid-session-archive", kind="behaviour",
+         breaks=[lambda c: {"with_held_review": lambda rows, held: rows},
+                 lambda c: {"app_src": c["app_src"].replace(
+                     "withHeldReview(joinArchived(this.archivedDetail, s.archived), this.reviewHeld)",
+                     "joinArchived(this.archivedDetail, s.archived)")},
+                 lambda c: {"archived_entry": lambda row: dict(
+                     c["archived_entry"](row), review=row.get("review"))}])
+def _c_review_strip_survives_a_mid_session_archive(ctx):
+    """A binder archived between two polls arrives as a compact entry with no
+    detail. The thin row it joins into takes the review block the page still
+    holds for that slug from the last live payload — so the strip survives the
+    move while the compact entry stays exactly as small as it was."""
+    block = _review_fixture(2)
+    rows = ctx["join_archived"]({}, [{"slug": "moved", "total": 2, "done": 2}])
+    if len(rows) != 1 or "review" in rows[0]:
+        return False
+    kept = ctx["with_held_review"](rows, {"moved": block})
+    if kept[0].get("review") != block:
+        return False
+    held = {"slug": "held", "archived": True, "review": None, "items": {"total": 1}}
+    if ctx["with_held_review"]([held], {"held": block})[0]["review"] is not None:
+        return False
+    if sorted(ctx["archived_entry"](kept[0])) != ["done", "slug", "total"]:
+        return False
+    app = ctx["app_src"]
+    return ("withHeldReview(joinArchived(this.archivedDetail, s.archived), this.reviewHeld)" in app
+            and "function withHeldReview(rows, reviewBySlug)" in app
+            and "if (!('review' in row))" in app
+            and "this.reviewHeld[b.slug] = b.review" in app
+            and "MIRROR: change together with withHeldReview()" in inspect.getsource(with_held_review))
+
+
+@_covers("review-slug-cannot-escape-the-roundtable-directory", kind="behaviour",
+         breaks=[lambda c: {"load_review": _naive_load_review},
+                 lambda c: {"load_review": lambda root, slug: (
+                     _naive_load_review(root, slug) and None)}])
+def _c_review_slug_cannot_escape_the_roundtable_directory(ctx):
+    """A slug is a path only after it is checked. A traversal slug, a slug off
+    the binder grammar, a record symlink escaping the roundtable directory, a
+    ledger symlink escaping it beside a valid record, and a roundtable
+    directory that is itself a symlink out of the repository each yield null —
+    and the audit hook proves, by resolved path, that the outside sentinel was
+    never opened along the way."""
+    load = ctx["load_review"]
+    rec = json.dumps({"reviewed_hash": "a" * 64,
+                      "panel": [{"provider": "claude", "verdict": "merge"}]})
+    d_plain = _review_root({})
+    d_rec = _review_root({"esc.json": None})
+    d_led = _review_root({"esc2.json": rec, "esc2.rounds.json": None})
+    d_dir = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d_dir, ".karta"))
+    outside_dir = tempfile.mkdtemp()
+    with open(os.path.join(outside_dir, "dl.json"), "w", encoding="utf-8") as fh:
+        fh.write(rec)
+    os.symlink(outside_dir, os.path.join(d_dir, ".karta", "roundtable"))
+    sentinels = {os.path.realpath(os.path.join(x, n)) for x in (d_rec, d_led)
+                 for n in ("outside.json", "outside_ledger.json")}
+    sentinels.add(os.path.realpath(os.path.join(outside_dir, "dl.json")))
+    results = []
+    err = io.StringIO()
+
+    def drive():
+        with contextlib.redirect_stderr(err):
+            for root, slug in ((d_plain, "../outside"), (d_plain, "Ok"),
+                               (d_plain, "a/b"), (d_rec, "esc"),
+                               (d_led, "esc2"), (d_dir, "dl")):
+                results.append(load(root, slug))
+    opened = _review_opened_during(drive)
+    return (all(r is None for r in results) and len(results) == 6
+            and not [p for p in opened if p in sentinels])
+
+
+@_covers("review-file-corruption-degrades-to-unavailable", kind="rendered",
+         hook="data-kw-review-unavailable",
+         breaks=[lambda c: _renamed(c, "data-kw-review-unavailable", "page"),
+                 lambda c: {"load_review": _permissive_load_review},
+                 lambda c: {"review_strip": lambda r: (
+                     None if isinstance(r, dict) and r.get("unavailable") else c["review_strip"](r))}])
+def _c_review_file_corruption_degrades_to_unavailable(ctx):
+    """Files are rewritten while the page polls. Every consumed shape is
+    validated, and any failure — truncated JSON, a non-object record, rounds as
+    an object, a null round, a null provider entry, a numeric or non-hex hash,
+    a boolean round number, an empty rounds list, findings as a string or with
+    a non-string element, a non-object panel entry, a panel entry missing its
+    verdict key — sets that binder's review to an explicit unavailable state
+    without raising; the strip shows it, and a valid pair still loads."""
+    load, strip = ctx["load_review"], ctx["review_strip"]
+    blob = "a" * 64
+    rec = json.dumps({"reviewed_hash": blob, "panel": [{"provider": "claude", "verdict": "merge"}]})
+
+    def ledger(**round_overrides):
+        r = _review_round(1, blob, {"claude": {"model": "m", "verdict": "merge"}})
+        r.update(round_overrides)
+        return json.dumps({"rounds": [r]})
+
+    good = load(_review_root({"ok.json": rec, "ok.rounds.json": ledger()}), "ok")
+    if not (good and good.get("record") and good.get("rounds") and "unavailable" not in good):
+        return False
+    bad = [
+        {"c.json": "not json at all"}, {"c.json": "[]"},
+        {"c.json": rec, "c.rounds.json": json.dumps({"rounds": {}})},
+        {"c.json": rec, "c.rounds.json": json.dumps({"rounds": [None]})},
+        {"c.json": rec, "c.rounds.json": json.dumps({"rounds": []})},
+        {"c.json": rec, "c.rounds.json": ledger(providers={"codex": None})},
+        {"c.json": rec, "c.rounds.json": ledger(providers={"codex": {"model": 5}})},
+        {"c.json": rec, "c.rounds.json": ledger(reviewed_hash=7)},
+        {"c.json": rec, "c.rounds.json": ledger(reviewed_hash="z" * 64)},
+        {"c.json": rec, "c.rounds.json": ledger(round=True)},
+        {"c.json": rec, "c.rounds.json": ledger(findings_fixed="x")},
+        {"c.json": rec, "c.rounds.json": ledger(findings_refuted_or_deferred=[5])},
+        {"c.json": rec, "c.rounds.json": ledger(notes=["x"])},
+        {"c.json": rec, "c.rounds.json": ledger(below_floor="no")},
+        {"c.json": json.dumps({"reviewed_hash": 7, "panel": []})},
+        {"c.json": json.dumps({"reviewed_hash": "z" * 64, "panel": []})},
+        {"c.json": json.dumps({"reviewed_hash": blob, "panel": [5]})},
+        {"c.json": json.dumps({"reviewed_hash": blob, "panel": [{"provider": "p"}]})},
+        {"c.json": json.dumps({"reviewed_hash": blob, "panel": {}})},
+        {"c.json": json.dumps({"reviewed_hash": blob, "panel": [], "tool": 5})},
+    ]
+    for files in bad:
+        try:
+            r = load(_review_root(files), "c")
+        except Exception:  # noqa: BLE001 — raising IS the failure being tested for
+            return False
+        if not (isinstance(r, dict) and r.get("unavailable")):
+            return False
+    model = strip({"unavailable": "a round has no reviewed_hash"})
+    if not (model and model["unavailable"] and model["rows"] == [] and model["finals"] == []):
+        return False
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-review-unavailable")
+    if len(tags) != 1 or _attrs(tags[0]).get("v-if") != "strip.unavailable":
+        return False
+    doc = ctx["render"](_review_state({"unavailable": "half-written"}))
+    return _inlined_state(doc)["binders"][0]["review"] == {"unavailable": "half-written"}
+
+
+_REVIEW_FIELDS_RE = (r"(?<![A-Za-z_])(?:notes|findings_fixed|findings_refuted_or_deferred|"
+                     r"finding|provider|verdict|status|model|reviewed_hash|run_at|"
+                     r"below_floor|round|review)(?![A-Za-z_])")
+_REVIEW_OUTSIDE_BINDING_RE = re.compile(
+    r"(?:^|[\s\"'>])(?:v-bind|v-on|:|@|\.)[^\s=]*\s*=\s*(?:[\"'][^\"']*" + _REVIEW_FIELDS_RE
+    + r"|[^\s\"'>]*" + _REVIEW_FIELDS_RE + r")")
+_REVIEW_OUTSIDE_DYNARG_RE = re.compile(r"(?:^|[\s\"'>])(?:v-bind|v-on|:|@)\[[^\]]*" + _REVIEW_FIELDS_RE)
+
+
+def _review_outside_offenders(doc: str) -> list[str]:
+    """Every binding, handler or dynamic argument OUTSIDE the review regions of
+    `doc` that names a review field — after HTML character references and JS
+    escapes are decoded, so an encoded identifier cannot slip past. The rule the
+    oracle enforces, kept here so the suite proves it on the real page and on
+    a page with a smuggled binding."""
+    outside = doc
+    spans, k = [], 0
+    while True:
+        i = doc.find("data-kw-review-strip", k)
+        if i < 0:
+            break
+        j = doc.find("data-kw-review-end", i)
+        if j < 0:
+            break
+        spans.append((i, j))
+        k = j
+    for a, b in reversed(spans):
+        outside = outside[:a] + outside[b:]
+    outside = html.unescape(outside)
+    outside = re.sub(r"\\u([0-9a-fA-F]{4})", lambda mm: chr(int(mm.group(1), 16)), outside)
+    return ([mm.group(0) for mm in _REVIEW_OUTSIDE_BINDING_RE.finditer(outside)]
+            + [mm.group(0) for mm in _REVIEW_OUTSIDE_DYNARG_RE.finditer(outside)])
+
+
+def _review_self_test_checks() -> list[tuple[str, bool]]:
+    """The review strip, as named checks: the loader's three answers and its
+    containment, the model's states, the mirrors, and the page-level escaping
+    rule proven on the real document and on a broken one."""
+    checks: list[tuple[str, bool]] = []
+    labels = _REVIEW_LABELS
+    blob = "c" * 64
+    rec = {"reviewed_hash": blob, "run_at": "2026-08-29T00:00:00Z", "tool": "roundtable-critique",
+           "panel": [{"provider": "claude", "verdict": "merge", "summary": "PROSE " * 200},
+                     {"provider": "antigravity", "verdict": None, "summary": "none"}]}
+    led = {"target_ref": "x", "rounds": [
+        _review_round(1, "d" * 64, {"claude": {"verdict": "revise"}}, fixed=["a"]),
+        _review_round(2, blob, {"claude": {"verdict": "merge"},
+                                "antigravity": {"verdict": None, "status": "no output"}},
+                      refuted=["b"], notes="done"),
+    ]}
+    both = load_review(_review_root({"s.json": json.dumps(rec), "s.rounds.json": json.dumps(led)}), "s")
+    rec_only = load_review(_review_root({"s.json": json.dumps(rec)}), "s")
+    led_only = load_review(_review_root({"s.rounds.json": json.dumps(led)}), "s")
+    checks += [
+        ("review: a record beside a ledger loads as {record, rounds} — the "
+         "record cut to reviewed_hash / run_at / tool / panel and the rounds "
+         "passed through unchanged, so one shape exists for the gate and the page",
+         both == {"record": {"reviewed_hash": blob, "run_at": rec["run_at"],
+                             "tool": rec["tool"],
+                             "panel": [{"provider": "claude", "verdict": "merge"},
+                                       {"provider": "antigravity", "verdict": None}]},
+                  "rounds": led["rounds"]}),
+        ("review: the record's panel prose is dropped — it is the full model "
+         "responses and would ride every poll — so the block serializes far "
+         "under the 32,768-byte ceiling one binder's review is held to",
+         "PROSE" not in json.dumps(both)
+         and len(json.dumps(both, separators=(",", ":"))) < 32768),
+        ("review: a record with no ledger is {record, rounds: null} and a ledger "
+         "with no record is {record: null, rounds} — three states, told apart, "
+         "and an unrecorded history is never dressed up as a round",
+         rec_only["record"] is not None and rec_only["rounds"] is None
+         and led_only["record"] is None and led_only["rounds"] == led["rounds"]),
+        ("review: neither file present is null — no strip, no empty frame — "
+         "and the loader answers null for a slug off the binder grammar",
+         load_review(_review_root({}), "s") is None
+         and load_review(_review_root({}), "Not-A-Slug") is None),
+    ]
+
+    # -- no git work: the loader spawns nothing --------------------------------
+    spawned: list = []
+    real_popen = subprocess.Popen
+
+    class _CountingPopen(real_popen):  # type: ignore[misc,valid-type]
+        def __init__(self, *a, **k):
+            spawned.append(a)
+            super().__init__(*a, **k)
+
+    subprocess.Popen = _CountingPopen
+    try:
+        root = _review_root({"s.json": json.dumps(rec), "s.rounds.json": json.dumps(led)})
+        load_review(root, "s")
+        load_review(root, "missing")
+    finally:
+        subprocess.Popen = real_popen
+    checks.append(("review: the loader does two file reads and no git work — "
+                   "nothing is spawned for a hit or a miss", spawned == []))
+
+    # -- containment note, one line, no read -----------------------------------
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        traversal = load_review(_review_root({}), "../outside")
+    checks.append(("review: a traversal slug yields null with exactly one stderr "
+                   "line saying so",
+                   traversal is None and len(err.getvalue().splitlines()) == 1))
+
+    # -- the strip model --------------------------------------------------------
+    strip = review_strip(both)
+    checks += [
+        ("review: the strip counts the rounds, keys each row on its round "
+         "number, names the blob by its first seven characters, and tallies "
+         "the findings fixed and refuted per round",
+         strip["countLabel"] == _review_count_label(labels, 2)
+         and [r["n"] for r in strip["rows"]] == [1, 2]
+         and [r["hash"] for r in strip["rows"]] == ["d" * 7, "c" * 7]
+         and strip["rows"][0]["fixedLabel"] == _review_tally_label(labels, "fixed_fmt", 1)
+         and strip["rows"][1]["refutedLabel"] == _review_tally_label(labels, "refuted_fmt", 1)),
+        ("review: a provider that returned nothing keeps its pill — verdict "
+         "null, wearing its status — and the final verdicts come from the "
+         "record's panel when there is one",
+         strip["rows"][1]["pills"][1] == {"provider": "antigravity", "verdict": None,
+                                           "status": "no output", "word": "no output",
+                                           "none": True}
+         and [p["provider"] for p in strip["finals"]] == ["claude", "antigravity"]
+         and strip["finals"][1]["word"] == labels["no_verdict"]),
+        ("review: an unavailable block becomes a strip with the reason and "
+         "nothing else, and no review at all becomes no strip",
+         review_strip({"unavailable": "why"}) == {"unavailable": "why", "countLabel": "",
+                                                   "finals": [], "rows": [],
+                                                   "empty": None, "missing": None}
+         and review_strip(None) is None and review_strip("x") is None),
+        ("review: record-only carries the explicit no-rounds state and ledger-"
+         "only the explicit no-record state, its finals read off the last round",
+         review_strip(rec_only)["empty"] == labels["no_rounds"]
+         and review_strip(rec_only)["countLabel"] == labels["no_rounds_count"]
+         and review_strip(led_only)["missing"] == labels["no_record"]
+         and review_strip(led_only)["finals"] == review_strip(led_only)["rows"][-1]["pills"]),
+    ]
+
+    # -- the JS mirror ----------------------------------------------------------
+    js = _js_block(_APP_JS, "function reviewStrip(review) {")
+    py = inspect.getsource(review_strip)
+    held_js = _js_block(_APP_JS, "function withHeldReview(rows, reviewBySlug) {")
+    checks += [
+        ("review: the mirrored JavaScript reviewStrip carries the same fields "
+         "its Python twin builds, and each body names the other",
+         all(k + ":" in js for k in ("unavailable", "countLabel", "finals", "rows",
+                                     "empty", "missing", "n", "hash", "pills", "fixed",
+                                     "refuted", "fixedLabel", "refutedLabel", "notes"))
+         and "MIRROR: change together with review_strip()" in _APP_JS[
+             max(0, _APP_JS.index("function reviewStrip(review) {") - 200):
+             _APP_JS.index("function reviewStrip(review) {")]
+         and "MIRROR: change together with reviewStrip()" in py),
+        ("review: the page holds every live row's review block per slug and "
+         "hands a thin archived row the one held for its slug — mirrored in "
+         "with_held_review, whose thin-row branch matches",
+         "this.reviewHeld[b.slug] = b.review" in _APP_JS
+         and "if (!('review' in row))" in held_js
+         and 'if "review" not in row' in inspect.getsource(with_held_review)
+         and "withHeldReview(joinArchived(this.archivedDetail, s.archived), this.reviewHeld)" in _APP_JS),
+        ("review: the strip is a component registered on the one app with a "
+         "string template, mounted on the binder card behind the model's null",
+         "components: { Icon, ReviewStrip }" in _APP_JS
+         and "template: REVIEW_STRIP_TEMPLATE" in _APP_JS
+         and 'ledger: reviewStrip(b.review)' in _APP_JS),
+    ]
+
+    # -- the page-level escaping rule, on the real page and a broken one -------
+    H = _REVIEW_HOSTILE
+    hostile = {"record": {"reviewed_hash": blob, "run_at": None, "tool": None,
+                          "panel": [{"provider": H, "verdict": H}]},
+               "rounds": [_review_round(1, blob, {H: {"model": H, "verdict": H, "status": H}},
+                                        fixed=[H], refuted=[H], notes=H)]}
+    state = _review_state(hostile)
+    doc = render_app_html(state, "dark")
+    inl = _inert_json(state)
+    outside_state = doc.replace(inl, "")
+    regions = _review_regions(outside_state)
+    smuggled = doc.replace('class="rev__hash">{{ r.hash }}', 'class="rev__hash" :title="r.hash">{{ r.hash }}')
+    outside_smuggle = outside_state.replace('<a class="also__link"', '<a class="also__link" :href="notes"', 1)
+    encoded_smuggle = outside_state.replace('<a class="also__link"', '<a class="also__link" :href="&#110;otes"', 1)
+    checks += [
+        ("review: the served document carries none of the raw-HTML sinks outside "
+         "the inlined state, and the inlined state appears exactly once",
+         doc.count(inl) == 1
+         and not any(re.search(re.escape(s), outside_state, re.I) for s in _REVIEW_SINKS)),
+        ("review: the review region binds only :key and :class and renders "
+         "through text interpolation; a :title bound in it is caught",
+         bool(regions)
+         and not [t for t in _review_region_tokens("".join(regions)) if t not in _REVIEW_REGION_ALLOWED]
+         and bool(re.search(r"\{\{|v-text=", "".join(regions)))
+         and [t for t in _review_region_tokens("".join(_review_regions(smuggled.replace(inl, ""))))
+              if t not in _REVIEW_REGION_ALLOWED] == [":title"]),
+        ("review: no binding, handler or dynamic argument outside the review "
+         "region names a review field on the real page — and one smuggled in, "
+         "plain or HTML-entity-encoded, is caught",
+         _review_outside_offenders(outside_state) == []
+         and len(_review_outside_offenders(outside_smuggle)) == 1
+         and len(_review_outside_offenders(encoded_smuggle)) == 1),
+        ("review: hostile bytes in every review-derived string round-trip "
+         "unchanged through the inlined state and form no markup in the document",
+         "<script>alert(1)" not in doc and "<img src=x" not in doc
+         and _inlined_state(doc)["binders"][0]["review"] == hostile),
+    ]
+
+    # -- the archived poll entry is untouched ----------------------------------
+    row = {"slug": "old", "archived": True, "review": both,
+           "items": {"total": 3, "done": 3, "detail": []}}
+    checks.append(("review: the compact archived entry is still exactly "
+                   "{slug, total, done} at a 96-byte bound with a rich review on the row",
+                   sorted(_archived_entry(row)) == ["done", "slug", "total"]
+                   and archived_entry_bound() == 96))
+    return checks
+
+
 def _behaviour_floor(anchored, registered) -> list[str]:
     """Anchored behaviours missing from the registry. A FLOOR: extras are fine."""
     known = set(registered)
@@ -16310,6 +17512,12 @@ def _coverage_context() -> dict:
         "shown_accessor": _js_block(_APP_JS, "    shown() {"),
         "render": lambda s: render_app_html(s, "dark", repo_name=repo_name),
         "render_themed": lambda s, t: render_app_html(s, t, repo_name=repo_name),
+        "load_review": load_review, "review_strip": review_strip,
+        "review_labels": _REVIEW_LABELS,
+        "review_inlined": _inlined_const(page, "REVIEW"),
+        "with_held_review": with_held_review, "join_archived": join_archived,
+        "archived_entry": _archived_entry, "archived_bound": archived_entry_bound,
+        "split_archived": split_archived,
         "band": {"eyebrow": BAND_EYEBROW, "copy": COPY_LABEL,
                  "copied": COPIED_LABEL, "hold_ms": COPIED_HOLD_MS,
                  "key": COPY_KEY_BAND},
@@ -16868,6 +18076,7 @@ def _run_self_test() -> int:
     checks += _archived_self_test_checks(scratch)
     checks += _etag_self_test_checks(scratch)
     checks += _poll_self_test_checks()
+    checks += _review_self_test_checks()
     checks += [
         ("no self-test touched the real per-user state dir",
          _dir_snapshot(real_state_dir) == real_before),
