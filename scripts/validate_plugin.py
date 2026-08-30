@@ -273,6 +273,13 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
         if isinstance(cfg, dict):
             if not isinstance(cfg.get("enabled"), bool):
                 errors.append(".karta/roundtable.json: 'enabled' must be a boolean")
+            # KARTA-SME-OVERRIDE(house.4): this validator has no fixture harness for the
+            # opt-in config blocks (see the min.4 override above); the negative case for
+            # a non-boolean ledger lives in roundtable_gate.py --self-test ("a non-boolean
+            # ledger key is a denial") and the ledger-gate oracle's schema probe
+            # [ceiling: a fourth typed key in this block; upgrade: the schema-driven helper]
+            if "ledger" in cfg and not isinstance(cfg.get("ledger"), bool):
+                errors.append(".karta/roundtable.json: 'ledger' must be a boolean")
             if not isinstance(cfg.get("tool"), str):
                 errors.append(".karta/roundtable.json: 'tool' must be a string")
             if not isinstance(cfg.get("providers"), list):
@@ -287,10 +294,10 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
                     ".karta/roundtable.json: 'points' must be an object with exactly "
                     "boolean 'plan_commit' and 'deliver_merge'")
             for key in cfg:
-                if key not in ("enabled", "tool", "providers", "min_providers", "focus", "points"):
+                if key not in ("enabled", "ledger", "tool", "providers", "min_providers", "focus", "points"):
                     errors.append(
                         f".karta/roundtable.json: unknown key '{key}' "
-                        "(allowed: enabled, tool, providers, min_providers, focus, points)")
+                        "(allowed: enabled, ledger, tool, providers, min_providers, focus, points)")
 
     # 9. design-pins.json opt-in config — if this repo commits one, it must be a
     # flat map from a repo-relative design path to a well-formed pin record. This
