@@ -129,6 +129,7 @@ A PreToolUse hook sees a command before it runs. It can match command text and r
 - `git rebase`
 - `git reset --hard`
 - `git merge --squash` followed by a separate `git commit`
+- an `env -S '...'` string whose further quoting hides the integration ref from the text reader (an `env -S`/`--split-string` or `env -a`/`--argv0` segment that does show `git merge` and an integration ref is denied outright — the hook cannot read what env will run, so it fails closed)
 
 The doctrine lists them plainly rather than pretending the gate is airtight. If you land integration content this way, run the review yourself — the gate will not remind you.
 
