@@ -78,6 +78,24 @@ then hides, and the panel falls back to a default pick — the in-flight binder 
 otherwise the first binder still showing. Turning the toggle back on does not restore the hidden
 pick. A pick that stays on the map the whole time is never disturbed by the toggle.
 
+## The review strip
+
+Below the progress bar of the binder you have picked, a strip labelled **Review** shows what the roundtable said about that plan. It reads two files, both found by convention from the binder's slug under `.karta/roundtable/`: the record, `<slug>.json`, which the binder-commit gate checks, and the ledger, `<slug>.rounds.json`, which keeps every review round. The page never follows a pointer from one file to the other, so a record filed before ledgers existed still finds a ledger written later.
+
+The strip's top line is the round count and one pill per provider with its final verdict. Below it is one row per round: the round number, the first seven characters of the hash that round reviewed, a verdict pill per provider, and a count of findings fixed and findings refuted or deferred. Click a row and the findings themselves open, as text. A provider that returned nothing gets a pill with no verdict and the status it gave instead; the absence is shown rather than dropped.
+
+Three states are spelled out instead of drawn as an empty frame:
+
+| What is on disk | What the strip says |
+|-|-|
+| record only | the count reads **no rounds** and a line says only the record was filed |
+| ledger only | the rounds show, and a line says no record was filed |
+| neither file | no strip at all |
+
+A binder reviewed before ledgers existed, which is most of this repo's archived history, shows its record and no rounds. That is what an unrecorded review history looks like, and the page does not dress it up. A file that is present but cannot be read, or is not the shape the page expects, turns the strip into a one-line **review unavailable** note; the rest of the page stays up.
+
+The strip is rendered from the state the page already polls, at a cost of two file reads per binder and no git work. How to read the ledger itself is in the [roundtable guide](roundtable.md#reading-a-ledger).
+
 ## Choosing when the page refreshes
 
 Every refresh derives the state fresh from git, and on a large repo that is real work — up to
