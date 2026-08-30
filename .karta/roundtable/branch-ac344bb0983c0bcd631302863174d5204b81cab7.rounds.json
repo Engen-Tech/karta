@@ -1,0 +1,74 @@
+{
+  "target_ref": "karta/review-ledger/integration",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-4-8[1m]"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-kimi",
+      "model": "accounts/fireworks/models/kimi-k3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "ac344bb0983c0bcd631302863174d5204b81cab7",
+      "run_at": "2026-08-30T17:14:52.622184+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "claude": {
+          "model": "claude-opus-4-8[1m]",
+          "verdict": null,
+          "status": "timeout"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "timeout"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "gate: quoted option tokens (\"-m\", \"-a\") classified as pathspecs so a staged binder resolves to HEAD while git commits the index (kimi, critical; confirmed by probe)",
+        "gate: --allow-empty / --allow-empty-message not in COMMIT_FLAG_OPTS, denying the repo's own docs: gardner commits (antigravity, kimi; confirmed)",
+        "gate: a quoted env-assignment prefix (A=\"\", FOO=\"a b\") or a parenthesised group hides a commit or an integration merge from both the review gate and the landing gate (antigravity high, kimi low; confirmed by probe)",
+        "gate: with no config in HEAD the cwd/env/grammar denials run before the off return, so a consumer repo without .karta/roundtable.json is not off (kimi high; confirmed by reading decide())"
+      ],
+      "findings_refuted_or_deferred": [
+        "GIT_EDITOR=vim denial and the raw $(/backtick denial regardless of quoting are the binder's contract (GIT_* env rule; clause 14) \u2014 logged for the consolidation binder, not changed",
+        "claude and codex timed out at 900s on the 262 KB diff; qwen's output hit its length cap with no verdict \u2014 round 2 attaches a smaller diff and points providers at the worktree"
+      ],
+      "notes": "Round 1 of the landing review, at tip ac344bb; fixes land as fix/review-ledger-landing-findings merged onto the branch, so round 2 keys on the new tip and its ledger starts there \u2014 this file is that round's history.",
+      "below_floor": false
+    }
+  ]
+}

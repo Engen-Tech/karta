@@ -1,0 +1,47 @@
+{
+  "reviewed_hash": "4b9d628a54c7c7f90a4472a6f649e20e399ebe5b",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/review-ledger/integration",
+  "run_at": "2026-08-30T19:08:03.713972+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": "Read r6-fix.diff in full and the gate's lexing/detection/decide paths; ran both self-tests (1790/1790, 79/79). (a) _segments (:246-287): quoted strings keep prev_op False so a literal >& / >| in a merge message never splits; \\> and \\< do not set prev_op, so \\>&, \\>|, '>'& split correctly; \\\\> (escaped backslash) sets prev_op for the unescaped >; 2>&1, >&2, <&0, >|log, &>log, &>>log stay one segment. _ENV_ASSIGN_RE (^[^=\\s]+=, :176/:444) captures X-Y=1, 1X=1, a.b=1 and the (after_dashdash or not t.startswith('-')) guard keeps -u=FOO/--unset=FOO/--chdir=DIR as options; detached option values containing = advance correctly; the shell-prefix regex keeps the POSIX identifier rule. _REF_PREFIX (:164-166) recognises origin/, upstream/, fork-1/ shorthand; karta-remote/topic/integration does not match because the component after the remote must be literally karta/; origin/x/karta/\u2026, remotes/origin/karta/\u2026, refs/tags/\u2026, raw SHA excluded. (b) Every bypass stays inside the documented classes (:67-104). (c) No false denial of karta's shapes. No findings.\nVerdict: merge"
+    },
+    {
+      "provider": "claude",
+      "verdict": "ok",
+      "summary": "Verified 1790/1790 and PLUGIN INTEGRITY: PASS at tip 4b9d628. Read r6-fix.diff in full and hand-traced _segments (234-287), _leading_command env handling (426-484), _ENV_ASSIGN_RE/_REF_PREFIX (156-176), _integration_ref_in/merge_invocations/merged_integration_ref (600-677) and the accepted-bypass docstring (40-124); did not read the record/ledger machinery, the commit-source path, or rounds 1-4. 1. _segments prev_op tracking is correct: a >& inside -m \"\u2026\" is consumed in the in_double branch and never reaches the operator logic; the round-4 hole (\\>& hiding a following git merge) is closed; \\\\>&1 still parses as one segment. 2. _ENV_ASSIGN_RE broadening closes a real hole (env X-Y=1 \u2026) without eating option values; where the scan model diverges from GNU env's +-getopt it errs conservative. 3. _REF_PREFIX shorthand is a monotonic broadening \u2014 it can only over-fire (safe direction); two-component remotes, refs/remotes/karta/x/integration (remote named karta), origin/<sha> and karta-fork/feature are correctly rejected; the only over-denials are the documented heads/karta/\u2026 and tags/karta/\u2026 local names. 4. (low, pre-existing, doc-only) indirect spellings \u2014 git merge @{u}, @{-1}, FETCH_HEAD, MERGE_HEAD \u2014 name the tip without the text karta/\u2026/integration: the same class as the documented raw-SHA bypass; generalise that docstring bullet. Nothing here should hold the landing.\nVerdict: merge"
+    },
+    {
+      "provider": "codex",
+      "verdict": "ok",
+      "summary": "Reviewed the full diff, spot-checked the module contract, segmentation/tokenisation, wrapper parsing, ref extraction, decision path and added tests; reran the gate self-test 1790/1790; did not rerun validate_plugin.py.\n1. High \u2014 env assignment parsing still permits a three-gate bypass: _ENV_ASSIGN_RE (:176) requires a non-whitespace name, but GNU env accepts empty and whitespace-containing names; `env =x git commit -m x` and `env a\\ b=x git commit -m x` (and the merge equivalents) execute git while detection returns false. Fix at :444: treat every shell word containing = as an env assignment (^[^=]*=); add tests.\n2. Low \u2014 when positional parsing returns _UNKNOWN the fallback (:607) searches the joined text unanchored, so `git merge -qv refs/tags/karta/x/integration` is classified as landing tags/karta/x/integration and `origin/topic/karta/x/integration` as topic/karta/x/integration \u2014 false landing denials that contradict the tag/nested-topic negatives. Apply _INTEGRATION_REF_FULL_RE.fullmatch() to individual dequoted words.\n3. Low \u2014 a remote literally named karta is indistinguishable from the local short form (:164): karta/topic/integration is classified as a local delivery even when git resolves it to refs/remotes/karta/topic/integration. Resolve the symbolic ref before classification or document the over-denial.\nVerdict: revise"
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "ok",
+      "summary": "Reviewed the diff line by line; did not read the full docstring, the unchanged escape branch of _segments, the option tables, or the worktree; self-test count taken on trust.\n1. High (claimed) \u2014 stale prev_op across an escape pair: `echo hi 2>\\&| git commit -m x` and `true >\\&& git merge --ff-only karta/x/integration` would keep the git segment hidden if the unchanged escape branch cannot clear prev_op; add tests either way.\n2. High \u2014 _ENV_ASSIGN_RE (^[^=\\s]+=) under-matches GNU env, which treats any pre-command word containing = as an assignment: `env 'A B=1' git commit -m x` and `env '=1' git merge \u2026` run git while the hook reads the word as the command. Use `\"=\" in t` under the existing option guard.\n3. Low \u2014 multi-component remote paths (refs/remotes/a/b/karta/\u2026, a/b/karta/\u2026) never match; verify whether git allows / in remote names.\n4. Low \u2014 suffixed spellings karta/x/integration~2, ^{commit}, @{1} fail the $-anchored match; same class as the raw-SHA bypass; name it in the docstring.\nVerdict: revise"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "Reviewed the attached diff only; did not read the rest of roundtable_gate.py, validate_plugin.py, or run the self-tests.\n1. High \u2014 missing accepted spelling remotes/<remote>/karta/<slug>/integration: git resolves remotes/origin/karta/x/integration to refs/remotes/origin/karta/x/integration, and the self-test asserts this spelling negative (~:2463), so `git merge remotes/origin/karta/x/integration` lands without the landing/review merge gate. Fix: add remotes/[^\\s/]+/ to _REF_PREFIX.\n2. Medium \u2014 _ENV_ASSIGN_RE is narrower than the claimed 'any name without =': a quoted operand with whitespace before = ('A B=1') is not matched.\n3. Low \u2014 the unanchored _INTEGRATION_REF_RE with an optional one-component prefix can match the tail of a longer path on raw text; a latent false-denial trap.\n4. Low \u2014 the generic prefix [^\\s/]+/ admits leading dashes, so --origin/karta/x/integration satisfies the full-ref regex unless options are excluded first.\nVerdict: revise"
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/branch-4b9d628a54c7c7f90a4472a6f649e20e399ebe5b.rounds.json",
+  "final_round": 1
+}

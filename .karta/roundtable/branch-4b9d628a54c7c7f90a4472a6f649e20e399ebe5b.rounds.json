@@ -1,0 +1,70 @@
+{
+  "target_ref": "karta/review-ledger/integration",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-4-8"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-kimi",
+      "model": "accounts/fireworks/models/kimi-k3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "4b9d628a54c7c7f90a4472a6f649e20e399ebe5b",
+      "run_at": "2026-08-30T19:08:03.678369+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "kimi's stale-prev_op claim refuted by probe (both shapes detected); everything the earlier rounds fixed re-verified on this tip"
+      ],
+      "findings_refuted_or_deferred": [
+        "confirmed residuals, logged for an immediate follow-up or the consolidation binder: env empty/whitespace assignment names (env '=x' / 'a b=x') hide the command; the remotes/origin/\u2026 spelling misses both merge gates; the -qv unknown-shape fallback arms false landings on refs/tags and nested-topic paths; suffixed (~2, ^{commit}) and indirect (@{u}, FETCH_HEAD) spellings join the documented raw-SHA class"
+      ],
+      "notes": "landing review of the built branch (main...tip, mirrors excluded); five providers",
+      "below_floor": false
+    }
+  ]
+}
