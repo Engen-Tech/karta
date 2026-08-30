@@ -1,0 +1,4 @@
+# The roundtable gate hashes .karta files as the bytes on disk and compares them
+# with what git will commit; a clean filter or EOL conversion would make git store
+# different bytes than the gate approved. Keep every .karta path free of both.
+.karta/** -text -filter

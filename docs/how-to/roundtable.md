@@ -37,6 +37,7 @@ Everything is governed by `.karta/roundtable.json`:
 ```json
 {
   "enabled": true,
+  "ledger": true,
   "tool": "roundtable-critique",
   "providers": [],
   "min_providers": 2,
@@ -46,6 +47,7 @@ Everything is governed by `.karta/roundtable.json`:
 ```
 
 - `enabled: true` arms both review gates; `enabled: false`, or an absent file, turns every gate off. The switch is absolute, matching the doc-gardner and kaizen opt-in pattern. It is `true` in this repo today.
+- `ledger: true` makes both gates require the round ledger as well as the record: `.karta/roundtable/<key>.rounds.json` must be in the content being committed (or in `HEAD`, for a merge), its last round must have reviewed exactly the bytes the record reviewed, and the record must be bound to that final round. Absent or `false`, nothing about the gates changes — a consumer repo that has not opted in is unaffected. It is `true` in this repo today. The gate reads the switch from `HEAD`'s copy of this file, so a same-commit flip to `false` cannot turn off the check for the commit that carries it.
 - `tool` is the roundtable tool to run (default `roundtable-critique`).
 - `providers: []` means the panel default.
 - `min_providers` (default 2) is the floor that keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it.
@@ -63,10 +65,17 @@ The fix lives in roundtable, not here: since `fix/antigravity-headless-permissio
 
 ## Recording a review
 
-roundtable is an MCP tool the agent calls, not a CLI a script can invoke. So recording is two steps: run the panel, then file the result.
+roundtable is an MCP tool the agent calls, not a CLI a script can invoke. So recording is three steps: run the panel, keep each round, then file the final one.
 
 1. Run the configured roundtable tool on the target — the staged binder, or the integration-branch diff.
-2. Pipe the panel result to the recorder:
+2. After **every** round, append it to the target's ledger — what the panel said, what you fixed, what you refuted:
+
+   ```
+   ... | python3 scripts/roundtable/run_review.py --round --target <slug> --kind binder --fixed "..." --refuted "..."
+   ```
+
+   The ledger is `.karta/roundtable/<slug>.rounds.json` (`branch-<tip-sha>.rounds.json` for a branch). Every round is kept, including below-floor ones; a round never writes a record.
+3. On the final round — the one whose bytes you are about to commit — file the record:
 
    ```
    # a binder
@@ -75,12 +84,16 @@ roundtable is an MCP tool the agent calls, not a CLI a script can invoke. So rec
    ... | python3 scripts/roundtable/run_review.py --record --target karta/<slug>/integration --kind branch
    ```
 
-The recorder writes the record under `.karta/roundtable/` — `<slug>.json` for a binder, `branch-<tip-sha>.json` for a branch — and stages it with `git add`.
+   `--record` refuses to file a record the ledger's last round did not review, and binds the record to that round (`rounds_ledger`, `final_round`).
 
-The gate confirms the record with `run_review.py --check`. Two rules make the record trustworthy:
+The recorder writes the record under `.karta/roundtable/` — `<slug>.json` for a binder, `branch-<tip-sha>.json` for a branch — and stages it with `git add`, as `--round` stages the ledger. `.karta/roundtable/context-economy.rounds.json` is the worked example: thirteen rounds on one binder, each with every provider's verdict or the reason it gave none.
 
-- **Staged-blob freshness.** A binder record's freshness hash is the sha256 of the *staged* binder bytes (`git show :<path>`), not the working-tree file. If you review one version of the binder and then stage a different one, the hash no longer matches and the gate re-arms — you must re-review what you are actually committing. A branch record keys on the integration tip sha, so any new commit on the branch invalidates it.
-- **The record must be committed.** The recorder stages the record so it lands in the same commit. The gate requires it to be staged, or already in `HEAD`; a record that lives only in the working tree does not count. `.karta/roundtable/` is the committed audit trail and must never be gitignored.
+The gate confirms the record with `run_review.py --check`. These rules make the record trustworthy:
+
+- **Freshness keys on the bytes git will commit.** A binder record's freshness hash is the sha256 of the binder bytes the commit records — the staged blob for a plain commit, the working-tree file for `-a` or a pathspec that names it, `HEAD`'s copy for a pathspec that does not — decided by `git ls-files`, never by matching tokens. If you review one version of the binder and then stage a different one, the hash no longer matches and the gate re-arms — you must re-review what you are actually committing. A branch record keys on the integration tip sha, so any new commit on the branch invalidates it.
+- **The record must be committed.** The recorder stages the record so it lands in the same commit. The gate reads the record from the same source it reads the binder from, so a record that a pathspec or `--only` leaves out of the commit does not count, and a record that differs between that source and the working tree is denied (`record source mismatch`) rather than checked against the wrong file. `.karta/roundtable/` is the committed audit trail and must never be gitignored.
+- **With `ledger: true`, the rounds ride with the record.** Two more blocked cases, each named in its own message: **no round ledger** in the content being committed (`.karta/roundtable/<slug>.rounds.json` missing from the source git will commit, or `branch-<tip>.rounds.json` missing from `HEAD` for a merge), and a **stale round ledger** whose last round reviewed different bytes. A ledger that is malformed, a record that names a different ledger, or a record whose `final_round` is not the ledger's round count (a round appended after `--record`) blocks the same way. Each message says to append the round with `run_review.py --round` and rerun `--record`.
+- **The gate recognises one command shape.** It parses `git commit …` and `git merge …` with a whitelist — the options it knows, pathspecs it can resolve from the repository root, quoted values — and denies anything it cannot reproduce: a preceding or trailing command segment, a command substitution, an unquoted `$`/glob/brace/tilde, a redirection, `git -C`/`--git-dir`/`--work-tree`, a `GIT_*=` prefix or environment variable (except the inert `GIT_EDITOR=true`, `GIT_EDITOR=:`, `GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`), combined short flags such as `-am`, `--patch`/`--interactive`/`--pathspec-from-file`, a commit issued from a subdirectory, and a gated commit without `-m`/`-F` (or `--amend --no-edit`) — git would open an editor after the hook. The cost is over-denial of unusual spellings, never under-denial; spell the commit out and it passes.
 
 ## Accepted bypasses
 
@@ -100,10 +113,10 @@ Separate from everything above, and switched on regardless of `enabled`.
 karta stops at the assembled integration branch — no PR, no push, no auto-merge — so landing it is a separate act, and **who decides a delivery ships is always the human**. The gate blocks a `git merge` naming a `karta/*/integration` ref while you are on the default branch:
 
 ```
-KARTA_LANDING_APPROVED=1 git merge --ff-only karta/<slug>/integration
+KARTA_LANDING_APPROVED=1 git merge --no-ff --no-edit karta/<slug>/integration
 ```
 
-The assignment has to prefix the merge itself; the same string elsewhere in the command line does not grant it. `KARTA_SKIP_ROUNDTABLE` does **not** bypass this — that hatch means the review environment is down, which says nothing about who decides to ship.
+The assignment has to prefix the merge itself; the same string elsewhere in the command line does not grant it. The merge carries `--no-edit` (or `-m`) because anything but `--ff-only` can open the configured editor between the gate and the merge commit, and the review gate denies a merge without one. `KARTA_SKIP_ROUNDTABLE` does **not** bypass this — that hatch means the review environment is down, which says nothing about who decides to ship.
 
 If you are an agent reading this: do not set it. Report that the branch is assembled and what the floor said, then ask.
 
