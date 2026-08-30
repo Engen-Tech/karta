@@ -150,7 +150,7 @@ Two known limits, stated rather than implied. The gate matches command text, so 
 
 ## Escape hatch
 
-When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` in the command text or the environment, and the gate allows the command:
+When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` as a leading assignment prefix on the git command or in the environment, and the gate allows the command:
 
 ```
 KARTA_SKIP_ROUNDTABLE=1 git commit -m "..."

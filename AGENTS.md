@@ -117,7 +117,7 @@ Say the consequence plainly, since this repo's own history is the example. `watc
 It fires on a `git merge` naming a `karta/*/integration` ref while HEAD is the default branch, and it exits 2 unless `KARTA_LANDING_APPROVED=1` prefixes that same invocation (or sits in the environment) — the landing command is `KARTA_LANDING_APPROVED=1 git merge --no-ff --no-edit karta/<slug>/integration`. Two deliberate narrowings, both of which cost something:
 
 - **Anchored, not searched.** The ref has to head its own shell segment, after any `VAR=value` prefix. Without this the gate blocks its own maintenance: a merge command inside a heredoc, an `echo`, or a `grep` pattern is text, and the first thing this gate did when it went live was refuse a command that merely quoted one. The cost is that an invocation buried mid-segment — behind a `do`, an `xargs` — reads as text and is not caught.
-- **Approval must prefix the merge.** `KARTA_SKIP_ROUNDTABLE` is matched against the whole command, which is fine for a hatch that loosens a review requirement. This one grants authority, so an accidental grant is worse than an accidental block.
+- **Approval must prefix the merge, as an exact assignment word.** Both variables are read the same way — `NAME=1` (bare, `'1'` or `"1"`) sitting in front of the git invocation, or in the environment — and a lookalike is not a grant: `X=KARTA_LANDING_APPROVED=1`, `KARTA_LANDING_APPROVED=10`, a quoted `FOO="KARTA_LANDING_APPROVED=1"`, or the text of a commit message. This one grants authority, so an accidental grant is worse than an accidental block.
 
 And the limits worth saying out loud, because the gate is not a proof:
 
@@ -164,7 +164,7 @@ A PreToolUse hook sees a command before it runs, so it can only match command te
 
 #### Escape hatch
 
-When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With the switch back on the hatch is live again and it is the only way past a review gate, so reach for it deliberately and say why in the commit — an unexplained `KARTA_SKIP_ROUNDTABLE=1` is a review that did not happen.
+When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — as a leading assignment prefix on the git command, or in the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With the switch back on the hatch is live again and it is the only way past a review gate, so reach for it deliberately and say why in the commit — an unexplained `KARTA_SKIP_ROUNDTABLE=1` is a review that did not happen.
 
 Full operator guide: [docs/how-to/roundtable.md](docs/how-to/roundtable.md).
 
