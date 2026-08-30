@@ -53,6 +53,14 @@ Everything is governed by `.karta/roundtable.json`:
 
 The shape is validated by `scripts/validate_plugin.py` — a malformed switch is caught at commit time, exactly as a malformed doc-gardner or kaizen switch is.
 
+## When a provider comes back empty
+
+A panel entry with `status: "ok"` and an empty `response` is a review that did not happen, and it counts toward nothing — `min_providers` is met by providers that answered. The known case is Antigravity.
+
+Since agy 1.1.3, headless `--print` mode soft-denies every tool that would need a confirmation (a `read_file` outside the workspace, any shell command), exits 0, and writes `jetski: no output produced — a tool required the "read_file" permission that headless mode cannot prompt for, so it was auto-denied` to stderr. Neither `trustedWorkspaces` nor `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` reliably reaches print mode (google-antigravity/antigravity-cli#548). Across the `context-economy` and `review-ledger` binder reviews on 2026-08-29, that was 50 of 50 Antigravity rounds returning nothing.
+
+The fix lives in roundtable, not here: since `fix/antigravity-headless-permissions` in `roundtable-src` (17f7c53), the Antigravity backend passes `--dangerously-skip-permissions` — the trust level the Claude and Copilot backends already run at — reports a soft-deny as `status: "error"` with the notice as the response, and sends absolute paths in the `=== FILES ===` block (agy runs shell commands from its own scratch directory, so a relative path sent it hunting with `find /`). If an Antigravity entry is empty again, check that the installed `~/.local/share/roundtable/roundtable` carries that change before adding providers to compensate.
+
 ## Recording a review
 
 roundtable is an MCP tool the agent calls, not a CLI a script can invoke. So recording is two steps: run the panel, then file the result.
