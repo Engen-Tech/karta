@@ -95,6 +95,32 @@ The gate confirms the record with `run_review.py --check`. These rules make the 
 - **With `ledger: true`, the rounds ride with the record.** Two more blocked cases, each named in its own message: **no round ledger** in the content being committed (`.karta/roundtable/<slug>.rounds.json` missing from the source git will commit, or `branch-<tip>.rounds.json` missing from `HEAD` for a merge), and a **stale round ledger** whose last round reviewed different bytes. A ledger that is malformed, a record that names a different ledger, or a record whose `final_round` is not the ledger's round count (a round appended after `--record`) blocks the same way. Each message says to append the round with `run_review.py --round` and rerun `--record`.
 - **The gate recognises one command shape.** It parses `git commit …` and `git merge …` with a whitelist — the options it knows, pathspecs it can resolve from the repository root, quoted values — and denies anything it cannot reproduce: a preceding or trailing command segment, a command substitution, an unquoted `$`/glob/brace/tilde, a redirection, `git -C`/`--git-dir`/`--work-tree`, a `GIT_*=` prefix or environment variable (except the inert `GIT_EDITOR=true`, `GIT_EDITOR=:`, `GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`), combined short flags such as `-am`, `--patch`/`--interactive`/`--pathspec-from-file`, a commit issued from a subdirectory, and a gated commit without `-m`/`-F` (or `--amend --no-edit`) — git would open an editor after the hook. The cost is over-denial of unusual spellings, never under-denial; spell the commit out and it passes.
 
+## Reading a ledger
+
+A ledger is the review's history; the record is its receipt. Open one next to the other and the difference is plain. `.karta/roundtable/context-economy.rounds.json` is the worked example: thirteen rounds on one binder, from the first draft to the bytes that were committed.
+
+A ledger has a short header and a list of rounds. Each round carries the keys you will meet everywhere in it:
+
+| Key | What it tells you |
+|-|-|
+| `reviewed_hash` | the sha256 of the binder bytes that round looked at; a new draft is a new hash |
+| `providers` | one entry per panelist: its verdict, or the status it gave instead of one |
+| `findings_fixed` | what the operator changed because of that round |
+| `findings_refuted_or_deferred` | what the operator pushed back on or left for later, and why |
+| `below_floor` | whether the round had fewer answering providers than `min_providers` |
+
+Read the context-economy ledger top to bottom and a story appears. Round 1 opened with both answering providers saying revise and four fixes, one of them a real bug in an additive-only guard. Rounds 2 through 12 are the binder being tightened one review at a time: each round has a different `reviewed_hash`, and each carries between one and five fixes. Round 13 has no fixes, two merge verdicts, and a `reviewed_hash` starting `6d68c0e8`. That is the hash the record beside it, `context-economy.json`, was filed against, which is how you know the record certifies the last thing the panel saw and not an earlier draft.
+
+Now look at the third provider. Antigravity is listed in every one of the thirteen rounds, and in every one of them it returned nothing: `verdict` is null and `status` says why. The record alone would never show you that. A record holds one panel snapshot and freshness for the floor, so a provider that came back empty once looks the same as one that came back empty thirteen times in a row. Only the ledger keeps the empty rounds, and only the ledger makes a pattern like that visible.
+
+Three things a ledger is not:
+
+- **Not a substitute for the record.** The record stays the authority on freshness and on the `min_providers` floor. The ledger supports it: with `ledger: true` in `.karta/roundtable.json`, the gate also requires the ledger's final round to have reviewed the same committed content the record identifies. If someone appends a round after `--record`, or the last round reviewed different bytes, the gate says so and asks for a fresh `--record`.
+- **Not a verdict anyone is held to.** A round of `revise` beside a round of `merge` is the record of an argument, and `findings_refuted_or_deferred` is where the operator's side of it lives. The gate never reads the verdicts.
+- **Not the record's home.** They are two files, and `--record` writes `rounds_ledger` and `final_round` into the record so the pair can be checked against each other.
+
+One shape difference for branches: a binder's ledger is one file per slug, and its rounds accumulate as the plan changes. A branch ledger is one ledger per tip sha, `branch-<tip>.rounds.json`, because any new commit on the branch is a new tip. The many-round history is a binder's; a branch reaches a tip and is reviewed there.
+
 ## Accepted bypasses
 
 A PreToolUse hook sees a command before it runs. It can match command text and read current git state, but it cannot judge a post-condition like "will this make the integration tip an ancestor." So these paths are **not** gated, by design — the same class of deliberate escape as the hatch below:
