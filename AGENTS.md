@@ -123,7 +123,7 @@ A karta delivery asks a person to decide twice. The two are not equally protecte
 | Decision | Who makes it | What holds the line |
 |-|-|-|
 | Accept an item that failed its own acceptance gate | the human, at a live orchestrator prompt | **Enforced in code.** The orchestrator issues the prompt itself; an accept signal appearing anywhere in worker output is non-authoritative and is ignored. The waiver's reason is the human's own words captured at the prompt — never lifted from worker text, a commit message, or a marker. The waiver suppresses only the named assertion, and a fresh floor check on the post-accept tip can still revert it. |
-| Land the integration branch on the default branch | the human | **Enforced in code.** `scripts/hooks/roundtable_gate.py`'s landing gate blocks a `git merge` naming a `karta/*/integration` ref while you are on the default branch. It reads neither `.karta/roundtable.json` nor `KARTA_SKIP_ROUNDTABLE` — a downed review environment says nothing about who decides a delivery ships. Its own variable, `KARTA_LANDING_APPROVED=1`, must prefix the merge itself. |
+| Land the integration branch on the default branch | the human | **Enforced in code.** `scripts/hooks/roundtable_gate.py`'s landing gate blocks a `git merge` naming a `karta/*/integration` ref while you are on the default branch. It reads neither `.karta/roundtable.json` nor `KARTA_SKIP_ROUNDTABLE` — a downed review environment says nothing about who decides a delivery ships. Its own variable, `KARTA_LANDING_APPROVED=1`, must prefix the merge itself: `KARTA_LANDING_APPROVED=1 git merge --no-ff --no-edit karta/<slug>/integration`. |
 
 Say the consequence plainly, since this repo's own history is the example. `watch-fidelity` reached `main` at `ff800d8` through an agent-run `git merge --ff-only`, after the agent ran the four floor commands by hand. The accept-waiver on `design-fidelity-gate` was a real human decision, made at a real prompt. The landing was not — no one was asked.
 
@@ -131,10 +131,10 @@ Say the consequence plainly, since this repo's own history is the example. `watc
 
 #### What the landing gate does and does not do
 
-It fires on a `git merge` naming a `karta/*/integration` ref while HEAD is the default branch, and it exits 2 unless `KARTA_LANDING_APPROVED=1` prefixes that same invocation (or sits in the environment). Two deliberate narrowings, both of which cost something:
+It fires on a `git merge` naming a `karta/*/integration` ref while HEAD is the default branch, and it exits 2 unless `KARTA_LANDING_APPROVED=1` prefixes that same invocation (or sits in the environment) — the landing command is `KARTA_LANDING_APPROVED=1 git merge --no-ff --no-edit karta/<slug>/integration`. Two deliberate narrowings, both of which cost something:
 
 - **Anchored, not searched.** The ref has to head its own shell segment, after any `VAR=value` prefix. Without this the gate blocks its own maintenance: a merge command inside a heredoc, an `echo`, or a `grep` pattern is text, and the first thing this gate did when it went live was refuse a command that merely quoted one. The cost is that an invocation buried mid-segment — behind a `do`, an `xargs` — reads as text and is not caught.
-- **Approval must prefix the merge.** `KARTA_SKIP_ROUNDTABLE` is matched against the whole command, which is fine for a hatch that loosens a review requirement. This one grants authority, so an accidental grant is worse than an accidental block.
+- **Approval must prefix the merge, as an exact assignment word.** Both variables are read the same way — `NAME=1` (bare, `'1'` or `"1"`) sitting in front of the git invocation, or in the environment — and a lookalike is not a grant: `X=KARTA_LANDING_APPROVED=1`, `KARTA_LANDING_APPROVED=10`, a quoted `FOO="KARTA_LANDING_APPROVED=1"`, or the text of a commit message. This one grants authority, so an accidental grant is worse than an accidental block.
 
 And the limits worth saying out loud, because the gate is not a proof:
 
@@ -159,18 +159,21 @@ Plan-commit and deliver-merge have a real commit to block, so those are the two 
 
 #### Running it
 
-The tool per point is configured in `.karta/roundtable.json` (default `roundtable-critique`). A script cannot run roundtable — it is an MCP tool the agent calls. So the flow is two steps:
+The tool per point is configured in `.karta/roundtable.json` (default `roundtable-critique`). A script cannot run roundtable — it is an MCP tool the agent calls. So the flow is three steps:
 
 1. Run the roundtable panel on the target (the staged binder, or the integration-branch diff).
-2. Pipe the panel result to the recorder: `... | python3 scripts/roundtable/run_review.py --record --target <slug-or-branch>`.
+2. After each round, keep it: `... | python3 scripts/roundtable/run_review.py --round --target <slug-or-branch> --fixed "..." --refuted "..."` appends the round — every provider's verdict or the reason it gave none, what was fixed, what was refuted — to `.karta/roundtable/<key>.rounds.json`.
+3. On the final round, file the record: `... | python3 scripts/roundtable/run_review.py --record --target <slug-or-branch>`. It refuses a record the ledger's last round did not review.
 
-The gate then confirms the record with `run_review.py --check`. The `min_providers` floor keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it.
+The gate then confirms the record with `run_review.py --check`. The `min_providers` floor keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it. `.karta/roundtable/context-economy.rounds.json` — thirteen rounds on one binder — is the worked example of what the ledger holds.
 
 #### Rules the gate enforced
 
-- **Records must be committed.** The recorder stages the record under `.karta/roundtable/`, and the binder-commit gate requires it to be in the same commit (staged, or already in `HEAD`). A record that lives only in the working tree does not satisfy the gate — `.karta/roundtable/` is the committed audit trail.
-- **Binder freshness keys on the staged blob.** The binder gate hashes the *staged* bytes (`git show :<path>`), not the working-tree file. Review one version of the binder and stage a different one, and the gate re-arms — you must re-review what you are actually committing.
-- **The merge gate is narrow.** It fires only for a `git merge` naming a `karta/*/integration` branch while you are on the default branch. Nothing else trips it.
+- **Records must be committed.** The recorder stages the record under `.karta/roundtable/`, and the binder-commit gate requires it to be in the same commit — read from the same source git will commit the binder from, so a record a pathspec or `--only` leaves out does not count. A record that lives only in the working tree does not satisfy the gate — `.karta/roundtable/` is the committed audit trail.
+- **Binder freshness keys on the bytes git will commit.** The binder gate hashes the staged blob for a plain commit, the working-tree file for `-a` or a pathspec that names the binder, and `HEAD`'s copy for a pathspec that does not — decided by `git ls-files`, never by token matching. Review one version of the binder and stage a different one, and the gate re-arms — you must re-review what you are actually committing.
+- **With `ledger: true`, the rounds must be committed too.** `.karta/roundtable.json` carries `ledger: true` here, so both gates additionally require the round ledger — `.karta/roundtable/<slug>.rounds.json` in the content being committed, `branch-<tip>.rounds.json` in `HEAD` for a merge — with a last round that reviewed exactly the bytes the record reviewed, and a record bound to that final round. A missing or stale ledger is its own named denial pointing at `run_review.py --round`; a malformed one is a denial too, never a fail-open. `KARTA_SKIP_ROUNDTABLE=1` bypasses it exactly as it bypasses the record check — one hatch, not two.
+- **The gate recognises one command shape and denies the rest.** `git commit …`/`git merge …` are parsed with a whitelist of options and root-relative pathspecs, from the repository root, with a message (`-m`/`-F`, or `--amend --no-edit`; a merge needs `--no-edit` or `-m` unless `--ff-only`). A preceding or trailing segment, a substitution, an unquoted expansion, a redirection, a relocating `git -C`/`GIT_*` prefix, or an unknown option such as `-am` is denied by name. The cost is over-denial of unusual spellings; the gain is that what the gate approved is what git records.
+- **The merge gate is narrow.** It fires only for a `git merge` naming a `karta/*/integration` branch while you are on the default branch. Nothing else trips it. A merge that names the tip by SHA, and `git pull`, do not match it — that limit fails open and is named here rather than assumed closed.
 
 #### Accepted bypasses
 
@@ -178,7 +181,7 @@ A PreToolUse hook sees a command before it runs, so it can only match command te
 
 #### Escape hatch
 
-When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — in the command text or the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With the switch back on the hatch is live again and it is the only way past a review gate, so reach for it deliberately and say why in the commit — an unexplained `KARTA_SKIP_ROUNDTABLE=1` is a review that did not happen.
+When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — as a leading assignment prefix on the git command, or in the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With the switch back on the hatch is live again and it is the only way past a review gate, so reach for it deliberately and say why in the commit — an unexplained `KARTA_SKIP_ROUNDTABLE=1` is a review that did not happen.
 
 ### When the retroactive panel rejects a hatch-committed binder
 

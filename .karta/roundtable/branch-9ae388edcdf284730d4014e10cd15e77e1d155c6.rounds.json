@@ -1,0 +1,76 @@
+{
+  "target_ref": "karta/review-ledger/integration",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-4-8"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-kimi",
+      "model": "accounts/fireworks/models/kimi-k3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "9ae388edcdf284730d4014e10cd15e77e1d155c6",
+      "run_at": "2026-08-30T18:25:09.885652+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "landing gate: --gpg-sign treated as value-taking, so git merge --gpg-sign karta/x/integration eats the ref (kimi critical; confirmed \u2014 round-3 regression)",
+        "landing gate: refs/heads/karta/x/integration spelling not recognised (codex high; confirmed)",
+        "wrappers: clustered/abbreviated/legacy env options (-iu X, --un X, F=1 -i, -), exec -ca, and wrappers spelled by path (/usr/bin/env, /usr/bin/timeout) leave a non-git head (kimi; confirmed)",
+        "landing gate: redirections (2>&1, &>log, attached >log, merge>log) split or attach the ref away (kimi; confirmed)",
+        "env -a/--argv0 over-denial \u2014 GNU env -a only sets argv[0]; parse it as a valued option (codex, claude)"
+      ],
+      "findings_refuted_or_deferred": [
+        "codex 2 / kimi 5: $(\u2026), backticks, coproc hide an invocation \u2014 with the config on the raw-substitution denial already refuses them; with the config off they join sh -c / eval on the accepted-bypass list (documented in this fix)",
+        "codex 4: git update-ref refs/heads/main <integration-tip> \u2014 same class as cherry-pick / rebase / reset --hard, now named on the accepted list",
+        "kimi 7 (corrupt branch ref reads as unborn), kimi 8 (skip hatch counts a non-integration merge as gated \u2014 over-denial), claude 2 (default_branch fallback to main, pre-existing) \u2014 logged for the consolidation binder"
+      ],
+      "notes": "Round 4 of the landing review, at tip 9ae388e. Antigravity and Claude (full-file read, 846/846): merge. Codex and Kimi: revise on a further layer of shell spellings; Qwen truncated again. Fixes land as fix/review-ledger-landing-round4; round 5 keys on the new tip.",
+      "below_floor": false
+    }
+  ]
+}
