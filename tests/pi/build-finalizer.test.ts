@@ -184,6 +184,52 @@ test("finalizer scans, checks, gates, commits, then writes built ref", async () 
   }
 });
 
+test("a failing environment preflight blocks the item with remediation and never runs the floor", async () => {
+  const state = await fixture();
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    // Put a failing precondition probe on the integration ref the finalizer reads from.
+    await git(state.repo, ["checkout", "karta/demo/integration"]);
+    await mkdir(join(state.repo, ".karta"), { recursive: true });
+    await writeFile(
+      join(state.repo, ".karta", "environment.json"),
+      JSON.stringify({
+        preflight: "exit 4",
+        on_unavailable: "Bring up Docker via Incus; CI has it natively.",
+      }),
+    );
+    await git(state.repo, ["add", "-A"]);
+    await git(state.repo, ["commit", "--no-gpg-sign", "-m", "env preflight"]);
+    await git(state.repo, ["checkout", "karta/demo/item-item-a"]);
+
+    const before = await git(state.repo, ["rev-parse", "HEAD"]);
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const result = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+    );
+    assert.equal(result.status, "blocked");
+    assert.equal(result.checkFailure?.status, "precondition-unmet");
+    assert.match(result.message, /precondition unmet/i);
+    assert.match(result.message, /Bring up Docker via Incus/);
+    // The floor never committed anything: HEAD is unchanged and neither completion
+    // ref exists — the probe halted before the real command hit the wall.
+    assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), before);
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
+    );
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/failed"]),
+    );
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
 test("a full visual oracle blocks visual-required after safety without writing a built ref", async () => {
   const state = await fixture(gateInvoker(), () => {}, {
     type: "visual",

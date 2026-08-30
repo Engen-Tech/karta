@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,12 +111,63 @@ test("check plans reject duplicate ids and unsafe cwd", async () => {
 });
 
 async function commitEnv(repo: string, setup: string): Promise<void> {
+  await commitEnvJson(repo, { setup });
+}
+
+async function commitEnvJson(repo: string, config: Record<string, unknown>): Promise<void> {
   await writeFile(join(repo, ".gitignore"), "dep/\n");
   await mkdir(join(repo, ".karta"), { recursive: true });
-  await writeFile(join(repo, ".karta", "environment.json"), `{ "setup": ${JSON.stringify(setup)} }`);
+  await writeFile(join(repo, ".karta", "environment.json"), JSON.stringify(config));
   await git(repo, ["add", "-A"]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "env"]);
 }
+
+test("a failing environment preflight halts before setup and the floor with remediation", async () => {
+  const state = await fixture("process.exit(0);\n"); // floor would pass if it were ever reached
+  try {
+    await commitEnvJson(state.repo, {
+      setup: "mkdir -p dep && echo ran > dep/setup-marker",
+      preflight: "exit 4",
+      on_unavailable: "Start Docker via Incus; CI has it natively.",
+    });
+    const result = await runStableTreeChecks({
+      worktree: state.repo,
+      checks: plan,
+      environmentSetupRef: "HEAD",
+    });
+    assert.equal(result.status, "precondition-unmet");
+    if (result.status !== "precondition-unmet") return;
+    assert.equal(result.check?.id, "environment-preflight");
+    assert.equal(result.check?.result.code, 4);
+    assert.equal(result.remediation, "Start Docker via Incus; CI has it natively.");
+    // The floor never ran (no manifest) and setup never ran (its marker is absent):
+    // the precondition probe halts before either can hit the wall.
+    assert.equal("manifest" in result, false);
+    assert.equal(existsSync(join(state.repo, "dep", "setup-marker")), false);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a passing environment preflight lets setup and the floor proceed", async () => {
+  const state = await fixture(
+    "import { existsSync } from 'node:fs'; process.exit(existsSync('dep/marker') ? 0 : 5);\n",
+  );
+  try {
+    await commitEnvJson(state.repo, {
+      setup: "mkdir -p dep && echo ok > dep/marker",
+      preflight: "exit 0",
+    });
+    const result = await runStableTreeChecks({
+      worktree: state.repo,
+      checks: plan,
+      environmentSetupRef: "HEAD",
+    });
+    assert.equal(result.status, "stable");
+  } finally {
+    await state.cleanup();
+  }
+});
 
 test("a declared environment setup runs in the worktree before checks", async () => {
   const state = await fixture(

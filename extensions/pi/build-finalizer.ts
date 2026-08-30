@@ -141,6 +141,15 @@ function blockedFinalizationMessage(
   return fallback;
 }
 
+// A precondition-unmet convergence means the declared environment probe failed before
+// any floor or oracle command ran. It maps to blocked — a missing daemon is not fixed by
+// a worker retry — and echoes the project's own remediation so the halt is actionable
+// instead of an opaque wall of tool errors from a command run into a wall.
+function preconditionHaltMessage(convergence: { remediation?: string }): string {
+  const base = "Declared environment precondition unmet; the floor was not run.";
+  return convergence.remediation ? `${base} ${convergence.remediation}` : base;
+}
+
 export class KartaBuildFinalizer {
   readonly #locks: DispatchLockManager;
   readonly #verification: KartaVerificationRunner;
@@ -228,7 +237,9 @@ export class KartaBuildFinalizer {
             targetTree: convergence.targetTree,
             commit: integrationTip,
             checkFailure: convergence,
-            message: "Landed merge recovery checks failed or changed the committed merge tree.",
+            message: convergence.status === "precondition-unmet"
+              ? preconditionHaltMessage(convergence)
+              : "Landed merge recovery checks failed or changed the committed merge tree.",
           };
         }
         checks = convergence.manifest;
@@ -357,7 +368,9 @@ export class KartaBuildFinalizer {
           item,
           targetTree: convergence.targetTree,
           checkFailure: convergence,
-          message: "Committed candidate recovery checks did not pass on the exact item tip.",
+          message: convergence.status === "precondition-unmet"
+            ? preconditionHaltMessage(convergence)
+            : "Committed candidate recovery checks did not pass on the exact item tip.",
         };
       }
       if (convergence.targetTree !== committedTree) {
@@ -662,9 +675,11 @@ export class KartaBuildFinalizer {
           targetTree: convergence.targetTree,
           checkFailure: convergence,
           message:
-            convergence.status === "failed"
-              ? "A final floor check failed; return the candidate to the worker."
-              : `Final checks stopped as ${convergence.status}; the candidate remains staged for recovery.`,
+            convergence.status === "precondition-unmet"
+              ? preconditionHaltMessage(convergence)
+              : convergence.status === "failed"
+                ? "A final floor check failed; return the candidate to the worker."
+                : `Final checks stopped as ${convergence.status}; the candidate remains staged for recovery.`,
         };
       }
       checks = convergence.manifest;

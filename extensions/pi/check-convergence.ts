@@ -7,7 +7,7 @@ import {
   type UnboundCheckResult,
 } from "./check-runner.ts";
 import type { KartaCheckManifest } from "./evidence.ts";
-import { readEnvironmentSetup } from "./environment.ts";
+import { readEnvironmentConfig } from "./environment.ts";
 
 const exec = promisify(execFile);
 const DEFAULT_MAX_PASSES = 3;
@@ -52,10 +52,13 @@ type HaltedUnboundCheckResult = UnboundCheckResult & {
 };
 
 export interface HaltedCheckConvergenceResult {
-  status: "failed" | "timed-out" | "aborted" | "non-converging";
+  status: "failed" | "timed-out" | "aborted" | "non-converging" | "precondition-unmet";
   passes: number;
   targetTree: string;
   check?: { id: string; result: HaltedUnboundCheckResult };
+  // Set only on "precondition-unmet": the project's own remediation text
+  // (environment.json on_unavailable), surfaced verbatim so the halt names the fix.
+  remediation?: string;
 }
 
 export type CheckConvergenceResult =
@@ -145,9 +148,33 @@ export async function runStableTreeChecks(
   if (!Number.isInteger(maxPasses) || maxPasses < 1 || maxPasses > 10) {
     throw new Error("Karta check convergence maxPasses must be an integer from 1 to 10");
   }
-  const environmentSetup = options.environmentSetupRef
-    ? await readEnvironmentSetup(options.worktree, options.environmentSetupRef)
+  const environmentConfig = options.environmentSetupRef
+    ? await readEnvironmentConfig(options.worktree, options.environmentSetupRef)
     : undefined;
+  if (environmentConfig?.preflight) {
+    // Probe the declared precondition BEFORE setup and the floor. On failure, halt
+    // clean with the project's remediation rather than running the real floor command
+    // into the wall — a distinct "precondition-unmet" the caller maps to blocked (not a
+    // worker retry: a missing daemon is not fixed by re-prompting an implementer).
+    const probe = await runBoundCheck({
+      worktree: options.worktree,
+      command: environmentConfig.preflight,
+      cwd: ".",
+      signal: options.signal,
+      onProcessStart: options.onProcessStart,
+      onProcessExit: options.onProcessExit,
+    });
+    if (probe.status !== "passed") {
+      return {
+        status: "precondition-unmet",
+        passes: 0,
+        targetTree: await stageTree(options.worktree),
+        check: { id: "environment-preflight", result: probe as HaltedUnboundCheckResult },
+        remediation: environmentConfig.onUnavailable,
+      };
+    }
+  }
+  const environmentSetup = environmentConfig?.setup;
   if (environmentSetup) {
     // Provision the check worktree's declared environment (install deps into a
     // gitignored directory) once, before staging. The command is read from the

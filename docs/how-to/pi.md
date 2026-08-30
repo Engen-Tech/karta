@@ -92,6 +92,24 @@ Callers provide identity, not authority. They cannot choose a prompt, model, pro
 
 The Pi package runs the behavioral gates but has no visual-fidelity judge. A `visual`-oracle item still passes through the safety gate, but its acceptance blocks: full build or delivery verification returns `blocked` with the reason `visual-required` and writes no merge or completion ref. This is a fail-closed stop, never a silent pass of an unchecked view. Behavioral oracles run in full.
 
+## Provision the check environment
+
+The Pi host reruns your floor and oracle commands in fresh, disposable worktrees that do not share a build worker's installed dependencies. Declare what those worktrees need in `.karta/environment.json`, read from the delivery's committed integration ref (never the mutable working tree):
+
+```json
+{
+  "preflight": "docker info",
+  "on_unavailable": "Docker is reachable only through Incus here; start it, or run this on CI which has it natively.",
+  "setup": "uv sync --frozen"
+}
+```
+
+All three keys are optional and independent:
+
+- `preflight` runs first, before setup and before any floor or oracle command. It is a cheap precondition probe — is the daemon up, is the toolchain present. When it fails, the item halts as `blocked` and the message carries your `on_unavailable` text verbatim. The real floor command is never run into the wall, and the worker is not re-prompted (a missing daemon is not fixed by another implementation attempt).
+- `on_unavailable` is the remediation shown on a failed preflight — the precondition your binder already knows about, said once, up front, actionably.
+- `setup` provisions dependencies into a gitignored directory. It must touch only gitignored paths; a setup that mutates a tracked file is refused so nothing rides unreviewed into the merged tree.
+
 ## Enable companion writers
 
 Doc-gardner and Kaizen are opt-in delivery phases.

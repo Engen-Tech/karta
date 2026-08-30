@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
-import { readEnvironmentSetup } from "../../extensions/pi/environment.ts";
+import { readEnvironmentConfig, readEnvironmentSetup } from "../../extensions/pi/environment.ts";
 
 const exec = promisify(execFile);
 
@@ -76,6 +76,46 @@ test("a malformed environment config fails closed rather than silently skipping"
     await assert.rejects(() => readEnvironmentSetup(state.dir, "HEAD"), /not valid JSON/);
     await state.commit(`[]`);
     await assert.rejects(() => readEnvironmentSetup(state.dir, "HEAD"), /must be a JSON object/);
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("readEnvironmentConfig reads the preflight probe and its remediation", async () => {
+  const state = await repo();
+  try {
+    await state.commit(
+      `{ "setup": "npm ci", "preflight": "docker info", "on_unavailable": "Start Docker via Incus; CI has it natively." }`,
+    );
+    assert.deepEqual(await readEnvironmentConfig(state.dir, "HEAD"), {
+      setup: "npm ci",
+      preflight: "docker info",
+      onUnavailable: "Start Docker via Incus; CI has it natively.",
+    });
+    // preflight/on_unavailable are optional and independent of setup
+    await state.commit(`{ "preflight": "docker info" }`);
+    assert.deepEqual(await readEnvironmentConfig(state.dir, "HEAD"), { preflight: "docker info" });
+    // absent config stays opt-out
+    const empty = await repo();
+    try {
+      assert.equal(await readEnvironmentConfig(empty.dir, "HEAD"), undefined);
+    } finally {
+      await empty.cleanup();
+    }
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a malformed preflight or on_unavailable fails closed", async () => {
+  const state = await repo();
+  try {
+    await state.commit(`{ "preflight": "" }`);
+    await assert.rejects(() => readEnvironmentConfig(state.dir, "HEAD"), /preflight must be a non-empty string/);
+    await state.commit(`{ "preflight": "docker info", "on_unavailable": "" }`);
+    await assert.rejects(() => readEnvironmentConfig(state.dir, "HEAD"), /on_unavailable must be a non-empty string/);
+    await state.commit(`{ "preflight": "docker info", "nope": 1 }`);
+    await assert.rejects(() => readEnvironmentConfig(state.dir, "HEAD"), /unknown keys: nope/);
   } finally {
     await state.cleanup();
   }
