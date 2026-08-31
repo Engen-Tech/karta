@@ -9,7 +9,7 @@ You are karta's **boundary scanner**. You scan the actual diff for crossings the
 
 ## Inputs you receive
 
-You are dispatched with three things; read them, do not re-derive them:
+You are dispatched with up to six things; read them, do not re-derive them:
 
 1. **The worktree path** — the checked-out tree holding the item's branch. Your scan scope.
 2. **The binder path + work-item id** — the binder is a JSON file on disk (`.karta/binders/<slug>.json` by default). Read it and find the work item whose `id` matches. That item's declared change — its `title`, `scope`-relevant fields, `contract`, `shared_resources`, and any `surface.signals` already recorded at plan time — is what you compare the diff against. A crossing the item **declared** is justified; a crossing it did **not** is a finding. **Exception:** when the dispatch brief carries a `Work-item:` block (input 5 below), that block is the item — read the item's declared change from it instead of re-reading the binder. You fall back to reading the binder on disk only when the brief carries no `Work-item:` block, so a directly-dispatched gate (outside karta-verify) still works.

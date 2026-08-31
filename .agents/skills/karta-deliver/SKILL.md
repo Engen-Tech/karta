@@ -73,8 +73,10 @@ An item with `serialize: true`, or one the packet placed in `parallelism.seriali
 **The orchestrator is the single writer of the integration tip.** Before the merge pass, tag `karta/<slug>/wave-<N>-base` on the pre-merge integration tip — the revert anchor for partial-wave failure (see `deliver:lifecycle`). Then merge the items that carry a `built` marker, one at a time, in FIFO order by completion (the queue is specified in [references/integration-branch.md](references/integration-branch.md)); the one other way an item reaches the tip is a human accept-waiver at the Phase-4 halt (`deliver:lifecycle`). Because the merges are serial there is no concurrency at the tip. The queue is one command per item:
 
 ```bash
-python3 skills/karta-deliver/scripts/merge_item.py merge --repo <integration worktree> --binder <binder path> --slug <slug> --item <id>
+python3 skills/karta-deliver/scripts/merge_item.py merge --repo <integration worktree> --binder <binder path> --slug <slug> --item <id> [--allow-drift]
 ```
+
+`--allow-drift` belongs on a re-run only, after a `drift: true` halt and only when the human says so (step 4 below).
 
 Read its fixed-shape JSON result — `{item, skipped_done, provenance, drift, merge_commit, revalidation, done_ref, halted_at}`, the same keys on every path — instead of running the git and Python steps by hand. The script stops at the first failure; `halted_at` names the step that stopped it (null on success). Mechanically, in order, it:
 
@@ -146,7 +148,7 @@ Tear the wave env down once at the end of the wave, after the post-wave check (S
 5. **Write refs, ref last:** write `done` → the trailer-stamped merge commit; delete `failed`; write `accepted` → the accepted item commit **last**. Immediately after that write — the other point where accepted state exists — re-assert it mechanically: `python3 skills/karta-deliver/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <done>^1..<done> --slug <slug> --check-accepted` (the same narrow range the queue's done-provenance check uses — a wider one would see wave-mates' commits and reject a valid accept merged after them). A nonzero result means the accept did not land as the doctrine describes; surface it rather than continuing.
 6. **Backlog sink append**, if a sink is configured, **after** steps 2–5 succeed (so the recorded merge commit exists).
 
-Accept merges an item that carries no `built` ref — it is a second merge precondition alongside `built`, and an accepted item is never given `built` (the worker never cleared the gate). Accept can waive an acceptance-gate finding (an unmet `oracle.assertions[i]`, a missing contract artifact, or a SPEC-SUSPECT divergence); it **cannot** waive the floor (guarded by step 3) or a safety-gate VIOLATION (the safety gate keeps its own escalate-to-human path).
+Accept merges an item that, by definition, carries no `built` ref — the live human waiver is the queue's second merge precondition, standing beside the `built` marker (an item reaches the tip with one or the other, never neither), and an accepted item is never given `built` (the worker never cleared the gate). Accept can waive an acceptance-gate finding (an unmet `oracle.assertions[i]`, a missing contract artifact, or a SPEC-SUSPECT divergence); it **cannot** waive the floor (guarded by step 3) or a safety-gate VIOLATION (the safety gate keeps its own escalate-to-human path).
 
 **Migration.** An accept merge made before the subject rule above is unmarked, so a resumed delivery that contains one halts at `done-provenance` naming that cause. The way forward is Clear — the binder is re-delivered. There is no re-stamping of history.
 

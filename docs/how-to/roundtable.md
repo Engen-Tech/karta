@@ -86,7 +86,7 @@ roundtable is an MCP tool the agent calls, not a CLI a script can invoke. So rec
 
    `--record` refuses to file a record the ledger's last round did not review, and binds the record to that round (`rounds_ledger`, `final_round`).
 
-The recorder writes the record under `.karta/roundtable/` — `<slug>.json` for a binder, `branch-<tip-sha>.json` for a branch — and stages it with `git add`, as `--round` stages the ledger. `.karta/roundtable/context-economy.rounds.json` is the worked example: thirteen rounds on one binder, each with every provider's verdict or the reason it gave none.
+The recorder writes the record under `.karta/roundtable/` — `<slug>.json` for a binder, `branch-<tip-sha>.json` for a branch — and stages it with `git add`, as `--round` stages the ledger. `.karta/roundtable/context-economy.rounds.json` is the worked example: nineteen rounds on one binder, each with every provider's verdict or the reason it gave none.
 
 The gate confirms the record with `run_review.py --check`. These rules make the record trustworthy:
 
@@ -98,7 +98,7 @@ The gate confirms the record with `run_review.py --check`. These rules make the 
 
 ## Reading a ledger
 
-A ledger is the review's history; the record is its receipt. Open one next to the other and the difference is plain. `.karta/roundtable/context-economy.rounds.json` is the worked example: thirteen rounds on one binder, from the first draft to the bytes that were committed.
+A ledger is the review's history; the record is its receipt. Open one next to the other and the difference is plain. `.karta/roundtable/context-economy.rounds.json` is the worked example: nineteen rounds on one binder, from the first draft through a mid-delivery amendment to the bytes that were committed.
 
 A ledger has a short header and a list of rounds. Each round carries the keys you will meet everywhere in it:
 
@@ -110,9 +110,9 @@ A ledger has a short header and a list of rounds. Each round carries the keys yo
 | `findings_refuted_or_deferred` | what the operator pushed back on or left for later, and why |
 | `below_floor` | whether the round had fewer answering providers than `min_providers` |
 
-Read the context-economy ledger top to bottom and a story appears. Round 1 opened with both answering providers saying revise and four fixes, one of them a real bug in an additive-only guard. Rounds 2 through 12 are the binder being tightened one review at a time: each round has a different `reviewed_hash`, and each carries between one and five fixes. Round 13 has no fixes, two merge verdicts, and a `reviewed_hash` starting `6d68c0e8`. That is the hash the record beside it, `context-economy.json`, was filed against, which is how you know the record certifies the last thing the panel saw and not an earlier draft.
+Read the context-economy ledger top to bottom and a story appears. Round 1 opened with both answering providers saying revise and four fixes, one of them a real bug in an additive-only guard. Rounds 2 through 12 are the binder being tightened one review at a time: each round has a different `reviewed_hash`, and each carries between one and five fixes. Round 13 has no fixes and a `reviewed_hash` starting `6d68c0e8` — the hash the record was filed against at plan time. The story then continues past the plan: rounds 14 through 17 are a pre-delivery amendment cycle (a seven-provider critique plus a converge round drove 24 fixes, and round 17 closed clean on a re-filed record), and rounds 18 and 19 are a mid-delivery amendment — the delivery's own cost measurements disproved a plan-time number, the halted item refused to write it, and the amendment closed at round 19 with no fixes and a `reviewed_hash` starting `7126b9f9`. That is the hash the record beside the ledger certifies now, which is how you know the record covers the last thing the panel saw and not an earlier draft.
 
-Now look at the third provider. Antigravity is listed in every one of the thirteen rounds, and in every one of them it returned nothing: `verdict` is null and `status` says why. The record alone would never show you that. A record holds one panel snapshot and freshness for the floor, so a provider that came back empty once looks the same as one that came back empty thirteen times in a row. Only the ledger keeps the empty rounds, and only the ledger makes a pattern like that visible.
+Now look at the third provider. Antigravity is listed in every round, and in the first thirteen it returned nothing: `verdict` is null and `status` says why. From round 14 on — the first round after the headless-permissions fix landed in the roundtable backend — the same provider answers every time. The record alone would never show you either half: a record holds one panel snapshot and freshness for the floor, so a provider that came back empty once looks the same as one that came back empty thirteen times in a row, and a provider that recovered looks the same as one that always worked. Only the ledger keeps the empty rounds, and only the ledger makes a pattern — and its ending — visible.
 
 Three things a ledger is not:
 
