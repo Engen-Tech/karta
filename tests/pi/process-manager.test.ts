@@ -137,6 +137,93 @@ test("process creation has a deterministic fault checkpoint and remains shutdown
   assert.equal(manager.size, 0);
 });
 
+test("the env-server role is tracked and reclaimed by a global shutdown alongside the other roles", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX process-group assertion has a native Windows release fixture");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "karta-env-server-role-"));
+  try {
+    const script = join(root, "wait.mjs");
+    await writeFile(script, "setInterval(() => {}, 60000);\n");
+    const spawnWaiter = (): number => {
+      const child = spawn(process.execPath, [script], { cwd: root, detached: true, stdio: "ignore" });
+      assert.ok(child.pid);
+      return child.pid;
+    };
+    const lifecycles = new LifecycleRegistry();
+    const manager = new KartaProcessManager(lifecycles, 50);
+    const owner = manager.createBinderOwner(root, "demo");
+    const envServer = spawnWaiter();
+    const hostCheck = spawnWaiter();
+    const managed = spawnWaiter();
+    // A dev server registers under the new role with its own explicit teardown grace,
+    // never churning the manager's shared 50ms default the other two rely on.
+    manager.registerProcess(envServer, { cwd: root, parentId: owner.id, label: "dev-server", role: "env-server", graceMs: 5_000 });
+    manager.registerProcess(hostCheck, { cwd: root, parentId: owner.id, label: "floor", role: "host-check" });
+    manager.registerProcess(managed, { cwd: root, parentId: owner.id, label: "managed" });
+    assert.deepEqual(
+      lifecycles
+        .snapshot()
+        .map(({ role }) => role)
+        .sort(),
+      ["delivery", "env-server", "host-check", "managed-process"],
+    );
+    const closes = [envServer, hostCheck, managed].map(
+      (pid) => new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          try {
+            process.kill(pid, 0);
+          } catch {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 10);
+        timer.unref?.();
+      }),
+    );
+    // Global shutdown reclaims every role, the env-server included.
+    await lifecycles.shutdown();
+    await Promise.all(closes);
+    for (const pid of [envServer, hostCheck, managed]) assert.equal(processExists(pid), false);
+    assert.equal(lifecycles.size, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("stopProcess reaps a single managed process with its per-call grace and leaves the owner", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX process-group assertion has a native Windows release fixture");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "karta-stop-process-"));
+  try {
+    const script = join(root, "wait.mjs");
+    await writeFile(script, "setInterval(() => {}, 60000);\n");
+    const child = spawn(process.execPath, [script], { cwd: root, detached: true, stdio: "ignore" });
+    assert.ok(child.pid);
+    const pid = child.pid;
+    const lifecycles = new LifecycleRegistry();
+    const manager = new KartaProcessManager(lifecycles, 1_000);
+    const owner = manager.createBinderOwner(root, "demo");
+    manager.registerProcess(pid, { cwd: root, parentId: owner.id, label: "dev-server", role: "env-server", graceMs: 25 });
+    assert.equal(manager.size, 1);
+    const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    await manager.stopProcess(pid);
+    await closed;
+    assert.equal(processExists(pid), false);
+    assert.equal(manager.size, 0);
+    // The owner outlives its stopped process; a second stop is an idempotent no-op.
+    assert.equal(lifecycles.size, 1);
+    await manager.stopProcess(pid);
+    await manager.stopOwner(owner);
+    assert.equal(lifecycles.size, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("normally exited processes can be forgotten without stopping their owner", async () => {
   const lifecycles = new LifecycleRegistry();
   const manager = new KartaProcessManager(lifecycles, 10);
