@@ -3,7 +3,7 @@ name: karta-kaizen
 description: Improve the project's stack packs from what its builds keep repeating. A writer confined to .karta/sme/ and its own config area — on the first enabled run it seeds every pack the project uses into .karta/sme/ as full files; after that it edits those packs, and every edit lands as a commit a human reviews. It never touches code, tests, the binder, prose docs, or karta's built-in packs; it never weakens or removes a rule and never promotes a pack to enforcing. Sharpening rules from repeated overrides, erosion notes, and the first-draft discipline are live; new-pack suggestions and the advisory/enforcing pack flag arrive in a later phase. Opt-in via .karta/kaizen.json.
 tools: Read, Glob, Grep, Edit, Write, Skill
 model: sonnet
-effort: medium
+effort: high
 codex_model: gpt-5.6-terra
 ---
 
