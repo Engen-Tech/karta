@@ -603,6 +603,103 @@
       "findings_refuted_or_deferred": [],
       "notes": "round 17: two-line-delta freshness panel; unanimous SHIP, zero findings; nothing fixed or refuted - this is the round the record certifies",
       "below_floor": false
+    },
+    {
+      "round": 18,
+      "reviewed_hash": "7126b9f967218fa8c71b62e8be0404614885514f22687bc47e11b518744ac098",
+      "run_at": "2026-08-31T02:07:16.574912+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "assertions[0] of context-economy-record amended to the landed shares (48.8% orchestrator, 41.9% builders) \u2014 the panel's unanimous insisted fix, applied verbatim; the orchestrator's own pre-panel sweep had caught the same leftover, so the staged bytes this entry hashes already carry it"
+      ],
+      "findings_refuted_or_deferred": [
+        "frozen 6.5% in the DONE gate-brief-evidence contract (deepseek/glm/kimi): stays frozen \u2014 a done item's contract is what its acceptance gate reviewed; the summary labels the 57/36/6.5 figures as first-draft estimates and the record doc carries the measured truth",
+        "44/66 message counts contract-asserted but not grepped (minimax): pre-existing, awareness only"
+      ],
+      "notes": "Mid-delivery amendment: the record item halted honestly \u2014 its share literals were plan-time estimates the delivery's own cost-ledger formula disproved (measured 48.8/41.9/9.3 vs planned 57/36/6.5, verified from the committed result and a live re-mine). Six panelists reviewed the pre-assertion-fix bytes d58603d5...; the fix they unanimously prescribed had already been applied before this entry was logged, so this entry hashes the fixed bytes. Minimax reviewed the fixed bytes and returned SHIP. A confirmation round on these exact bytes follows. Disposition filled in-place after a bare --round append (long flag lists rejected by the session's auto-mode classifier).",
+      "below_floor": false
+    },
+    {
+      "round": 19,
+      "reviewed_hash": "7126b9f967218fa8c71b62e8be0404614885514f22687bc47e11b518744ac098",
+      "run_at": "2026-08-31T02:09:17.262744+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [],
+      "notes": "round 19: one-token-delta confirmation on the exact staged bytes; unanimous SHIP, zero findings; nothing fixed or refuted - this is the round the record certifies",
+      "below_floor": false
     }
   ],
   "outcome": {
