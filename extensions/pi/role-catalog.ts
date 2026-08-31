@@ -5,6 +5,7 @@ import { requirePackagePath } from "./package-paths.ts";
 export type KartaRoleId =
   | "acceptance-gate"
   | "safety-gate"
+  | "visual-gate"
   | "build-worker"
   | "doc-gardner"
   | "kaizen";
@@ -42,6 +43,13 @@ const ROLE_CATALOG: Record<KartaRoleId, RoleCatalogEntry> = {
     expectedName: "karta-safety-auditor",
     authority: "read-only",
     capabilities: ["evidence.read", "boundary.inspect"],
+    outputSchema: "gate-verdict-v1",
+  },
+  "visual-gate": {
+    source: "agents/karta-design-reviewer.md",
+    expectedName: "karta-design-reviewer",
+    authority: "read-only",
+    capabilities: ["evidence.read"],
     outputSchema: "gate-verdict-v1",
   },
   "build-worker": {

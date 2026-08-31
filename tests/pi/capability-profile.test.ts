@@ -117,9 +117,29 @@ test("acceptance and safety profiles expose exactly two role-owned read-only too
   }
 });
 
+test("the visual gate exposes only the read-only evidence tool, never the boundary tool", () => {
+  const evidence = manifest();
+  const visual = createGateCapabilityProfile("visual-gate", evidence);
+  // The visual gate declares only evidence.read, so its role-owned tool is the
+  // evidence reader itself — it must not fall through to the boundary inspector.
+  assert.deepEqual(visual.toolNames, ["karta_evidence"]);
+  assert.equal(visual.toolNames.includes("karta_boundary"), false);
+  assert.equal(visual.toolNames.includes("karta_checks"), false);
+  assert.equal(visual.role.authority, "read-only");
+  assert.equal(visual.role.outputSchema, "gate-verdict-v1");
+  assert.equal(visual.toolNames.includes("bash"), false);
+  assert.equal(visual.toolNames.includes("write"), false);
+  assert.equal(visual.toolNames.includes("edit"), false);
+  assert.match(visual.profileHash, /^[a-f0-9]{64}$/);
+  const acceptance = createGateCapabilityProfile("acceptance-gate", evidence);
+  const safety = createGateCapabilityProfile("safety-gate", evidence);
+  assert.notEqual(visual.profileHash, acceptance.profileHash);
+  assert.notEqual(visual.profileHash, safety.profileHash);
+});
+
 test("gate capability schemas contain no caller-selected authority", async () => {
   const evidence = manifest();
-  for (const role of ["acceptance-gate", "safety-gate"] as const) {
+  for (const role of ["acceptance-gate", "safety-gate", "visual-gate"] as const) {
     const profile = createGateCapabilityProfile(role, evidence);
     for (const tool of profile.tools) {
       const schema = JSON.stringify(tool.parameters);

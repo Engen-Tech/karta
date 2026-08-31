@@ -9,6 +9,7 @@ export type LifecycleRole =
   | "env-server"
   | "acceptance-gate"
   | "safety-gate"
+  | "visual-gate"
   | "build-worker"
   | "doc-gardner"
   | "kaizen";

@@ -13,6 +13,7 @@ import {
   type KartaEvidenceManifest,
   type KartaEvidencePayload,
 } from "../../extensions/pi/evidence.ts";
+import type { KartaGateRoleId } from "../../extensions/pi/capability-profile.ts";
 import type { KartaGateResult } from "../../extensions/pi/gate-runner.ts";
 import { KartaVerificationRunner } from "../../extensions/pi/verification-runner.ts";
 import { VISUAL_EVIDENCE_SCHEMA } from "../../extensions/pi/visual-capture-runner.ts";
@@ -85,7 +86,7 @@ async function fixture(oracle: Record<string, unknown> = { type: "unit" }): Prom
   };
 }
 
-function gate(role: "acceptance-gate" | "safety-gate", verdict: "pass" | "concerns" | "blocked"): KartaGateResult {
+function gate(role: KartaGateRoleId, verdict: "pass" | "concerns" | "blocked"): KartaGateResult {
   return {
     schema: "karta-gate-verdict-v1",
     role,
