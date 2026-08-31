@@ -15,6 +15,7 @@ import {
 } from "../../extensions/pi/evidence.ts";
 import type { KartaGateResult } from "../../extensions/pi/gate-runner.ts";
 import { KartaVerificationRunner } from "../../extensions/pi/verification-runner.ts";
+import { VISUAL_EVIDENCE_SCHEMA } from "../../extensions/pi/visual-capture-runner.ts";
 
 const exec = promisify(execFile);
 
@@ -222,6 +223,43 @@ test("a full visual verification blocks visual-required after safety passes with
     assert.equal(result.reason, undefined);
     assert.equal(result.requestedMode, "full");
     assert.equal(result.effectiveMode, "full");
+    assert.equal(result.gates.acceptance, undefined);
+    assert.equal(result.gates.safety?.verdict, "pass");
+    assert.equal(locks.size, 0);
+  } finally {
+    await locks.releaseAll();
+    await cleanup();
+  }
+});
+
+test("the mere existence of a karta-visual-evidence-v1 artifact does not lift the visual-required block", async () => {
+  // The capture-orchestration item emits visual evidence but writes no verdict and moves
+  // no ref: per the shipped block-unrun-visual contract only the later screenshot-
+  // judgement binder may lift the block. verification-runner.ts is untouched by that item,
+  // so producing evidence — even inside the repo — leaves a full visual verification
+  // blocked as visual-required.
+  const { repo, manifest, ctx, cleanup } = await fixture({ type: "visual" });
+  const locks = new DispatchLockManager();
+  try {
+    await writeFile(
+      join(repo, "visual-evidence.json"),
+      JSON.stringify({
+        schema: VISUAL_EVIDENCE_SCHEMA,
+        binder: "demo",
+        item: "item-a",
+        candidateTree: "e".repeat(40),
+        structuredDiff: { schema: "karta-structured-diff-v1", status: "ok", summary: { discrepancyCount: 0 } },
+      }),
+    );
+    const runner = new KartaVerificationRunner(preflight, new ChildRegistry(), locks, {
+      buildEvidence: async () => manifest,
+      async executeGate(_ctx, role) {
+        return { ...gate(role, "pass"), evidenceHash: manifest.evidenceHash };
+      },
+    });
+    const result = await runner.run(ctx, "demo", "item-a", "full");
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blockedReason, "visual-required");
     assert.equal(result.gates.acceptance, undefined);
     assert.equal(result.gates.safety?.verdict, "pass");
     assert.equal(locks.size, 0);
