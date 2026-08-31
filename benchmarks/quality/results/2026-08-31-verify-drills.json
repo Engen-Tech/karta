@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "vector": "quality-verify-integrity-drills",
+  "layer": 0,
+  "status": "pass",
+  "tripwires": {
+    "a": "known-open",
+    "b": "pass",
+    "c": "known-open"
+  },
+  "findings": [
+    {
+      "finding_id": "tripwire-a-blocked-empty-diff-clause-missing",
+      "severity": "known-open",
+      "summary": "agents/karta-safety-auditor.md: BLOCKED definition lacks the empty-diff clause ('readable but empty' absent from the Verdicts section) \u2014 a readable-but-empty diff fires no signal (known gap)"
+    },
+    {
+      "finding_id": "tripwire-c-loop-state-unpaired:agents/karta-safety-auditor.md",
+      "severity": "known-open",
+      "summary": "agents/karta-safety-auditor.md: 'store no loop state' present with no persisted-attempt mechanism in the same file \u2014 caps are in-memory only and reset on resume (known gap)"
+    },
+    {
+      "finding_id": "tripwire-c-loop-state-unpaired:agents/karta-acceptance-reviewer.md",
+      "severity": "known-open",
+      "summary": "agents/karta-acceptance-reviewer.md: 'store no loop state' present with no persisted-attempt mechanism in the same file \u2014 caps are in-memory only and reset on resume (known gap)"
+    }
+  ]
+}
