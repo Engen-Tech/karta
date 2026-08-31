@@ -36,7 +36,7 @@ karta ships first-class integrations for **Claude Code, Codex CLI, and Pi**. The
 /plugin install karta@karta
 ```
 
-This registers all karta skills under the `karta:` namespace, plus four agents (two gates, two writers). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
+This registers all karta skills under the `karta:` namespace, plus five agents (three gates, two writers). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
 
 ### Codex CLI
 
@@ -102,12 +102,16 @@ It holds the slug (which names the integration branch and tags), scope, the env 
 | **`karta-debt`** | On-demand debt harvest. Collects every `KARTA-DEFER` and `KARTA-SME-OVERRIDE` marker into a one-shot ledger. Writes nothing. |
 | **`karta-status`** | Shows where a run stands and the single next action, derived from git. Live browser page by default; one-shot terminal map headless. Read-only. Opt a repo in and **Karta Watch** turns persistent: one stable local hub page for every opted-in repo, revived by ordinary karta activity — see [docs/how-to/karta-watch.md](docs/how-to/karta-watch.md). |
 
-## The four agents
+## The five agents
 
-Two are read-only gates, dispatched by `karta-verify` (and by `karta-build` for the behavioral floor):
+Three are read-only gates. Two check behavior, dispatched by `karta-verify` (and by `karta-build` for the behavioral floor):
 
 - **`karta-acceptance-reviewer`** — checks the diff against the item's `oracle`/`contract`, assertion by assertion. Verdict: `CONFORMANT | DEVIATION | BLOCKED | SPEC-SUSPECT`.
 - **`karta-safety-auditor`** — re-runs the seven review signals on the real diff, flagging anything sensitive, destructive, or outside the item's contract. Verdict: `PASS | VIOLATION`.
+
+The third checks visual fidelity:
+
+- **`karta-design-reviewer`** — judges the running app's screenshot against its design screenshot, grounded in the measured structured diff. Verdict: `PASS | CONCERNS | BLOCKED`.
 
 Two are opt-in writers — off until you enable them, and each edits one surface only:
 
