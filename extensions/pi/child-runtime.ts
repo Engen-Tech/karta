@@ -26,6 +26,12 @@ export interface ChildRuntimeReport {
   copiedProvider: "builtin" | "config" | "native";
   copiedRuntimeCredential: boolean;
   unresolvedEnvironmentKeys: string[];
+  // Whether the resolved child model advertises image input, and its full declared
+  // input list. Populated from the resolved model so the vision-capability preflight
+  // (used by the visual gate) can fail closed on a text-only gate model without
+  // spawning a session. Optional so existing report fixtures stay valid.
+  advertisesImageInput?: boolean;
+  modelInputs?: string[];
 }
 
 interface ManagedSession {
@@ -158,6 +164,7 @@ export async function createMirroredModelRuntime(
   }
   const childModel = exactModel ?? ctx.model;
   const childAuthStatus = runtime.getProviderAuthStatus(providerId);
+  const modelInputs = Array.isArray(childModel.input) ? [...childModel.input] : [];
   return {
     runtime,
     model: childModel,
@@ -172,6 +179,8 @@ export async function createMirroredModelRuntime(
       copiedProvider,
       copiedRuntimeCredential,
       unresolvedEnvironmentKeys,
+      advertisesImageInput: modelInputs.includes("image"),
+      modelInputs,
     },
   };
 }
