@@ -88,9 +88,24 @@ When Pi has `karta_dispatch`, the build, verify, and deliver skills call it inst
 
 Callers provide identity, not authority. They cannot choose a prompt, model, provider hook, command, tool set, evidence path, ref, or timeout through these actions.
 
-## Visual oracles are not accepted on Pi yet
+## Visual oracles are accepted on Pi
 
-The Pi package runs the behavioral gates but has no visual-fidelity judge. A `visual`-oracle item still passes through the safety gate, but its acceptance blocks: full build or delivery verification returns `blocked` with the reason `visual-required` and writes no merge or completion ref. This is a fail-closed stop, never a silent pass of an unchecked view. Behavioral oracles run in full.
+A `visual`-oracle item is now judged for real. After the boundary safety gate passes, full build or delivery verification runs the visual acceptance path — the vision-capability preflight, then the capture orchestrator (your app brought up through `visual_env`, the live view and the design reference captured), then the visual gate judging the two against each other. A `visual` oracle dispatches **no** acceptance gate; it runs safety, then visual. A genuine gate **pass** lifts the block — the item builds, merges, and completes, with the verdict recorded in the result's `gates.visual`. A gate **concern** is a fidelity kickback: it retries under the same bounded acceptance-attempt cap as an acceptance concern, and on cap exhaustion the host writes the `failed` ref exactly as a capped acceptance/safety concern does.
+
+The capture reads the app route from the item's `design_reference` and the design path from the binder's `design_facts.source`, over the candidate tree-ish — the staged target tree for a candidate, the committed commit for a committed or merged target — so the evidence binds to the exact tree being judged.
+
+Everything else stays fail-closed, never a silent pass of an unchecked view. Every unmet precondition returns `blocked` with its own distinct typed reason and moves no ref:
+
+|Typed reason|What it means|
+|-|-|
+|`visual-no-design`|The item declares `design_reference` `none`, or the binder's `design_facts.source` is null or unresolvable — there is no view to capture against.|
+|`visual-no-env`|No `visual_env` is declared at the candidate tree, so the host cannot bring the app up. No capture ran.|
+|`visual-no-vision-model`|The configured gate model does not accept image input. No capture was attempted.|
+|`visual-capture-failed`|Capture failed closed: a dev-server startup crash, `playwright-cli` absent, or an unhealthy/shell render.|
+|`visual-gate-error`|The visual gate could not return a verdict — a dispatch error or timeout, or evidence that was unjudgeable.|
+|`visual-no-context`|The context-less `runVerification` path has no lifecycle owner, so it cannot bring an app up. Run the item through `buildItem` or `deliverBinder`.|
+
+These are a closed, package-owned typed set; a caller cannot supply or widen them, and the human-facing opt-out `reason` field stays separate, so free text can never spoof a block. The build-finalizer and integration consumers hold by default on every one with an actionable message, and no fall-through moves a ref on a blocked seam. Behavioral oracles run in full, unchanged.
 
 ## Provision the check environment
 

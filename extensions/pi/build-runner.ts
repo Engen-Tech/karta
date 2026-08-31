@@ -146,6 +146,10 @@ function terminalRecovery(
 
 function retryKind(result: KartaBuildFinalizationResult): "acceptance" | "safety" | undefined {
   if (result.verification?.gates.acceptance?.verdict === "concerns") return "acceptance";
+  // A visual gate concern is a fidelity kickback, retried under the same bounded
+  // acceptance-attempt cap as an acceptance concern; on cap exhaustion the host writes the
+  // failed ref exactly as a capped acceptance/safety concern does.
+  if (result.verification?.gates.visual?.verdict === "concerns") return "acceptance";
   if (result.verification?.gates.safety?.verdict === "concerns") return "safety";
   return undefined;
 }

@@ -21,7 +21,11 @@ import {
   KartaProcessManager,
   type BinderLifecycleOwner,
 } from "./process-manager.ts";
-import type { KartaVerificationResult, KartaVerificationRunner } from "./verification-runner.ts";
+import {
+  visualBlockedMessage,
+  type KartaVerificationResult,
+  type KartaVerificationRunner,
+} from "./verification-runner.ts";
 
 const exec = promisify(execFile);
 const MAX_GIT_OUTPUT = 4 * 1024 * 1024;
@@ -128,17 +132,15 @@ function finalizationStatus(verification: KartaVerificationResult): KartaBuildFi
   return "blocked";
 }
 
-// A blocked verification names its cause. A visual-required block is a fail-closed missing
-// prerequisite, not a gate failure, so it gets an actionable message; anything else keeps
-// the site's fallback. It writes no completion ref either way — the caller keys on status.
+// A blocked verification names its cause. A typed visual prerequisite is a fail-closed
+// unmet precondition, not a gate failure, so it gets the shared, actionable per-reason
+// message; anything else keeps the site's fallback. It writes no completion ref either
+// way — the caller keys on status, and there is no fall-through that moves a ref.
 function blockedFinalizationMessage(
   verification: KartaVerificationResult,
   fallback: string,
 ): string {
-  if (verification.blockedReason === "visual-required") {
-    return "Visual acceptance is required but not yet available; this item blocks as visual-required until visual acceptance lands.";
-  }
-  return fallback;
+  return verification.blockedReason ? visualBlockedMessage(verification.blockedReason) : fallback;
 }
 
 // A precondition-unmet convergence means the declared environment probe failed before
@@ -261,6 +263,9 @@ export class KartaBuildFinalizer {
         "full",
         lease,
         { cwd: worktree, target: "landed", checkManifest: checks },
+        processContext
+          ? { processes: processContext, worktree, treeish: integrationTip }
+          : undefined,
       );
       if (finalizationStatus(verification) !== "built") {
         return {
@@ -405,6 +410,7 @@ export class KartaBuildFinalizer {
       "full",
       lease,
       { cwd: worktree, target: "committed", checkManifest: checks },
+      processContext ? { processes: processContext, worktree, treeish: commit } : undefined,
     );
     const finalStatus = finalizationStatus(verification);
     if (finalStatus !== "built") {
@@ -705,6 +711,9 @@ export class KartaBuildFinalizer {
       "full",
       lease,
       { cwd: worktree, target: "candidate", checkManifest: checks },
+      processContext
+        ? { processes: processContext, worktree, treeish: evidence.payload.git.targetTree }
+        : undefined,
     );
     await this.#checkpoint("gates-complete");
     const status = finalizationStatus(verification);

@@ -21,7 +21,11 @@ import {
   KartaProcessManager,
   type BinderLifecycleOwner,
 } from "./process-manager.ts";
-import type { KartaVerificationResult, KartaVerificationRunner } from "./verification-runner.ts";
+import {
+  visualBlockedMessage,
+  type KartaVerificationResult,
+  type KartaVerificationRunner,
+} from "./verification-runner.ts";
 
 const exec = promisify(execFile);
 const MAX_OUTPUT = 8 * 1024 * 1024;
@@ -268,6 +272,9 @@ export class KartaIntegrationRunner {
       "full",
       lease,
       { cwd: integrationWorktree, target: "landed", checkManifest: checks },
+      processContext
+        ? { processes: processContext, worktree: integrationWorktree, treeish: mergeCommit }
+        : undefined,
     );
     let safetyVerification: KartaVerificationResult | undefined;
     let reviewPassed = verification.status === "pass" || verification.status === "skipped";
@@ -462,6 +469,9 @@ export class KartaIntegrationRunner {
         "full",
         lease,
         { cwd: integrationWorktree, target: "merge", checkManifest: checks },
+        processContext
+          ? { processes: processContext, worktree: proposedWorktree, treeish: targetTree }
+          : undefined,
       );
       await this.#checkpoint("gates-complete");
       let safetyVerification: KartaVerificationResult | undefined;
@@ -550,10 +560,9 @@ export class KartaIntegrationRunner {
           targetTree,
           checks,
           verification,
-          message:
-            verification.blockedReason === "visual-required"
-              ? "Proposed integration blocks as visual-required until visual acceptance lands; no merge or ref was written."
-              : "Proposed integration tree did not pass fresh verification.",
+          message: verification.blockedReason
+            ? visualBlockedMessage(verification.blockedReason)
+            : "Proposed integration tree did not pass fresh verification.",
         };
       }
       const acceptTrailers = waiver
