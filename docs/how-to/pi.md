@@ -110,6 +110,28 @@ All three keys are optional and independent:
 - `on_unavailable` is the remediation shown on a failed preflight — the precondition your binder already knows about, said once, up front, actionably.
 - `setup` provisions dependencies into a gitignored directory. It must touch only gitignored paths; a setup that mutates a tracked file is refused so nothing rides unreviewed into the merged tree.
 
+A fourth, independent key, `visual_env`, declares how the host starts your app so a browser can capture a rendered view. Like the others it is optional and read from the committed integration ref, and an absent `visual_env` is opt-out — no capture, no half-specified server:
+
+```json
+{
+  "visual_env": {
+    "command": "npm run dev",
+    "port_param": "PORT",
+    "startup_timeout_seconds": 30,
+    "cwd": "apps/web",
+    "auth": "none"
+  }
+}
+```
+
+- `command` (required) is the foreground command that starts the app. Non-empty, at most 4096 characters.
+- `port_param` (required) names the environment variable the host injects an ephemeral loopback port into. It must be an uppercase env-var name that ends in `PORT` (`PORT`, `APP_PORT`), and it must not be a reserved process or runtime variable (`PATH`, `HOME`, `PWD`, `SHELL`, `NODE_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`) — so injecting the port can never clobber the spawn environment.
+- `startup_timeout_seconds` (required) is how long the host waits for the app to come up, an integer from 1 to 120.
+- `cwd` (optional) is a worktree-relative directory to start the command in — no absolute path and no `..`. It defaults to the worktree root.
+- `auth` (optional) is a closed enum whose only value is `none`, which is also the default.
+
+The declaration is validated as a pure, fail-closed parse: every malformed shape is rejected with a field-named error rather than starting a partial server, and `backend_ports` is rejected as an unknown key in this version. The host reads `visual_env` from the committed `.karta/environment.json` blob at a pinned commit — the exact tree being captured — so a poisoned working-tree copy is never honored.
+
 ## Enable companion writers
 
 Doc-gardner and Kaizen are opt-in delivery phases.
