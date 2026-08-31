@@ -110,7 +110,7 @@ All three keys are optional and independent:
 - `on_unavailable` is the remediation shown on a failed preflight — the precondition your binder already knows about, said once, up front, actionably.
 - `setup` provisions dependencies into a gitignored directory. It must touch only gitignored paths; a setup that mutates a tracked file is refused so nothing rides unreviewed into the merged tree.
 
-A fourth, independent key, `visual_env`, declares how the host starts your app so a browser can capture a rendered view. Like the others it is optional and read from the committed integration ref, and an absent `visual_env` is opt-out — no capture, no half-specified server:
+A fourth, independent key, `visual_env`, declares how the host starts your app so a browser can capture a rendered view. Like the others it is optional and read from committed content rather than the mutable working tree, and an absent `visual_env` is opt-out — no capture, no half-specified server:
 
 ```json
 {
