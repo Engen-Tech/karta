@@ -16,13 +16,17 @@ The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **i
 
 ## Phase 0 — Preflight  `deliver:preflight`
 
-**Validate the binder.** Run:
+**Run the preflight packet.** One command answers Phase 0's validation, Phase 1's branch/tip, and Step 1/2's frontier and partition in a single JSON object:
 
 ```bash
-uv run --script skills/karta-plan/scripts/validate_binder.py --binder <path>
+python3 skills/karta-deliver/scripts/deliver_preflight.py --binder <path> --repo <integration worktree>
 ```
 
-This checks schema validity, dependency cycles, and dangling `depends_on` references. On failure, bail with the validator's output — no "continue anyway?".
+Read its `validator` field instead of re-running `validate_binder.py` by hand — it already ran the binder through `skills/karta-plan/scripts/validate_binder.py` (schema validity, dependency cycles, dangling `depends_on` references) with the current interpreter. **The packet is a SNAPSHOT, not a cache: re-run deliver_preflight.py** after a Clear, after a Resume decision, and after any other change to the integration branch or the ref namespace before deriving a frontier from it — a first run needs only the one invocation.
+
+The packet's `halt` field is the whole gate: **a packet with `halt` set is treated as a stop, never as a frontier to build from** — whether from a failed validator (its `frontier` is forced empty) or a `done_provenance` check that caught a forged `accepted`/`done` pair. On failure, bail with the packet's `validator.output` — no "continue anyway?".
+
+Don't read [references/integration-branch.md](references/integration-branch.md) or [references/parallelism-gates.md](references/parallelism-gates.md) into the conversation just to orient — they remain the references for the lifecycle paths the packet does not answer (revert-the-wave, accept, resume, merge ownership) and are opened only when one of those is actually in play.
 
 **Backlog sink (optional runtime input).** The user may pass an optional backlog sink at run time — a file path or an append-command — the destination for the gap records karta appends on a Phase-4 accept or defer (`deliver:lifecycle`). It is a **runtime input, not a binder field** (the binder stays purely about the work). karta only appends to it; it never reads, schedules, or revisits it, and keeps no backlog of its own. Absent a sink, gaps are still surfaced once in the run report (`deliver:report`).
 
@@ -39,10 +43,10 @@ Never silently resume or silently clear — the user chooses.
 
 ## Phase 1 — Integration branch  `deliver:integration`
 
-Create or locate `karta/<slug>/integration` in its own worktree per [references/integration-branch.md](references/integration-branch.md).
+Create or locate `karta/<slug>/integration` in its own worktree per [references/integration-branch.md](references/integration-branch.md). The preflight packet's `integration_branch` ({name, exists, tip}) and `default_branch` fields already answer which case this is — no need to re-derive either by hand.
 
-- **First run:** branch `karta/<slug>/integration` from the repo's default branch (detect via `git remote show origin`'s `HEAD branch:` line, else whichever of `main`/`master` exists).
-- **Resume:** locate the existing branch. The integration branch already contains everything from prior completed waves — that is what makes git-native resume work.
+- **First run** (`integration_branch.exists` is false): branch `karta/<slug>/integration` from `default_branch`.
+- **Resume** (`integration_branch.exists` is true): locate the existing branch at `integration_branch.tip`. The integration branch already contains everything from prior completed waves — that is what makes git-native resume work.
 
 The integration worktree is separate from per-item worktrees. Keep it alive for the full deliver run; tear it down at the end.
 
@@ -52,23 +56,17 @@ The integration worktree is separate from per-item worktrees. Keep it alive for 
 
 The wave loop is the core mechanism. Its authoritative description is [references/integration-branch.md](references/integration-branch.md). The four steps:
 
-**Step 1 — Derive the frontier.** Re-derive the ready frontier: items whose `depends_on` are all merged into integration (i.e. each dep's `refs/karta/<slug>/item-<dep-id>/done` ref exists). On resume, items already in `done` are excluded. On a **resume**, before skipping an item as done, assert its accepted state from git: `python3 skills/karta-deliver/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <base>..<done> --slug <slug> --check-accepted`. This is one of the two points where accepted state actually exists — a nonzero result means the reconstructed frontier cannot be trusted, so halt rather than skip. If the frontier is empty and items remain unbuilt, there is a dependency bottleneck — surface it and halt.
+**Step 1 — Derive the frontier.** **Re-run `deliver_preflight.py` and read its `frontier` field** — do not re-derive it by hand. It already excludes every item with a `done` ref and requires every `depends_on` id to carry one; on resume it has already run, for every existing done ref, the same accepted-state assertion this step used to run inline — `python3 skills/karta-deliver/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <base>..<done> --slug <slug> --check-accepted` — plus a `--first-parent` reachability check (`done_provenance`). **A packet with `halt` set is never a frontier to build from** — a nonzero `done_provenance` entry means the reconstructed frontier cannot be trusted, so halt with the packet's finding rather than skip past it. If the frontier is empty and items remain unbuilt (and `halt` is false), there is a dependency bottleneck — surface it and halt.
 
 **Step 2 — Build concurrently.** Dispatch a `karta-build` per frontier item using the host's parallel primitive. Each item gets its own worktree, branched off the current integration tip. If no parallel primitive is available, build serially in frontier order.
 
+**The dispatch brief carries the `item_context.py` packet verbatim, plus the explicit ORCHESTRATED WAVE MODE signal.** Run `python3 skills/karta-build/scripts/item_context.py --binder <path> --item <id> --repo <integration worktree>` per dispatched item and paste its JSON packet into that item's brief unedited, alongside the literal instruction that this worker is running in **ORCHESTRATED WAVE MODE** — the mode is an explicit signal `karta-build` reads, never something it infers from repo state. The packet already answers `karta-build`'s Gates 1-3 and Phase-1 extraction (its `dependencies` map is Gate 3; its `item` slice is Gate 2; the orchestrator's own preflight already satisfied Gate 1) — see the BUILD DOCTRINE note in `karta-build`'s SKILL.md.
+
 **On resume, partition the frontier by `built` marker first.** A frontier item that already carries `refs/karta/<slug>/item-<id>/built` from a prior partial run (its item branch is committed but was never merged when the run stopped) is **not** re-dispatched to `karta-build` — re-building would trip karta-build's clobber-guard on the existing branch. The orchestrator recovers it straight through the serial merge queue (Step 3): re-validate its oracle against the current integration tip, merge, write `done`. Dispatch a fresh `karta-build` only for frontier items with **no** `built` marker. If a recovered item fails re-validation or conflicts on the moved tip, its built branch is stale — halt with a call to action (or clear its `built` ref so it rebuilds fresh), since `karta-build` cannot be re-dispatched onto the existing branch.
 
-Before dispatching, apply the gates from [references/parallelism-gates.md](references/parallelism-gates.md) to decide what serializes within this wave:
+**Before dispatching, read the packet's `parallelism` partition** — `{parallel, serialize, reasons, unresolved}` — instead of re-applying the gates from [references/parallelism-gates.md](references/parallelism-gates.md) by hand. It already computes the four gates a script can decide (a dependency edge, an explicit `serialize`, overlapping `touches`, a co-declared `shared_resources`) and conservatively serializes the two it cannot: an oracle needing a stateful, non-isolatable env (`undecidable:stateful-env`), and an item with no `touches` manifest (`undecidable:missing-touches`). **`parallelism.unresolved` names every item the packet serialized for one of those two undecidable reasons** — read the item plans for each (per [references/parallelism-gates.md](references/parallelism-gates.md)) before moving it back to `parallel`; the packet never silently widens what runs together.
 
-| Gate | Trigger |
-|-|-|
-| Dependency edge | dep not yet merged (correctness) |
-| Shared / order-sensitive resource | wave-mates touch the same stateful resource — from a co-declared `shared_resources` annotation or overlapping `touches` manifests, else inferred from the item plans |
-| Stateful env without injectable isolation | the repo's env command can't be parameterized |
-| File-collision risk | wave-mates' `touches` manifests overlap (or, absent manifests, they likely edit the same files); `validate_binder.py` already flagged this at plan time when neither declares `serialize`/`shared_resources` |
-| Explicit `serialize` | the binder marks the item must-serialize |
-
-An item with `serialize: true` runs alone — no parallel build mates for that slot.
+An item with `serialize: true`, or one the packet placed in `parallelism.serialize`, runs alone — no parallel build mates for that slot.
 
 **Step 3 — Barrier, then serial merge.** Wait for all wave builds to complete or halt (barrier). In a wave each `karta-build` worker builds its item, runs its floor, acceptance, and secret scan, **commits its item branch (`karta/<slug>/item-<id>`), and stops** — it does **not** merge into integration and does **not** write `done`. A clean worker marks its item by writing `refs/karta/<slug>/item-<id>/built` → the item-branch tip; a halted worker writes no `built` marker and reports the halt.
 
