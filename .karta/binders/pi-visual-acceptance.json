@@ -1,0 +1,156 @@
+{
+  "slug": "pi-visual-acceptance",
+  "title": "Visual acceptance on Pi (the perceptual gate that lifts the block)",
+  "summary": "Turn Pi's fail-closed visual-required block into a real verdict: judge the rendered app against its design with a vision-capable gate child grounded in the structured diff, and lift the block only on a genuine pass. This is the sole future work the shipped block-unrun-visual contract permits to replace that block.",
+  "motivation": "Binder pi-visual-capture built the capture pipeline and evidence but deliberately left the block up; this binder adds the perceptual judgement that finally makes visual oracles pass or fail on Pi.",
+  "after": ["pi-visual-capture"],
+  "scope": {
+    "included": [
+      "a new package-owned read-only visual gate role, projected across runtimes exactly as the other gate agents are, with the role-identity widening carried type-only through every closed union it feeds",
+      "a runner that attaches the app and design screenshots to a vision-capable gate child grounded in the structured diff and returns a verdict bound to the exact pixel bytes, with a vision-capability preflight that fail-closes when the gate model has no image input",
+      "wiring capture and the visual gate into verification so a visual oracle runs them after safety, and lifting the visual-required block only on a genuine pass while staying fail-closed at every unmet precondition"
+    ],
+    "excluded": [
+      "automatic provider fallback or model routing to find a vision-capable model — v1 gates on the configured gate model and blocks fail-closed when it has no image input; auto-routing is a later binder",
+      "changing the capture pipeline, env-server lifecycle, visual_env schema, or the structured diff shipped by pi-visual-capture",
+      "the Claude Code and Codex visual path (karta-validate), which is unchanged",
+      "Windows enablement"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "TypeScript/Node Pi extension adding a vision-capable gate child (the proven amorphic image-attachment path) on top of the pi-visual-capture evidence artifact, structured diff, and env-server lifecycle"
+  },
+  "env_contract": {
+    "command": "npm run check:pi",
+    "supports_isolation": false,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "node", "version": ">=22.19.0" },
+      { "name": "uv", "version": ">=0.4" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-minimalism", "karta-house-skill-authoring"],
+  "work_items": [
+    {
+      "id": "visual-gate-role",
+      "title": "Define the read-only visual gate role and project it",
+      "summary": "Add the vision reviewer as a package-owned read-only gate role, carry the role-identity widening type-only through every closed union it feeds, and project it across runtimes — no runner yet, so the block stays up.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Add a package-owned, read-only visual gate role parallel to the acceptance and safety gates. Create the agent prompt agents/karta-design-reviewer.md (frontmatter name karta-design-reviewer), a role-catalog entry visual-gate (authority read-only, capabilities evidence.read, outputSchema gate-verdict-v1), and add karta-design-reviewer -> karta-verify to the BUNDLE_SITE map in scripts/sync_codex_agents.py so the agent projects to .codex/agents/karta-design-reviewer.toml and the bundled gate reference under skills/karta-verify/references/, with the .agents/ and plugins/karta/ mirrors following; keep every projection generated, never hand-authored, so validate_plugin and both projection --checks stay green. Adding the role widens the role identity, which ripples TYPE-ONLY through the closed unions it feeds and which must all be widened together for the package to typecheck: KartaRoleId (role-catalog.ts), KartaGateRoleId (capability-profile.ts), LifecycleRole (lifecycle-registry.ts, so a gate child of this role can be registered), the karta_dispatch role descriptions (dispatch-tool.ts), and the gate-test type signatures in tests/pi/verification-runner.test.ts and tests/pi/dispatch-tool.test.ts. In capability-profile.ts, map the visual-gate role to its declared read-only evidence tool rather than falling through to the boundary tool. All of these are type-only widenings: the visual gate is not wired, verification-runner.ts is untouched, and the pi-visual-capture block-holds assertions are unchanged. The prompt directs a vision-capable reviewer to judge a rendered app screenshot against its design screenshot, grounded in the structured discrepancies, and return a strict gate-verdict-v1 (pass, concerns, or blocked with findings).",
+      "touches": [
+        "agents/karta-design-reviewer.md",
+        "scripts/sync_codex_agents.py",
+        ".codex/agents/karta-design-reviewer.toml",
+        "skills/karta-verify/references/karta-design-reviewer.agent.md",
+        ".agents/skills/karta-verify/references/karta-design-reviewer.agent.md",
+        "plugins/karta/skills/karta-verify/references/karta-design-reviewer.agent.md",
+        "extensions/pi/role-catalog.ts",
+        "extensions/pi/capability-profile.ts",
+        "extensions/pi/lifecycle-registry.ts",
+        "extensions/pi/dispatch-tool.ts",
+        "tests/pi/role-catalog.test.ts",
+        "tests/pi/capability-profile.test.ts",
+        "tests/pi/verification-runner.test.ts",
+        "tests/pi/dispatch-tool.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "adds a new authority role (a gate) and widens several closed role/lifecycle unions type-only",
+          "edits the agent-projection generator (BUNDLE_SITE) and adds cross-runtime projections",
+          "not-computed:diff-size"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "uv run scripts/validate_plugin.py --self-test && uv run scripts/sync_codex_agents.py --check && uv run scripts/sync_codex_skills.py --check && npm run check:pi",
+        "assertions": [
+          "the visual-gate role loads from agents/karta-design-reviewer.md with a package-owned prompt and outputSchema gate-verdict-v1, capability-profile recognizes it as a gate role and maps it to its read-only evidence tool (not the boundary tool), and validate_plugin --self-test plus both sync --checks are green (the agent fully projects through its BUNDLE_SITE mapping and all mirrors)",
+          "the visual-gate role is read-only with no mutation or command capability, exactly like the acceptance and safety gate roles",
+          "the role-identity widening is carried type-only through KartaRoleId, KartaGateRoleId, LifecycleRole, the karta_dispatch role descriptions, and the gate-test signatures, so npm run check:pi (typecheck then tests) is green; verification-runner.ts is untouched and the pi-visual-capture block-holds assertions are unchanged"
+        ]
+      }
+    },
+    {
+      "id": "visual-gate-runner",
+      "title": "Judge the render against the design, bound to the pixel bytes",
+      "summary": "Add the runner that attaches the screenshots to a vision-capable gate child, grounds it in the structured diff, and returns a verdict bound to the exact image bytes — with a vision preflight and a browserless floor.",
+      "estimate": "L",
+      "depends_on": ["visual-gate-role"],
+      "contract": "Add extensions/pi/visual-gate-runner.ts that judges a pi-visual-capture karta-visual-evidence-v1 artifact. Before any capture or dispatch it runs a vision-capability preflight requiring the resolved gate provider/model to advertise image input — surfaced through GateProviderPreflightReport (extend extensions/pi/child-runtime.ts if needed) or the resolved model's input list — failing closed with an actionable remediation naming the configured model when it does not. It then dispatches the visual-gate child through the existing isolated createGateChildSession path with the app and design screenshots attached as images (the amorphic image-attachment path already proven live) and the structured discrepancies plus render-health supplied as text grounding, and parses and validates a strict gate-verdict-v1 with the same hash discipline as the acceptance and safety gates. Currency binds the pixels, not just the JSON: the dispatch hash covers the artifact JSON, the sha256 of each screenshot's exact bytes and its MIME type, and the git base/target tree range, so replacing an image, altering its MIME, or moving the range invalidates the verdict, which is re-verified after dispatch. The runner exposes an injected-invoker seam (like the existing GateModelInvoker) placed AFTER image encoding so the floor exercises the real dispatch envelope with no vision model and no browser; a gate dispatch that errors or times out is a typed fail-closed outcome, never retried as infrastructure. verification-runner.ts stays untouched, so the block still stands.",
+      "touches": [
+        "extensions/pi/visual-gate-runner.ts",
+        "extensions/pi/child-runtime.ts",
+        "tests/pi/visual-gate-runner.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "dispatches an isolated model child with image attachments and a new provider-capability preflight",
+          "produces a verdict a later item will trust to lift a fail-closed block",
+          "not-computed:diff-size"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "node --experimental-strip-types --test tests/pi/visual-gate-runner.test.ts && npm run check:pi",
+        "assertions": [
+          "the vision-capability preflight fails closed with an actionable remediation naming the configured model when the resolved gate model does not advertise image input, and proceeds when it does — checked before any capture or dispatch, with a stub registry driving both branches",
+          "over an injected fake invoker positioned AFTER image encoding, the runner dispatches with the exact app and design screenshot bytes and their MIME attached as images and the structured discrepancies as text; the fake receives that envelope and the test asserts the bytes/MIME/ordering, so the assertion is not vacuous",
+          "the runner returns a strict gate-verdict-v1 and rejects a prose, wrong-hash, or unknown-key verdict exactly as the acceptance and safety gates reject theirs",
+          "the verdict is currency-bound to the pixels: replacing a screenshot's bytes, altering its MIME, or moving the git tree range after dispatch each invalidates it (one positive control per axis)",
+          "a visual-gate dispatch that errors or times out returns a typed fail-closed outcome and is never retried as infrastructure",
+          "verification-runner.ts is not touched by this item, so the pi-visual-capture block-holds tests stay green",
+          "an opt-in test guarded by KARTA_LIVE_VISUAL_JUDGE drives a real vision-capable gate child over real screenshots end to end and is skipped by the default floor"
+        ]
+      }
+    },
+    {
+      "id": "wire-visual-acceptance",
+      "title": "Lift the block: a visual oracle now passes or fails for real",
+      "summary": "Thread capture and the visual gate into verification so a visual oracle runs them after safety, lift the visual-required block only on a genuine pass, and stay fail-closed with a distinct typed reason at every unmet precondition.",
+      "estimate": "L",
+      "depends_on": ["visual-gate-runner"],
+      "contract": "Wire visual acceptance and lift the block. verification-runner gains an OPTIONAL, backwards-compatible lifecycle/process context (a KartaProcessManager owner plus the candidate tree-ish) threaded from its build-finalizer.ts and integration-runner.ts callers, which own the worktree, process owner, and candidate tree; the context-less run() path (karta_dispatch runVerification, and the index.ts construction) has no owner and therefore blocks a visual oracle fail-closed with the typed reason visual-no-context, moving no ref. For a visual oracle, after the safety gate passes and with a context present, the runtime FIRST runs the vision-capability preflight (a no-image-input model blocks visual-no-vision-model with no capture attempted), then runs the pi-visual-capture capture orchestrator over the candidate tree-ish (the staged target tree for a candidate target, the committed OID for committed and merged targets — never a commit OID that does not exist yet) at the design path and app route resolved from the binder's design_facts.source plus the item's existing design_reference work-item field, then the visual-gate runner over the resulting artifact under that same lifecycle owner so servers are reaped on abort. A visual oracle dispatches NO acceptance gate (acceptance stays skipped, as today's visualAcceptancePending path does). Ordered, package-owned derivation: opt-out returns skipped; a non-pass safety verdict surfaces as that safety failure and is never folded into visual; a boundary-only request returns safety alone; then a genuine visual pass returns status pass and LIFTS the block (the item builds, merges, completes) with the verdict recorded in a new gates.visual slot on KartaVerificationResult; concerns returns concerns; every unmet precondition returns blocked with a distinct typed blockedReason and never a silent pass. Widen KartaVerificationBlockedReason from the single visual-required to a closed typed union — visual-no-design (design_reference none, or design_facts.source null or unresolvable), visual-no-env (no visual_env declared), visual-no-vision-model, visual-capture-failed (env-server startup-crash, playwright-cli absent, or an unhealthy/shell render), visual-gate-error, and visual-no-context — all typed, none free-text; the reason field stays reserved for opt-out and spoof-proof. Visual concerns are retryable under the existing acceptance-attempt cap: classify a gates.visual concerns verdict in build-runner.ts's retry classifier so it retries like an acceptance concern, and on cap exhaustion the failed ref is written exactly as capped acceptance/safety concerns write it. Update the visual-required consumers in build-finalizer.ts and integration-runner.ts to hold by default with an actionable message for every visual blockedReason and remove the now-false 'until visual acceptance lands' wording — no fall-through that lets a ref move on a blocked seam. Completion refs (candidate, built, done, accepted, integration) move only on a genuine visual pass; the failed ref moves only on capped visual-concern exhaustion; no ref moves on any blocked prerequisite, which consumes no worker-feedback attempt and survives committed-unmarked and merged-unmarked recovery. Update the pi-visual-capture block-holds tests in place to the conditional behavior, and replace the Pi operator guide's not-accepted-yet section with the accepted behavior and its fail-closed seams.",
+      "touches": [
+        "extensions/pi/verification-runner.ts",
+        "extensions/pi/build-finalizer.ts",
+        "extensions/pi/integration-runner.ts",
+        "extensions/pi/build-runner.ts",
+        "tests/pi/verification-runner.test.ts",
+        "tests/pi/build-finalizer.test.ts",
+        "tests/pi/integration-runner.test.ts",
+        "tests/pi/build-runner.test.ts",
+        "docs/how-to/pi.md"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "lifts a shipped fail-closed block — the load-bearing authority change this binder exists for",
+          "modifies verification-runner's ordered result derivation and widens a spoof-proof typed union",
+          "threads a lifecycle context through build-finalizer, integration-runner, and the retry classifier",
+          "the sole item the block-unrun-visual contract authorizes to replace the block",
+          "not-computed:diff-size"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "npm run check:pi && uv run scripts/validate_plugin.py --self-test",
+        "assertions": [
+          "after safety passes and with a lifecycle context present, a visual oracle runs the vision preflight then capture then the visual gate: an injected visual pass returns status pass with the block LIFTED and the verdict recorded in gates.visual, and a full finalizer-then-integration path moves the candidate, built, done, and integration refs (a positive control proving a visual item now completes end to end)",
+          "every unmet precondition returns blocked with its own distinct typed blockedReason and moves no ref — one positive control each for visual-no-design (design_reference none and design_facts.source null), visual-no-env, visual-no-vision-model (no capture attempted), visual-capture-failed, visual-gate-error, and visual-no-context (the context-less run() path)",
+          "the ordered derivation holds: a non-pass safety verdict surfaces as the safety failure and is never folded into a visual reason, an opted-out oracle returns skipped, a boundary-only request returns safety alone, and a visual oracle dispatches no acceptance gate",
+          "visual concerns retry under the existing acceptance-attempt cap and on exhaustion write the failed ref exactly as capped acceptance/safety concerns do; completion refs move only on a genuine visual pass, no ref moves on any blocked prerequisite, and a blocked prerequisite consumes no worker-feedback attempt and survives committed-unmarked and merged-unmarked recovery; the build-finalizer and integration-runner consumers hold by default with an actionable message for every visual reason and never fall through to move a ref",
+          "KartaVerificationBlockedReason is a closed typed union with the reason field still reserved for opt-out (a spoof-proof regression), the pi-visual-capture block-holds tests are updated in place (the block holds on every seam and lifts only on a pass), and the Pi operator guide's not-accepted-yet section is replaced with the accepted behavior",
+          "an opt-in test guarded by KARTA_LIVE_VISUAL_ACCEPTANCE drives a real visual oracle to a genuine pass end to end and is skipped by the default floor"
+        ]
+      }
+    }
+  ]
+}
