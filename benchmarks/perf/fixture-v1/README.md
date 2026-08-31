@@ -100,7 +100,12 @@ say so in the results file.
 ## After the run
 
 `benchmarks/perf/mine_fixture.py` turns the session transcripts into the card's
-step-6 metric set; `benchmarks/probes/perf-fixture-cost-baseline.py` is the gate
+step-6 metric set. The miner now also reports context tokens and cost per role
+— per-role message counts, cache traffic, and an average context size, plus
+dollars per role and per item. The dollar figures need the run's headless
+result file (`run<i>.jsonl` at the run root) passed with `--result`; without it
+the miner reports no cost rather than estimating one.
+`benchmarks/probes/perf-fixture-cost-baseline.py` is the gate
 adapter over the deterministic half. The quarterly timed run itself is manual —
 the probe never launches a 90-minute delivery, which is why it reports
 `partial: true`.

@@ -20,6 +20,28 @@ You can mark items in the binder as "don't run these together." This is your ove
 
 The difference between #2 and #3, since they sound alike: #2 is about order (these changes must happen in sequence), #3 is about collision (these changes would conflict if merged). #2 and #1 keep results correct; #3 keeps the stacking clean; #4 is your manual escape hatch.
 
+## What a delivery costs and where the turns go
+
+We measured one. karta 2.32.0 delivered the two-item fixture-v1 benchmark for $4.82 — $2.41 an item. Here is where the money went.
+
+| Role | Messages | Share of the $4.82 |
+|-|-|-|
+| Orchestrator | 44 | 48.8% |
+| Builders | 66 | 41.9% |
+| Gates | 19 | 9.3% — acceptance reviewers 5.0%, safety auditors 4.3% |
+
+The bill is context multiplied by turns: cache read tokens are about 90% of the tokens billed, and cache traffic — reads plus creation — is nearly all of the spend. Each turn re-sends everything the role has read so far, so the roles that talk longest with the most in their heads cost the most. That is the orchestrator and the builders, not the gates.
+
+Three commands now do work that used to burn those turns:
+
+| Command | What it replaces |
+|-|-|
+| `deliver_preflight.py` | the orientation the orchestrator used to do by hand at the start of a delivery |
+| `item_context.py` | the search a builder used to run before its first edit |
+| `merge_item.py` | the per-item merge sequence |
+
+The target — a target, not yet a result: at least 40% below the 2.32.0 baseline of $2.41 an item on fixture-v1, an unrounded cost_usd_per_item at or below 0.60 × $2.41 = $1.446. The perf-fixture-cost-baseline card judges this after the next release, and only when that run resolves the same model-ID set as the 2.32.0 baseline. A different model set makes the comparison inconclusive — neither a pass nor a fail.
+
 ## What you review (and what you don't)
 
 You don't have to review everything. karta shows you what's worth a look.
