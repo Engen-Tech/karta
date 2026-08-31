@@ -42,14 +42,18 @@ uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 ```
 
-The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating.
+The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs these four plus a fifth gate — `validate_packs` over every built-in and `.karta/sme/` pack — so a clean four can still be blocked at commit by an invalid pack. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
 
 ## How work reaches the default branch
 
 One rule, and it has one exception. **Everything lands on the default branch through a branch and a
 merge — except a fully committed binder**, which may be committed directly. A binder is the plan of
 record, not a change to the framework: its JSON plus the roundtable record filed alongside it is the
-whole commit, and the binder-commit gate already governs it.
+whole commit, and the binder-commit gate already governs it. The word *whole* is the exception's
+entire strength: an exception that names something a commit *contains* is a hole — a binder staged
+beside a code change would ride through — while an exception that names everything the commit *is*
+cannot be ridden. Write every exception in this repo that way, and name its edges (a commit that
+completes an in-progress merge is not a direct commit) rather than leaving them to be guessed.
 
 Everything else goes on a branch first. Code, hooks, scripts, docs — no direct commits.
 
@@ -68,6 +72,14 @@ The rule is here because it was broken. On 2026-08-24 a one-line hook fix — in
 change was right and the route was wrong. Note what that says about enforcement: the repo's gates
 cover binder commits and delivery merges, and neither one looks at an ordinary commit landing on
 main. Nothing would have stopped it, which is why the rule is written down rather than assumed.
+
+That incident and three like it distilled into four rule-authoring invariants — doctrine never
+claims more than enforcement delivers; identity is proven by content, never by circumstance; an
+exception is the whole commit or it is a hole; repetition triggers a decision, never a rule.
+Each is woven into the section it governs and registered, beside every other invariant this repo
+holds, in [docs/conventions/invariants.md](docs/conventions/invariants.md) — one entry apiece:
+the statement, its carriers, and the honest word on what fires when it is violated. Consult the
+register before writing or amending any gate, validator, or doctrine line.
 
 ## Review before commit (house-only)
 
@@ -153,7 +165,7 @@ The gate then confirms the record with `run_review.py --check`. The `min_provide
 #### Rules the gate enforced
 
 - **Records must be committed.** The recorder stages the record under `.karta/roundtable/`, and the binder-commit gate requires it to be in the same commit — read from the same source git will commit the binder from, so a record a pathspec or `--only` leaves out does not count. A record that lives only in the working tree does not satisfy the gate — `.karta/roundtable/` is the committed audit trail.
-- **Binder freshness keys on the bytes git will commit.** The binder gate hashes the staged blob for a plain commit, the working-tree file for `-a` or a pathspec that names the binder, and `HEAD`'s copy for a pathspec that does not — decided by `git ls-files`, never by token matching. Review one version of the binder and stage a different one, and the gate re-arms — you must re-review what you are actually committing.
+- **Binder freshness keys on the bytes git will commit.** The binder gate hashes the staged blob for a plain commit, the working-tree file for `-a` or a pathspec that names the binder, and `HEAD`'s copy for a pathspec that does not — decided by `git ls-files`, never by token matching. Review one version of the binder and stage a different one, and the gate re-arms — you must re-review what you are actually committing. This is one instance of the general rule: identity is proven by content — a hash of the exact bytes — never inferred from timing, ordering, or a label. And a hash proves what a verdict is *about*, not that the review behind it happened; a gate that cannot verify provenance says so.
 - **With `ledger: true`, the rounds must be committed too.** `.karta/roundtable.json` carries `ledger: true` here, so both gates additionally require the round ledger — `.karta/roundtable/<slug>.rounds.json` in the content being committed, `branch-<tip>.rounds.json` in `HEAD` for a merge — with a last round that reviewed exactly the bytes the record reviewed, and a record bound to that final round. A missing or stale ledger is its own named denial pointing at `run_review.py --round`; a malformed one is a denial too, never a fail-open. `KARTA_SKIP_ROUNDTABLE=1` bypasses it exactly as it bypasses the record check — one hatch, not two.
 - **The gate recognises one command shape and denies the rest.** `git commit …`/`git merge …` are parsed with a whitelist of options and root-relative pathspecs, from the repository root, with a message (`-m`/`-F`, or `--amend --no-edit`; a merge needs `--no-edit` or `-m` unless `--ff-only`). A preceding or trailing segment, a substitution, an unquoted expansion, a redirection, a relocating `git -C`/`GIT_*` prefix, or an unknown option such as `-am` is denied by name. The cost is over-denial of unusual spellings; the gain is that what the gate approved is what git records.
 - **The merge gate is narrow.** It fires only for a `git merge` naming a `karta/*/integration` branch while you are on the default branch. Nothing else trips it. A merge that names the tip by SHA, and `git pull`, do not match it — that limit fails open and is named here rather than assumed closed.
@@ -175,6 +187,11 @@ Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because thi
 - karta is an ordinary consumer of its own framework: its `.karta/sme/` carries a project pack `.karta/sme/karta-house-minimalism.md` that declares `extends: minimalism` and narrows one rule locally, exactly the way any consumer repo tailors a built-in. A change to the built-in rule itself is only ever made upstream in `skills/_shared/sme/minimalism.md`, by a human — never by drifting a repo-local copy of the pack.
 - `.karta/sme/karta-house-skill-authoring.md` is this repo's own non-coding pack (reserved `karta-house-*` namespace, so it can never collide with a built-in). It is the pack kaizen is expected to actually evolve; its edits are reviewed like any `kaizen:` commit.
 - Never seed built-in copies here: the repo carries zero seeded built-in copies under `.karta/sme/`, only its own `karta-house-*` project packs; deliveries pin what their binders pin.
+
+One rule governs how anything here hardens: repetition triggers a decision, never a rule. When a
+convention keeps recurring — across packs, binders, or gate fixes — someone records one of three
+outcomes (promote it, scope it with the reason, or reject it); nothing becomes law by being copied.
+A constant observed in one environment is configuration; only a decision is doctrine.
 
 ## Two platforms, one behavior
 
