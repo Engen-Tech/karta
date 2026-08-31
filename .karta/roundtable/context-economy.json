@@ -1,9 +1,9 @@
 {
-  "reviewed_hash": "d42590e304f712685d420104ded65d2b47d9cd4739819a774e1b08b3a25cb318",
+  "reviewed_hash": "7126b9f967218fa8c71b62e8be0404614885514f22687bc47e11b518744ac098",
   "tool": "roundtable-critique",
   "target_kind": "binder",
   "target_ref": "context-economy",
-  "run_at": "2026-08-30T23:39:07.739196+00:00",
+  "run_at": "2026-08-31T02:09:17.309752+00:00",
   "config_snapshot": {
     "enabled": true,
     "ledger": true,
@@ -20,39 +20,39 @@
     {
       "provider": "antigravity",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. New-defect findings: none. Rounding verified: $1.44 is mathematically the largest displayed-to-cents figure guaranteed under the $1.446 threshold; the $1.446 oracle literal is properly chr(36)-escaped and satisfied by a doc written per contract clauses (3)-(4)."
+      "summary": "Verdict: SHIP. New defect findings: none. The assertion now matches the contract, the oracle greps, and the summary/motivation; validate_binder and validate_plugin both pass on these bytes; no syntax, escaping, or collateral regressions."
     },
     {
       "provider": "codex",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. New-defect findings: none. The rounding explanation is mathematically consistent, and the $1.446 literal check is satisfiable by following contract (3)."
+      "summary": "SHIP. New-defect findings: none. The assertion's 48.8/41.9 values match both the item contract and the literals enforced by the oracle command."
     },
     {
       "provider": "fireworks-deepseek",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. New-defect findings: none. Displayed $1.44 preimage [1.435,1.445) lies strictly under 1.446; displayed $1.45 preimage straddles it. The new grep mirrors the existing chr(36) pattern, parses identically, and turns the contract's missing-any-of-these-fails clause into enforced reality."
+      "summary": "SHIP. none. Fix present verbatim; consistent with contract sections (1) and (4) and the oracle grep tokens; arithmetic coherent (48.8+41.9+9.3=100.0, 5.0+4.3=9.3); the old numbers survive only as the labeled rejected first draft in the summary; the string is well-formed and no other bytes changed."
     },
     {
       "provider": "fireworks-glm5p2",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. none. Edit 1 corrects a previously false rounding statement in prose no oracle reads; edit 2 aligns the record oracle with a contract clause that already required the $1.446 literal. Edge cases checked: no cross-file contradiction, no false-positive substring risk, no other oracle touches the display values."
+      "summary": "SHIP. none. Traced 48.8/41.9 through every referencing site - summary, motivation, contract, oracle command, assertion - all consistent; the assertion correctly says two headline shares while the command enforces all five; pure literal substitution in a descriptive string, no oracle logic, dependencies, or structure touched."
     },
     {
       "provider": "fireworks-kimi",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. Findings: none. Both edits are correct, internally consistent, and implementable: the rounding correction fixes a factual error, and the oracle addition enforces what the contract already requires, closing the gap where the doc could omit the threshold."
+      "summary": "SHIP. New-defect finding: none. Verified against the contract's both share-listing sites, the oracle grep set, and binder summary/motivation; stale-literal sweep clean except the dispositioned historical mention; the delta is a non-executable string and cannot alter oracle behavior."
     },
     {
       "provider": "fireworks-minimax",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. None. Bucket check: $1.44 = [1.435,1.445), all under; $1.45 = [1.445,1.455), straddles 1.446. chr(36) sidesteps shell $1 expansion. Every mention of the threshold across summary, motivation, and the record contract converges on the unrounded $1.446; the cents-display mentions are descriptive, not pinned."
+      "summary": "SHIP. None. Five consistency checks pass: oracle grep targets, item contract verbatim, binder summary and motivation, cost-ledger cross-reference, and the semantic correctness of calling 48.8/41.9 the two headline shares."
     },
     {
       "provider": "fireworks-qwen",
       "verdict": "ok",
-      "summary": "Verdict: SHIP. none. The rounding clarification is consistent with the pinned unrounded threshold, and the added oracle check is satisfiable and correctly aligned with record contract clause (4)."
+      "summary": "SHIP. none. Fix present verbatim, consistent with the contract and the enforced grep literals; text-only change in one assertion; no new mismatch, quoting issue, or oracle/contract drift."
     }
   ],
   "rounds_ledger": ".karta/roundtable/context-economy.rounds.json",
-  "final_round": 17
+  "final_round": 19
 }
