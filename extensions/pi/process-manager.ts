@@ -24,6 +24,8 @@ function processGroupAlive(pid: number): boolean {
   }
 }
 
+const GRACE_POLL_MS = 50;
+
 async function stopProcessTree(pid: number, graceMs: number): Promise<void> {
   if (process.platform === "win32") {
     await taskkill(pid);
@@ -35,8 +37,15 @@ async function stopProcessTree(pid: number, graceMs: number): Promise<void> {
     if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
     throw error;
   }
-  if (!processGroupAlive(pid)) return;
-  await new Promise((resolve) => setTimeout(resolve, graceMs));
+  // The grace is an escalation ceiling, not a fixed wait: poll for the group to die so a
+  // cooperative process is reclaimed promptly, and only SIGKILL one that outlives the
+  // whole window.
+  const deadline = Date.now() + graceMs;
+  while (processGroupAlive(pid)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(GRACE_POLL_MS, remaining)));
+  }
   if (!processGroupAlive(pid)) return;
   try {
     process.kill(-pid, "SIGKILL");
@@ -90,17 +99,28 @@ export class KartaProcessManager {
 
   registerProcess(
     pid: number,
-    options: { cwd: string; parentId: string; label: string; role?: "host-check" | "managed-process" },
+    options: {
+      cwd: string;
+      parentId: string;
+      label: string;
+      role?: "host-check" | "managed-process" | "env-server";
+      // A long-lived role (a dev server whose graceful stop deserves a real window)
+      // passes its own grace at the call site rather than churning the shared default
+      // every other managed process relies on.
+      graceMs?: number;
+    },
   ): string {
     if (!Number.isInteger(pid) || pid <= 0) throw new Error("Karta managed process pid is invalid");
     if (this.#processes.has(pid)) throw new Error(`Karta process ${pid} is already managed`);
+    const graceMs = options.graceMs ?? this.#graceMs;
+    if (!Number.isInteger(graceMs) || graceMs < 0) throw new Error("Karta managed process graceMs is invalid");
     const id = this.#lifecycles.register({
       role: options.role ?? "managed-process",
       cwd: options.cwd,
       parentId: options.parentId,
       label: options.label,
       resource: {
-        abort: () => stopProcessTree(pid, this.#graceMs),
+        abort: () => stopProcessTree(pid, graceMs),
         dispose() {},
       },
     });
@@ -113,6 +133,17 @@ export class KartaProcessManager {
     const id = this.#processes.get(pid);
     if (!id) return;
     this.#lifecycles.forget(id);
+    this.#processes.delete(pid);
+  }
+
+  // Non-vetoable teardown of a single managed process: abort its lifecycle (SIGTERM,
+  // the registered grace, then SIGKILL of the whole group on POSIX) and stop tracking
+  // it. Idempotent — a process already gone or never managed is a no-op — so an
+  // owner's teardown path may call it on every exit without guarding.
+  async stopProcess(pid: number): Promise<void> {
+    const id = this.#processes.get(pid);
+    if (!id) return;
+    await this.#lifecycles.stop(id);
     this.#processes.delete(pid);
   }
 

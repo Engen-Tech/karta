@@ -6,6 +6,7 @@ export type LifecycleRole =
   | "delivery"
   | "host-check"
   | "managed-process"
+  | "env-server"
   | "acceptance-gate"
   | "safety-gate"
   | "build-worker"
