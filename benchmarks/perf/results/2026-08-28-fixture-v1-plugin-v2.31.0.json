@@ -194,7 +194,58 @@
           "claude-opus-5",
           "claude-sonnet-5"
         ],
-        "claude_cli_version": "2.1.251"
+        "claude_cli_version": "2.1.251",
+        "per_role_usage": {
+          "orchestrator": {
+            "messages": 40,
+            "input_tokens": 80,
+            "cache_read_input_tokens": 3313269,
+            "cache_creation_input_tokens": 203451,
+            "output_tokens": 20111,
+            "avg_context_tokens": 87920.0
+          },
+          "builder": {
+            "messages": 38,
+            "input_tokens": 76,
+            "cache_read_input_tokens": 1956340,
+            "cache_creation_input_tokens": 123391,
+            "output_tokens": 1680,
+            "avg_context_tokens": 54731.76
+          },
+          "acceptance-reviewer": {
+            "messages": 12,
+            "input_tokens": 24,
+            "cache_read_input_tokens": 114878,
+            "cache_creation_input_tokens": 22603,
+            "output_tokens": 38,
+            "avg_context_tokens": 11458.75
+          },
+          "safety-auditor": {
+            "messages": 7,
+            "input_tokens": 14,
+            "cache_read_input_tokens": 55818,
+            "cache_creation_input_tokens": 16542,
+            "output_tokens": 28,
+            "avg_context_tokens": 10339.14
+          },
+          "other": {
+            "messages": 0,
+            "input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "output_tokens": 0,
+            "avg_context_tokens": 0
+          }
+        },
+        "context_tokens_per_item": 2903243.0,
+        "cost_usd_per_role": {
+          "orchestrator": 3.403218,
+          "builder": 0.885413,
+          "acceptance-reviewer": 0.274142,
+          "safety-auditor": 0.181226,
+          "other": 0.0
+        },
+        "cost_usd_per_item": 2.371999
       },
       "notes": [
         "karta-build and karta-deliver skill text loaded from the pinned tree; no evidence refs at the end, as 2.31.0 has no oracle runner.",
