@@ -53,6 +53,29 @@ test("dispatch role descriptions expose hashes and capabilities, never prompt te
   assert.equal(preflightCalls, 0);
 });
 
+test("dispatch describes the read-only visual gate role without prompt text or paths", async () => {
+  const tool = createKartaDispatchTool(
+    { ensure: async () => preflightReport },
+    new ChildRegistry(),
+  );
+  const response = await tool.execute(
+    "describe-visual",
+    { action: "describeRole", role: "visual-gate" },
+    undefined,
+    undefined,
+    context(),
+  );
+  const body = JSON.parse(response.content[0].type === "text" ? response.content[0].text : "{}");
+  assert.equal((response as { isError?: boolean }).isError, false);
+  assert.equal(body.role, "visual-gate");
+  assert.equal(body.authority, "read-only");
+  assert.deepEqual(body.capabilities, ["evidence.read"]);
+  assert.equal(body.outputSchema, "gate-verdict-v1");
+  assert.match(body.definitionHash, /^[a-f0-9]{64}$/);
+  assert.equal("prompt" in body, false);
+  assert.equal("sourcePath" in body, false);
+});
+
 test("dispatch preflight binds a fixed read-only role to isolated provider evidence", async () => {
   let calls = 0;
   const tool = createKartaDispatchTool(

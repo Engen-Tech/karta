@@ -15,7 +15,7 @@ test("role catalog binds every authority profile to a package-owned prompt", () 
   const roles = listKartaRoles();
   assert.deepEqual(
     roles.map((role) => role.id),
-    ["acceptance-gate", "safety-gate", "build-worker", "doc-gardner", "kaizen"],
+    ["acceptance-gate", "safety-gate", "visual-gate", "build-worker", "doc-gardner", "kaizen"],
   );
   assert.equal(new Set(roles.map((role) => role.definitionHash)).size, roles.length);
   for (const role of roles) {
@@ -28,7 +28,7 @@ test("role catalog binds every authority profile to a package-owned prompt", () 
 });
 
 test("read-only gate roles have no mutation or command capability", () => {
-  for (const id of ["acceptance-gate", "safety-gate"] as const) {
+  for (const id of ["acceptance-gate", "safety-gate", "visual-gate"] as const) {
     const role = loadKartaRole(id);
     assert.equal(role.authority, "read-only");
     assert.equal(

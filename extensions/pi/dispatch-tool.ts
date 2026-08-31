@@ -13,6 +13,7 @@ import { loadKartaRole, type KartaRoleDefinition } from "./role-catalog.ts";
 const roleId = Type.Union([
   Type.Literal("acceptance-gate"),
   Type.Literal("safety-gate"),
+  Type.Literal("visual-gate"),
   Type.Literal("build-worker"),
   Type.Literal("doc-gardner"),
   Type.Literal("kaizen"),

@@ -12,7 +12,7 @@ import { loadKartaRole, type KartaRoleDefinition, type KartaRoleId } from "./rol
 
 export const GATE_CAPABILITY_PROFILE_VERSION = 3;
 
-export type KartaGateRoleId = Extract<KartaRoleId, "acceptance-gate" | "safety-gate">;
+export type KartaGateRoleId = Extract<KartaRoleId, "acceptance-gate" | "safety-gate" | "visual-gate">;
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 
@@ -75,6 +75,10 @@ export function createGateCapabilityProfile(
   };
   const evidence: AnyToolDefinition = createEvidenceReadTool(manifest);
   const executeEvidenceTool = evidence.execute.bind(evidence);
+  const roleToolState: GateRoleToolState = { invoked: false };
+  // The visual gate declares only evidence.read, so the evidence tool is itself its
+  // role-owned read-only tool — it must never fall through to the boundary inspector.
+  const evidenceIsRoleTool = roleId === "visual-gate";
   evidence.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
     const action = (params as { action?: unknown }).action;
     if (typeof action === "string") evidenceToolState.actions.add(action);
@@ -98,21 +102,28 @@ export function createGateCapabilityProfile(
       evidenceToolState.diffTotal = total;
       evidenceToolState.diffReads.push([offset, end]);
     }
+    if (evidenceIsRoleTool) {
+      roleToolState.invoked = true;
+      roleToolState.details = result.details;
+    }
     return result;
   };
-  const roleToolState: GateRoleToolState = { invoked: false };
-  const roleTool: AnyToolDefinition =
+  const roleTool: AnyToolDefinition | undefined =
     roleId === "acceptance-gate"
       ? createCheckEvidenceTool(manifest)
-      : createBoundaryInspectionTool(manifest);
-  const executeRoleTool = roleTool.execute.bind(roleTool);
-  roleTool.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
-    roleToolState.invoked = true;
-    const result = await executeRoleTool(toolCallId, params, signal, onUpdate, ctx);
-    roleToolState.details = result.details;
-    return result;
-  };
-  const tools: AnyToolDefinition[] = [evidence, roleTool];
+      : roleId === "safety-gate"
+        ? createBoundaryInspectionTool(manifest)
+        : undefined;
+  if (roleTool) {
+    const executeRoleTool = roleTool.execute.bind(roleTool);
+    roleTool.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
+      roleToolState.invoked = true;
+      const result = await executeRoleTool(toolCallId, params, signal, onUpdate, ctx);
+      roleToolState.details = result.details;
+      return result;
+    };
+  }
+  const tools: AnyToolDefinition[] = roleTool ? [evidence, roleTool] : [evidence];
   const toolNames = tools.map((tool) => tool.name);
   if (new Set(toolNames).size !== toolNames.length) {
     throw new Error(`Karta gate capability profile '${roleId}' contains duplicate tools`);
