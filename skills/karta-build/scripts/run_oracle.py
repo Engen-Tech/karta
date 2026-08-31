@@ -9,9 +9,11 @@ Runs a single shell command (matching the binder oracle idiom of one shell
 string: `['sh', '-c', command]`), judges success mechanically from the exit
 status plus an optional expected marker, and writes a capped JSON evidence
 record — command hash, resolved working directory, shell, environment
-fingerprint, exit status, expect result, and AT MOST ONE KILOBYTE of decisive
-output (never the full log). Downstream consumers read this record INSTEAD
-of raw logs.
+fingerprint, exit status, expect result, AT MOST ONE KILOBYTE of decisive
+output (never the full log), and `tree_sha` — the git write-tree of the
+resolved cwd's repository working tree, computed through a temporary index so
+untracked files count and the real index is never touched (null outside a
+repository). Downstream consumers read this record INSTEAD of raw logs.
 
 With --attach-ref, the record is also written as a git blob and a ref is
 pointed at it, so it can be retrieved later without re-running anything. An
@@ -115,6 +117,62 @@ def _head_sha(cwd: Path) -> str | None:
     return proc.stdout.strip() or None
 
 
+def _tree_sha(cwd: Path) -> str | None:
+    """`git write-tree` of `cwd`'s repository working tree, computed through a
+    temporary index (GIT_INDEX_FILE) populated with `git add -A` semantics so
+    untracked files count toward the tree and the real index is never touched.
+    None outside a git repository, or on any git failure — a tree hash is only
+    ever a confirmed fact, never a guess."""
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+
+    tmp_fd, tmp_index_path = tempfile.mkstemp(prefix="karta-run-oracle-index-")
+    os.close(tmp_fd)
+    try:
+        # git wants to create the index file itself; a stale empty file at this
+        # path would be read as an (invalid) index rather than as "start fresh".
+        os.remove(tmp_index_path)
+        env = dict(os.environ)
+        env["GIT_INDEX_FILE"] = tmp_index_path
+        add_proc = subprocess.run(
+            ["git", "add", "-A"],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            timeout=60,
+        )
+        if add_proc.returncode != 0:
+            return None
+        wt_proc = subprocess.run(
+            ["git", "write-tree"],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if wt_proc.returncode != 0:
+            return None
+        return wt_proc.stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        try:
+            os.remove(tmp_index_path)
+        except OSError:
+            pass
+
+
 def run_oracle(
     command: str,
     cwd: Path,
@@ -123,7 +181,7 @@ def run_oracle(
     timeout: float,
 ) -> dict:
     """Execute `command` via ['sh', '-c', command] in `cwd`, capturing combined
-    stdout+stderr, and build the eleven-key evidence record."""
+    stdout+stderr, and build the twelve-key evidence record."""
     resolved_cwd = cwd.resolve()
 
     timed_out = False
@@ -191,6 +249,7 @@ def run_oracle(
         "success": success,
         "timed_out": timed_out,
         "head_sha": _head_sha(resolved_cwd),
+        "tree_sha": _tree_sha(resolved_cwd),
     }
     return record
 
@@ -294,13 +353,18 @@ def _run_self_test() -> int:
             f"total_bytes={o['total_bytes']} head+tail={head_tail_bytes}",
         )
 
-        # (f) the record carries exactly the eleven keys above
+        # (f) the record carries exactly the twelve keys above
         expected_keys = {
             "command", "command_sha256", "cwd", "shell", "env_fingerprint",
             "exit_status", "expect", "decisive_output", "success", "timed_out",
-            "head_sha",
+            "head_sha", "tree_sha",
         }
-        check("record has exactly eleven keys", set(rec) == expected_keys, str(sorted(rec)))
+        check("record has exactly twelve keys", set(rec) == expected_keys, str(sorted(rec)))
+
+        # (f-tree) tree_sha is null outside a git repository — tmp_root itself is a bare
+        # tempdir, never git-initialized, so every record captured above already proves this;
+        # asserted explicitly here so the property has its own named check.
+        check("tree_sha is null outside a git repository", rec["tree_sha"] is None, str(rec["tree_sha"]))
 
         # (f2) a command that sleeps past a short --timeout yields timed_out true, success false
         started = time.time()
@@ -335,6 +399,83 @@ def _run_self_test() -> int:
             except json.JSONDecodeError:
                 roundtrip_ok = False
         check("--attach-ref round-trips the same JSON via git cat-file", roundtrip_ok)
+
+        # (h) tree_sha equals the write-tree of the working tree it was captured from,
+        # proven against a real commit made from that same working tree; a further edit
+        # and commit then diverges — the negative control that (h) passed for the right
+        # reason and not because tree_sha is always the same value.
+        tree_repo = tmp_root / "tree_repo"
+        tree_repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(tree_repo), check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(tree_repo), check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tree_repo), check=True)
+        (tree_repo / "a").write_text("1")
+        # Stage a real index entry BEFORE calling run_oracle, so the before/after
+        # `git ls-files --stage` comparison below can catch the temp index leaking into
+        # the real one — a bug that would otherwise pass silently.
+        subprocess.run(["git", "add", "a"], cwd=str(tree_repo), check=True)
+        stage_before = subprocess.run(
+            ["git", "ls-files", "--stage"], cwd=str(tree_repo), capture_output=True, text=True, check=True
+        ).stdout
+
+        rec_tree = run_oracle("true", tree_repo, None, None, 30)
+
+        stage_after = subprocess.run(
+            ["git", "ls-files", "--stage"], cwd=str(tree_repo), capture_output=True, text=True, check=True
+        ).stdout
+        check(
+            "the temporary index never leaks into the real index",
+            stage_before == stage_after,
+            f"before={stage_before!r} after={stage_after!r}",
+        )
+
+        # Negative control for the check above: prove it is not vacuously true by showing
+        # a genuinely UNISOLATED `git add -A` (no GIT_INDEX_FILE) DOES change the real
+        # index — the leak the isolated version above must never produce.
+        leak_repo = tmp_root / "leak_repo"
+        leak_repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(leak_repo), check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(leak_repo), check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(leak_repo), check=True)
+        (leak_repo / "tracked").write_text("1")
+        subprocess.run(["git", "add", "tracked"], cwd=str(leak_repo), check=True)
+        leak_before = subprocess.run(
+            ["git", "ls-files", "--stage"], cwd=str(leak_repo), capture_output=True, text=True, check=True
+        ).stdout
+        (leak_repo / "untracked").write_text("2")
+        subprocess.run(["git", "add", "-A"], cwd=str(leak_repo), check=True)  # deliberately unisolated
+        leak_after = subprocess.run(
+            ["git", "ls-files", "--stage"], cwd=str(leak_repo), capture_output=True, text=True, check=True
+        ).stdout
+        check(
+            "negative control: an unisolated git add -A DOES change the real index, so "
+            "the no-leak check above is a genuine invariant and not one that would pass "
+            "regardless of isolation",
+            leak_before != leak_after,
+            f"before={leak_before!r} after={leak_after!r}",
+        )
+
+        subprocess.run(["git", "commit", "-q", "-m", "one"], cwd=str(tree_repo), check=True)
+        t1 = subprocess.run(
+            ["git", "rev-parse", "HEAD^{tree}"], cwd=str(tree_repo), capture_output=True, text=True, check=True
+        ).stdout.strip()
+        check(
+            "tree_sha equals git rev-parse HEAD^{tree} for a working tree committed unchanged",
+            bool(rec_tree["tree_sha"]) and rec_tree["tree_sha"] == t1,
+            f"tree_sha={rec_tree['tree_sha']} t1={t1}",
+        )
+
+        (tree_repo / "a").write_text("2")
+        subprocess.run(["git", "add", "-A"], cwd=str(tree_repo), check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "two"], cwd=str(tree_repo), check=True)
+        t2 = subprocess.run(
+            ["git", "rev-parse", "HEAD^{tree}"], cwd=str(tree_repo), capture_output=True, text=True, check=True
+        ).stdout.strip()
+        check(
+            "tree_sha differs from a later commit's tree after a further edit (negative control)",
+            rec_tree["tree_sha"] != t2,
+            f"tree_sha={rec_tree['tree_sha']} t2={t2}",
+        )
 
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)

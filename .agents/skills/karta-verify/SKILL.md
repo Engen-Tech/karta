@@ -47,7 +47,7 @@ In both dispatching paths (1 and 2) the agent is read-only and receives only the
 
 ## Parallel dispatch and verdict currency  `verify:parallel`
 
-In **full** mode the two gates go out **in parallel** — one message carrying two independent read-only dispatches, `verify:acceptance` and `verify:boundary` together. Nothing forces an order: both read the same diff, neither writes, and neither agent's answer changes what the other reads. Running them one after the other cost the measured delivery about thirteen minutes. Everything else is unchanged — the aggregate table, both caps (2 acceptance, 3 safety, still independent), and every verdict rule. Aggregation simply waits for both envelopes before it fills a row.
+In **full** mode the two gates go out **in parallel** — one message carrying two independent read-only dispatches, `verify:acceptance` and `verify:boundary` together. Nothing forces an order: both read the same diff, neither writes, and neither agent's answer changes what the other reads. Running them one after the other cost the measured delivery about thirteen minutes. Everything else is unchanged — the aggregate table, both caps (2 acceptance, 3 safety, still independent), and every verdict rule. Aggregation simply waits for both envelopes before it fills a row. The dispatcher waits for both gates' completion notifications rather than polling — no sleep loop between dispatch and aggregation.
 
 The safety-auditor's stack-pack checklist resolution (`verify:boundary`, unchanged mechanics — including the composed-checklist resolver) happens **before** the parallel dispatch, because its output rides in that agent's dispatch brief.
 
@@ -66,6 +66,14 @@ Diff-size: <files> files, <bytes> bytes
 ```
 
 Compute both numbers over the item's diff range: `git diff --name-only <range>` piped to a line count for `<files>`, `git diff <range>` piped to a byte count for `<bytes>`. The guard recomputes them and denies a brief that omits the line or claims numbers git disagrees with, so the doctrine here and the guard agree byte-for-byte on the shared prefix.
+
+**After the Diff-size line, every brief — first dispatch as well as kickback, either agent, either mode — carries three more blocks, in this order, so each gate reads the evidence instead of re-deriving it:**
+
+- **`Evidence-record:`** — the item's `run_oracle` evidence record, read with `git cat-file -p refs/karta/<slug>/item-<id>/evidence`, followed by that JSON verbatim. Its `tree_sha` is what binds the record to the exact tree under review. When the ref is absent, write the literal `Evidence-record: none` plus one clause saying why (no floor run has attached one for this item yet) — an absent record is stated, never omitted.
+- **`Work-item:`** — the item's JSON slice as it reads from the binder: `id`, `title`, `contract`, `oracle`, `touches`, `shared_resources`, `surface`.
+- **`Changed-files:`** — `git diff --stat <range>` followed by `git diff --name-status <range>`, over the same range as the Diff-size line.
+
+These three blocks come strictly AFTER the worktree-path mention and the Range/Diff-size lines, never before. The pre-dispatch guard takes the FIRST `<rev>..<rev>` token in the brief as the diff range and resolves the FIRST `worktree` mention that names an existing path and stops there — so ordering the new blocks last is what makes a contract or evidence record that itself later mentions a worktree, or contains a `..`-shaped token, harmless to the guard's own read.
 
 **Fresh-eyes kickback.** A re-dispatch brief after a kickback carries **deterministic facts only** — the `run_oracle` evidence record for the corrected build (its JSON, already capped), the failing assertion ids, and the diff-range hash (`git rev-parse` of both endpoints). It carries **never the prior attempt**'s verdict prose: no quoted findings, no earlier narrative, no argument with what the last report said. The re-review is a fresh reading of the corrected diff, not a debate with the report that preceded it.
 
