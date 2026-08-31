@@ -24,7 +24,8 @@ async function git(cwd: string, args: string[]): Promise<string> {
 async function fixture(options: {
   checkpoint?: KartaIntegrationCheckpoint;
   acceptanceConcern?: boolean;
-  visualRequired?: boolean;
+  visualBlockedReason?: string;
+  visualPass?: boolean;
 } = {}): Promise<{
   root: string;
   integration: string;
@@ -88,7 +89,7 @@ async function fixture(options: {
       workItem: string,
       mode: "full" | "boundary-only",
     ) {
-      if (options.visualRequired && mode === "full") {
+      if (options.visualBlockedReason && mode === "full") {
         return {
           schema: "karta-verification-v1",
           binder,
@@ -97,8 +98,34 @@ async function fixture(options: {
           effectiveMode: mode,
           evidenceHash: "a".repeat(64),
           status: "blocked",
-          blockedReason: "visual-required",
+          blockedReason: options.visualBlockedReason,
           gates: { safety: { verdict: "pass" } },
+        };
+      }
+      if (options.visualPass && mode === "full") {
+        return {
+          schema: "karta-verification-v1",
+          binder,
+          item: workItem,
+          requestedMode: mode,
+          effectiveMode: mode,
+          evidenceHash: "a".repeat(64),
+          status: "pass",
+          gates: {
+            safety: { verdict: "pass" },
+            visual: {
+              status: "judged",
+              schema: "karta-gate-verdict-v1",
+              role: "visual-gate",
+              dispatchHash: "d".repeat(64),
+              verdict: "pass",
+              summary: "the render matches the design",
+              findings: [],
+              retry: "none",
+              provider: "fixture",
+              model: "fixture",
+            },
+          },
         };
       }
       const concern = options.acceptanceConcern && mode === "full";
@@ -167,8 +194,32 @@ test("integration gates the proposed tree then creates an exact no-ff merge and 
   }
 });
 
-test("a full visual verification blocks integration as visual-required without moving refs", async () => {
-  const state = await fixture({ visualRequired: true });
+test("a full visual pass integrates a visual item end to end: done and integration refs move", async () => {
+  const state = await fixture({ visualPass: true });
+  const lease = await state.locks.acquire(state.integration, "demo");
+  try {
+    const result = await state.runner.integrate(
+      { cwd: state.integration } as ExtensionContext,
+      "demo",
+      "item-a",
+      state.integration,
+      lease,
+      [{ id: "floor", purpose: "floor", command: "node check.mjs", cwd: "." }],
+    );
+    assert.equal(result.status, "integrated");
+    assert.equal(result.verification?.gates.visual?.verdict, "pass");
+    const tip = await git(state.integration, ["rev-parse", "HEAD"]);
+    assert.equal(result.mergeCommit, tip);
+    assert.equal(await git(state.integration, ["rev-parse", "refs/karta/demo/item-item-a/done"]), tip);
+    assert.equal((await deriveItemGitState(state.integration, "demo", "item-a")).state, "done");
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("a typed visual block holds integration with an actionable message and moves no ref", async () => {
+  const state = await fixture({ visualBlockedReason: "visual-no-design" });
   const lease = await state.locks.acquire(state.integration, "demo");
   try {
     const before = await git(state.integration, ["rev-parse", "HEAD"]);
@@ -181,8 +232,11 @@ test("a full visual verification blocks integration as visual-required without m
       [{ id: "floor", purpose: "floor", command: "node check.mjs", cwd: "." }],
     );
     assert.equal(result.status, "blocked");
-    assert.equal(result.verification?.blockedReason, "visual-required");
-    assert.match(result.message, /visual-required/);
+    assert.equal(result.verification?.blockedReason, "visual-no-design");
+    // The consumer holds by default with the shared actionable message, and the removed
+    // 'until visual acceptance lands' wording never reappears.
+    assert.match(result.message, /design_reference|design_facts\.source/);
+    assert.doesNotMatch(result.message, /until visual acceptance lands/);
     assert.equal(await git(state.integration, ["rev-parse", "HEAD"]), before);
     await assert.rejects(() =>
       git(state.integration, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/done"]),

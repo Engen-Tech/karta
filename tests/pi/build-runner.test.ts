@@ -200,7 +200,7 @@ test("deterministic crash after worker attestation leaves resumable Git state", 
   }
 });
 
-test("a blocked visual-required finalization halts without consuming a worker-feedback attempt", async () => {
+test("a typed visual block finalization halts without consuming a worker-feedback attempt", async () => {
   const state = await fixture();
   try {
     let workers = 0;
@@ -221,10 +221,10 @@ test("a blocked visual-required finalization halts without consuming a worker-fe
             item,
             verification: {
               status: "blocked",
-              blockedReason: "visual-required",
+              blockedReason: "visual-no-design",
               gates: { safety: { verdict: "pass" } },
             },
-            message: "Visual acceptance is required but not yet available.",
+            message: "Visual acceptance needs a view; no ref moved.",
           };
         },
       },
@@ -234,7 +234,52 @@ test("a blocked visual-required finalization halts without consuming a worker-fe
     assert.equal(result.attempts, 1);
     assert.equal(workers, 1);
     assert.equal(finalizations, 1);
-    assert.equal(result.finalization?.verification?.blockedReason, "visual-required");
+    assert.equal(result.finalization?.verification?.blockedReason, "visual-no-design");
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("visual gate concerns retry under the acceptance cap and write failed through the host", async () => {
+  const state = await fixture();
+  try {
+    let workers = 0;
+    let failedRecords = 0;
+    // A gates.visual concern is a fidelity kickback: it retries under the same bounded
+    // acceptance-attempt cap as an acceptance concern, and on exhaustion the host writes
+    // the failed ref exactly as a capped acceptance/safety concern does.
+    const retry = {
+      status: "retry",
+      binder: "demo",
+      item: "item-a",
+      targetTree: "a".repeat(40),
+      verification: {
+        status: "concerns",
+        gates: { safety: { verdict: "pass" }, visual: { verdict: "concerns" } },
+      },
+      message: "retry",
+    };
+    const build = runner(
+      state.repo,
+      async (_ctx, _worktree, _branch, binder, item) => {
+        workers += 1;
+        return workerResult(binder, item, `attempt ${workers}`);
+      },
+      {
+        async finalizeCandidate() {
+          return retry;
+        },
+        async recordFailedCandidate() {
+          failedRecords += 1;
+          return { ...retry, status: "failed", commit: "f".repeat(40), message: "failed" };
+        },
+      },
+    );
+    const result = await build.run({ cwd: state.repo } as ExtensionContext, "demo", "item-a");
+    assert.equal(result.status, "failed");
+    assert.equal(result.attempts, 2);
+    assert.equal(workers, 2);
+    assert.equal(failedRecords, 1);
   } finally {
     await state.cleanup();
   }

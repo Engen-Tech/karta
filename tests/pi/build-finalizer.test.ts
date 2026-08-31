@@ -16,7 +16,17 @@ import type { GateModelInvoker } from "../../extensions/pi/gate-runner.ts";
 import { deriveItemGitState } from "../../extensions/pi/git-state.ts";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
 import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
-import { KartaVerificationRunner } from "../../extensions/pi/verification-runner.ts";
+import {
+  KartaVerificationRunner,
+  type VisualAcceptanceJudge,
+  type VisualCaptureRunner,
+  type VisionPreflightProbe,
+} from "../../extensions/pi/verification-runner.ts";
+import {
+  VISUAL_EVIDENCE_SCHEMA,
+  type VisualCaptureOutcome,
+  type VisualEvidence,
+} from "../../extensions/pi/visual-capture-runner.ts";
 
 const exec = promisify(execFile);
 
@@ -84,6 +94,69 @@ function gateInvoker(verdict: "pass" | "concerns" = "pass"): GateModelInvoker {
   };
 }
 
+const visionReport = (advertises: boolean): ChildRuntimeReport => ({
+  ...runtime,
+  advertisesImageInput: advertises,
+  modelInputs: advertises ? ["text", "image"] : ["text"],
+});
+
+function capturedVisualOutcome(): VisualCaptureOutcome {
+  const health = {
+    result: "healthy" as const,
+    readySelector: null,
+    consoleErrorCount: 0,
+    failedRequestCount: 0,
+  };
+  const target = {
+    url: "http://127.0.0.1:9/",
+    health: "OK",
+    render_health: null,
+    extracted_data: null,
+    screenshot: "/tmp/karta-visual/app.png",
+  };
+  const evidence: VisualEvidence = {
+    schema: VISUAL_EVIDENCE_SCHEMA,
+    binder: "demo",
+    item: "item-a",
+    route: "/view-x",
+    designReference: "design/view.html",
+    candidateCommit: "a".repeat(40),
+    candidateTree: "b".repeat(40),
+    generatedAt: new Date().toISOString(),
+    captures: { design: { ...target }, app: { ...target } },
+    renderHealth: { design: health, app: health },
+    structuredDiff: {
+      schema: "karta-structured-diff-v1",
+      status: "ok" as const,
+      blockedReason: null,
+      renderHealth: null,
+      summary: {
+        discrepancyCount: 0,
+        tokenDriftCount: 0,
+        missingCount: 0,
+        extraCount: 0,
+        byDimension: {},
+      },
+      discrepancies: [],
+      tokenDrift: [],
+      missingElements: [],
+      extraElements: [],
+    },
+  };
+  return {
+    status: "captured",
+    evidencePath: "/tmp/karta-visual/visual-evidence.json",
+    evidence,
+    candidateTree: evidence.candidateTree,
+  };
+}
+
+interface VisualSeams {
+  visionPreflight?: VisionPreflightProbe;
+  captureVisual?: VisualCaptureRunner;
+  judgeVisual?: VisualAcceptanceJudge;
+}
+
 async function fixture(
   invoker = gateInvoker(),
   checkpoint: KartaFinalizationCheckpoint = () => {},
@@ -92,6 +165,11 @@ async function fixture(
     assertions: ["subject contains candidate"],
     command: "node check.mjs",
   },
+  visual: {
+    designReference?: string;
+    designSource?: string;
+    seams?: VisualSeams;
+  } = {},
 ): Promise<{
   repo: string;
   locks: DispatchLockManager;
@@ -108,12 +186,18 @@ async function fixture(
     summary: "Finalize a candidate",
     motivation: "Prove exact tree sequencing",
     scope: { included: ["subject.txt"] },
+    ...(visual.designSource !== undefined
+      ? { design_facts: { source: visual.designSource } }
+      : {}),
     work_items: [
       {
         id: "item-a",
         title: "Change subject",
         summary: "Change the subject",
         touches: ["subject.txt"],
+        ...(visual.designReference !== undefined
+          ? { design_reference: visual.designReference }
+          : {}),
         oracle,
       },
     ],
@@ -138,7 +222,7 @@ async function fixture(
     { async ensure() { return { ...runtime, cached: false }; } },
     new ChildRegistry(),
     locks,
-    { invoke: invoker },
+    { invoke: invoker, ...visual.seams },
   );
   return {
     repo,
@@ -230,29 +314,111 @@ test("a failing environment preflight blocks the item with remediation and never
   }
 });
 
-test("a full visual oracle blocks visual-required after safety without writing a built ref", async () => {
-  const state = await fixture(gateInvoker(), () => {}, {
-    type: "visual",
-    assertions: ["subject contains candidate"],
-    command: "node check.mjs",
-  });
+test("a full visual oracle with a lifecycle context and a genuine pass lifts the block and writes the built ref", async () => {
+  let captured = 0;
+  const state = await fixture(
+    gateInvoker(),
+    () => {},
+    { type: "visual", assertions: ["subject contains candidate"], command: "node check.mjs" },
+    {
+      designReference: "view-x",
+      designSource: "design/view.html",
+      seams: {
+        visionPreflight: async () => visionReport(true),
+        captureVisual: async () => {
+          captured += 1;
+          return capturedVisualOutcome();
+        },
+        judgeVisual: async () => ({
+          status: "judged",
+          schema: "karta-gate-verdict-v1",
+          role: "visual-gate",
+          dispatchHash: "d".repeat(64),
+          verdict: "pass",
+          summary: "the render matches the design",
+          findings: [],
+          retry: "none",
+          provider: "fixture",
+          model: "fixture",
+        }),
+      },
+    },
+  );
   const lease = await state.locks.acquire(state.repo, "demo");
   try {
-    const before = await git(state.repo, ["rev-parse", "HEAD"]);
     await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const processManager = new KartaProcessManager(new LifecycleRegistry(), 10);
+    const owner = processManager.createBinderOwner(state.repo, "demo");
     const result = await state.finalizer.finalizeCandidate(
       state.ctx,
       "demo",
       "item-a",
       state.repo,
       lease,
+      [],
+      { manager: processManager, owner },
     );
-    assert.equal(result.status, "blocked");
-    assert.equal(result.verification?.status, "blocked");
-    assert.equal(result.verification?.blockedReason, "visual-required");
+    await processManager.stopOwner(owner);
+    assert.equal(captured, 1, "the capture orchestrator ran");
+    assert.equal(result.status, "built");
+    assert.equal(result.verification?.status, "pass");
+    assert.equal(result.verification?.blockedReason, undefined);
     assert.equal(result.verification?.gates.acceptance, undefined);
     assert.equal(result.verification?.gates.safety?.verdict, "pass");
-    assert.match(result.message, /visual-required/);
+    assert.equal(result.verification?.gates.visual?.verdict, "pass");
+    assert.equal(await git(state.repo, ["rev-parse", "HEAD^{tree}"]), result.targetTree);
+    assert.equal(
+      await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/built"]),
+      result.commit,
+    );
+    assert.match(await git(state.repo, ["log", "-1", "--format=%s"]), /^\[karta:item-item-a\]/);
+  } finally {
+    await state.locks.release(lease);
+    await state.cleanup();
+  }
+});
+
+test("a full visual oracle blocks fail-closed at an unmet precondition and writes no ref", async () => {
+  // No design_facts.source and no design_reference: the vision preflight passes, then the
+  // visual acceptance path resolves no view and blocks visual-no-design after safety. The
+  // consumer holds by default with an actionable message and writes no completion ref — no
+  // fall-through moves a ref, and capture is never attempted.
+  const state = await fixture(
+    gateInvoker(),
+    () => {},
+    { type: "visual", assertions: ["subject contains candidate"], command: "node check.mjs" },
+    {
+      seams: {
+        visionPreflight: async () => visionReport(true),
+        captureVisual: async () => {
+          throw new Error("capture must not run when no view resolves");
+        },
+      },
+    },
+  );
+  const lease = await state.locks.acquire(state.repo, "demo");
+  try {
+    const before = await git(state.repo, ["rev-parse", "HEAD"]);
+    await writeFile(join(state.repo, "subject.txt"), "candidate\n");
+    const processManager = new KartaProcessManager(new LifecycleRegistry(), 10);
+    const owner = processManager.createBinderOwner(state.repo, "demo");
+    const result = await state.finalizer.finalizeCandidate(
+      state.ctx,
+      "demo",
+      "item-a",
+      state.repo,
+      lease,
+      [],
+      { manager: processManager, owner },
+    );
+    await processManager.stopOwner(owner);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.verification?.status, "blocked");
+    assert.equal(result.verification?.blockedReason, "visual-no-design");
+    assert.equal(result.verification?.gates.acceptance, undefined);
+    assert.equal(result.verification?.gates.safety?.verdict, "pass");
+    assert.match(result.message, /design_reference|design_facts\.source/);
+    assert.doesNotMatch(result.message, /until visual acceptance lands/);
     assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), before);
     await assert.rejects(() =>
       git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/built"]),
