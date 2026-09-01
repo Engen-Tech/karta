@@ -1,0 +1,53 @@
+{
+  "reviewed_hash": "07807031562b49521490f61ab22cd590562ba262b428137be4d210c074a02ae7",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "invariant-foundations",
+  "run_at": "2026-09-01T08:19:11.477915+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": "Yes. All six deltas are verified present, correctly worded, and fully coherent: apostrophe-clean oracles; the agreement case as two facts preserving acceptance independence; masked-phrase extraction order; both named exit-1 failures; all five INV-7 remainders in prose and oracle; tripwire framing on the floors."
+    },
+    {
+      "provider": "codex",
+      "verdict": "ok",
+      "summary": "No \u2014 medium: delta 5 not fully pinned; INV-7 names forced adds of ignored paths but the oracle greps only pathspec and merge, so that clause could be dropped without failing the oracle; add a grep for force or ignored. The other five deltas are present and coherent."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "ok",
+      "summary": "Yes \u2014 all six deltas present, correctly worded relative to the round-5 pins, none introducing a contradiction: no interior single quotes in any sh -c string; the two-facts agreement case consistent with the deferred-denial contract; masked extraction coherent with the quote-aware split; both exit-1 pins aligned with deny-only-on-exit-1; five remainders in both the bounds paragraph and the flip with the merge grep; tripwire sentences in both floor items."
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "verdict": "ok",
+      "summary": "No \u2014 claimed critical: every python3 -c payload in all three oracles is left unterminated (the closing quote encoded as an escaped quote), so each oracle would die with a SyntaxError before any check; plus low: forced-adds remainder has no oracle grep of its own. Five of six deltas otherwise present and coherent."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "Yes \u2014 all six deltas present and correctly worded, none introducing a contradiction; verified each verbatim, including that the escaped quotes inside the outer single-quoted sh -c resolve correctly into the nested python3 -c payloads \u2014 round 5's mechanical verification stands. Coherence notes only (item 3 inherits item two's floor framing; the static arithmetic is descriptive while the live-sum case is the assertion)."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "No \u2014 claimed: item 3's sh -c string contains an unmatched done after the precommit-suite assertion and lacks the loop for the four named precommit cases, making the oracle syntactically invalid."
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/invariant-foundations.rounds.json",
+  "final_round": 6
+}

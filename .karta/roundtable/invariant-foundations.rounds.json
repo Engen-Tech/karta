@@ -1,0 +1,333 @@
+{
+  "target_ref": "invariant-foundations",
+  "target_kind": "binder",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4-pro-0813"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "58adc222a713c4219aec1dc0c1d46d978a14f7887da408fdb21a2f459d3a4398",
+      "run_at": "2026-09-01T07:07:02.845209+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [
+        "qwen finding 15 (plan-time date 2026-09-01 called impossible): the panelist's own clock is wrong \u2014 today is 2026-09-01; date stands"
+      ],
+      "notes": "Round 1: six providers, all ok. Convergent HIGHs to fix before round 2: staging-shape bypass of the index-only binder read; missing INV-7 same-diff flip; resolver placement contradiction (extract shared module); landing-gate/skip-hatch hoist ordering (defer-the-denial); INV-11/backlog-11 FIXED overclaim (partial, two named remainders); oracle rework (anchored case names, stdin not argv, tail-masking, tempdir isolation or --no-cross-binder for validate_binder, timeout budget for a sixth gate); register parser grammar pinned; checker runs against the resolved invocation root.",
+      "below_floor": false
+    },
+    {
+      "round": 2,
+      "reviewed_hash": "2bdfe6033253cdeb2ff9a3e3927d78eb862e131d7add1f504c0c2c914da62dee",
+      "run_at": "2026-09-01T07:23:18.750780+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "timeout budget now pinned constants: base gates 100->90s, register checker 20s, binder step 50s TOTAL across candidates with fail-open exhaustion; worst case 520s under the 590s kill margin, asserted by a named self-test case",
+        "malformed JSON is now a validator finding, never a traceback: validate_binder.py catches JSONDecodeError/UnicodeDecodeError and reports INVALID; case binder-malformed-json-denied; checker exit codes pinned 0/1/2 with hook denying only on 1",
+        "staging-shape enumeration pinned: tracked-universe rule, index via --name-status -z with status-prefix classification (only D exempt; R/C destinations validate), -a/pathspec/chained-add including add -A and add . enumerate tracked-modified working-tree binders; untracked excluded unless exactly added; inspectable (candidates, exempted) pair so the archive case proves considered-then-exempted",
+        "item 1 contradiction reworded: acceptance never changes, reads deliberately corrected \u2014 the false negative now blocks by design",
+        "resolver semantics pinned: walk-up containment, acceptance stays _check_cwd's, _check_cwd delegates root discovery to the shared module, rescope only when root differs from ROOT, lazy memoized resolution with named cost; _worktree.py self-test cases named and [PASS]-grepped",
+        "vacuous oracles closed: validator N/N floor 77 with [PASS]-grepped flag cases, INV-11/INV-7/INV-20 status greps pinned to **partial**, backlog greps anchored to heading conventions, AGENTS floor and residual fragments grepped verbatim, validate_plugin checked on captured output, suite floors raised to baseline-plus-named-cases (1799/61/65)",
+        "register grammar tightened: quote/paren-aware splitting, one file token per segment, verbatim phrases with whitespace-normalized matching, continuation-line joining, path-safety failures, heading near-miss and duplicate-id failures, script scope limited to status+Carriers bullets of enforced/partial entries, benchmarks/ added to the script regex, grammar documented as the register authoring constraint",
+        "whole-suite re-rooting pinned: gate_specs(root) with per-gate timeout column, every gate runs at the resolved root, case precommit-gates-run-at-resolved-root",
+        "config-move consequence named in INV-11 flip and AGENTS residual; item 1 AGENTS edit gains the register-quote-preservation clause; serialize:true restored on all items; --no-cross-binder remainder added to INV-7 flip"
+      ],
+      "findings_refuted_or_deferred": [
+        "deepseek r2 finding 11 (item 2 summary overstates scope): the register-checker mention lives in the binder-level scope list covering both precommit items, not in item 2's summary \u2014 no change needed"
+      ],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 3,
+      "reviewed_hash": "473b6912cc0886f63fa8567be637ae91305dc9abe81340ca2ceeaafe7a151095",
+      "run_at": "2026-09-01T07:39:21.083667+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "per-shape byte sources pinned: pathspec commits validate only covered paths' worktree bytes (uncovered staged binders are not candidates), broad adds (-A, ., dir) cover untracked live binders via git ls-files --others, D exempt in every enumeration, commit-tree/commit-graph excluded by a commit(?![-w]) boundary with backlog-10 negatives",
+        "script-existence scope narrowed to Carriers bullets of enforced/partial entries \u2014 a status bullet naming future work can never brick a commit",
+        "INV-20 names the working-tree/partial-staging bound as a remainder (the bound every gate_specs gate shares) instead of implying it closed",
+        "parse-failure posture stated honestly: crashes/timeouts fail open, a malformed or drifted register denies by name by design",
+        "hoist position pinned (top of decide(), before the landing branch's first read) and the old rescope line removed \u2014 single call site",
+        "budget is end-to-end (enumeration+materialization+validators) with the kill margin derived from the hook's configured timeout, never a hardcoded twin; denial maps temp basenames back to repo paths; one TemporaryDirectory per candidate",
+        "cases added: other-repo-returns-none, resolver-check-cwd-agreement, duplicate-id/path-safety/token-count/quote-safe-split/case-mismatch grammar cases, broad-add-untracked and pathspec-scope-restricted and staging-delete-exempt; floors raised to 1800/5/65/69/77; INV-7 oracle greps all four remainders plus the old-clause removal; normalization-vs-prohibition rescoped to form-only; AGENTS.md added to shared_resources; every named hook case must be a real check() invocation's message string"
+      ],
+      "findings_refuted_or_deferred": [
+        "per-case [PASS] output for the two mature hook suites (qwen r3): floor-plus-source-presence-plus-fully-green, plus the acceptance gate verifying named cases against the actual diff, is the proof shape; converting a 1794-check suite's output format is out of proportion",
+        "file:line bindings for --no-cross-binder internals (minimax r3): line numbers rot inside a read-only binder before build; the flag's semantics are pinned instead",
+        "staged-tree materialization for the register checker (codex/deepseek r3): disposed as a named INV-20 remainder \u2014 the identical working-tree bound every gate in this suite already carries; naming it honestly per INV-2 was chosen over doubling the checker's machinery"
+      ],
+      "notes": "Round 3: six providers ok; antigravity judged fit, five requested precision amendments, all adopted or refuted with reasons above. Round 4 runs on the final bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 4,
+      "reviewed_hash": "647eb9a95ea466adc569eab0c899eee91c59d0e083ce99fea935e49ed4439bb9",
+      "run_at": "2026-09-01T07:51:42.468671+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "chained-add coverage extended to --all and the -u/--update family (tracked-modified, D exempt, never untracked) with case binder-chained-add-update-denied; floors moved to 66/70",
+        "pathspec and add arguments pinned as resolved against the payload cwd, normalized repo-relative before coverage matching",
+        "mixed shapes pinned: --include/-i validates the union with worktree bytes winning, --only takes pathspec semantics, --dry-run never triggers; positive trigger set pinned as the hook's commit detection minus commit-tree/commit-graph, --amend included",
+        "findings sentinel pinned: a distinctive line only the findings printer emits, unreachable from crash paths; the crash case asserts its absence, so a crash can never masquerade as a finding",
+        "symlinked binder paths read as link text matching the blob git records",
+        "none-yet scoped to prose/prose-by-design entries only \u2014 on enforced/partial it is a named verification failure; a missing Carriers bullet is a named parse failure; script-pattern token counts as the segment's carrier when it is the only file-shaped token",
+        "budget case sums the live gate_specs(root) list; resolver membership pinned to the git-common-dir comparison, never a nearest-root heuristic; floor rationale reworded as tripwire-plus-acceptance-gate; INV-11 flip separates the deliberate config change from the two remainders; backlog-21 body restates INV-20's remaining bounds; overmatch and missing-worktree-script consequences named"
+      ],
+      "findings_refuted_or_deferred": [
+        "codex r4 finding 1 (agreement sets necessarily differ): the contract already assigns acceptance to _check_cwd on the original cwd and reads to the resolver \u2014 the agreement case tests that _check_cwd's root DISCOVERY delegates to the resolver, not that the two sets are equal; a subdirectory resolves for reads and still denies for acceptance, which is the pinned design",
+        "qwen r4 pathspec-untracked semantics: an untracked file is never recorded by a pathspec commit without a chained add (git commit <pathspec> does not add untracked files); the chained-add rules already govern that case",
+        "per-check() source-grep strengthening for mature suites (qwen r4): held from round 3 \u2014 the acceptance gate verifies named cases against the actual diff; the oracle floor is a tripwire by design, now stated in the binder's own words"
+      ],
+      "notes": "Round 4: six ok; antigravity, glm, minimax fit (glm/deepseek conditional on the add-u and cwd-resolution pins, both adopted); codex and qwen residuals adopted or refuted as listed. Round 5 ratifies the final bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 5,
+      "reviewed_hash": "07807031562b49521490f61ab22cd590562ba262b428137be4d210c074a02ae7",
+      "run_at": "2026-09-01T08:08:21.118921+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "the item-3 oracle apostrophe defect removed (antigravity's critical \u2014 real: the sh -c single-quote string contained it); all three oracle commands now mechanically verified to hold exactly their two outer quotes",
+        "the agreement case reworded to discovery-delegation plus acceptance-independence, never set equality, with the subdirectory fixture pinned (codex, qwen, glm)",
+        "extraction order pinned: quoted phrases masked first, tokens collected only from unmasked text (qwen, glm)",
+        "missing status bullet and missing register file are named exit-1 failures (glm)",
+        "merge arrival (merge, rebase, cherry-pick) named as INV-7's fifth remainder with a doc-flip grep, alongside forced adds of ignored paths (glm, qwen)"
+      ],
+      "findings_refuted_or_deferred": [
+        "gate_specs tuple-arity unpack-site updates (antigravity low): implementation mechanics inside the already-contracted gate-order assertion update, not plan content",
+        "INV-23 case normalization as a separate finding (antigravity medium): already in scope verbatim \u2014 'correcting any carrier quote to a byte-accurate fragment of its file' names exactly this class",
+        "the leading-cd narrowing refusal (glm medium): recorded here \u2014 deliberately deferred to backlog item 22, the one owner for command-text-derived roots, because parsing shell grammar for a second root source belongs with the -C acceptance work; item 22's own text already keeps cd-chains in view",
+        "re-rooted script version-skew and remaining loose doc greps (glm, qwen lows): dispositioned to build guidance in this ledger; the binder's stated proof shape (tripwire floors plus the acceptance gate on the actual diff) covers them"
+      ],
+      "notes": "Round 5: six ok; deepseek, glm, minimax ratify; antigravity conditional on the apostrophe fix (applied); codex and qwen's decisive finding was the agreement-case wording (applied). Round 6 is a narrow confirmation of these final deltas on the final bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 6,
+      "reviewed_hash": "07807031562b49521490f61ab22cd590562ba262b428137be4d210c074a02ae7",
+      "run_at": "2026-09-01T08:19:11.442682+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [
+        "glm r6 unterminated-payload critical: disproven mechanically \u2014 every decoded oracle command passes sh -n and all six embedded python payloads compile (adjudication recorded in the round's meta note)",
+        "qwen r6 unmatched-done: disproven mechanically \u2014 the four-case loop qwen reported missing is present and sh -n passes",
+        "codex r6 forced-adds grep: the INV-7 assertion line requires all five remainders and the acceptance gate verifies assertions against the actual diff; the oracle grep set is a tripwire by the binder's own stated proof shape \u2014 recorded as build guidance rather than a bytes change"
+      ],
+      "notes": "Round 6 (final): narrow delta confirmation. Three explicit yes (antigravity, deepseek, minimax); glm and qwen objections disproven by direct sh -n / compile evidence; codex's single medium dispositioned as build guidance. Bytes final; record follows this round.",
+      "below_floor": false
+    }
+  ]
+}
