@@ -461,7 +461,10 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
                            _watch_line(str(repo)) is None))
             # cold path: not opted in decides from the bare state JSON — a
             # fresh process must import neither karta_next nor serve_status
-            code = ("import importlib.util, json, sys\n"
+            code = ("import sys\n"
+                    "sys.dont_write_bytecode = True"
+                    "  # never drop __pycache__ into a mirrored tree\n"
+                    "import importlib.util, json\n"
                     "spec = importlib.util.spec_from_file_location("
                     "'hk', sys.argv[1])\n"
                     "mod = importlib.util.module_from_spec(spec)\n"
@@ -584,6 +587,12 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
 
 def _run_self_test() -> int:
     import tempfile
+    # Mirrored trees (.codex-plugin/, plugins/karta/, skills/) must stay
+    # byte-clean: the projection checker walks the disk, and a __pycache__
+    # dropped by an import mid-oracle reads as drift on a fresh checkout.
+    # Suppress bytecode for this process and for every child it spawns.
+    sys.dont_write_bytecode = True
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     # Keep every subprocess this test spawns — and the ensure children those
     # fire — off the real per-user watch store.
     _watch_sd = tempfile.TemporaryDirectory()
