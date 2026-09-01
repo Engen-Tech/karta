@@ -1,0 +1,81 @@
+{
+  "probes": [
+    {
+      "id": "P1-exec-bit-projection",
+      "pass": true,
+      "evidence": {
+        "target": "skills/karta-build/scripts/item_context.py",
+        "canonical_mode_after_chmod": "0o755",
+        "mirror_projection": {
+          "path": "$S/.agents/skills/karta-build/scripts/item_context.py",
+          "mode": "0o755"
+        },
+        "install_projection": {
+          "path": "$S/plugins/karta/skills/karta-build/scripts/item_context.py",
+          "mode": "0o755"
+        },
+        "check": {
+          "exit": 1,
+          "output": [
+            "CODEX SKILLS PROJECTIONS: DRIFT",
+            "  - .agents/skills/karta-build/scripts/item_context.py executable bit differs from canonical \u2014 run: uv run scripts/sync_codex_skills.py",
+            "  - plugins/karta/skills/karta-build/scripts/item_context.py executable bit differs from canonical \u2014 run: uv run scripts/sync_codex_skills.py"
+          ]
+        },
+        "write": {
+          "exit": 0,
+          "output": [
+            "codex projections in sync (134 mirror files, 1 written/updated; 143 install files, 1 written/updated)"
+          ]
+        }
+      }
+    },
+    {
+      "id": "P2-lock-degradation-survival",
+      "pass": true,
+      "evidence": {
+        "external_skill": "plannotator-compound",
+        "synthesized_fixture": false,
+        "degraded_field": "computedHash",
+        "write": {
+          "exit": 0,
+          "output": [
+            "recomputed computedHash for external skill 'plannotator-compound' in skills-lock.json: (none) -> 230a73ccb90e1fb22d3b7250a08e0b067b7084ed2cbd7e5193f567acf73aae41",
+            "codex projections in sync (134 mirror files, 0 written/updated; 143 install files, 0 written/updated)"
+          ]
+        },
+        "external_dir_survived": true
+      }
+    },
+    {
+      "id": "P3-external-hash-liveness",
+      "pass": true,
+      "evidence": {
+        "external_skill": "plannotator-compound",
+        "synthesized_fixture": false,
+        "tamper": "appended 1 byte to the external skill's SKILL.md",
+        "check": {
+          "exit": 1,
+          "flagged": true,
+          "output": [
+            "CODEX SKILLS PROJECTIONS: DRIFT",
+            "  - external skill 'plannotator-compound' content hash mismatch: .agents/skills/plannotator-compound/SKILL.md no longer matches skills-lock.json computedHash (tampered or modified) \u2014 run: uv run scripts/sync_codex_skills.py"
+          ]
+        },
+        "validate_plugin": {
+          "exit": 1,
+          "flagged": true,
+          "output": [
+            "~ fact traces: .karta/binders/archive/watch-drill-in.json: fact 'halt-badge-legend' untraced \u2014 no assertion depends on it and none should. The page already carries the design's exact string, 'blinking \u2014 halted' (serve_status.py:1348-1349 against export 273), so this fact is already true and this binder deliberately leaves it alone \u2014 alarm-motion-softens' regression_risk records why changing it would manufacture a divergence",
+            "  ~ fact traces: .karta/binders/archive/watch-fidelity.json: design_fact_table is a DICT (pre-convention metadata wrapping a facts list) \u2014 OUT OF SCOPE, not checked",
+            "  ~ fact traces: .karta/binders/archive/watch-font-adherence.json: fact 'plex-wdth-pin-is-a-noop' untraced \u2014 no assertion depends on it \u2014 it is the recorded reason IBM Plex Sans and Mono are out of scope, and an assertion about a font this binder does not change would be a claim with no work behind it.",
+            "PLUGIN INTEGRITY: FAIL",
+            "  - external skill 'plannotator-compound' content hash mismatch: .agents/skills/plannotator-compound/SKILL.md no longer matches skills-lock.json computedHash (tampered or modified)"
+          ]
+        }
+      }
+    }
+  ],
+  "passed": 3,
+  "total": 3
+}

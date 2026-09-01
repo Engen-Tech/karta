@@ -1,0 +1,571 @@
+{
+ "run_date": "2026-09-01",
+ "rows": [
+  {
+   "repo": "parchmark",
+   "head": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+   "caveat": "deliveries carry no plugin-version stamp, so this is loop health over calendar time, not a controlled version A/B",
+   "deliveries": [
+    {
+     "slug": "settings-account-summary",
+     "sha": "53050b7324b1273065d4193bd8de2f1bfd00fe02",
+     "ct": 1782269467,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "settings-password-change",
+     "sha": "0698b549346973f20173c00b2cd27fc22731befd",
+     "ct": 1782418144,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "settings-notes-export",
+     "sha": "ba0c464097c0d9af59d735834be460c3c56ae0ff",
+     "ct": 1782632670,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "note-events-live-refresh",
+     "sha": "796893899f102cd2f7767253a6495e383063f395",
+     "ct": 1782835957,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "settings-account-delete",
+     "sha": "649b6d9c63df2dae75ea64fe639a91198f163371",
+     "ct": 1782871333,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-pyjwt-migration",
+     "sha": "c74a6909c7d12f873f53869e2daa456637b945e0",
+     "ct": 1782882715,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-drop-sync-session",
+     "sha": "4fccfeb53e9a081d05a26ad54f2ade61f9196a24",
+     "ct": 1782938744,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "note-create-workflow",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "note-delete-workflow",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "note-edit-save-workflow",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "note-tags-editing",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "notes-list-from-backend",
+     "sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+     "ct": 1782951059,
+     "via": "archive-add"
+    },
+    {
+     "slug": "deps-upgrade-latest",
+     "sha": "b74f28c7dfe598de74538d5c5930914e1b308e64",
+     "ct": 1783010335,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-service-layer-notes-auth",
+     "sha": "7152615a664ef75c613f2ed674fe4d18efc9bfd2",
+     "ct": 1783011507,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "backend-hygiene",
+     "sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+     "ct": 1783356245,
+     "via": "integration-merge"
+    },
+    {
+     "slug": "auth-service-refresh-coverage",
+     "sha": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+     "ct": 1788110182,
+     "via": "archive-add"
+    }
+   ],
+   "epochs": {
+    ".karta/doc-gardner.json": {
+     "transitions": [
+      {
+       "sha": "8c4d8dbf96d46139e476d16b0f85437b68b48928",
+       "ct": 1782268072,
+       "to": true
+      }
+     ],
+     "intervals": [
+      {
+       "enable_sha": "8c4d8dbf96d46139e476d16b0f85437b68b48928",
+       "enable_ct": 1782268072,
+       "end_ct": null
+      }
+     ],
+     "enabled_now": true
+    },
+    ".karta/kaizen.json": {
+     "transitions": [
+      {
+       "sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+       "ct": 1783356245,
+       "to": true
+      }
+     ],
+     "intervals": [
+      {
+       "enable_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+       "enable_ct": 1783356245,
+       "end_ct": null
+      }
+     ],
+     "enabled_now": true
+    }
+   },
+   "gardner": {
+    "fraction": "10/16",
+    "covered_n": 10,
+    "denominator_N": 16,
+    "per_slug": [
+     {
+      "slug": "settings-account-summary",
+      "delivery_sha": "53050b7324b1273065d4193bd8de2f1bfd00fe02",
+      "delivery_ct": 1782269467,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782268779
+     },
+     {
+      "slug": "settings-password-change",
+      "delivery_sha": "0698b549346973f20173c00b2cd27fc22731befd",
+      "delivery_ct": 1782418144,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782312850
+     },
+     {
+      "slug": "settings-notes-export",
+      "delivery_sha": "ba0c464097c0d9af59d735834be460c3c56ae0ff",
+      "delivery_ct": 1782632670,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "4d79fa7cf0fb4c2d598f83f010bdb61895dfb7ed",
+      "gardner_ct": 1782420370,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-events-live-refresh",
+      "delivery_sha": "796893899f102cd2f7767253a6495e383063f395",
+      "delivery_ct": 1782835957,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "b9cb57b0f09901000948689594f0d66879eb1fb0",
+      "gardner_ct": 1782829436,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "settings-account-delete",
+      "delivery_sha": "649b6d9c63df2dae75ea64fe639a91198f163371",
+      "delivery_ct": 1782871333,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "eb8fcee787e432c69553e07adc9559e3bd44036a",
+      "gardner_ct": 1782856512,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-pyjwt-migration",
+      "delivery_sha": "c74a6909c7d12f873f53869e2daa456637b945e0",
+      "delivery_ct": 1782882715,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "f39a8181a04b9e993f1ca04c334076ba0b1e5857",
+      "gardner_ct": 1782882324,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-drop-sync-session",
+      "delivery_sha": "4fccfeb53e9a081d05a26ad54f2ade61f9196a24",
+      "delivery_ct": 1782938744,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "9cc696bf4d0298d3f61e44948352e164b1bee87d",
+      "gardner_ct": 1782936338,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-create-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-delete-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-edit-save-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-tags-editing",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "bc44dc16d6d6ae73778443c1ac6444afd88ec64b",
+      "gardner_ct": 1782225043,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "notes-list-from-backend",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "bb6f8fecb8bdaf29d7d31ac4cea56cf664ff83be",
+      "gardner_ct": 1781849148,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "deps-upgrade-latest",
+      "delivery_sha": "b74f28c7dfe598de74538d5c5930914e1b308e64",
+      "delivery_ct": 1783010335,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "9b0560628612635e711151687ae6c87df119773e",
+      "gardner_ct": 1783010115,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-service-layer-notes-auth",
+      "delivery_sha": "7152615a664ef75c613f2ed674fe4d18efc9bfd2",
+      "delivery_ct": 1783011507,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "dde7fd02f466a1bc9b6350ba5f66fac6e7b21b54",
+      "gardner_ct": 1783011349,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "backend-hygiene",
+      "delivery_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+      "delivery_ct": 1783356245,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": true,
+      "gardner_sha": "5a6b19c0595f590a02119f8fd87b74c0ddfb8184",
+      "gardner_ct": 1783355355,
+      "whiff_class": null,
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "auth-service-refresh-coverage",
+      "delivery_sha": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+      "delivery_ct": 1788110182,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     }
+    ],
+    "whiffs": [
+     {
+      "slug": "settings-account-summary",
+      "delivery_sha": "53050b7324b1273065d4193bd8de2f1bfd00fe02",
+      "delivery_ct": 1782269467,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782268779
+     },
+     {
+      "slug": "settings-password-change",
+      "delivery_sha": "0698b549346973f20173c00b2cd27fc22731befd",
+      "delivery_ct": 1782418144,
+      "via": "integration-merge",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": 1782312850
+     },
+     {
+      "slug": "note-create-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-delete-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "note-edit-save-workflow",
+      "delivery_sha": "3ff7d42c354b5bd09b954e072f4453be4c4b6494",
+      "delivery_ct": 1782951059,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     },
+     {
+      "slug": "auth-service-refresh-coverage",
+      "delivery_sha": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+      "delivery_ct": 1788110182,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
+     }
+    ],
+    "excluded_pre_enable": []
+   },
+   "kaizen": {
+    "commits": [
+     {
+      "sha": "dd26dd9a374fd5d215bb5b56af8161125a34cf72",
+      "ct": 1783355439,
+      "subject": "kaizen: seed .karta/sme/ with minimalism, python-fastapi, vue packs",
+      "seed": true,
+      "window_open": false,
+      "touched_packs": [
+       ".karta/sme/minimalism.md",
+       ".karta/sme/python-fastapi.md",
+       ".karta/sme/vue.md"
+      ]
+     }
+    ],
+    "floor": {
+     "fail": [],
+     "warn": [],
+     "checked_n": 1
+    },
+    "incidents": [],
+    "closed_denominator_n": 1,
+    "closed_denominator": [
+     "dd26dd9a374fd5d215bb5b56af8161125a34cf72"
+    ],
+    "window_open": [],
+    "spawn_utility": {
+     "substantive_kaizen_commits_n": 0,
+     "substantive_kaizen_commits": [],
+     "seed_excluded": [
+      "dd26dd9a374fd5d215bb5b56af8161125a34cf72"
+     ],
+     "deliveries_in_kaizen_epoch_n": 1,
+     "deliveries_in_kaizen_epoch": [
+      "auth-service-refresh-coverage"
+     ]
+    }
+   },
+   "config_staleness": [
+    {
+     "config": ".karta/doc-gardner.json",
+     "last_touch_sha": "83acd645c0e530f2a6ca707c97b8593eedfde12b",
+     "last_touch_ct": 1785427066,
+     "deliveries_since_n": 1,
+     "deliveries_since": [
+      "auth-service-refresh-coverage"
+     ],
+     "focus": "keep user-facing docs, architecture notes, and API references aligned with shipped behavior across the whole app \u2014 every delivery's blast radius, never one feature area; AGENTS.md's navigation/integration map must name each backend-wired flow",
+     "last_5_delivery_slugs": [
+      "notes-list-from-backend",
+      "deps-upgrade-latest",
+      "backend-service-layer-notes-auth",
+      "backend-hygiene",
+      "auth-service-refresh-coverage"
+     ]
+    },
+    {
+     "config": ".karta/kaizen.json",
+     "last_touch_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
+     "last_touch_ct": 1783356245,
+     "deliveries_since_n": 1,
+     "deliveries_since": [
+      "auth-service-refresh-coverage"
+     ],
+     "focus": null,
+     "last_5_delivery_slugs": [
+      "notes-list-from-backend",
+      "deps-upgrade-latest",
+      "backend-service-layer-notes-auth",
+      "backend-hygiene",
+      "auth-service-refresh-coverage"
+     ]
+    }
+   ],
+   "findings": [
+    {
+     "finding_id": "card-contradiction-history-walk",
+     "severity": "info",
+     "summary": "permanent card contradiction: card steps 1/3 pin first-parent-only history walks, but they contradict the card's own step 4 and seed observation on the real repos \u2014 subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (never --all); first-parent is reserved for epoch transitions and delivery enumeration; the delivery denominator is integration merges with archive-adds as the fast-forward fallback (dedupe by slug, merge wins)"
+    }
+   ]
+  },
+  {
+   "repo": "gringotts",
+   "head": "fd2ecea3de12b7f4ad2b332e128201e587b2bf61",
+   "caveat": "deliveries carry no plugin-version stamp, so this is loop health over calendar time, not a controlled version A/B",
+   "deliveries": [],
+   "epochs": {
+    ".karta/doc-gardner.json": {
+     "transitions": [],
+     "intervals": [],
+     "enabled_now": false
+    },
+    ".karta/kaizen.json": {
+     "transitions": [],
+     "intervals": [],
+     "enabled_now": false
+    }
+   },
+   "gardner": {
+    "fraction": "0/0",
+    "covered_n": 0,
+    "denominator_N": 0,
+    "per_slug": [],
+    "whiffs": [],
+    "excluded_pre_enable": []
+   },
+   "kaizen": {
+    "commits": [],
+    "floor": {
+     "fail": [],
+     "warn": [],
+     "checked_n": 0
+    },
+    "incidents": [],
+    "closed_denominator_n": 0,
+    "closed_denominator": [],
+    "window_open": [],
+    "spawn_utility": {
+     "substantive_kaizen_commits_n": 0,
+     "substantive_kaizen_commits": [],
+     "seed_excluded": [],
+     "deliveries_in_kaizen_epoch_n": 0,
+     "deliveries_in_kaizen_epoch": []
+    }
+   },
+   "config_staleness": [
+    {
+     "config": ".karta/doc-gardner.json",
+     "last_touch_sha": null,
+     "last_touch_ct": null,
+     "deliveries_since_n": 0,
+     "deliveries_since": [],
+     "focus": null,
+     "last_5_delivery_slugs": []
+    },
+    {
+     "config": ".karta/kaizen.json",
+     "last_touch_sha": null,
+     "last_touch_ct": null,
+     "deliveries_since_n": 0,
+     "deliveries_since": [],
+     "focus": null,
+     "last_5_delivery_slugs": []
+    }
+   ],
+   "findings": [
+    {
+     "finding_id": "card-contradiction-history-walk",
+     "severity": "info",
+     "summary": "permanent card contradiction: card steps 1/3 pin first-parent-only history walks, but they contradict the card's own step 4 and seed observation on the real repos \u2014 subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (never --all); first-parent is reserved for epoch transitions and delivery enumeration; the delivery denominator is integration merges with archive-adds as the fast-forward fallback (dedupe by slug, merge wins)"
+    }
+   ]
+  }
+ ]
+}

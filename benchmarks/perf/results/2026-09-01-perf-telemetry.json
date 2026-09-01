@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "vector": "perf-delivery-telemetry",
+  "run_date": "2026-09-01",
+  "generated_by": "benchmarks/probes/perf-delivery-telemetry.py (gate live pass)",
+  "note": "live telemetry evidence over surviving raw transcripts \u2014 recorded, never asserted; the fixture run alone gates",
+  "live": {
+    "since": "2026-08-02",
+    "dirs_present": 2,
+    "dirs_absent": 1,
+    "sessions_scanned": 58,
+    "deliveries_measurable": 0,
+    "unmeasurable_or_skipped": 0,
+    "entries": [
+      {
+        "repo": "/Users/tej/src/karta-pi",
+        "present": true,
+        "dir": "/Users/tej/.claude/projects/-Users-tej-src-karta-pi",
+        "project": "karta-pi",
+        "context": {
+          "project": "karta-pi",
+          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,codex-hooks-parity,context-economy,cross-item-consistency,delivery-stop-gate,design-reference-gate-2,evidence-economy,gardner-reliability,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-separation,pack-sovereignty,pi-visual-acceptance,pi-visual-capture,pi-visual-foundation,review-ledger,roundtable-edict,seed-drift-stamp-strip,shared-terms-pending,watch-derivation-cost,watch-drill-in-remediation,watch-drill-in,watch-fidelity,watch-font-adherence,watch-redesign,watch-shell,writer-confinement",
+          "plugin_version": "2.35.0",
+          "item_count": 160,
+          "estimate_mix": {
+            "M": 91,
+            "S": 33,
+            "L": 36
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "2.1.223"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 0,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 0,
+              "denominator": 0
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 57,
+        "deliveries_measurable": 0,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "/Users/tej/src/parchmark",
+        "present": true,
+        "dir": "/Users/tej/.claude/projects/-Users-tej-src-parchmark",
+        "project": "parchmark",
+        "context": {
+          "project": "parchmark",
+          "binder_slug": "auth-service-refresh-coverage,backend-drop-sync-session,backend-hygiene,backend-pyjwt-migration,backend-service-layer-notes-auth,deps-upgrade-latest,note-create-workflow,note-delete-workflow,note-edit-save-workflow,note-events-live-refresh,note-tags-editing,notes-list-from-backend,settings-account-delete,settings-account-summary,settings-notes-export,settings-password-change",
+          "plugin_version": "unknown",
+          "item_count": 37,
+          "estimate_mix": {
+            "S": 18,
+            "L": 3,
+            "M": 16
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "unknown"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 0,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 0,
+              "denominator": 0
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 1,
+        "deliveries_measurable": 0,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "/Users/tej/src/gringotts",
+        "transcript_dir": "/Users/tej/.claude/projects/-Users-tej-src-gringotts",
+        "present": false,
+        "note": "absent or decayed \u2014 counted unmeasurable, never asserted"
+      }
+    ]
+  }
+}
