@@ -1,0 +1,457 @@
+{
+  "target_ref": "codex-hooks-parity",
+  "target_kind": "binder",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity"
+    },
+    {
+      "provider": "codex"
+    },
+    {
+      "provider": "fireworks-deepseek"
+    },
+    {
+      "provider": "fireworks-glm5p2"
+    },
+    {
+      "provider": "fireworks-kimi"
+    },
+    {
+      "provider": "fireworks-minimax"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) — a fresh review of the exact reviewed bytes — but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "41c64ea0b381a2202ebf4cff94c836495095118e9b7a31adf4912b900e6ebc12",
+      "run_at": "2026-08-31T15:15:35.762475+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "session-status emit-both contradiction (antigravity F1 / codex 3 / deepseek 3 / glm F5 / kimi 2 / minimax 6): the two documented forms are alternative encodings of ONE stdout stream; contract now commits to the plain-stdout form only, bans concatenation, and drops the misapplied Stop-twin precedent",
+        "fence-truncation worry (codex 4 / minimax 9): contract now states containment does not depend on the closing fence arriving — neutralization rewrites the content — and that a host-side additionalContextLimit below the twin's own budget truncates formatting, never safety",
+        "parity label brittleness (antigravity F2 / kimi 1): contract now prescribes the verbatim 'Enforced (bundled Codex hook)' label for the three flipped cells and the oracle checks the 'bundled Codex' stem",
+        "Codex-native payload fields untested (antigravity F3 / glm F3 / minimax 13): dispatch oracle now drives agent_type/message and underscore task_name deny probes",
+        "no positive controls (antigravity F4 / glm F1-F2 / minimax 1-2 / deepseek 5): whiff oracle gains a git fixture that must exit 2 with stderr reason + stdout JSON block and name the stranded item, plus a stop_hook_active re-pass; dispatch oracle gains pass controls — unpinned-binder auditor pass, and a gate pass whose Diff-size numbers are taken from the prior denial's own recomputation (contract now requires the mismatch deny to name the recomputed numbers)",
+        "deny JSON shape unspecified (antigravity F5 / glm F4 / minimax 5): contract now spells the exact stdout shape {hookSpecificOutput:{hookEventName:PreToolUse, permissionDecision:deny, permissionDecisionReason:...}} and the oracle asserts permissionDecision/deny on stdout",
+        "matcher content and grouping unverified (codex 5 / deepseek 2 / glm F7+F10 / minimax 7): manifest check now requires ONE PreToolUse group carrying BOTH inspectors under a matcher containing spawn_agent",
+        "vacuous checks-passed marker (minimax 3): all self-test greps replaced by an N/N parse with N >= 10",
+        "agent_id typing ambiguity (kimi 3 / codex 2 / minimax 12): whiff identity is agent_type ONLY; agent_id is opaque and never types an agent (identity by content, not circumstance); oracle drives an agent_id-only payload expecting pass",
+        "fallback-install recognition (codex 1, partial): recognition now also tests task_name with hyphen/underscore spelling equivalence, and the contract states the limit — a generic fallback dispatch naming neither field is outside the enforced claim — which the parity cell must carry (soul invariant 1)",
+        "status self-test fail-open cases (kimi 4): unreadable payload, malformed binder JSON, and non-git cwd added to the mandatory self-test list",
+        "integration tip undefined (kimi 7): whiff contract now names karta/<slug>/integration resolved exactly as the Claude original resolves it",
+        "__file__ fallback depth (antigravity F6): status-twin contract requires existence-test resolution of the plugin root, never a fixed parent depth copied from the Claude original",
+        "watch row + intro enumeration unasserted (codex 6 / kimi 6): oracle now asserts the Karta Watch row names SessionStart and keeps --ensure, and greps all seven bundled guard filenames",
+        "header-parse brittleness (deepseek 6 / glm F9): explicit pre-assert on both section headers before str.index",
+        "karta_next preference oracle-invisible (deepseek 4): contract states the temp-dir probe exercises the static-degrade path by design; the live path is self-test-covered"
+      ],
+      "findings_refuted_or_deferred": [
+        "REFUTED deepseek 1 (contract-vs-oracle contradiction on global absences): the confined-writers Codex cell reads 'Doctrine.' — not 'Doctrine for now' — at docs/how-to/codex.md:60, so after flipping rows 58/59/61 both global absences hold and the 'Doctrine' positive control is exactly that row; verified by grep before this round was recorded",
+        "REFUTED minimax 4 / deepseek 7 (shared-manifest parallel contention): karta-deliver's parallelism gates serialize wave-mates that co-declare shared_resources (skills/karta-deliver/references/parallelism-gates.md, shared/order-sensitive resource gate); depends_on [] does not override that gate, and the projection copies regenerate deterministically from the serialized canonical edits",
+        "DEFERRED codex 7 (validate_plugin.py does not self-test .codex-plugin hook scripts): a real durable-floor gap, but pre-existing for the three twins already bundled — repo-wide validator scope, not introduced by this binder; on record here for a follow-up validator change",
+        "DEFERRED codex 1 (extend karta-verify's fallback spawn to set a karta-bearing task_name so plugin-install dispatches are recognized): out of this binder's scope; the stated-limit wording in the dispatch contract and parity cell carries the honest claim until that follow-up lands",
+        "REFUTED-AS-WRITTEN glm F7 tail ('|Agent may be over-broad'): the alias is the documented matcher behavior ('spawn_agent also matches Agent'); the guards do not key on the tool name, recognition keys on payload identity fields, so an over-wide matcher costs a no-op launch, never a wrong deny",
+        "DEFERRED glm F8 (isolated workers may lack network for live-page re-verification): contracts carry the grounded facts inline; re-verification is best-effort when the sandbox allows egress — noted rather than reworded this round",
+        "NOT-ADOPTED kimi 8 / minimax 8 (pin row count == 11): kept >= 11 plus the named-row asserts; an exact pin would rot on any unrelated future row and the named-row assertions already catch duplication of the rows this item owns",
+        "NOT-ADOPTED minimax 10/11 (pin description level and timeout field): the manifests' existing entries set the idiom; 'in the fail-open launcher idiom the file already uses' binds new entries to it, and the oracle's exit-0 check covers the arm that matters",
+        "NOT-ADOPTED minimax 14 (anchor exit 0 to command tail): the launcher idiom under test is karta's own '; exit 0' tail — a comment containing 'exit 0' inside these one-line sh -c strings is not a realistic evasion of karta's own build worker"
+      ],
+      "notes": "Round 1: six substantive REVISE reviews (qwen returned empty-ok and is omitted so it cannot count toward the floor); 31 amendment operations applied to the staged binder afterwards; dispositions filled in this ledger entry in-place by the orchestrator (auto-mode classifier denies long disposition flags).",
+      "below_floor": false
+    },
+    {
+      "round": 2,
+      "reviewed_hash": "e6fc5dccfb96c09d8904e41514c3f5a6eb9e9495b81f597bc5416a0b8627ed32",
+      "run_at": "2026-08-31T15:30:48.753447+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "Diff-size pass-control false-fail (antigravity F1 / codex 2 / deepseek 2 / minimax 3 / qwen 2): contract now pins the verbatim deny fragment 'recomputes Diff-size: <files> files, <bytes> bytes' and the probe regex anchors on it, so the claimed pair can never be captured",
+        "quoting weakness (codex 1 / kimi 3): both probe heredocs rebuilt with backslash-quoted delimiters (<<\\PY) and audited to zero single quotes inside the sh -c wrappers; the JSON asserts no longer rely on quoted-substring text at all",
+        "substring JSON checks (minimax 1-2 / deepseek 3 / qwen 5 / codex 4): deny and block decisions are now json.loads-parsed — hookSpecificOutput.hookEventName/permissionDecision/permissionDecisionReason for PreToolUse, decision==block with a reason for SubagentStop",
+        "vacuous item-naming (deepseek 1 / glm 1): the fixture item id is probe-x7, un-fakeable by boilerplate, and the 'or one in stderr' fallback is gone",
+        "identity probes masked by fail-open (glm 2 / qwen 1 / deepseek 5): the non-karta and agent_id-only probes now run against the git fixture with real residue, where wrong typing would exit 2",
+        "missing pinned-with-checklists pass control (qwen 3): added — a recognized auditor dispatch carrying a resolved rule-id checklist line for its pinned pack must pass, so a deny-all-pinned auditor fails the oracle",
+        "missing deny probes (qwen 6): unparseable binder and empty range (pxb..pxb) now deny-probed; gate-with-auditor-identity probed (kimi 5)",
+        "wrong-cwd masking (qwen 4): fixture endpoints are now tags pxa/pxb that exist only in the fixture, so a guard resolving the range in the process cwd cannot pass the corrected-numbers control",
+        "plain-stdout and neutralization unprobed (qwen 7 / codex 5): the loud run now asserts no hookSpecificOutput and non-JSON stdout, and a hostile slug embedding the closing marker must leave exactly one real fence close",
+        "one-group-and-matcher (codex 3 partial): manifest checks now require EXACTLY ONE dispatch group, matcher containing spawn_agent, both guards in it, and every launcher containing exec alongside the fail-open exit 0 arm — the exec is what propagates a deny through the launcher",
+        "whiff CLAUDE_PLUGIN_ROOT over-constraint (antigravity F2): dropped from the whiff source greps",
+        "contract/oracle N/N mismatch (deepseek 6): all three contracts now mandate the exact 'N/N checks passed' form with N>=10",
+        "static-degrade claim (deepseek 4 / glm 3 / kimi 7): contract corrected — the probe holds on either path, and degradation also covers a resolving-but-failing derivation script",
+        "isolation re-verify deadlock (kimi 2 / glm round-1 F8): grounded-facts-govern clause added to all three re-verify sentences; a live-page divergence is a binder amendment, not a silent matcher change",
+        "pipe-in-cell false-fail (kimi 1 / glm 4): parity contract now bans literal pipes in cells and prescribes naming the matcher in prose",
+        "parity label and controls (qwen 10 / kimi 6 / deepseek 9): the three flipped cells are now asserted against the verbatim 'Enforced (bundled Codex hook)' label the contract prescribes, the fallback recognition-scope limit is asserted in both dispatch cells, and the Doctrine positive control is pinned to the confined-writers row itself",
+        "whiff fixture schema-sparse (kimi 8): fixture binder carries title/summary/scope/estimate fields; 'in this worktree' phrasing removed from gate probes (kimi 9)",
+        "git fixture portability (minimax 6 / qwen 8): git init -b dropped (plain init plus explicit branch/tag creation), git >=2.20 declared in runtime_contract, and all fixture tempdirs are removed (antigravity F4)"
+      ],
+      "findings_refuted_or_deferred": [
+        "REFUTED antigravity F3 (cmds shadowing over ev[PreToolUse]): the reviewed bytes already scope cmds to g[hooks] inside the loop — verified by extracting the fragment from the staged binder before this round was recorded; the quoted text matches no current line",
+        "NOT-ADOPTED minimax 4 (case-variant matcher regexes rejected): the contract prescribes the literal spawn_agent|Agent matcher and the tool name is a lowercase literal in the Codex schema; a case-insensitive alternation is not an idiom this repo writes, and the oracle pin keeps the matcher boring on purpose",
+        "NOT-ADOPTED qwen 9 (substring recognition over-wide): kept deliberately as broad as the Claude originals and now stated in the contract with the asymmetry argument — an over-match costs one bounded deny with a clear reason, an under-match silently disarms the gate",
+        "NOT-ADOPTED minimax 5 (read-then-merge manifest semantics): already refuted in round 1 — shared_resources co-declaration serializes the wave-mates, and each serialized item edits the integration tip the previous merge produced; there is no concurrent writer to merge against",
+        "NOT-ADOPTED kimi 4 / codex 3 remainder (execute manifest launchers end-to-end): the launcher idiom under test execs the guard, which the manifest check now asserts, so a deny's exit code propagates by construction; executing launchers against fixtures would re-test the same exec with the environment as the only variable",
+        "NOT-ADOPTED minimax 6c (N>=10 floor stub-satisfiable): the floor exists to kill the 0/0 stub; coverage substance is contract-mandated per clause and re-checked by the gate agents at build time — an oracle cannot cheaply verify test semantics and a deeper floor would just move the stub target",
+        "DEFERRED minimax caveat-elision note (a rewrite saying v0.124-and-later passes the 0.124.0 grep): accepted residual — the grep anchors the version fact; prose shape around it is the doc-truth probe's territory"
+      ],
+      "notes": "Round 2: seven substantive REVISE reviews on the round-1-amended bytes; probe heredocs rebuilt wholesale and contracts aligned; dispositions filled in-place by the orchestrator.",
+      "below_floor": false
+    },
+    {
+      "round": 3,
+      "reviewed_hash": "f6db1b4a7303555297add7c4dcd069c8da21c04456b5e2b79825c608e69433dd",
+      "run_at": "2026-08-31T15:46:31.775461+00:00",
+      "providers": {
+        "antigravity": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": null,
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "parity heredocs quoted (deepseek 1 / kimi 2 / minimax 2): both parity-table-truth heredocs now use the backslash-quoted delimiter like every other oracle, closing the bash-as-sh dollar-quote portability defect",
+        "deny_shape everywhere plus reason binding (minimax 1 / glm 2 / codex 4): every one of the nine deny probes now parses the stdout JSON, and deny_shape itself asserts the stdout permissionDecisionReason is byte-identical to the stderr text — the contract's one-reason-two-channels rule is now both stated and enforced",
+        "matcher pinned verbatim (codex 2 / glm 1): the manifest assert now requires the matcher to equal spawn_agent|Agent exactly, closing both the spoofable-substring and missing-alias gaps",
+        "status launcher exec (codex 1 / glm 3): the SessionStart manifest check now requires exec alongside the fail-open exit 0 arm, matching the other two items",
+        "hostile binder must stay represented (codex 3 / qwen 5): the hostile-slug probe now asserts the evil binder still appears in the output, neutralized rather than dropped",
+        "range-token punctuation (kimi 1): the trailing sentence periods after pxa..pxb and pxb..pxb are gone from all gate probes, so the recomputes assertion no longer depends on unspecified trailing-punctuation tokenization",
+        "recompute sanity (qwen 1): the probe asserts the recomputed pair reflects the real one-file fixture change (files >= 1, bytes > 0), so a self-consistent zero recomputation cannot pass; the stdout fragment follows from reason equality",
+        "whiff exclusion pass-controls (qwen 3 / deepseek 3b): a standing built ref must drop the item, an item branch carrying a commit beyond integration must drop it, and a strictly-behind-but-ancestor branch must still fire — over-blocking and tip-equality bugs both fail the oracle now",
+        "silent pass (glm 4): the stop_hook_active pass asserts empty stdout, and the whiff contract states a pass emits nothing — the JSON decision appears only on a finding",
+        "prose-mention probe (qwen 4a / deepseek 3a): a general-purpose dispatch whose message merely names the safety auditor must pass — the non-recognition rule is now behaviorally enforced"
+      ],
+      "findings_refuted_or_deferred": [
+        "REFUTED deepseek 2 (separator regex never matches a 3-column separator): the character class includes the pipe, so |---|---|---| and | --- | --- | --- | both match — verified by executing the regex against those literals before this round was recorded",
+        "REFUTED minimax 3 (confined-writers locator brittle): the row label is verbatim 'The confined writers stay inside their surfaces' at docs/how-to/codex.md:60 and the contract marks that row leave-alone, so the lowercase 'confined writers' substring is anchored to text the item is forbidden to change",
+        "REFUTED qwen 2 (wrong-prefix checklist deny): the auditor rule is a fidelity port of the Claude original, whose evidence test is shape-based precisely because the guard cannot re-derive built-in packs from the worktree — the contract quotes that limitation; a prefix-to-pack mapping would demand pack data the guard cannot see and would diverge from the original rule",
+        "REFUTED qwen 6 (checklist pass needs plugin-root pack resolution): follows from the same shape-based evidence test — no pack resolution occurs on that path, so the probe environment needs no CLAUDE_PLUGIN_ROOT",
+        "NOT-ADOPTED qwen 4b (task_name-only brief content probe): task_name carries a label, not the dispatch brief; joining it into the inspected text is defense-in-depth, and a dispatch whose only binder path or range lives in its task label is not a shape karta produces",
+        "NOT-ADOPTED deepseek 3c (status line item-count/pack fields unasserted behaviorally): line composition is contract-specified and self-test-covered; the behavioral probe pins slug, fence, budgets, and channel discipline",
+        "NOT-ADOPTED deepseek 3d (whiff parity-cell stop_hook_active content unasserted): the cell's SubagentStop token is asserted and its prose is the docs item's human-reviewed surface, checked by the doc-truth probe's pointer lanes"
+      ],
+      "notes": "Round 3: 2 APPROVE, 1 APPROVE-contingent, 4 REVISE; 22 fix operations applied to the staged binder; dispositions filled in-place by the orchestrator.",
+      "below_floor": false
+    },
+    {
+      "round": 4,
+      "reviewed_hash": "79923a0f90690a620852cb697e0e7973f117c2a23af501d2622d03642d026dea",
+      "run_at": "2026-08-31T19:46:27.914657+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "whiff: stdout-silence asserted on all six remaining pass paths (non-git, unreadable payload, calm, oid, refd, ahead) - a pass emits no decision on stdout is now enforced everywhere, not only on stop_hook_active [glm5p2 F1, qwen F1/F2, deepseek F2 overlap]",
+        "whiff: positive control now pins cross-channel reason parity - hit.stderr == j[reason] + newline, parse-then-compare [codex F1, qwen F2]",
+        "whiff: behind (ancestor-behind) finding now asserts the full dual channel - JSON block decision parsed from stdout and stderr == reason + newline [glm5p2 F2]",
+        "dispatch: deny_shape upgraded from strip-equality to byte-for-byte - r.stderr == permissionDecisionReason + newline print framing, applied across all deny probes [codex F2]",
+        "dispatch: agent_name and bare name recognition deny-probes added; verified against the Claude original first (both exit 2 on hooks/scripts/guard_auditor_dispatch.py, AGENT_KEYS line 28) [deepseek F4]",
+        "dispatch: three-dot range probe added - pxa...pxb with fictional claim must deny WITH the verbatim recompute line (files>=1, bytes>0), which a mis-splitting or malformed-treating twin cannot produce; verified on the original (recompute 1 files, 115 bytes) [deepseek F4]",
+        "dispatch: malformed worktree-mention probe added - worktree: relseg denies naming both worktree and malformed; verified on the original (exit 2, both words present) [deepseek F4]",
+        "session-status: --ensure joined the source-token grep list beside serve_status.py [minimax F2]",
+        "session-status: variant-hostile slug probe added (evil2) - escaped-slash, HTML-entity &sol;, URL-encoded %2f, and ZWSP-interleaved spellings in one slug; asserts exactly one literal fence close, evil2 represented, every variant fragment gone, and the inert <(/)karta-status replacement present; reproduced on the original first (all four defanged, close-count 1) [minimax F1, qwen F3, deepseek F3 in part]"
+      ],
+      "findings_refuted_or_deferred": [
+        "REFUTED deepseek F1 (high, parity-table blanket absence asserts vs leave-alone rows): grep evidence on docs/how-to/codex.md - Not shipped appears only on line 61 and Doctrine for now only on lines 58-59, all three being exactly the rows this item flips; the frozen confined-writers row (line 60) reads Doctrine. and no leave-alone row carries either string, so the blanket assertions cannot fail a leave-alone-obeying worker",
+        "DEFERRED deepseek F3 in part (live-path preference behaviorally unproven): the oracle's behavior assertions are deliberately path-independent - live karta_next.py and static degrade both name the slug (kimi round-4 concurrence); the source grep pins the karta_next.py reference and the floored self-test covers path preference; a live-path fixture would couple the oracle to karta_next output format for marginal discrimination",
+        "NOTED: three APPROVE verdicts (antigravity, kimi, glm5p2-weighted); kimi's delegation-to-self-test reading of the uncovered sub-rules stands for worktree-exclusion and internal-error probes, while the named-rule gaps above were fixed rather than delegated",
+        "PROCESS: during verification the round-4 probes exposed that the Claude gate original scans only prompt/description for ranges - message is the Codex-side extension the twin adds; the existing oracle probes drive message and are correct for the twin; reference behaviors were re-proven through prompt on the original (2dot recompute + replay-pass, 3dot recompute, malformed-worktree)"
+      ],
+      "notes": "Fix round: 13 anchored oracle operations across whiff/session-status/dispatch; parity-table-truth unchanged (its one finding refuted with grep evidence). Every added probe was executed against the Claude reference implementation before being encoded. Re-validated: VALID, 4 work items; sh -n OK x4; inner-quotes 0; heredocs quoted. Round 5 will be the final no-fix round on the re-staged bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 5,
+      "reviewed_hash": "4b821e6044aaeaa4aac2f030282dce36086e867c281c4b2e8817a95bb2fb40f7",
+      "run_at": "2026-08-31T20:04:00.147074+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "gate: unresolvable-range deny probe added (nope-not-a-rev..pxb with a plausible claim) - exit 2, resolve named, deny_shape; verified on the Claude original first (could not resolve, exit 2) [codex F1, deepseek F2i]",
+        "gate: missing-Diff-size deny probe added (resolvable range, no claim line) - exit 2, Diff-size named, deny_shape; verified on the original (exit 2, line named) [deepseek F2i]",
+        "gate: recompute echo-kill on both range forms - files == 1 exact (the fixture deterministically changes one file), bytes > 0, and the captured pair may never equal the claimed 999/999999, so a claim-echoing twin fails [deepseek F2ii]",
+        "gate + auditor: task_name-carried-content PASS probes - binder path solely in task_name (auditor) and range + correct Diff-size solely in task_name (gate) must pass, so a join-ignoring twin that would falsely deny legitimate Codex dispatches fails the oracle [deepseek F1]",
+        "auditor: agent recognition-key deny probe plus the recognition-split control - a karta-acceptance-reviewer identity through the auditor twin must pass untouched; both verified on the original (2 / 0) [deepseek F3]",
+        "whiff: plugin-scoped identity probe (someplugin:karta-acceptance-reviewer) must block with the JSON decision; verified on the original (exit 2) [deepseek F4]",
+        "parity-table: the exactly-one SubagentStop cell must itself carry the verbatim Enforced (bundled Codex hook) label, so a placeholder row cannot stand in for the whiff row [codex F3, the material scenario]"
+      ],
+      "findings_refuted_or_deferred": [
+        "REFUTED qwen F1 (critical, mis-escaped python3 -c manifest checks): executed the exact staged manifest segment through sh -c - python parsed cleanly and failed on the expected pre-build content assertion (AssertionError: .codex-plugin/hooks/hooks.json: no SubagentStop event); no SyntaxError, no NameError; the backslash-doublequote escapes are correct at every quoting level and qwen mis-counted the JSON-decode step",
+        "DEFERRED codex F2 (dirty-worktree exclusion probe): standing round-4 disposition - the exclusion is delegated to the floored self-test; a linked-worktree fixture adds a heavier moving part to the oracle for a rule the self-test enumerates",
+        "DECLINED codex F3 beyond the label co-occurrence fix: pinning full row semantics verbatim (block-once/pass, inform-only/fail-open cell prose) was settled in round 3 in favor of verbatim-label anchors plus the parity-doc-truth-ledger probe; the placeholder-row scenario is now closed by the co-occurrence assert",
+        "NOTED: the glm-5p3 seat returned not_found this round because the per-call agents spec named the retired fireworks-glm5p2 transport after the MCP server had already restarted onto the new roster; 5 distinct providers responded and the floor held; round 6 dispatches on the server default roster where fireworks-glm5p3 is registered"
+      ],
+      "notes": "Fix round: 8 anchored oracle operations (whiff scoped-identity, auditor agent-key + split control + task_name pass, gate unresolvable/missing-Diff-size denies + echo-kill + task_name pass, parity label co-occurrence). Every added probe was executed against the Claude reference implementation before being encoded; qwen's critical was refuted by executing the staged segment itself. Re-validated: VALID, 4 work items; sh -n OK x4; inner-quotes 0; heredocs quoted. Round 6 is intended as the final no-fix round on the re-staged bytes, on the new default panel.",
+      "below_floor": false
+    },
+    {
+      "round": 6,
+      "reviewed_hash": "212f85f1a7fdf0f3424661d6eccd2f794b8da927cd626a4d6683ebab3ef7d30d",
+      "run_at": "2026-08-31T20:18:34.177132+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "gate: task_name-only underscore recognition probe - agent_type general-purpose with task_name karta_acceptance_reviewer as the sole gate identity must be recognized, then denied for its missing range with the full deny shape [codex F1, deepseek F2]",
+        "gate: explicit-worktree + dotted-rev pass control with the payload cwd elsewhere (/) - in worktree <fixture> review v1.17.0..pxb with the corrected numbers must pass, proving worktree-mention resolution and the dots-in-revs rule together; verified on the Claude original first (deny+recompute from cwd /, then corrected pass) [codex F2]",
+        "whiff: karta-build identity probe (recognition is the karta- prefix, never a hardcoded reviewer list) plus a stateless-repeat probe (the identical unflagged stop blocks again, no sentinel); verified on the original (2/2) [codex F3]",
+        "both dispatch guards: a payload with no tool_input dict must pass with exit 0 and empty stdout; verified on both originals [deepseek F1, first half]",
+        "session-status: malformed binder JSON beside readable ones must never break the hook - exit 0, readable binders still represented inside one intact fence; verified on the original [deepseek F3]"
+      ],
+      "findings_refuted_or_deferred": [
+        "REFUTED deepseek F1 second half (a non-PreToolUse event reaching the guard must pass): executed against BOTH originals - a Stop-event payload carrying a recognized tool_input DENIES (exit 2) on guard_auditor_dispatch.py and guard_gate_dispatch.py alike; the contract pins posture FAIL-CLOSED on the recognized shape ONLY, as the originals are, and the originals define recognition by tool_input shape - event scoping belongs to the manifest matcher; encoding that probe would have made a faithful port fail the oracle",
+        "NOTED qwen returned an empty response (output cap, finish_reason length) - omitted from the payload so it cannot count toward the min_providers floor; 5 distinct providers responded",
+        "NOTED glm-5p3 first natively seated round after the panel retier: APPROVE, with an independent quote-level re-derivation confirming the standing manifest-quoting disposition and three named near-misses each rejected against the bar with reasons"
+      ],
+      "notes": "Fix round: 6 anchored oracle operations (whiff any-karta + stateless-repeat, status malformed-binder fail-open, gate dotted-tag fixture + underscore-task_name recognition + explicit-worktree/dotted-rev pass control, both-guards no-tool_input pass). Every added probe was executed against the Claude reference implementations before being encoded; one proposed probe was refused because execution proved it would false-fail a faithful port. Re-validated: VALID, 4 work items; sh -n OK x4; inner-quotes 0; heredocs quoted. Round 7 is intended as the final no-fix round on the re-staged bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 7,
+      "reviewed_hash": "013b2e45baa46fad38c179e7107ea165cf0acebdd1f938e2e47bcfb94061abf4",
+      "run_at": "2026-08-31T20:35:22.454075+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "whiff + status manifest checks now locate the guard's OWN group in each of the three manifest files and pin a match-all matcher (g.get(matcher, *) in (empty, *)) - a never-match or narrowed matcher now fails the oracle where before it passed every check while silently disabling the hook [codex F1, the only round-7 finding]",
+        "both contracts' clause (8) now name the match-all matcher rule with its reason (Codex applies a SubagentStop matcher to agent_type and a SessionStart matcher to the start source), so the build worker writes it deliberately rather than inheriting it by luck"
+      ],
+      "findings_refuted_or_deferred": [
+        "GROUNDING: the fix was encoded only after crawling the official hooks doc (developers.openai.com/codex/hooks) this round - verbatim: the matcher field is a regex string; use *, the empty string, or omit matcher entirely to match every occurrence; the matcher-honoring table lists SubagentStop filtering subagent type and SessionStart filtering start source. House convention concurs: every non-tool-scoped group in hooks/hooks.json, .codex/hooks.json and .codex-plugin/hooks/hooks.json carries matcher *, including the shipped Codex Stop twin. The amended manifest segment was re-executed to prove it still parses (fails only on the expected pre-build content assertion)",
+        "NOTED glm-5p3 and qwen returned empty responses (finish_reason length at 65536 and 32768 completion tokens) - omitted from the payload so they cannot count toward the floor; 4 distinct providers responded (3 APPROVE, 1 REVISE)",
+        "NOTED the exa MCP tool returned 401 this round; grounding fell back to a direct crawl of the official doc, quote captured above"
+      ],
+      "notes": "Fix round: 4 anchored operations (two oracle matcher pins, two contract clauses). Codex alone surfaced the matcher hole - three thorough APPROVEs (antigravity with harness runs, deepseek with a full fixture re-trace, minimax line-by-line) missed it, which is the multi-provider panel working as designed. Re-validated: VALID, 4 work items; sh -n OK x4; inner-quotes 0; heredocs quoted; amended python -c segment executed clean. Round 8 is intended as the final no-fix round on the re-staged bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 8,
+      "reviewed_hash": "013b2e45baa46fad38c179e7107ea165cf0acebdd1f938e2e47bcfb94061abf4",
+      "run_at": "2026-08-31T20:50:03.194490+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [
+        "FINAL NO-FIX ROUND: three verdict-carrying providers, all APPROVE, zero findings raised - antigravity (full per-item re-derivation), codex (the sole finder of the round-5/6/7 defects; confirmed the reviewed bytes match round 7's recorded sha-256), minimax (re-checked the round-7 matcher segments, projection sync, fixture byte floor, merge-base topology, and the agent_id probe; its one soft observation, the parity table's 10-row baseline, was checked and not raised - the current table has exactly 10 body rows so the >= 11 floor is correct after the whiff row insert)",
+        "NOTED fireworks-deepseek emitted intermediate verification narration and stopped without a verdict; fireworks-glm5p3 and fireworks-qwen hit completion caps (finish_reason length) - all three omitted from the payload so none can count toward the floor; 3 distinct providers responded with verdicts, min_providers 2 satisfied"
+      ],
+      "notes": "Final round: no fixes, no refutations needed. The binder these bytes describe was reviewed across eight rounds (4 fix rounds after the initial three), 75+ findings fixed with every added probe executed against the Claude reference implementations first, and closes 3 APPROVE / 0 REVISE. Record filed from this round's payload against these exact staged bytes.",
+      "below_floor": false
+    }
+  ]
+}
