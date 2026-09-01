@@ -5,7 +5,7 @@
   "generated_by": "benchmarks/probes/perf-delivery-telemetry.py (gate live pass)",
   "note": "live telemetry evidence over surviving raw transcripts \u2014 recorded, never asserted; the fixture run alone gates",
   "live": {
-    "since": "2026-08-01",
+    "since": "2026-08-02",
     "dirs_present": 3,
     "dirs_absent": 0,
     "sessions_scanned": 123,
@@ -19,13 +19,13 @@
         "project": "karta",
         "context": {
           "project": "karta",
-          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,context-economy,cross-item-consistency,delivery-stop-gate,design-reference-gate-2,evidence-economy,gardner-reliability,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-separation,pack-sovereignty,review-ledger,roundtable-edict,seed-drift-stamp-strip,shared-terms-pending,watch-derivation-cost,watch-drill-in-remediation,watch-drill-in,watch-fidelity,watch-font-adherence,watch-redesign,watch-shell,writer-confinement",
-          "plugin_version": "2.33.0",
-          "item_count": 147,
+          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,codex-hooks-parity,context-economy,cross-item-consistency,delivery-stop-gate,design-reference-gate-2,evidence-economy,gardner-reliability,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-separation,pack-sovereignty,review-ledger,roundtable-edict,seed-drift-stamp-strip,shared-terms-pending,watch-derivation-cost,watch-drill-in-remediation,watch-drill-in,watch-fidelity,watch-font-adherence,watch-redesign,watch-shell,writer-confinement",
+          "plugin_version": "2.34.0",
+          "item_count": 151,
           "estimate_mix": {
-            "M": 86,
-            "S": 32,
-            "L": 29
+            "M": 87,
+            "S": 33,
+            "L": 31
           },
           "models_per_agent_type": {
             "builder": "claude-fable-5",
@@ -37,7 +37,7 @@
           "deliveries_measurable": 9,
           "spawns_per_type": {
             "builder": 55,
-            "other": 44
+            "other": 47
           },
           "per_item": {
             "watch-store": {
@@ -371,8 +371,8 @@
             "wall_min": 6.81
           },
           "overhead_ratio": {
-            "value": 0.5403,
-            "numerator_output_tokens": 961899,
+            "value": 0.5406,
+            "numerator_output_tokens": 962521,
             "denominator_output_tokens": 1780469
           },
           "models_per_agent_type": {
