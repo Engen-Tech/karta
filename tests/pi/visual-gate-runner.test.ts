@@ -6,6 +6,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
 import {
   judgeVisualEvidence,
+  sniffImageMime,
   type VisionPreflight,
   type VisualCurrency,
   type VisualCurrencySource,
@@ -410,6 +411,19 @@ test("a dispatched runtime that is not the model the vision preflight approved i
 
 // ------------------------------------------------- opt-in live end-to-end judgement
 
+test("sniffImageMime reads the true media type from magic bytes, not the extension", () => {
+  assert.equal(sniffImageMime(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), "image/png");
+  assert.equal(sniffImageMime(Buffer.from([0xff, 0xd8, 0xff, 0xe0])), "image/jpeg");
+  assert.equal(sniffImageMime(Buffer.from("GIF89a", "latin1")), "image/gif");
+  assert.equal(sniffImageMime(Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBP")])), "image/webp");
+  assert.equal(sniffImageMime(Buffer.from("not an image at all")), undefined);
+});
+
+test("the currency reports a screenshot's real media type, not its extension (regression: Anthropic 400s a JPEG declared image/png)", async () => {
+  const iconBytes = await readFile(fileURLToPath(new URL("../../docs/images/icon.png", import.meta.url)));
+  assert.equal(sniffImageMime(iconBytes), "image/jpeg");
+});
+
 const LIVE = process.env.KARTA_LIVE_VISUAL_JUDGE === "1";
 const LIVE_PROVIDER = process.env.KARTA_LIVE_VISUAL_PROVIDER ?? "amorphic";
 const LIVE_MODEL = process.env.KARTA_LIVE_VISUAL_MODEL ?? "claude-opus-5";
@@ -434,8 +448,8 @@ test(
 
     const bytes = await readFile(LIVE_IMAGE);
     const currency: VisualCurrencySource = async () => ({
-      app: { data: bytes, mimeType: "image/png" },
-      design: { data: bytes, mimeType: "image/png" },
+      app: { data: bytes, mimeType: sniffImageMime(bytes) ?? "image/png" },
+      design: { data: bytes, mimeType: sniffImageMime(bytes) ?? "image/png" },
       treeRange: { base: "0".repeat(40), target: "1".repeat(40) },
     });
 

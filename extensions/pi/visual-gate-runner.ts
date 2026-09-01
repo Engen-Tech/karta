@@ -497,6 +497,22 @@ async function invokeWithTimeout(
 
 // The file-backed default currency source: read the two captured screenshots from disk and
 // resolve the tree range each call (so the post-dispatch re-verify sees a real move).
+// Sniff the true image MIME from the leading magic bytes. Anthropic validates the declared
+// media_type against the actual bytes and returns a 400 on a mismatch (e.g. a JPEG declared
+// image/png), so the currency must report what the bytes really are — never a hardcoded
+// default or a file extension. (OpenAI-family models don't validate this, which is why a
+// mislabeled image only fails against Anthropic-backed providers.)
+export function sniffImageMime(data: Buffer): string | undefined {
+  if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return "image/png";
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
+  if (data.length >= 6) {
+    const head = data.subarray(0, 6).toString("latin1");
+    if (head === "GIF87a" || head === "GIF89a") return "image/gif";
+  }
+  if (data.length >= 12 && data.subarray(0, 4).toString("latin1") === "RIFF" && data.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  return undefined;
+}
+
 export function createFileCurrencySource(options: {
   appScreenshotPath: string;
   designScreenshotPath: string;
@@ -504,17 +520,21 @@ export function createFileCurrencySource(options: {
   designMimeType?: string;
   resolveTreeRange: () => Promise<VisualTreeRange> | VisualTreeRange;
 }): VisualCurrencySource {
-  return async () => ({
-    app: {
-      data: await readFile(options.appScreenshotPath),
-      mimeType: options.appMimeType ?? "image/png",
-    },
-    design: {
-      data: await readFile(options.designScreenshotPath),
-      mimeType: options.designMimeType ?? "image/png",
-    },
-    treeRange: await options.resolveTreeRange(),
-  });
+  return async () => {
+    const appData = await readFile(options.appScreenshotPath);
+    const designData = await readFile(options.designScreenshotPath);
+    return {
+      app: {
+        data: appData,
+        mimeType: options.appMimeType ?? sniffImageMime(appData) ?? "image/png",
+      },
+      design: {
+        data: designData,
+        mimeType: options.designMimeType ?? sniffImageMime(designData) ?? "image/png",
+      },
+      treeRange: await options.resolveTreeRange(),
+    };
+  };
 }
 
 // Judge one captured view against its design. Vision preflight first (before any
