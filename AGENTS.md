@@ -20,6 +20,7 @@ Some files are hand-edited (canonical); others are generated projections you mus
 | `skills/<name>/references/<f>.md` | Per-skill copy of a `_shared` file | no — keep byte-equal |
 | `.claude-plugin/` | Claude plugin + marketplace manifests | yes |
 | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | Codex plugin + repo marketplace manifests | yes (keep name/version in step with `.claude-plugin/plugin.json`) |
+| `.codex-plugin/hooks/` | Codex hooks manifest and guard scripts — canonical, hand-maintained twins of the Claude guards in `hooks/scripts/` (same rule, Codex's payload shape) | yes — run `sync_codex_skills.py` to refresh the `plugins/karta/` mirror after editing |
 
 Why committed mirrors and not symlinks: Codex does not detect symlinked skills on Windows (openai/codex#8400), so `.agents/skills/` and the marketplace install projection under `plugins/karta/` are real directories kept in sync by the generator and guarded by the validator.
 
