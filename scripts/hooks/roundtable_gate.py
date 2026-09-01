@@ -55,7 +55,9 @@ name, never guessed.
 
 DENY-BY-DEFAULT GRAMMAR. The hook runs before bash evaluates the command, so
 it recognises exactly one shape — `[KARTA_*=1 ...] git commit|merge <options
-it knows> <pathspecs it can resolve>` issued from the repository root — and
+it knows> <pathspecs it can resolve>` issued from the repository root or the
+top level of one of its linked worktrees (there every lookup is rescoped to
+that worktree, so the commit is judged on the tree git will commit) — and
 denies every other shape it cannot reproduce: a preceding or trailing command
 segment, a command substitution anywhere, an unquoted expansion character, a
 redirection, a relocating `git -C`/`--git-dir`/`--work-tree` or `GIT_*=`
@@ -942,6 +944,35 @@ def _real_is_symlink(path: str) -> bool:
     return os.path.islink(ROOT / path)
 
 
+def _real_rescope(root: str):
+    """(git, read_file, is_symlink) rooted at a linked worktree instead of ROOT —
+    the real counterpart of decide()'s rescope seam, built when _check_cwd
+    resolves a worktree cwd. The helper is NOT rescoped: it only compares bytes
+    the hook pipes to it on stdin, which is root-neutral."""
+    rp = Path(root)
+
+    def git(argv: list[str], input_bytes: bytes | None = None) -> tuple[int, bytes]:
+        try:
+            proc = subprocess.run(["git", *argv], cwd=rp, timeout=GIT_TIMEOUT,
+                                  input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if proc.returncode != 0:
+                return proc.returncode, proc.stderr or b""
+            return 0, proc.stdout or b""
+        except Exception:
+            return 1, b""
+
+    def read_file(path: str) -> bytes | None:
+        try:
+            return (rp / path).read_bytes()
+        except OSError:
+            return None
+
+    def is_symlink(path: str) -> bool:
+        return os.path.islink(rp / path)
+
+    return git, read_file, is_symlink
+
+
 def _lines(out: bytes) -> list[str]:
     return [ln.strip() for ln in out.decode(errors="replace").splitlines() if ln.strip()]
 
@@ -1249,14 +1280,47 @@ def _check_environment(env) -> None:
                              "repository or names a program git runs after the hook; unset it")
 
 
-def _check_cwd(payload) -> None:
+def _linked_worktree_root(cwd: str, git) -> str | None:
+    """cwd's realpath when it is the TOP LEVEL of a linked worktree of this
+    repository — per `git worktree list --porcelain` run through the injected
+    (ROOT-scoped) git — else None. The main checkout itself returns None; the
+    caller has already matched ROOT. Fail-closed: an unreadable worktree list
+    is no worktree."""
+    code, out = git(["worktree", "list", "--porcelain"])
+    if code != 0:
+        return None
+    real = os.path.realpath(cwd)
+    root_real = os.path.realpath(str(ROOT))
+    for ln in out.decode(errors="replace").splitlines():
+        if ln.startswith("worktree "):
+            p = os.path.realpath(ln[len("worktree "):].strip())
+            if p == real and p != root_real:
+                return real
+    return None
+
+
+def _check_cwd(payload, git) -> str:
+    """The invocation's effective root: ROOT, or the top level of a linked
+    worktree of this repository (karta's own wave workers commit item branches
+    from worktrees — the first context-economy wave found the flat ROOT rule
+    denying the framework's own delivery flow). A worktree cwd is not waved
+    through: decide() rescopes every git and file lookup to that worktree, so
+    the commit is judged on the tree git will actually commit, with the gate's
+    full force. Anything else — a subdirectory of either, an unrelated path —
+    is denied: a pathspec issued there is invisible to the effective root's
+    lookups."""
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         raise Denial("payload carries no cwd — the hook cannot resolve a pathspec without knowing "
                      "where the shell is")
-    if os.path.realpath(cwd) != os.path.realpath(ROOT):
-        raise Denial(f"commit must run from the repository root ({ROOT}), not {cwd} — a pathspec "
-                     "issued elsewhere is invisible to the root-based lookups")
+    if os.path.realpath(cwd) == os.path.realpath(str(ROOT)):
+        return str(ROOT)
+    wt = _linked_worktree_root(cwd, git)
+    if wt is not None:
+        return wt
+    raise Denial(f"commit must run from the repository root ({ROOT}) or the top level of one of "
+                 f"its linked worktrees, not {cwd} — a pathspec issued elsewhere is invisible to "
+                 "the root-based lookups")
 
 
 def _has_message(spec: CommitSpec, read_file) -> bool:
@@ -1408,10 +1472,14 @@ def _first_enable_possible(command: str, env, git, read_file) -> bool:
 
 
 def decide(payload, env, git, helper, config, read_file=_real_read,
-           is_symlink=_real_is_symlink) -> tuple[int, str]:
+           is_symlink=_real_is_symlink, rescope=None) -> tuple[int, str]:
     """(exit_code, stderr_message). Pure over its inputs so --self-test can drive
     it with fabricated payloads and stubbed git/helper. `config=None` makes the
-    gate resolve its own switch from HEAD (or the commit's source on first enable)."""
+    gate resolve its own switch from HEAD (or the commit's source on first enable).
+    `rescope` is the worktree seam: a callable (effective_root) -> (git,
+    read_file, is_symlink) used when the invocation's cwd is the top level of a
+    linked worktree, so every source lookup happens where git will actually
+    commit; None means the real subprocess-backed factory."""
     if not isinstance(payload, dict):
         return 0, ""
     tool_input = payload.get("tool_input")
@@ -1466,8 +1534,10 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
             raise Denial(f"env {hidden} hides the command it runs from the hook: env re-splits that "
                          f"string by its own rules, and the hook cannot read a split string. Spell the "
                          f"invocation as separate words instead of an env {hidden} string.")
-        _check_cwd(payload)
+        effective = _check_cwd(payload, git)
         _check_environment(env)
+        if effective != str(ROOT):
+            git, read_file, is_symlink = (rescope or _real_rescope)(effective)
         _, words = parse_invocation(command)
         sub = words[1].text
         if sub == "commit":
@@ -1553,7 +1623,8 @@ def _run_self_test() -> int:
     check("no ref for unrelated merge", merged_integration_ref("git merge feature/x") is None)
 
     # a fabricated repository: {path: {"head":bytes, "index":bytes, "work":bytes, "link":bool, "<key>_mode":str}}
-    def make(tree, cur="main", default="main", tip=None, unborn=None, headfail=False, gitdirfail=False):
+    def make(tree, cur="main", default="main", tip=None, unborn=None, headfail=False, gitdirfail=False,
+             worktrees=()):
         def hit(p, s):
             s = s.rstrip("/")
             return s in (".", "") or s == p or p.startswith(s + "/") or fnmatch.fnmatch(p, s)
@@ -1585,6 +1656,9 @@ def _run_self_test() -> int:
                 return 0, "".join(line(p, t) for p, t in tree.items() if t.get(key) is not None and matched(p, specs)).encode()
             if argv == ["rev-parse", "--git-dir"]:
                 return (128, b"fatal: not a git repository") if gitdirfail else (0, b".git\n")
+            if argv == ["worktree", "list", "--porcelain"]:
+                lines = [f"worktree {ROOT}"] + [f"worktree {w}" for w in worktrees]
+                return 0, ("\n".join(lines) + "\n").encode()
             if argv == ["symbolic-ref", "-q", "HEAD"]:
                 return 0, f"refs/heads/{cur}\n".encode()
             if argv[:3] == ["rev-parse", "--verify", "--quiet"]:
@@ -1632,10 +1706,11 @@ def _run_self_test() -> int:
 
     stale = lambda args, data: 1
 
-    def run(cmd, tree, config=CFG, env=None, cwd=None, helper_=helper, **kw):
+    def run(cmd, tree, config=CFG, env=None, cwd=None, helper_=helper, rescope=None, **kw):
         git, rf, isl, calls = make(tree, **kw)
         seen.clear()
-        code, msg = decide(_payload(cmd, cwd=cwd), env or {}, git, helper_, config, read_file=rf, is_symlink=isl)
+        code, msg = decide(_payload(cmd, cwd=cwd), env or {}, git, helper_, config, read_file=rf,
+                           is_symlink=isl, rescope=rescope)
         return code, msg, calls
 
     # fixtures
@@ -1874,6 +1949,20 @@ def _run_self_test() -> int:
     check("a payload without cwd is denied", code == 2 and "cwd" in msg, msg)
     code, msg, _ = run("git commit binders/x.json -m x", PLAIN, ON, cwd=str(ROOT / ".karta"))
     check("a commit issued from a subdirectory is denied — the hook anchors to the repository root", code == 2 and "root" in msg, msg)
+    WT = str(ROOT / ".worktrees" / "wt-x")
+    code, msg, _ = run("git commit -m x", PLAIN, ON, cwd=WT, worktrees=(WT,),
+                       rescope=lambda p: make(PLAIN, worktrees=(WT,))[:3])
+    check("a commit from a linked worktree's top level is allowed and judged there — wave workers "
+          "commit item branches from worktrees", code == 0, msg)
+    code, msg, _ = run("git commit binders/x.json -m x", PLAIN, ON, cwd=str(Path(WT) / ".karta"),
+                       worktrees=(WT,))
+    check("a commit from a subdirectory of a linked worktree is still denied", code == 2 and "root" in msg, msg)
+    code, msg, _ = run("git commit -m x", PLAIN, ON, cwd=WT, worktrees=(WT,), helper_=stale,
+                       rescope=lambda p: make(PLAIN, worktrees=(WT,))[:3])
+    check("a worktree commit staging a stale binder still gates — rescoping keeps the gate's force",
+          code == 2, msg)
+    code, msg, _ = run("git commit -m x", PLAIN, ON, cwd=str(ROOT / ".worktrees" / "not-listed"))
+    check("a directory git does not list as a worktree is denied", code == 2 and "root" in msg, msg)
     for envv in ({"GIT_INDEX_FILE": "/tmp/i"}, {"GIT_CONFIG_PARAMETERS": "x"}, {"GIT_EDITOR": "touch x"},
                  {"GIT_EDITOR": "vim"}, {"GIT_PAGER": "touch x"}, {"GIT_SSH_COMMAND": "touch x"}):
         code, _, _ = run("git commit -m x", PLAIN, ON, env=envv)

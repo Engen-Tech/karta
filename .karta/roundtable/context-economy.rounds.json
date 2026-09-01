@@ -1,388 +1,714 @@
 {
-    "target_ref": "context-economy",
-    "target_kind": "binder",
-    "tool": "roundtable-critique",
-    "agents": [
-        {
-            "provider": "codex"
-        },
-        {
-            "provider": "claude",
-            "model": "claude-opus-4-8[1m]"
-        },
-        {
-            "provider": "antigravity"
-        }
-    ],
-    "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (context-economy.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
-    "rounds": [
-        {
-            "round": 1,
-            "reviewed_hash": "1421c158c5755334095946690f52df5a618507d2144f5656c7c18887b2d89ed8",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "revise"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "cost-ledger: additive-only guard had an `or runs==runs` bypass \u2192 recursive keep() walk; proven against the real 2.32.0 file (4 mutation classes caught)",
-                "deliver-preflight: byte cap corrected to the enforced 55,000 (file is 56,258); tool paths must exist",
-                "merge-queue: preconditions (clean tree, HEAD on integration, built==tip, no failed); conflict \u2192 merge --abort; reset only after verifying HEAD; close-wave takes explicit --check (never env_contract.command) and never tags; new tag-wave after Phase 4",
-                "gate-brief-evidence: covered-by-command needs a current record and covers only what the command's exit/marker establishes; auditor cross-checks Changed-files; guard probe embeds every real work-item contract (executed: allow for both agents)"
-            ],
-            "findings_refuted_or_deferred": [
-                "`worktree` must not appear in blocks \u2014 refuted by execution: first-match resolution makes later mentions inert; rule restated as ordering"
-            ],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 2,
-            "reviewed_hash": "daa5b6165925630bda5646dfcc425cc51d5e3a04bd0e0192d54a2516bc9029e9",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "merge-queue: stale assertion still said close-wave tags; 'two subcommands' \u2192 three; scope.included updated",
-                "gate-brief-evidence: 'current' bound to content via new run_oracle tree_sha (fact-checked: head_sha is the item tip's PARENT at attach time, so head_sha could never match)",
-                "cost-ledger: apportionment formula defined (weights 1/10/12.5/50 vs modelUsage), two-role two-model self-test, positive cost + sum-to-total in oracle"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 3,
-            "reviewed_hash": "6aba0fe5b3ee987e193bde81d523d1ac4af234230fb55416b6e39878d2d5073d",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "deliver-preflight: undecidable gates (stateful env, missing touches) serialize conservatively with undecidable:* reasons + unresolved list",
-                "cost-ledger: model identity normalized via canonicalModel ([1m] suffix seen in run data); loud failure on unmatched",
-                "cost-ledger: re-mine mandatory while transcripts survive",
-                "merge-queue: dirty-after-oracle halt; rollback = reset --hard + clean -fd (never -x)"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 4,
-            "reviewed_hash": "665acd9c86591ce3eb66f652342addb42e4a031de3622f36fbeec90dc0d4aacf",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "cost-ledger: re-mine PROVEN by re-running the miner on the surviving transcript and comparing the four fields",
-                "deliver-preflight: done_provenance runs --check-accepted per done item; halt field; forged-ref self-test",
-                "merge-queue: close-wave clean on entry; dirty-after-check restores tracked tree + clean -fd without moving HEAD",
-                "deliver-preflight: oracle greps both undecidable reasons",
-                "cost-ledger: contradictory 'contains merge_item.py' vs 'and git merge' wording removed"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 5,
-            "reviewed_hash": "1c7061aee632b90b94b6e6802018f548b0b2f8f4b6a04eee80dabe08b30e59d9",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "deliver-preflight: a forged CLEAN done ref passed the checker (reproduced by execution) \u2192 first-parent reachability required for every done ref",
-                "deliver-preflight: packet is a snapshot \u2014 re-run after Clear/Resume/ref changes ('re-run deliver_preflight.py' required)",
-                "gate-brief-evidence: currency also binds cwd and the expectation (mode+pattern)",
-                "context-economy-record: required facts grepped"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 6,
-            "reviewed_hash": "e6509439ea46ea262f15c2fe5e0dff779dee1d9cd47429395b75825d3ca65b7f",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "context-economy-record: \"$4.82\"/\"$2.41\" inside sh -c expanded $4/$2 to nothing (both reviewers; my own bug) \u2192 exact Python match, proven: wrong figures fail, right ones pass",
-                "context-economy-record: 90% grep added",
-                "gate-brief-evidence: all four currency markers grepped in the reviewer file"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 7,
-            "reviewed_hash": "f6e7a36bf0490d96ddd3920bcbe622f475b5dddeccc86c1cb5ace46fd3286455",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "merge-queue: a done ref is skipped only after provenance + first-parent reachability (done-provenance halt)",
-                "merge-queue: tip/branch verified unmoved after every oracle/check (tip-moved halt); tag-wave tags the resolved integration ref",
-                "cost-ledger: missing transcripts \u21d2 note required AND new fields absent (fabricated fields cannot pass)",
-                "cost-ledger: context_tokens_per_item includes plain input tokens"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 8,
-            "reviewed_hash": "2401f6788f0e0e0bf815a66e6248d8627a902208e1e2f095d52d2e62d4fe1218",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "deliver-preflight + merge-queue: provenance range <base>..<done> fails for any item merged after a wave-mate (reproduced by reviewer) \u2192 <done>^1..<done>",
-                "cost-ledger: pinned self-test for input-token inclusion",
-                "cost-ledger: merge counter keyed on the `merge` subcommand token; close-wave/tag-wave count as nothing",
-                "merge-queue: tip-moved fully unwinds to the pre-merge tip",
-                "cost-ledger: 'survive' requires run1.jsonl + session + binders (fragile /tmp state degrades to deferral)"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 9,
-            "reviewed_hash": "ad815e0c9641b2c392bce0248f71428bd225e3c569a089855edb3095b04cfd50",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "merge-queue: the deliver skill's two EXISTING --check-accepted invocations (pre-existing doctrine defect, reproduced by reviewer) corrected to <done>^1..<done>; oracle fails if the wide range remains",
-                "merge-queue: tip-moved self-test adds detached/switched HEAD with the integration ref restored explicitly"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 10,
-            "reviewed_hash": "d000f63db4921f627d8400728a97b576aed27857f514e7af14a590d9b9136c3a",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "revise"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "merge-queue: the doctrine's accept merge carries no item marker, so the narrow provenance range halts every accepted item (reproduced by execution: unmarked \u2192 'no marker', marked \u2192 OK) \u2192 accept merge subject must carry [karta:item-<id>]; migration caveat stated (pre-rule accept merges halt at done-provenance; way forward is Clear)",
-                "merge-queue: tip-moved rollback must check out the integration branch before resetting, never rewriting a foreign branch's ref; self-test asserts the other branch's sha is unchanged",
-                "merge-queue: oracle asserts both --check-accepted sites survive with the narrow range (one in Step 1, one in Phase 4) and that the marker rule is in Phase 4"
-            ],
-            "findings_refuted_or_deferred": [],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 11,
-            "reviewed_hash": "1307294acc580d0444b6b1f028f842f91c93db2eec75a178dc3cf32184b1f300",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "merge-queue oracle: the provenance-site check matched prose mentioning --check-accepted (3 lines today incl. the 'without' line) and let the marker grep pass on integration-branch.md's tag section \u2192 invocation regex, section slicing (Step 1 / Phase 4 / ## Accept), exact accept subject and both trailers required inside the bounded sections",
-                "merge-queue: rollback specified as a forced fixed sequence (update-ref \u2192 checkout -f \u2192 reset --hard \u2192 clean -fd \u2192 verify) that recovers from a refused checkout and a deleted integration ref; self-test cases added"
-            ],
-            "findings_refuted_or_deferred": [
-                "migration cost of the accept-marker rule (in-flight accepted items need Clear) \u2014 disclosed in doctrine, flagged for the human at landing"
-            ],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 12,
-            "reviewed_hash": "e3c2e5ed8adb0acbf9e391f443dbd4a5cfb79779125c41940572e516f54f1938",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "revise"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [
-                "merge-queue: one shared forced unwind routine for every post-merge halt (failing oracle included), self-test cases run on both the rejected-success and the nonzero-oracle path; oracle greps `checkout -f`"
-            ],
-            "findings_refuted_or_deferred": [
-                "Claude F1\u2013F3 (trailer clauses pre-satisfied in Phase 4; self-test trust; orphaned builder-created branches) \u2014 non-blocking, acknowledged"
-            ],
-            "notes": "",
-            "below_floor": false
-        },
-        {
-            "round": 13,
-            "reviewed_hash": "6d68c0e81489822a714f8d736f6d7f180faf9c0aacddfff415b326cd34da4735",
-            "providers": {
-                "claude": {
-                    "model": "claude-opus-4-8",
-                    "verdict": "merge"
-                },
-                "codex": {
-                    "model": "cli-default",
-                    "verdict": "merge"
-                },
-                "antigravity": {
-                    "model": "cli-default",
-                    "verdict": null,
-                    "status": "no output \u2014 headless read_file permission auto-denied"
-                }
-            },
-            "findings_fixed": [],
-            "findings_refuted_or_deferred": [
-                "Claude [low]: step (e) still carries a 'verify HEAD then reset' sentence that clause (6)'s shared-routine rule overrides \u2014 deferred to the builder (the contract's later clause governs); [low]: check checkout -f's exit before reset \u2014 deferred, defensive; [info]: 'foreign ref unchanged' vacuous for the deleted-ref case"
-            ],
-            "notes": "Unanimous merge on this blob; recorded as .karta/roundtable/context-economy.json and committed with the binder.",
-            "below_floor": false
-        }
-    ],
-    "outcome": {
-        "final_round": 13,
-        "final_blob_sha256": "6d68c0e81489822a714f8d736f6d7f180faf9c0aacddfff415b326cd34da4735",
-        "verdict": "merge",
-        "providers_with_verdict": [
-            "claude",
-            "codex"
-        ]
+  "target_ref": "context-economy",
+  "target_kind": "binder",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "codex"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-4-8[1m]"
+    },
+    {
+      "provider": "antigravity"
     }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (context-economy.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "1421c158c5755334095946690f52df5a618507d2144f5656c7c18887b2d89ed8",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "revise"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "cost-ledger: additive-only guard had an `or runs==runs` bypass \u2192 recursive keep() walk; proven against the real 2.32.0 file (4 mutation classes caught)",
+        "deliver-preflight: byte cap corrected to the enforced 55,000 (file is 56,258); tool paths must exist",
+        "merge-queue: preconditions (clean tree, HEAD on integration, built==tip, no failed); conflict \u2192 merge --abort; reset only after verifying HEAD; close-wave takes explicit --check (never env_contract.command) and never tags; new tag-wave after Phase 4",
+        "gate-brief-evidence: covered-by-command needs a current record and covers only what the command's exit/marker establishes; auditor cross-checks Changed-files; guard probe embeds every real work-item contract (executed: allow for both agents)"
+      ],
+      "findings_refuted_or_deferred": [
+        "`worktree` must not appear in blocks \u2014 refuted by execution: first-match resolution makes later mentions inert; rule restated as ordering"
+      ],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 2,
+      "reviewed_hash": "daa5b6165925630bda5646dfcc425cc51d5e3a04bd0e0192d54a2516bc9029e9",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "merge-queue: stale assertion still said close-wave tags; 'two subcommands' \u2192 three; scope.included updated",
+        "gate-brief-evidence: 'current' bound to content via new run_oracle tree_sha (fact-checked: head_sha is the item tip's PARENT at attach time, so head_sha could never match)",
+        "cost-ledger: apportionment formula defined (weights 1/10/12.5/50 vs modelUsage), two-role two-model self-test, positive cost + sum-to-total in oracle"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 3,
+      "reviewed_hash": "6aba0fe5b3ee987e193bde81d523d1ac4af234230fb55416b6e39878d2d5073d",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "deliver-preflight: undecidable gates (stateful env, missing touches) serialize conservatively with undecidable:* reasons + unresolved list",
+        "cost-ledger: model identity normalized via canonicalModel ([1m] suffix seen in run data); loud failure on unmatched",
+        "cost-ledger: re-mine mandatory while transcripts survive",
+        "merge-queue: dirty-after-oracle halt; rollback = reset --hard + clean -fd (never -x)"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 4,
+      "reviewed_hash": "665acd9c86591ce3eb66f652342addb42e4a031de3622f36fbeec90dc0d4aacf",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "cost-ledger: re-mine PROVEN by re-running the miner on the surviving transcript and comparing the four fields",
+        "deliver-preflight: done_provenance runs --check-accepted per done item; halt field; forged-ref self-test",
+        "merge-queue: close-wave clean on entry; dirty-after-check restores tracked tree + clean -fd without moving HEAD",
+        "deliver-preflight: oracle greps both undecidable reasons",
+        "cost-ledger: contradictory 'contains merge_item.py' vs 'and git merge' wording removed"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 5,
+      "reviewed_hash": "1c7061aee632b90b94b6e6802018f548b0b2f8f4b6a04eee80dabe08b30e59d9",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "deliver-preflight: a forged CLEAN done ref passed the checker (reproduced by execution) \u2192 first-parent reachability required for every done ref",
+        "deliver-preflight: packet is a snapshot \u2014 re-run after Clear/Resume/ref changes ('re-run deliver_preflight.py' required)",
+        "gate-brief-evidence: currency also binds cwd and the expectation (mode+pattern)",
+        "context-economy-record: required facts grepped"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 6,
+      "reviewed_hash": "e6509439ea46ea262f15c2fe5e0dff779dee1d9cd47429395b75825d3ca65b7f",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "context-economy-record: \"$4.82\"/\"$2.41\" inside sh -c expanded $4/$2 to nothing (both reviewers; my own bug) \u2192 exact Python match, proven: wrong figures fail, right ones pass",
+        "context-economy-record: 90% grep added",
+        "gate-brief-evidence: all four currency markers grepped in the reviewer file"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 7,
+      "reviewed_hash": "f6e7a36bf0490d96ddd3920bcbe622f475b5dddeccc86c1cb5ace46fd3286455",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "merge-queue: a done ref is skipped only after provenance + first-parent reachability (done-provenance halt)",
+        "merge-queue: tip/branch verified unmoved after every oracle/check (tip-moved halt); tag-wave tags the resolved integration ref",
+        "cost-ledger: missing transcripts \u21d2 note required AND new fields absent (fabricated fields cannot pass)",
+        "cost-ledger: context_tokens_per_item includes plain input tokens"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 8,
+      "reviewed_hash": "2401f6788f0e0e0bf815a66e6248d8627a902208e1e2f095d52d2e62d4fe1218",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "deliver-preflight + merge-queue: provenance range <base>..<done> fails for any item merged after a wave-mate (reproduced by reviewer) \u2192 <done>^1..<done>",
+        "cost-ledger: pinned self-test for input-token inclusion",
+        "cost-ledger: merge counter keyed on the `merge` subcommand token; close-wave/tag-wave count as nothing",
+        "merge-queue: tip-moved fully unwinds to the pre-merge tip",
+        "cost-ledger: 'survive' requires run1.jsonl + session + binders (fragile /tmp state degrades to deferral)"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 9,
+      "reviewed_hash": "ad815e0c9641b2c392bce0248f71428bd225e3c569a089855edb3095b04cfd50",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "merge-queue: the deliver skill's two EXISTING --check-accepted invocations (pre-existing doctrine defect, reproduced by reviewer) corrected to <done>^1..<done>; oracle fails if the wide range remains",
+        "merge-queue: tip-moved self-test adds detached/switched HEAD with the integration ref restored explicitly"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 10,
+      "reviewed_hash": "d000f63db4921f627d8400728a97b576aed27857f514e7af14a590d9b9136c3a",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "revise"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "merge-queue: the doctrine's accept merge carries no item marker, so the narrow provenance range halts every accepted item (reproduced by execution: unmarked \u2192 'no marker', marked \u2192 OK) \u2192 accept merge subject must carry [karta:item-<id>]; migration caveat stated (pre-rule accept merges halt at done-provenance; way forward is Clear)",
+        "merge-queue: tip-moved rollback must check out the integration branch before resetting, never rewriting a foreign branch's ref; self-test asserts the other branch's sha is unchanged",
+        "merge-queue: oracle asserts both --check-accepted sites survive with the narrow range (one in Step 1, one in Phase 4) and that the marker rule is in Phase 4"
+      ],
+      "findings_refuted_or_deferred": [],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 11,
+      "reviewed_hash": "1307294acc580d0444b6b1f028f842f91c93db2eec75a178dc3cf32184b1f300",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "merge-queue oracle: the provenance-site check matched prose mentioning --check-accepted (3 lines today incl. the 'without' line) and let the marker grep pass on integration-branch.md's tag section \u2192 invocation regex, section slicing (Step 1 / Phase 4 / ## Accept), exact accept subject and both trailers required inside the bounded sections",
+        "merge-queue: rollback specified as a forced fixed sequence (update-ref \u2192 checkout -f \u2192 reset --hard \u2192 clean -fd \u2192 verify) that recovers from a refused checkout and a deleted integration ref; self-test cases added"
+      ],
+      "findings_refuted_or_deferred": [
+        "migration cost of the accept-marker rule (in-flight accepted items need Clear) \u2014 disclosed in doctrine, flagged for the human at landing"
+      ],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 12,
+      "reviewed_hash": "e3c2e5ed8adb0acbf9e391f443dbd4a5cfb79779125c41940572e516f54f1938",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [
+        "merge-queue: one shared forced unwind routine for every post-merge halt (failing oracle included), self-test cases run on both the rejected-success and the nonzero-oracle path; oracle greps `checkout -f`"
+      ],
+      "findings_refuted_or_deferred": [
+        "Claude F1\u2013F3 (trailer clauses pre-satisfied in Phase 4; self-test trust; orphaned builder-created branches) \u2014 non-blocking, acknowledged"
+      ],
+      "notes": "",
+      "below_floor": false
+    },
+    {
+      "round": 13,
+      "reviewed_hash": "6d68c0e81489822a714f8d736f6d7f180faf9c0aacddfff415b326cd34da4735",
+      "providers": {
+        "claude": {
+          "model": "claude-opus-4-8",
+          "verdict": "merge"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "merge"
+        },
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "no output \u2014 headless read_file permission auto-denied"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [
+        "Claude [low]: step (e) still carries a 'verify HEAD then reset' sentence that clause (6)'s shared-routine rule overrides \u2014 deferred to the builder (the contract's later clause governs); [low]: check checkout -f's exit before reset \u2014 deferred, defensive; [info]: 'foreign ref unchanged' vacuous for the deleted-ref case"
+      ],
+      "notes": "Unanimous merge on this blob; recorded as .karta/roundtable/context-economy.json and committed with the binder.",
+      "below_floor": false
+    },
+    {
+      "round": 14,
+      "reviewed_hash": "a36ed8541959a050f76c39674012bb6bc71d7445cec613cde8ddbb391912bbb5",
+      "run_at": "2026-08-30T23:17:22.048263+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "no-ff accept pin oracle-asserted in Phase-4 and integration-branch Accept text (kimi/qwen)",
+        "merge-queue self-test fragment greps anchored to [PASS] lines (minimax)",
+        "reset --hard HEAD grepped; literal -fdx grepped absent (glm)",
+        "close-wave tip-moved routes through the shared unwind to its recorded entry tip, self-tested with a committing check and a ref-deleting check (codex/kimi/qwen)",
+        "merge counting keyed on result JSONs with null halted_at \u2014 loop- and halt-correct, implementable from the paired tool result (deepseek/antigravity/qwen)",
+        "keep() additive baseline anchored to main instead of HEAD \u2014 non-vacuous at merge revalidation (kimi)",
+        "cost formula denominator parenthesized per-model (qwen)",
+        "target arithmetic $1.44 not $1.45; proven-by softened to judged-by (codex/kimi)",
+        "tree_sha self-test asserts the real index is byte-identical before and after (codex)",
+        "guard oracle gains a refused malformed brief \u2014 Range line absent (minimax)",
+        "deliver SKILL halt rule pinned with the 'never as a frontier' grep (deepseek)",
+        "preflight self-test [PASS] fragments invalid-binder and forged-done anchored in oracle (kimi)",
+        "record oracle greps the 3.5% and 3% gate shares (glm)",
+        "scope.included gains the run_oracle tree_sha bullet (kimi)",
+        "annex destination pinned to skills/karta-build/references/build-annex.md and added to touches (antigravity)"
+      ],
+      "findings_refuted_or_deferred": [
+        "touches completeness (antigravity): false \u2014 both items already list every .agents/ and plugins/ mirror",
+        "cache-dollar share 76.3% (codex): measured 91.5% deduplicated across all seven transcripts by the binder's own rule; 'nearly all' stands",
+        "survive/gone mixed-survival (kimi/minimax/deepseek): the assert is already per result file and each file carries one COMPLETE run; mixed across files passes both branches",
+        "run1.jsonl hardcoding (kimi): the bench harness writes run1.jsonl at every run root the results record",
+        "fresh-mine runs[0] mis-pair (glm): the oracle invokes the miner with a single session, which emits a single run",
+        "tree_sha artifact brittleness (qwen): staleness is the safe direction \u2014 a stale record settles nothing and review falls back to today's rules",
+        "LLM-as-reviewer probes (minimax): judgment beyond pinned verbatim text is out of a smoke oracle's reach; the pinned strings are the floor",
+        "missing evidence ref fatal (codex): deliberate and documented \u2014 a read failure must not block a merge; the acceptance gate reviews the diff independently",
+        "n=1 baseline (codex/kimi): acknowledged in the binder; the 40% figure is a written target judged by the card, never an oracle"
+      ],
+      "notes": "Round 14 follows an unlogged same-session critique+converge cycle on the round-13 bytes (7 providers, converged AMEND) whose 21 amendments produced the bytes this round reviewed. Disposition lists added in-place after the recorder call: the auto-mode classifier rejected the long --fixed/--refuted invocation, so the entry was appended bare and completed by hand with the same strings.",
+      "below_floor": false
+    },
+    {
+      "round": 15,
+      "reviewed_hash": "2bfbbc2243b4285f8e3df8d87ed28b5a8326517182df820008bc587a9e340bba",
+      "run_at": "2026-08-30T23:28:41.941074+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "merge counting excludes skipped_done results \u2014 halted_at null AND skipped_done false, with a pinned negative self-test (kimi/qwen)",
+        "--binders pinned in cost-ledger contract (7) beside --result for the re-mine invocation (minimax)",
+        "Work-item block id must equal the brief's Item: line \u2014 mismatch is BLOCKED as a doctored brief (codex)",
+        "parallelism.unresolved typed as a list of item ids, reasons stay in parallelism.reasons (antigravity)",
+        "deliver-preflight deletion license explicitly keeps the Step-1 and Phase-4 --check-accepted lines merge-queue's oracle requires (kimi)",
+        "target comparison pinned to unrounded cost_usd_per_item against 0.60 x 2.41 = 1.446 (qwen/minimax)",
+        "two modelUsage entries normalizing to the same canonical model are a LOUD failure (qwen)"
+      ],
+      "findings_refuted_or_deferred": [
+        "Work-item block full-content forgery (codex): outside the trust model \u2014 the orchestrator controls dispatch entirely; the id-match rule closes the copy-paste drift case",
+        "ignored-file rollback gap (codex): the documented cost of never -x \u2014 ignored caches predate the run and are not the script's to delete; clean means git-visible state",
+        "vestigial (1)(e) reset wording (antigravity): clause (6)'s 'no second, older reset path' governs; deferred as a build-time reading, not a contract change",
+        "float precision convention (antigravity): fresh and committed values come from the same miner \u2014 deterministic equality",
+        "main hardcoded as additive baseline (glm/kimi): house repo, fails loudly on a rename, never falsely green",
+        "SKILL heading brittleness (qwen): the oracle parses structure that exists today and fails loudly, never silently",
+        "malformed-brief shape (qwen): Changed-files carries diff output, not command lines bearing the range",
+        "byte-cap headroom, migration scope note, tree_sha rationale note (minimax): advisory, ledger-recorded",
+        "/tmp survival between build and merge re-validation (kimi): fail-closed, low probability, predates round 2"
+      ],
+      "notes": "Round 15 disposition filled in-place after a bare --round append (long --fixed/--refuted invocations are rejected by the session's auto-mode classifier; strings identical to what the flags would have carried). fireworks-deepseek returned empty-ok and is omitted from the panel payload so it cannot count toward the floor.",
+      "below_floor": false
+    },
+    {
+      "round": 16,
+      "reviewed_hash": "446becf0aa5b6862b43143a290121079b77e46d79c3fcc8005d7b714792c3e8b",
+      "run_at": "2026-08-30T23:36:19.852412+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "summary display-rounding aside corrected: $1.44 is the largest displayed-to-cents value guaranteed under the unrounded $1.446 line (codex)",
+        "$1.446 added to the record oracle's literal checks so the contract's fails-the-oracle clause covers the pinned threshold (deepseek)"
+      ],
+      "findings_refuted_or_deferred": [
+        "duplicate-canonical and unresolved-typing verification gaps (glm): contract-required, self-test-enforced; noted as gaps, not defects",
+        "BLOCKED path has no live oracle case (minimax): reviewer doctrine, not guard behavior \u2014 an LLM disposition rule has no deterministic probe; pinned text is the floor"
+      ],
+      "notes": "Round 16 disposition filled in-place after a bare --round append (long flag lists rejected by the session's auto-mode classifier; strings identical to what the flags would have carried).",
+      "below_floor": false
+    },
+    {
+      "round": 17,
+      "reviewed_hash": "d42590e304f712685d420104ded65d2b47d9cd4739819a774e1b08b3a25cb318",
+      "run_at": "2026-08-30T23:39:07.705124+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [],
+      "notes": "round 17: two-line-delta freshness panel; unanimous SHIP, zero findings; nothing fixed or refuted - this is the round the record certifies",
+      "below_floor": false
+    },
+    {
+      "round": 18,
+      "reviewed_hash": "7126b9f967218fa8c71b62e8be0404614885514f22687bc47e11b518744ac098",
+      "run_at": "2026-08-31T02:07:16.574912+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "assertions[0] of context-economy-record amended to the landed shares (48.8% orchestrator, 41.9% builders) \u2014 the panel's unanimous insisted fix, applied verbatim; the orchestrator's own pre-panel sweep had caught the same leftover, so the staged bytes this entry hashes already carry it"
+      ],
+      "findings_refuted_or_deferred": [
+        "frozen 6.5% in the DONE gate-brief-evidence contract (deepseek/glm/kimi): stays frozen \u2014 a done item's contract is what its acceptance gate reviewed; the summary labels the 57/36/6.5 figures as first-draft estimates and the record doc carries the measured truth",
+        "44/66 message counts contract-asserted but not grepped (minimax): pre-existing, awareness only"
+      ],
+      "notes": "Mid-delivery amendment: the record item halted honestly \u2014 its share literals were plan-time estimates the delivery's own cost-ledger formula disproved (measured 48.8/41.9/9.3 vs planned 57/36/6.5, verified from the committed result and a live re-mine). Six panelists reviewed the pre-assertion-fix bytes d58603d5...; the fix they unanimously prescribed had already been applied before this entry was logged, so this entry hashes the fixed bytes. Minimax reviewed the fixed bytes and returned SHIP. A confirmation round on these exact bytes follows. Disposition filled in-place after a bare --round append (long flag lists rejected by the session's auto-mode classifier).",
+      "below_floor": false
+    },
+    {
+      "round": 19,
+      "reviewed_hash": "7126b9f967218fa8c71b62e8be0404614885514f22687bc47e11b518744ac098",
+      "run_at": "2026-08-31T02:09:17.262744+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-kimi": {
+          "model": "accounts/fireworks/models/kimi-k3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [],
+      "notes": "round 19: one-token-delta confirmation on the exact staged bytes; unanimous SHIP, zero findings; nothing fixed or refuted - this is the round the record certifies",
+      "below_floor": false
+    }
+  ],
+  "outcome": {
+    "final_round": 13,
+    "final_blob_sha256": "6d68c0e81489822a714f8d736f6d7f180faf9c0aacddfff415b326cd34da4735",
+    "verdict": "merge",
+    "providers_with_verdict": [
+      "claude",
+      "codex"
+    ]
+  }
 }

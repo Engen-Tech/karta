@@ -1,0 +1,562 @@
+{
+  "schema_version": 1,
+  "vector": "perf-delivery-telemetry",
+  "run_date": "2026-08-31",
+  "generated_by": "benchmarks/probes/perf-delivery-telemetry.py (gate live pass)",
+  "note": "live telemetry evidence over surviving raw transcripts \u2014 recorded, never asserted; the fixture run alone gates",
+  "live": {
+    "since": "2026-08-02",
+    "dirs_present": 3,
+    "dirs_absent": 0,
+    "sessions_scanned": 123,
+    "deliveries_measurable": 9,
+    "unmeasurable_or_skipped": 2,
+    "entries": [
+      {
+        "repo": "/mnt/agent-storage/vader/src/karta",
+        "present": true,
+        "dir": "/home/dev/.claude/projects/-mnt-agent-storage-vader-src-karta",
+        "project": "karta",
+        "context": {
+          "project": "karta",
+          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,codex-hooks-parity,context-economy,cross-item-consistency,delivery-stop-gate,design-reference-gate-2,evidence-economy,gardner-reliability,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-separation,pack-sovereignty,review-ledger,roundtable-edict,seed-drift-stamp-strip,shared-terms-pending,watch-derivation-cost,watch-drill-in-remediation,watch-drill-in,watch-fidelity,watch-font-adherence,watch-redesign,watch-shell,writer-confinement",
+          "plugin_version": "2.34.0",
+          "item_count": 151,
+          "estimate_mix": {
+            "M": 87,
+            "S": 33,
+            "L": 31
+          },
+          "models_per_agent_type": {
+            "builder": "claude-fable-5",
+            "other": "claude-sonnet-5"
+          },
+          "claude_code_version": "2.1.241"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 9,
+          "spawns_per_type": {
+            "builder": 55,
+            "other": 47
+          },
+          "per_item": {
+            "watch-store": {
+              "spawns": 1,
+              "output_tokens": 31287,
+              "cache_read_tokens": 6916397,
+              "wall_min": 14.26
+            },
+            "hub-server": {
+              "spawns": 1,
+              "output_tokens": 79956,
+              "cache_read_tokens": 9618683,
+              "wall_min": 20.03
+            },
+            "hub-lifecycle": {
+              "spawns": 1,
+              "output_tokens": 61587,
+              "cache_read_tokens": 11310011,
+              "wall_min": 21.66
+            },
+            "revive-integration": {
+              "spawns": 1,
+              "output_tokens": 91764,
+              "cache_read_tokens": 14556623,
+              "wall_min": 25.17
+            },
+            "watch-docs": {
+              "spawns": 1,
+              "output_tokens": 16967,
+              "cache_read_tokens": 7822194,
+              "wall_min": 8.25
+            },
+            "engine-next-action": {
+              "spawns": 1,
+              "output_tokens": 27254,
+              "cache_read_tokens": 10097214,
+              "wall_min": 20.92
+            },
+            "repo-shell": {
+              "spawns": 1,
+              "output_tokens": 58562,
+              "cache_read_tokens": 19187553,
+              "wall_min": 18.05
+            },
+            "landing-refresh": {
+              "spawns": 1,
+              "output_tokens": 65284,
+              "cache_read_tokens": 11821232,
+              "wall_min": 13.95
+            },
+            "watch-ux-docs": {
+              "spawns": 1,
+              "output_tokens": 17174,
+              "cache_read_tokens": 4976255,
+              "wall_min": 6.69
+            },
+            "batch-git-facts": {
+              "spawns": 1,
+              "output_tokens": 54336,
+              "cache_read_tokens": 11741125,
+              "wall_min": 11.11
+            },
+            "git-call-count-invariant": {
+              "spawns": 1,
+              "output_tokens": 26930,
+              "cache_read_tokens": 10902502,
+              "wall_min": 11.07
+            },
+            "cache-derived-state": {
+              "spawns": 1,
+              "output_tokens": 87665,
+              "cache_read_tokens": 25477187,
+              "wall_min": 25.81
+            },
+            "shed-archived-payload": {
+              "spawns": 1,
+              "output_tokens": 55299,
+              "cache_read_tokens": 22308133,
+              "wall_min": 18.43
+            },
+            "etag-conditional-get": {
+              "spawns": 1,
+              "output_tokens": 49953,
+              "cache_read_tokens": 17695945,
+              "wall_min": 14.63
+            },
+            "client-conditional-poll": {
+              "spawns": 1,
+              "output_tokens": 52449,
+              "cache_read_tokens": 22179291,
+              "wall_min": 15.98
+            },
+            "lean-box-benchmark": {
+              "spawns": 1,
+              "output_tokens": 45686,
+              "cache_read_tokens": 15330741,
+              "wall_min": 20.0
+            },
+            "rail-is-the-selector": {
+              "spawns": 1,
+              "output_tokens": 69010,
+              "cache_read_tokens": 14382294,
+              "wall_min": 21.49
+            },
+            "fact-to-assertion-trace": {
+              "spawns": 1,
+              "output_tokens": 22004,
+              "cache_read_tokens": 4545080,
+              "wall_min": 8.7
+            },
+            "alarm-motion-softens": {
+              "spawns": 1,
+              "output_tokens": 38039,
+              "cache_read_tokens": 6682947,
+              "wall_min": 11.6
+            },
+            "panel-is-one-binder": {
+              "spawns": 1,
+              "output_tokens": 77915,
+              "cache_read_tokens": 16097867,
+              "wall_min": 27.55
+            },
+            "live-controls-recorded": {
+              "spawns": 1,
+              "output_tokens": 31210,
+              "cache_read_tokens": 5552319,
+              "wall_min": 10.5
+            },
+            "binder-head-type-scale": {
+              "spawns": 1,
+              "output_tokens": 42226,
+              "cache_read_tokens": 9802412,
+              "wall_min": 14.59
+            },
+            "card-ground-and-tint-base": {
+              "spawns": 1,
+              "output_tokens": 76872,
+              "cache_read_tokens": 14785329,
+              "wall_min": 22.78
+            },
+            "progress-track-pill": {
+              "spawns": 1,
+              "output_tokens": 44617,
+              "cache_read_tokens": 7499175,
+              "wall_min": 17.69
+            },
+            "rail-halt-badge": {
+              "spawns": 1,
+              "output_tokens": 54921,
+              "cache_read_tokens": 14784902,
+              "wall_min": 21.56
+            },
+            "drill-in-fidelity-gate": {
+              "spawns": 1,
+              "output_tokens": 87968,
+              "cache_read_tokens": 25578937,
+              "wall_min": 27.51
+            },
+            "twin-guards": {
+              "spawns": 1,
+              "output_tokens": 69513,
+              "cache_read_tokens": 28080521,
+              "wall_min": 48.17
+            },
+            "fact-trace-archive": {
+              "spawns": 1,
+              "output_tokens": 25502,
+              "cache_read_tokens": 7902362,
+              "wall_min": 11.54
+            },
+            "rail-selection-hidden-pick": {
+              "spawns": 1,
+              "output_tokens": 48250,
+              "cache_read_tokens": 8382075,
+              "wall_min": 21.02
+            },
+            "selftest-count-is-real": {
+              "spawns": 1,
+              "output_tokens": 24970,
+              "cache_read_tokens": 9152229,
+              "wall_min": 10.73
+            },
+            "woff2-variation-table-reader": {
+              "spawns": 1,
+              "output_tokens": 68416,
+              "cache_read_tokens": 25179353,
+              "wall_min": 23.57
+            },
+            "newsreader-unpinned-cut": {
+              "spawns": 1,
+              "output_tokens": 88321,
+              "cache_read_tokens": 49547258,
+              "wall_min": 91.8
+            },
+            "waiver-rule": {
+              "spawns": 1,
+              "output_tokens": 750,
+              "cache_read_tokens": 12392736,
+              "wall_min": 13.77
+            },
+            "design-pin-check": {
+              "spawns": 1,
+              "output_tokens": 597,
+              "cache_read_tokens": 17224558,
+              "wall_min": 14.65
+            },
+            "waiver-doctrine": {
+              "spawns": 1,
+              "output_tokens": 1460,
+              "cache_read_tokens": 18706700,
+              "wall_min": 18.43
+            },
+            "fidelity-runbook": {
+              "spawns": 1,
+              "output_tokens": 2588,
+              "cache_read_tokens": 26205878,
+              "wall_min": 56.44
+            },
+            "slim-build-core": {
+              "spawns": 1,
+              "output_tokens": 752,
+              "cache_read_tokens": 35588109,
+              "wall_min": 28.94
+            },
+            "oracle-runner": {
+              "spawns": 1,
+              "output_tokens": 441,
+              "cache_read_tokens": 3975063,
+              "wall_min": 4.86
+            },
+            "dispatch-guard": {
+              "spawns": 1,
+              "output_tokens": 270,
+              "cache_read_tokens": 6142065,
+              "wall_min": 7.32
+            },
+            "report-provenance-checkers": {
+              "spawns": 1,
+              "output_tokens": 1110,
+              "cache_read_tokens": 10941904,
+              "wall_min": 23.09
+            },
+            "honest-oracle-authoring": {
+              "spawns": 1,
+              "output_tokens": 1052,
+              "cache_read_tokens": 9422871,
+              "wall_min": 11.23
+            },
+            "fixture-harness": {
+              "spawns": 1,
+              "output_tokens": 1136,
+              "cache_read_tokens": 20084160,
+              "wall_min": 23.87
+            },
+            "evidence-wiring": {
+              "spawns": 1,
+              "output_tokens": 628,
+              "cache_read_tokens": 19689380,
+              "wall_min": 30.5
+            },
+            "verify-economy": {
+              "spawns": 1,
+              "output_tokens": 1010,
+              "cache_read_tokens": 8288593,
+              "wall_min": 9.38
+            },
+            "round-recorder": {
+              "spawns": 1,
+              "output_tokens": 528,
+              "cache_read_tokens": 9239839,
+              "wall_min": 13.25
+            },
+            "ledger-gate": {
+              "spawns": 1,
+              "output_tokens": 3410,
+              "cache_read_tokens": 18953654,
+              "wall_min": 756.62
+            },
+            "watch-review-history": {
+              "spawns": 1,
+              "output_tokens": 572,
+              "cache_read_tokens": 18505207,
+              "wall_min": 25.99
+            },
+            "review-ledger-record": {
+              "spawns": 1,
+              "output_tokens": 1028,
+              "cache_read_tokens": 4005005,
+              "wall_min": 8.07
+            },
+            "cost-ledger": {
+              "spawns": 1,
+              "output_tokens": 2015,
+              "cache_read_tokens": 46165075,
+              "wall_min": 34.0
+            },
+            "deliver-preflight": {
+              "spawns": 1,
+              "output_tokens": 21453,
+              "cache_read_tokens": 48500246,
+              "wall_min": 36.72
+            },
+            "gate-brief-evidence": {
+              "spawns": 1,
+              "output_tokens": 1485,
+              "cache_read_tokens": 33890186,
+              "wall_min": 27.17
+            },
+            "merge-queue": {
+              "spawns": 1,
+              "output_tokens": 11008,
+              "cache_read_tokens": 32364865,
+              "wall_min": 50.23
+            },
+            "context-economy-record": {
+              "spawns": 2,
+              "output_tokens": 19996,
+              "cache_read_tokens": 18563686,
+              "wall_min": 78.32
+            }
+          },
+          "per_item_median": {
+            "output_tokens": 26930,
+            "cache_read_tokens": 14556623,
+            "wall_min": 20.0
+          },
+          "unattributed": {
+            "spawns": 1,
+            "output_tokens": 15273,
+            "cache_read_tokens": 5078021,
+            "wall_min": 6.81
+          },
+          "overhead_ratio": {
+            "value": 0.5406,
+            "numerator_output_tokens": 962521,
+            "denominator_output_tokens": 1780469
+          },
+          "models_per_agent_type": {
+            "builder": "claude-fable-5",
+            "other": "claude-sonnet-5"
+          }
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 44,
+              "denominator": 81
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 9,
+              "denominator": 9
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 39,
+              "denominator": 43
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 9,
+              "denominator": 9
+            }
+          ],
+          "unmeasurable_sessions": 2
+        },
+        "sessions_scanned": 123,
+        "deliveries_measurable": 9,
+        "unmeasurable_sessions": 2,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "/mnt/agent-storage/vader/src/parchmark",
+        "present": true,
+        "dir": "/home/dev/.claude/projects/-mnt-agent-storage-vader-src-parchmark",
+        "project": "parchmark",
+        "context": {
+          "project": "parchmark",
+          "binder_slug": "backend-hygiene,backend-drop-sync-session,backend-pyjwt-migration,backend-service-layer-notes-auth,deps-upgrade-latest,note-create-workflow,note-delete-workflow,note-edit-save-workflow,note-events-live-refresh,note-tags-editing,notes-list-from-backend,settings-account-delete,settings-account-summary,settings-notes-export,settings-password-change",
+          "plugin_version": "unknown",
+          "item_count": 36,
+          "estimate_mix": {
+            "M": 16,
+            "S": 17,
+            "L": 3
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "unknown"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 0,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 0,
+              "denominator": 0
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 0,
+        "deliveries_measurable": 0,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "/mnt/agent-storage/vader/src/gringotts",
+        "present": true,
+        "dir": "/home/dev/.claude/projects/-mnt-agent-storage-vader-src-gringotts",
+        "project": "gringotts",
+        "context": {
+          "project": "gringotts",
+          "binder_slug": "retrieve-text-search,asset-fingerprinting,browse-refinements,debt-sweep,deposit-and-editing,exif-display,exif-persistence,photo-classify,unified-capture-bar,upload-integrity,upload-reliability",
+          "plugin_version": "unknown",
+          "item_count": 36,
+          "estimate_mix": {
+            "M": 18,
+            "L": 7,
+            "S": 11
+          },
+          "models_per_agent_type": {},
+          "claude_code_version": "unknown"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 0,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 0,
+              "denominator": 0
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 0,
+        "deliveries_measurable": 0,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      }
+    ]
+  }
+}

@@ -142,7 +142,58 @@
           "claude-opus-5",
           "claude-sonnet-5"
         ],
-        "claude_cli_version": "2.1.251"
+        "claude_cli_version": "2.1.251",
+        "per_role_usage": {
+          "orchestrator": {
+            "messages": 44,
+            "input_tokens": 88,
+            "cache_read_input_tokens": 2415963,
+            "cache_creation_input_tokens": 109758,
+            "output_tokens": 16215,
+            "avg_context_tokens": 57404.75
+          },
+          "builder": {
+            "messages": 66,
+            "input_tokens": 132,
+            "cache_read_input_tokens": 3439322,
+            "cache_creation_input_tokens": 212922,
+            "output_tokens": 3358,
+            "avg_context_tokens": 55339.03
+          },
+          "acceptance-reviewer": {
+            "messages": 10,
+            "input_tokens": 20,
+            "cache_read_input_tokens": 98755,
+            "cache_creation_input_tokens": 21365,
+            "output_tokens": 37,
+            "avg_context_tokens": 12014.0
+          },
+          "safety-auditor": {
+            "messages": 9,
+            "input_tokens": 18,
+            "cache_read_input_tokens": 80164,
+            "cache_creation_input_tokens": 18424,
+            "output_tokens": 30,
+            "avg_context_tokens": 10956.22
+          },
+          "other": {
+            "messages": 0,
+            "input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "output_tokens": 0,
+            "avg_context_tokens": 0
+          }
+        },
+        "context_tokens_per_item": 3198465.5,
+        "cost_usd_per_role": {
+          "orchestrator": 2.350357,
+          "builder": 2.018911,
+          "acceptance-reviewer": 0.241819,
+          "safety-auditor": 0.205189,
+          "other": 0.0
+        },
+        "cost_usd_per_item": 2.408138
       },
       "notes": [
         "karta-build and karta-deliver skill text loaded from the pinned tree (transcript 'Base directory' lines).",

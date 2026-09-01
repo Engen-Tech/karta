@@ -1,11 +1,12 @@
 {
-  "reviewed_hash": "6d68c0e81489822a714f8d736f6d7f180faf9c0aacddfff415b326cd34da4735",
+  "reviewed_hash": "7126b9f967218fa8c71b62e8be0404614885514f22687bc47e11b518744ac098",
   "tool": "roundtable-critique",
   "target_kind": "binder",
   "target_ref": "context-economy",
-  "run_at": "2026-08-29T03:31:34.480980+00:00",
+  "run_at": "2026-08-31T02:09:17.309752+00:00",
   "config_snapshot": {
     "enabled": true,
+    "ledger": true,
     "tool": "roundtable-critique",
     "providers": [],
     "min_providers": 2,
@@ -19,17 +20,39 @@
     {
       "provider": "antigravity",
       "verdict": "ok",
-      "summary": ""
-    },
-    {
-      "provider": "claude",
-      "verdict": "merge",
-      "summary": "Round 13 review. Closure confirmation (Round 12 fix): the forced unwind was proven only on the rejected-success path \u2014 closed. The contract states one shared routine explicitly (\"ONE SHARED UNWIND ROUTINE serves every halt after the merge started \u2014 a failing oracle, dirty-after-oracle, tip-moved, a failed verification \u2014 there is no second, older reset path\"), specified as update-ref \u2192 checkout -f \u2192 reset --hard \u2192 clean -fd \u2192 verify; the divergent-foreign-branch-with-tracked-modification and deleted-integration-ref cases each run twice (oracle exits 0 then rejected; oracle exits nonzero) asserting integration ref + HEAD at the pre-merge tip, empty porcelain, foreign ref unchanged, no done ref; the oracle greps \"checkout -f\". These force the shared routine for the nonzero-oracle path; all safety outcomes are test-pinned regardless of code factoring.\nNon-blocking: [low] residual stale prose in step (e) (\"verify HEAD is still the just-made merge commit \u2026 then git reset --hard\") invites a guarded second path \u2014 reword to defer to the shared routine. [low] if checkout -f fails while a foreign branch is checked out, step (3) reset would rewrite the foreign ref; recommend checking checkout -f's exit before resetting. [info] \"foreign ref unchanged\" is vacuous for the deleted-integration-ref case.\nNone meets the blocking bar. Verdict: merge\n"
+      "summary": "Verdict: SHIP. New defect findings: none. The assertion now matches the contract, the oracle greps, and the summary/motivation; validate_binder and validate_plugin both pass on these bytes; no syntax, escaping, or collateral regressions."
     },
     {
       "provider": "codex",
-      "verdict": "merge",
-      "summary": "No findings. Round 12's blocking issue is closed: one shared forced unwind routine covers every post-merge halt; both hazardous states run with successful and nonzero oracles; tests assert restored integration ref and HEAD, clean porcelain, unchanged foreign ref, and no done ref; the oracle requires checkout -f, runs the complete self-test, and explicitly asserts both paths. The binder validator passes: 5 items, no opt-outs or waivers. The Round 12\u219213 diff is limited to this closure and introduces no new blocking issue. Verdict: merge\n"
+      "verdict": "ok",
+      "summary": "SHIP. New-defect findings: none. The assertion's 48.8/41.9 values match both the item contract and the literals enforced by the oracle command."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "ok",
+      "summary": "SHIP. none. Fix present verbatim; consistent with contract sections (1) and (4) and the oracle grep tokens; arithmetic coherent (48.8+41.9+9.3=100.0, 5.0+4.3=9.3); the old numbers survive only as the labeled rejected first draft in the summary; the string is well-formed and no other bytes changed."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": "ok",
+      "summary": "SHIP. none. Traced 48.8/41.9 through every referencing site - summary, motivation, contract, oracle command, assertion - all consistent; the assertion correctly says two headline shares while the command enforces all five; pure literal substitution in a descriptive string, no oracle logic, dependencies, or structure touched."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "ok",
+      "summary": "SHIP. New-defect finding: none. Verified against the contract's both share-listing sites, the oracle grep set, and binder summary/motivation; stale-literal sweep clean except the dispositioned historical mention; the delta is a non-executable string and cannot alter oracle behavior."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "SHIP. None. Five consistency checks pass: oracle grep targets, item contract verbatim, binder summary and motivation, cost-ledger cross-reference, and the semantic correctness of calling 48.8/41.9 the two headline shares."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "SHIP. none. Fix present verbatim, consistent with the contract and the enforced grep literals; text-only change in one assertion; no new mismatch, quoting issue, or oracle/contract drift."
     }
-  ]
+  ],
+  "rounds_ledger": ".karta/roundtable/context-economy.rounds.json",
+  "final_round": 19
 }

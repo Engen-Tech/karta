@@ -140,7 +140,7 @@ Curated **stack packs** make karta plan and build the way each stack expects. ka
 
 ## Enforcement below the agent
 
-The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, the kaizen writer may write only under `.karta/sme/` and to `.karta/kaizen.json` — any other write is blocked before it lands — a safety-auditor dispatch missing its binder or pinned checklists is blocked before it starts, and a session cannot silently end with built-but-unmerged items or a complete-but-unarchived binder: it is blocked once with the fix named, then the next identical stop passes (a sixth hook lists your binders at session start). On Codex, the same rules hold as skill doctrine backed by the OS sandbox and execpolicy rules until its hooks surface stabilizes — the scripts are runtime-agnostic so that switch needs no rewrite. Skills still state every rule; hooks are the backstop. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
+The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, the kaizen writer may write only under `.karta/sme/` and to `.karta/kaizen.json` — any other write is blocked before it lands — a safety-auditor dispatch missing its binder or pinned checklists is blocked before it starts, and a session cannot silently end with built-but-unmerged items or a complete-but-unarchived binder: it is blocked once with the fix named, then the next identical stop passes (a sixth hook lists your binders at session start). Codex ships bundled twins of most of these — see the parity table in [`docs/how-to/codex.md`](docs/how-to/codex.md) — enforced once you trust the plugin's hooks (`/hooks`); writer confinement stays skill doctrine there, since karta registers no kaizen or doc-gardner agent on Codex. Skills still state every rule; hooks are the backstop. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
 
 ## Consistent wording across items
 
@@ -161,7 +161,7 @@ karta builds each item in isolation, so two items can word the same user-facing 
 - **`karta-deliver` and `karta-build`** — `git` (per-item worktrees), your package manager + toolchain (lint/test/build/dev), and the binder on disk.
 - **`karta-verify`** — the diff and the binder. Read-only.
 - **`karta-validate`** — [`uv`](https://docs.astral.sh/uv/), [`playwright-cli`](https://playwright.dev) (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`), and Chromium. The app must already be running — you own the dev server.
-- **Pi package** — Pi 0.84.2 or a later tested version, Node.js 22.19 or newer, Git, and `uv`; plus [`playwright-cli`](https://playwright.dev) and Chromium only for visual oracles (`oracle.type: visual`). Karta 3.0.0 supports native macOS and Linux; see the [Pi guide](docs/how-to/pi.md#current-support-matrix).
+- **Pi package** — Pi 0.84.2 or a later tested version, Node.js 22.19 or newer, Git, and `uv`; plus [`playwright-cli`](https://playwright.dev) and Chromium only for visual oracles (`oracle.type: visual`). Karta 2.35.0 supports native macOS and Linux; see the [Pi guide](docs/how-to/pi.md#current-support-matrix).
 
 ## License
 

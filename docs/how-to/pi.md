@@ -15,7 +15,7 @@ You need:
 - `playwright-cli` on `PATH`, **only for visual oracles** (`oracle.type: visual`) — Karta captures the running app and the design through it and never installs the browser for you (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`); a visual capture fails closed with this exact remediation when it is absent, and non-visual work never needs it;
 - the package manager and toolchain used by the project you are delivering.
 
-Karta 3.0.0 supports native macOS and Linux. Native Windows support is deferred to a later release.
+Karta 2.35.0 supports native macOS and Linux. Native Windows support is deferred to a later release.
 
 A build worker can run Bash. Its worktree separates concurrent changes, but it is not a sandbox for hostile code. Run Karta only in projects and with models you trust to execute the project's build commands.
 
@@ -269,7 +269,7 @@ This matrix records native runs, not architectural guesses. A container result m
 |-|-|-|
 |macOS 26.5.2 arm64|Pass|Pi 0.84.2, Node 25.2.1, Apple Git 2.50.1; full suite and validators|
 |Linux x86_64|Pass|Debian 13, Pi 0.84.2, Node 25.2.1, Git 2.47.3, uv 0.11.25; full suite, validators, package lifecycle, and production audit|
-|Windows x86_64|Not supported in 3.0.0|Native Windows support is deferred to a later release|
+|Windows x86_64|Not supported in 2.35.0|Native Windows support is deferred to a later release|
 |SHA-1 repositories|Pass on macOS and Linux|Native Git fixture suite|
 |SHA-256 repositories|Pass on macOS and Linux|Native Git fixture suite|
 |Spaces, Unicode, symlinked local install, linked worktrees|Pass on macOS and Linux|Package lifecycle and lock fixtures|

@@ -1,0 +1,81 @@
+{
+  "target_ref": "karta/context-economy/integration",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4-pro-0813"
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "model": "accounts/fireworks/models/glm-5p2"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) — a fresh review of the exact reviewed bytes — but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "5b8176a19246ea251b24262d890387ea99b4c432",
+      "run_at": "2026-08-31T04:25:47.843065+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p2": {
+          "model": "accounts/fireworks/models/glm-5p2",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [
+        "done-ref-write halt without unwind (codex HIGH): VERIFIED in merge_item.py — real, but it fires only when update-ref fails after a fully merged and revalidated item, and it halts loudly; deferred as a hardening follow-up (unwind or a resume test for the half-landed shape)",
+        "tree_sha omits tracked-but-ignored files (codex MEDIUM): VERIFIED latent — git ls-files -i -c finds zero such files in this repo, and staleness fails safe (a stale record settles nothing); deferred hardening (seed the temp index from HEAD)",
+        "round 18 reviewed_hash (codex MEDIUM): refuted — the entry's own notes disclose exactly what each panelist saw; rewriting an audit entry after the fact is the thing the ledger exists to prevent, and the record certifies round 19",
+        "input-count prose, --allow-drift example, accept-precondition sentence, 13-round worked example (codex/glm/minimax/qwen): real doc nits, deferred to a post-landing docs fix branch so the landed tip stays the reviewed tip",
+        "Work-item slice hash, Changed-files recompute, packet binder fingerprint, Gate-2 id equality, inert-data rule, annex trigger hint (deepseek/qwen/glm): hardening candidates for the next binder, recorded here as the backlog"
+      ],
+      "notes": "Pre-landing review of tip 5b8176a. 5 MERGE, 1 HOLD; kimi's stream died mid-sentence and its non-answer is omitted from the panel payload. The HOLD's two script-level claims were verified in-session before disposition (see refuted/deferred). Landing approved by Tej at the session prompt after a plannotator review of the full branch diff returned no changes. Disposition filled in-place after a bare --round append (long flag lists rejected by the session's auto-mode classifier).",
+      "below_floor": false
+    }
+  ]
+}

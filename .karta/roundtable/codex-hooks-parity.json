@@ -1,0 +1,38 @@
+{
+  "reviewed_hash": "013b2e45baa46fad38c179e7107ea165cf0acebdd1f938e2e47bcfb94061abf4",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "codex-hooks-parity",
+  "run_at": "2026-08-31T20:50:17.165332+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": "Round 8 final evaluation. Each work item re-derived against the three final-bar criteria: (a) none - a correct implementation passes every oracle as written; (b) none - positive and negative controls cover every named rule, including the round-7 matcher pins (g.get(matcher, *) in (empty, *)) across all three manifests for both lifecycle hooks; (c) none - contracts satisfiable. Per-item verifications: whiff (ancestorhood rule, dual channels, identity discipline incl scoped, statelessness, match-all matcher), status (budgets, inert-delimiter defanging of literal and encoded variants, plain stdout, fail-open incl malformed binder, match-all matcher), dispatch twins (spawn_agent|Agent pin, joined fields, hyphen/underscore equivalence, byte-for-byte deny channels, recompute echo-kill, worktree and dotted-tag fixtures, no-tool_input pass), parity table (flipped rows, SubagentStop row with enforced label, frozen Doctrine control, GA facts, 7 filenames, ledger probe). No blocking or non-blocking defects found. VERDICT: APPROVE."
+    },
+    {
+      "provider": "codex",
+      "verdict": "ok",
+      "summary": "Reviewed only the binder contracts and executable oracles against the stated final bar, honoring the settled dispositions. Completed the contract-to-oracle pass for the whiff and status items, then checked the dispatch fixtures against the original guard semantics, where punctuation and range parsing can make an otherwise plausible oracle unsatisfiable. No findings meet the Round 8 bar. The binder is schema-valid, all four oracle commands pass shell syntax checking, and the reviewed bytes match Round 7's recorded SHA-256. Re-derived probes align with the stated contracts and original guard behavior. VERDICT: APPROVE."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "Read every contract clause and re-derived each oracle against it. Bar (a): no - every probe drives its contract, including the round-7 matcher pins which admit exactly the three documented match-all spellings while the dispatch coalesce correctly enforces the exact regex. Bar (b): scanned specifically - the remaining gaps (sentinel discrimination beyond karta-build, neutralization sub-spellings beyond four, recognition keys beyond six) are all already-dispositioned under the settled oracle-discriminator/self-test-enumeration division. Bar (c): no - path resolution walks by existence test, the worktree mention format comes verbatim from the Claude original, the matcher pin allows three spellings, and the 11-row floor is achievable on the stated 10-row baseline. Specific re-checks this round: the wg/sg matcher segments, cmp -s projection sync, the 6-byte fixture satisfying bytes>0, the behind/ahead merge-base topology, and the agent_id ringer probe. One soft observation (the 10-row baseline presumption) checked and not raised - the binder's stated baseline is accurate. VERDICT: APPROVE."
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/codex-hooks-parity.rounds.json",
+  "final_round": 8
+}

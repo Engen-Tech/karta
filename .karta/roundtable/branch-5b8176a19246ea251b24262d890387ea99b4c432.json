@@ -1,0 +1,53 @@
+{
+  "reviewed_hash": "5b8176a19246ea251b24262d890387ea99b4c432",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/context-economy/integration",
+  "run_at": "2026-08-31T04:25:47.885438+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": "Verdict: MERGE. Ran the repo's checks live: all self-tests and floor commands exit 0; canonical-to-mirror projections byte-in-sync; all reference links resolve; build SKILL under the 55KB cap; gate-brief grammar agrees across verify SKILL, both agents, and the dispatch guard; archived binder hash matches ledger rounds 18-19. Two LOW: archived-binder oracles hardcode the pre-archive binder path (future authoring: resolve dynamically); missing touches serializes conservatively (safe default)."
+    },
+    {
+      "provider": "codex",
+      "verdict": "ok",
+      "summary": "Verdict: HOLD. (1) HIGH merge_item.py done-ref-write halt does not unwind the successful merge - integration tip advances with no done ref; call the forced unwind and self-test a forced update-ref failure. (2) MEDIUM round 18's reviewed_hash does not identify what six providers reviewed (the entry's own note says so). (3) MEDIUM tree_sha omits tracked-but-ignored files (temp index starts empty before add -A) - valid evidence goes permanently stale; seed from HEAD. (4) MEDIUM verify SKILL and safety agent input-count prose contradicts the new block lists. (5) LOW roundtable.md worked example still describes 13 rounds. All five focused script self-tests pass; they do not cover findings 1 or 3."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "ok",
+      "summary": "Verdict: MERGE. The rewiring is coherent end-to-end (preflight to packet to brief to currentness to queue to close-wave; narrow done^1..done range uniform; no-ff accept subject consistent). Six hardening findings, none blocking: Work-item block trusted by id only (add a slice hash); Changed-files cross-check fail-open (auditor should recompute name-status); build-annex multi-root rule behind a circular trigger; item_context packet lacks a binder fingerprint; artifact-writing checks vs dirty guards (verify tolerance); confirm the rounds ledger is on the branch (the rename shows 100% similarity). Cost arithmetic verified right."
+    },
+    {
+      "provider": "fireworks-glm5p2",
+      "verdict": "ok",
+      "summary": "Verdict: MERGE. Six findings, none blocking: safety-auditor prose still says three things while listing six inputs; covered-by-command needs a negative example against over-claim; Changed-files cross-check one-directional; accept-merge migration operationally heavy for any in-flight pre-rule delivery (verify none exists); --allow-drift missing from the merge command example; annex moves mandatory rules behind a conditional pointer (add a trigger hint). Coherence check passed across all doctrine surfaces; audit trail shows no evidence of lying."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "Verdict: MERGE. Audit chain holds: cost shares match docs, ledger rounds 18-19, and the new SME rule's watch-case; arithmetic verified; binder archived; annex extraction preserves every relocated rule verbatim; brief-block ordering rule is right. Two unverifiable-from-diff HIGHs to file-review post-merge (run_oracle tree_sha capture timing; merge_item unwind path); one MEDIUM wording fix (accept-precondition sentence reads ambiguously); scratch-path rule is doctrine without a runtime guard (future dispatch precondition)."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "Verdict: MERGE. No clear landing blocker in the doctrine diff. Main risks to fix soon: Work-item block id-checked but not integrity-checked; covered-by-command over-application risk; safety-auditor input contract inconsistencies (count prose, sme slice, direct-dispatch fallback); build packet Gate 2 should verify packet item id equals dispatched id; preflight --repo wording precedes worktree creation; accept trailer stamping sequence ambiguous; failed-ref rebuild path underspecified; brief machine blocks should be declared inert data."
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/branch-5b8176a19246ea251b24262d890387ea99b4c432.rounds.json",
+  "final_round": 1
+}
