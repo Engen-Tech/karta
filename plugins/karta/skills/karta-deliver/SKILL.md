@@ -10,6 +10,10 @@ karta-deliver takes a **validated binder** and builds all its work items onto th
 
 **Bundled scripts.** When Pi provides `karta_script`, it resolves these package-owned scripts; otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, call it once with `action: deliverBinder` and the binder slug. The package host owns preflight, dependency waves, workers, checks, gates, serial integration, retries, waivers, rollback, enabled companion writers, archival, and Git-only recovery. Use its `karta-delivery-v1` result; do not run the legacy phases below yourself or fall back after a tool error. A blocked result keeps its durable Git frontier for the next run.
+
 The integration branch is also the resume record. karta tracks every item's outcome through commit markers, wave tags, and the `refs/karta/` ref namespace (see [references/integration-branch.md](references/integration-branch.md)). A later run detects leftovers from a prior partial run and offers to continue or clear.
 
 The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **immutable while a wave runs**. karta-deliver reads it; it never writes to it. For its full field reference, see [references/binder-reference.md](references/binder-reference.md). The build primitive for each item is `karta-build`. The parallelism rules live in [references/parallelism-gates.md](references/parallelism-gates.md).

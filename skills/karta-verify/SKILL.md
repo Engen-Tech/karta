@@ -12,6 +12,14 @@ triggers:
 
 **Bundled scripts.** When Pi provides `karta_script`, it resolves these package-owned scripts; otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, complete Phase 0, then call it once with `action: runVerification`, the binder slug, work item id, and mode. The tool derives the binder, refs, tips, diff, composed pack rules, touched files, citations, and prompt from the installed package and Git. Do not pass or re-derive paths, prompts, tools, commands, models, providers, or diff ranges. Do not resolve the legacy agents below or run either review inline; `karta_dispatch` creates both fresh read-only children and holds one dispatch lock across them.
+
+A package-owned build or delivery binds verification to its fully staged candidate or proposed merge tree and supplies the ordered host-run check manifest. The manifest contains the final project-floor receipts plus the binder oracle receipt when required. A direct verification of a required command blocks when no manifest exists; the read-only gate never reruns commands to manufacture one.
+
+Use the returned `karta-verification-v1` result as Phase 3's aggregate. `pass`, `concerns`, `blocked`, and `skipped` map directly to the routing rules below. The host classifies a gate concern as retryable; this orchestrator still owns the existing caps—two acceptance attempts and three safety attempts—and the Git-native halt/escalation behavior. A tool error is `blocked`, never a reason to fall back to an inline review. Use the legacy agent resolution only when `karta_dispatch` is not available.
+
 Visual oracles (`type: visual`) get their acceptance judgment from `karta-validate`, never from this skill — but they do not skip the boundary gate: karta-build (Phase 6) dispatches this skill in **boundary-only** mode for visual-oracle items *before* karta-validate runs, so a VIOLATION or BLOCKED halts before any dev-server work. Opt-out oracles bypass this gate entirely; the build step skips karta-verify for items where `oracle.opt_out` is true.
 
 ## Modes

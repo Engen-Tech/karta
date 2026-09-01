@@ -10,6 +10,10 @@ karta-build takes **one work item from a validated binder** and carries it from 
 
 **Bundled scripts.** When Pi provides `karta_script`, it resolves these package-owned scripts; otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, call it once with `action: buildItem`, the binder slug, and the work item id. The package host owns the worktree, isolated worker, checks, gates, commits, refs, retries, and Git-only recovery. Use its `karta-build-item-v1` result; do not run the legacy phases below yourself or fall back after a tool error. `built` means the item is ready for the binder's serial integration queue. Use `karta_dispatch` with `action: deliverBinder` when the request is to assemble or finish the binder.
+
 The binder (`.karta/binders/<slug>.json`) is the cross-skill contract. Each work item carries an `oracle` (its acceptance check) and an optional `contract` (the interface it exposes or consumes). karta-build reads the binder — it never writes to it during a run (see [references/binder-reference.md](references/binder-reference.md)). The planning counterpart is `karta-plan`; the read-only acceptance and visual gates are `karta-verify` / `karta-validate`.
 
 ## How this skill adapts to your project

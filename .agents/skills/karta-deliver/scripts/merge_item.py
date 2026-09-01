@@ -492,6 +492,8 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
     os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
     os.environ["GIT_CONFIG_SYSTEM"] = os.devnull
     os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+    os.environ.pop("GIT_CONFIG_COUNT", None)      # command-scope config env leaks in too
+    os.environ.pop("GIT_CONFIG_PARAMETERS", None)
     passed = 0
     total = 0
     failures = 0

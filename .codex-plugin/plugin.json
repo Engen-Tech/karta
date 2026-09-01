@@ -26,7 +26,7 @@
   "interface": {
     "displayName": "karta",
     "shortDescription": "Synthesize a binder and deliver it in parallel waves, gated by acceptance checks.",
-    "longDescription": "karta packages five stack-agnostic orchestration skills, a bundled plain-language writing standard (karta-plainlanguage), and two read-only gate agents. karta-plan synthesizes a validated binder of work items; karta-deliver builds them in parallel waves onto a per-binder integration branch; karta-build implements one item in an isolated worktree; karta-verify (behavioral) and karta-validate (visual) are the acceptance gates. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation).",
+    "longDescription": "karta packages five stack-agnostic orchestration skills, a bundled plain-language writing standard (karta-plainlanguage), and five agents — three read-only gates (karta-acceptance-reviewer, karta-safety-auditor, karta-design-reviewer) and two opt-in writers (karta-doc-gardner, karta-kaizen). karta-plan synthesizes a validated binder of work items; karta-deliver builds them in parallel waves onto a per-binder integration branch; karta-build implements one item in an isolated worktree; karta-verify (behavioral) and karta-validate (visual) are the acceptance gates. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation).",
     "developerName": "Tej Gandham",
     "category": "Productivity",
     "capabilities": [
