@@ -187,6 +187,7 @@ Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because thi
 
 - karta is an ordinary consumer of its own framework: its `.karta/sme/` carries a project pack `.karta/sme/karta-house-minimalism.md` that declares `extends: minimalism` and narrows one rule locally, exactly the way any consumer repo tailors a built-in. A change to the built-in rule itself is only ever made upstream in `skills/_shared/sme/minimalism.md`, by a human — never by drifting a repo-local copy of the pack.
 - `.karta/sme/karta-house-skill-authoring.md` is this repo's own non-coding pack (reserved `karta-house-*` namespace, so it can never collide with a built-in). It is the pack kaizen is expected to actually evolve; its edits are reviewed like any `kaizen:` commit.
+- `.karta/sme/karta-house-invariants.md` applies the invariant register ([docs/conventions/invariants.md](docs/conventions/invariants.md)) at build time: checklist rules `inv.1`–`inv.4` cover what skill-authoring does not — register and carrier updated in the same diff, whole-action exceptions, content-proven identity, repetition-needs-a-recorded-decision. Like every project pack, its edits are reviewed before they land.
 - Never seed built-in copies here: the repo carries zero seeded built-in copies under `.karta/sme/`, only its own `karta-house-*` project packs; deliveries pin what their binders pin.
 
 One rule governs how anything here hardens: repetition triggers a decision, never a rule. When a

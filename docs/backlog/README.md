@@ -497,7 +497,45 @@ moment anything reads the record for what actually happened at merge time.
 **Fix.** Write the merge-time record to the ref after a successful re-execution, before the ref-last
 writes. Raised by codex on 2026-08-27.
 
+---
 
+## 21. nothing verifies the invariant register's carriers — *Ready* (filed 2026-08-31)
+
+`docs/conventions/invariants.md` names each invariant's carriers by file plus a distinctive phrase
+quoted from the woven sentence, and its "How this file stays true" section says plainly that no
+checker verifies them — drift protection is review-held. The exposure showed up the day the
+register landed: the codex-hooks-parity delivery rewrote a carrier paragraph (README's
+"Enforcement below the agent") while the register was in flight on its own branch. A merge
+conflict caught it only because both edits touched the same sentence's paragraph; a rewrite
+elsewhere in the section would have merged clean and left the register quoting a sentence that no
+longer exists.
+
+**Fix.** A register checker in the commit hook's gate list, beside `check_shared_copies.py` — the
+precedent for prose held in place by a validator. For each entry: the carrier file exists, the
+quoted phrase is present, every named enforcement script exists. Failure is a named denial
+pointing at the entry and the carrier. When it lands, flip the register's "How this file stays
+true" layer-2 paragraph and INV-20's status in the same diff. Planned for the
+invariant-foundations binder.
+
+---
+
+## 22. an agent cannot commit from a linked worktree — the gate denies every shape that reaches one — *Ready* (filed 2026-08-31)
+
+`roundtable_gate.py` accepts a guarded git command only as one bare invocation:
+`cd <worktree> && git commit …` is denied as a preceding segment, `git -C <worktree> commit` as a
+relocating prefix. Both denials are deliberate over-denial, and AGENTS.md names their cost. But
+the agent harness resets each shell call's cwd to the primary checkout, so an agent has no
+accepted way to commit in a linked worktree at all — the worktree-rescoping the gate already
+performs for a worktree cwd is unreachable, because an agent's cwd can never persist there. On
+2026-08-31 both commits of the `docs/invariant-register` branch had to be typed by the human for
+exactly this reason: the content, staging, and review were agent-prepared, and the final
+`git commit` was structurally impossible.
+
+**Fix shape.** Recognize one narrow additional form rather than loosening generally: accept
+`git -C <path> commit|merge …` when `<path>` resolves to a linked worktree of this same
+repository, and rescope every lookup to it — the rescoping machinery exists. Keep denying
+`cd`-chains and every other relocation. Relates to item 11 (the merge gates' HEAD reads) and
+register entry INV-11.
 
 ## Done (recent)
 

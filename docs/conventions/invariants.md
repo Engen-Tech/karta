@@ -38,12 +38,13 @@ Nothing in a repository is immutable; what can be enforced is that nothing here 
    so a change to any invariant's prose is a two-file diff, register beside carrier, visible to
    the reviewer of the branch it must arrive on. Today that visibility is held by review alone:
    **no checker verifies this file yet**, and per invariant 2 the register says so rather than
-   implying otherwise.
+   implying otherwise. For delivery diffs, checklist rule inv.1 in
+   `.karta/sme/karta-house-invariants.md` makes the same-diff rule a judged checklist item.
 2. **A checker, planned.** The intended check is small and has a precedent in this suite:
    `check_shared_copies.py` already holds prose byte-equal across locations on every commit. The
    register checker does the same at phrase grain — every carrier file exists, every quoted phrase
    is present, every named enforcement script exists — joining the commit hook's gate list so
-   silent drift becomes a commit-time denial. When it lands, this paragraph changes and entry 20's
+   silent drift becomes a commit-time denial (backlog item 21). When it lands, this paragraph changes and entry 20's
    status improves; until then, both stand as written.
 3. **The limit, named.** A phrase check proves presence, not meaning. Prose around an intact
    sentence can still reframe it, and no grep will notice. That last grain is what branch review
@@ -60,19 +61,19 @@ marked retired, with the reason and date — deletion would erase the decision a
 ### INV-1 · Enforced checks over skippable prose
 A rule that matters gets a check that fires; prose alone is a request, not a rule.
 - founding · **prose by design** — this is the criterion the other entries' status column applies; it cannot check itself.
-- Carriers: README.md "Enforcement below the agent" ("Skills still state every rule; hooks are the backstop").
+- Carriers: README.md "Enforcement below the agent" ("Skills still state every rule; hooks are the backstop"); .karta/sme/karta-house-skill-authoring.md ("Give every new invariant an enforcement point").
 
 ### INV-2 · Doctrine never claims more than enforcement delivers
 When a sentence promises a check no code performs, the sentence is the defect: shrink the claim or build the check.
 - 2026-08-31 review · **prose by design** — it governs authoring; its instances are checkable, it is not. This register's status column is its standing application.
-- Carriers: README.md "Enforcement below the agent" ("never claims more than its backstop delivers").
+- Carriers: README.md "Enforcement below the agent" ("never claims more than its backstop delivers"); .karta/sme/karta-house-skill-authoring.md ("never claim more than that").
 - The sentence-scale case is real: a validator whose error text promises containment its code never tests (backlog item 6).
 - Test: read the doctrine sentence and ask *what fires if this is violated?* If nothing, rewrite until true.
 
 ### INV-3 · Identity is proven by content, never inferred from circumstance
 A check that asks "is this the thing I think it is?" compares bytes; recency, ordering, position, and response time are guesses wearing a badge.
 - 2026-08-31 review · **prose by design** — the principle; its instances carry their own status (INV-14 enforced, INV-16 prose).
-- Carriers: AGENTS.md, binder-freshness rule ("identity is proven by content — a hash of the exact bytes").
+- Carriers: AGENTS.md, binder-freshness rule ("identity is proven by content — a hash of the exact bytes"); .karta/sme/karta-house-invariants.md (inv.3, the build-time application).
 - Three costumes, one root: a hash file with no review behind it (backlog item 4); a verdict with no diff range (item 19); a slow probe answer read as a foreign occupant (item 7).
 - A caveat that is INV-2 applied here: a matching hash proves what a verdict is *about*, never that the review behind it happened — provenance is a separate claim.
 - Test: find every "is this current / mine / the same?" and ask whether the answer is a content address or a circumstance.
@@ -80,13 +81,13 @@ A check that asks "is this the thing I think it is?" compares bytes; recency, or
 ### INV-4 · An exception is the whole commit or it is a hole
 An exception defined by what a commit *contains* ("has a binder in it") leaks — content rides in around the qualifying item. An exception defined by what the commit *is, entirely* ("consists of exactly a binder plus its review record") cannot. Name the edges (completing an in-progress merge is not a direct commit) instead of leaving them to be guessed.
 - 2026-08-31 review · **prose by design** — governs the wording of every exception; the route exception it was distilled from is INV-17.
-- Carriers: AGENTS.md "How work reaches the default branch" ("names something a commit *contains* is a hole").
+- Carriers: AGENTS.md "How work reaches the default branch" ("names something a commit *contains* is a hole"); .karta/sme/karta-house-invariants.md (inv.2).
 - Test: does the exception describe the *entire* action it excuses, or one feature of it? One feature is a hole.
 
 ### INV-5 · Repetition triggers a decision, never a rule
 A repeated pattern forces a recorded decision — promote it, mark it deliberately optional with the reason, or reject it. What is forbidden is not optional conventions; it is *undecided* ones. A constant observed in one environment is configuration; only the principle is doctrine.
 - 2026-08-31 review · **prose by design** — a judgment rule; no code can make the decision, only demand that one exists.
-- Carriers: AGENTS.md, kaizen dogfood policy ("repetition triggers a decision, never a rule").
+- Carriers: AGENTS.md, kaizen dogfood policy ("repetition triggers a decision, never a rule"); .karta/sme/karta-house-invariants.md (inv.4).
 - The cost of no decision: one binder wrote `depends_on: null`, twenty-six wrote `[]`, and nothing ever ruled which is right.
 - Test: when a pattern repeats, ask who decides, where the decision is recorded, and which of the three outcomes it got.
 
@@ -131,8 +132,8 @@ Serialization needs a named correctness or collision reason. A concurrency cap o
 
 ### INV-13 · A gate fix ships with a negative control
 A change to enforcement code lands with a test that fails on the pre-fix code for the named reason — proof the gate catches what it claims to, not just proof it still passes.
-- 2026-08-31 review · **prose** — practiced in recent gate work, required nowhere.
-- Carriers: none yet — this entry is the statement of record until the discipline lands in the verify doctrine.
+- 2026-08-31 review · **partial** — for delivery diffs it is enforced: `karta-house-skill-authoring`'s checklist rule house.4 requires the companion negative case, and the safety-auditor judges every item's diff against the pinned checklist. Ordinary branch work meets no such check.
+- Carriers: .karta/sme/karta-house-skill-authoring.md (house.4, "a companion negative case").
 
 ## Review and evidence
 
@@ -172,7 +173,7 @@ Edit `skills/`, `agents/`, `skills/_shared/`; the Codex mirrors and the marketpl
 
 ### INV-20 · The validator floor states what it covers and what it does not
 The floor claim in doctrine matches the gate list the hook actually runs — including that the hook runs more than the manual checklist (the pack validator is its fifth gate), and that commits outside a hooked session meet no floor at all.
-- 2026-08-31 review · **prose** — held by this register and review; the planned register checker (above) is its intended backstop.
+- 2026-08-31 review · **prose** — held by this register and review; the planned register checker (above, backlog item 21) is its intended backstop.
 - Carriers: AGENTS.md "Before you commit" ("All four must be clean", with the hook's fifth gate stated beside it).
 
 ### INV-21 · Hooks fail open; a review denial is named, never silent
