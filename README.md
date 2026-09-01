@@ -161,7 +161,7 @@ karta builds each item in isolation, so two items can word the same user-facing 
 - **`karta-deliver` and `karta-build`** — `git` (per-item worktrees), your package manager + toolchain (lint/test/build/dev), and the binder on disk.
 - **`karta-verify`** — the diff and the binder. Read-only.
 - **`karta-validate`** — [`uv`](https://docs.astral.sh/uv/), [`playwright-cli`](https://playwright.dev) (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`), and Chromium. The app must already be running — you own the dev server.
-- **Pi package** — Pi 0.84.2 or a later tested version, Node.js 22.19 or newer, Git, and `uv`. Karta 3.0.0 supports native macOS and Linux; see the [Pi guide](docs/how-to/pi.md#current-support-matrix).
+- **Pi package** — Pi 0.84.2 or a later tested version, Node.js 22.19 or newer, Git, and `uv`; plus [`playwright-cli`](https://playwright.dev) and Chromium only for visual oracles (`oracle.type: visual`). Karta 3.0.0 supports native macOS and Linux; see the [Pi guide](docs/how-to/pi.md#current-support-matrix).
 
 ## License
 
