@@ -2,8 +2,8 @@
   "schema_version": 1,
   "vector": "sme-pack-static-suite",
   "run_date": "2026-08-31",
-  "plugin_version": "2.33.0",
-  "karta_sha": "cfe12661644c12cd69a188ebd49876e0e20eae1d",
+  "plugin_version": "2.34.0",
+  "karta_sha": "270173f28ec3787526584ee983cd079f4612da2f",
   "consumer_shas": {
     "parchmark": "2b87e071fbcd50256c5cd18dc31d401c169b8eaf",
     "gringotts": "36652b1af25024226323e34698415b3c1b1a10a3"
@@ -586,7 +586,7 @@
     "parchmark/note-edit-save-workflow",
     "parchmark/notes-list-from-backend"
   ],
-  "current_era": "v2.32.0",
+  "current_era": "v2.33.0",
   "conformance_pct_current_era": null,
   "unmatched_ecosystems": {
     "parchmark": [
@@ -706,7 +706,7 @@
   "size_warnings": {
     "karta": [
       "/mnt/agent-storage/vader/src/karta/skills/_shared/sme/go-htmx.md: warning: pack is 4030 bytes (> 3500) \u2014 packs are prompt text; trim it",
-      "/mnt/agent-storage/vader/src/karta/.karta/sme/karta-house-skill-authoring.md: warning: pack is 10244 bytes (> 3500) \u2014 packs are prompt text; trim it",
+      "/mnt/agent-storage/vader/src/karta/.karta/sme/karta-house-skill-authoring.md: warning: pack is 11429 bytes (> 3500) \u2014 packs are prompt text; trim it",
       "/mnt/agent-storage/vader/src/karta/.karta/sme/karta-house-vue.md: warning: pack is 4359 bytes (> 3500) \u2014 packs are prompt text; trim it"
     ],
     "consumers": [
@@ -737,6 +737,6 @@
     "seed-drift:gringotts:go-naming:DIVERGENT",
     "seed-drift:gringotts:minimalism:LOCAL-ADDITIVE"
   ],
-  "baseline_file": "benchmarks/sme/results/2026-08-27-sme-pack-static-suite.json",
+  "baseline_file": "benchmarks/sme/results/2026-08-31-sme-pack-static-suite.json",
   "status": "pass"
 }
