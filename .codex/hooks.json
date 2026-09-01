@@ -1,5 +1,5 @@
 {
-  "description": "Repo-local Codex hooks for the karta checkout (trust-gated; Codex asks you to review each hook before it runs). Two jobs: (1) give clone-and-run Codex sessions the same guards the plugin bundles — binder immutability, pack write validation, the delivery Stop-gate, the SubagentStop whiff advisory, and the SessionStart status injection (inject_karta_status.py — purely informational: it emits a short fenced karta status summary as session context, always exits 0, and never blocks anything) — by launching the Codex guard scripts from .codex-plugin/hooks/scripts/; (2) run the dev-repo commit gate on git commit, through the shell-payload adapter (scripts/hooks/codex_precommit_gate.py) that normalizes Codex shell payloads into the shape precommit_gate.py accepts. Every command is a fail-open launcher keyed off git rev-parse --show-toplevel: outside the repo, or with the scripts missing, it allows rather than wedging the session.",
+  "description": "Repo-local Codex hooks for the karta checkout (trust-gated; Codex asks you to review each hook before it runs). Two jobs: (1) give clone-and-run Codex sessions the same guards the plugin bundles — binder immutability, pack write validation, the fail-closed dispatch inspectors (guard_auditor_dispatch.py and guard_gate_dispatch.py on spawn_agent|Agent — a recognized karta-safety-auditor dispatch must carry its binder and pinned-pack checklists, and a recognized gate-reviewer dispatch must carry a real, sized diff, denied on both documented channels before two reviewer contexts spin up), the delivery Stop-gate, the SubagentStop whiff advisory, and the SessionStart status injection (inject_karta_status.py — purely informational: it emits a short fenced karta status summary as session context, always exits 0, and never blocks anything) — by launching the Codex guard scripts from .codex-plugin/hooks/scripts/; (2) run the dev-repo commit gate on git commit, through the shell-payload adapter (scripts/hooks/codex_precommit_gate.py) that normalizes Codex shell payloads into the shape precommit_gate.py accepts. Every command is a fail-open launcher keyed off git rev-parse --show-toplevel: outside the repo, or with the scripts missing, it allows rather than wedging the session. That launcher-open posture is not in conflict with the dispatch inspectors' guard-closed posture — the launcher only decides whether a guard runs at all, while the fail-closed rule governs once the guard is running.",
   "hooks": {
     "PreToolUse": [
       {
@@ -13,6 +13,21 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "spawn_agent|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_auditor_dispatch.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_gate_dispatch.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
             "timeout": 60
           }
         ]
