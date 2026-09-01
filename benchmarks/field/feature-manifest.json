@@ -2,7 +2,7 @@
   "schema_version": 1,
   "notes": [
     "One entry per shipped, consumer-repo-observable karta capability: {id, karta_version, ship_date, detection:{kind: grep|jq|ref, pattern, path}, durable} — or an explicit {version, observable: false} sentinel for a release that shipped no new repo-observable capability.",
-    "Coverage floor: every released version from 1.8.0 through 2.33.0 carries an entry or a sentinel, enumerated from the .claude-plugin/plugin.json version-transition commits (git log -G).",
+    "Coverage floor: every released version from 1.8.0 through 2.34.0 carries an entry or a sentinel, enumerated from the .claude-plugin/plugin.json version-transition commits (git log -G).",
     "Era capabilities that shipped before the 1.8.0 coverage floor (debt markers, the smoke oracle type, the accept/failure path, failed-ref presence) carry their true first released version (1.0.0) and that version-transition commit's committer date; attributing them to 1.8.0 would forge their ship dates. The plan-time seed expectations name these features, so they are entries, not omissions.",
     "ship_date = committer date of the plugin.json version-transition commit for that version. Declared deviation from card step 2: pre-1.13.0 bumps predate the chore(release) subject convention, so the transition commit — not a chore(release) grep — is the date source for every version.",
     "detection kinds: grep = tracked-content substring (first-use via git log -S<pattern> [-- path]); jq = key presence in the tracked JSON file at path (first-use via git log -S on the final key token, scoped to path); ref = git refs matching pattern (first-use via the earliest ref-target committer date).",
@@ -292,6 +292,11 @@
       "version": "2.33.0",
       "observable": false,
       "note": "context-economy: per-role cost mining (benchmarks-internal), deliver_preflight/item_context orientation packets, the merge_item serial-merge command, evidence-carrying gate briefs with run_oracle's tree_sha key, and the review-ledger gate rework with linked-worktree commits — all plugin-internal orchestration. The new no-ff accept subject 'Accept item <id> into integration [karta:item-<id>]' IS consumer-history-observable, but the adoption ledger's detection kinds (grep/jq/ref) cannot express a commit-subject probe, per the 2.29.0 precedent."
+    },
+    {
+      "version": "2.34.0",
+      "observable": false,
+      "note": "codex-hooks-parity: four hand-maintained Codex hook twins — the SubagentStop whiff advisory, the SessionStart status injection, and the two fail-closed PreToolUse dispatch inspectors — wired into the bundled and repo-local Codex manifests, plus the trued parity table in docs/how-to/codex.md. All of it lives in the plugin and karta's own repo; enforcement denies dispatches and advises stops, which leaves no tracked artifact in a consumer tree, so no grep/jq/ref detection can express it, per the 2.29.0 precedent."
     }
   ]
 }
