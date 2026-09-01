@@ -12,6 +12,7 @@ You need:
 - Node.js 22.19 or newer;
 - Git with worktree and `merge-tree --write-tree` support;
 - `uv` for Karta's bundled Python scripts;
+- `playwright-cli` on `PATH`, **only for visual oracles** (`oracle.type: visual`) — Karta captures the running app and the design through it and never installs the browser for you (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`); a visual capture fails closed with this exact remediation when it is absent, and non-visual work never needs it;
 - the package manager and toolchain used by the project you are delivering.
 
 Karta 3.0.0 supports native macOS and Linux. Native Windows support is deferred to a later release.
@@ -20,7 +21,7 @@ A build worker can run Bash. Its worktree separates concurrent changes, but it i
 
 ## Install
 
-Install a reviewed tag rather than a moving branch.
+Install a reviewed tag rather than a moving branch. The source URL must be a Git host the installing machine can reach; the published release location is fixed at release time.
 
 Mac or Linux, local terminal:
 
@@ -47,6 +48,16 @@ pi install -l https://github.com/Engen-Tech/karta.git@<approved-tag> --approve
 ```
 
 Restart Pi after installing or updating so it reloads package resources.
+
+### Bootstrap a fresh machine end to end
+
+From nothing to a running Karta on a new macOS or Linux machine:
+
+1. Install the prerequisites above — Pi, Node.js, Git, and `uv`; add `playwright-cli` only if the work includes visual oracles.
+2. Install a reviewed tag from a Git host this machine can reach: `pi install <published-source>@<approved-tag>`. The published source URL is fixed at release and must resolve on this machine's network.
+3. Restart Pi so it loads the package extension and skills.
+4. In the target repository, trust the project (next section): start `pi` there and approve it, or use `pi --approve` for one invocation. Until trusted, Karta exposes nothing.
+5. Confirm with `pi list`, then ask for a skill in plain language — for example, `Plan this feature with karta.`
 
 ## Trust the project
 
