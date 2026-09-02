@@ -9,6 +9,18 @@ nothing has to be provisioned before it runs:
   uv run --script validate_binder.py --binder <path>   # validate one binder, exit 0/1
   uv run --script validate_binder.py --self-test        # run embedded fixtures, exit 0/1
   python3 validate_binder.py --binder <path>            # also fine — no deps to install
+
+--no-cross-binder validates one binder ALONE: every single-binder check still runs,
+and only the sibling-glob / archive discovery around it is skipped. It exists for
+callers that hand this script a binder materialized outside its own directory — the
+commit hook's binder-validity step (scripts/hooks/precommit_gate.py) writes the exact
+bytes a commit would record into a tempfile, where the neighbours on disk are not the
+binder set the commit is about.
+
+Malformed input is a VERDICT, never a traceback: an unreadable file, undecodable
+bytes, or invalid JSON is reported as an ordinary INVALID finding with a nonzero exit,
+because a caller that cannot tell "this binder is bad" from "this script fell over"
+would have to treat both the same way.
 """
 from __future__ import annotations
 import argparse, json, posixpath, re, sys
@@ -17,6 +29,26 @@ from itertools import combinations
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "references" / "binder-schema.json"
+
+# The first line of EVERY findings report, printed by _findings() and by nothing else
+# in this file — no crash path, no traceback, no argparse error, and no VALID run can
+# emit it. That is the whole point: a caller deciding whether to block on this script's
+# verdict (scripts/hooks/precommit_gate.py) reads a nonzero exit WITHOUT this line as
+# "the validator fell over" — which is not a finding, and never denies. Keep this string
+# in step with BINDER_FINDINGS_SENTINEL in scripts/hooks/precommit_gate.py; that hook's
+# self-test runs this script against a real invalid binder to prove the two still agree.
+FINDINGS_SENTINEL = "KARTA-BINDER-FINDINGS/1"
+
+
+def _findings(header: str, items=()) -> int:
+    """Print one findings report — sentinel line first — and return the exit code 1.
+    The single printer for every INVALID verdict this script reaches."""
+    print(FINDINGS_SENTINEL)
+    print(header)
+    for item in items:
+        print(f"  - {item}")
+    return 1
+
 
 # `shared_terms` — an optional top-level array declaring canonical strings several
 # work items must render byte-identically (the whole-binder consistency gate that
@@ -1200,7 +1232,51 @@ def _run_self_test() -> int:
           f"and the same gate covering a real id is valid")
     failures += 0 if ok else 1
 
-    print(f"\n{len(cases) + 12 + len(cb_cases) - failures}/{len(cases) + 12 + len(cb_cases)} checks passed")
+    # --- the two end-to-end cases the commit hook's binder-validity step stands on ----
+    # Both run this script as a subprocess, because both are about what an invocation
+    # PRINTS and EXITS with — a caller of the module functions would see neither.
+    import subprocess, tempfile
+    me = [sys.executable or "python3", str(Path(__file__).resolve())]
+
+    def run_here(argv, cwd=None):
+        p = subprocess.run(me + argv, cwd=cwd, text=True, timeout=60,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return p.returncode, p.stdout or ""
+
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        # --no-cross-binder isolates one binder from its neighbours. The negative control
+        # is the same directory validated WITHOUT the flag: two binders whose `after` edges
+        # form a cycle are a cross-binder error, so the pair fails for exactly the reason
+        # the flag is about — discovery of the siblings — and not for any single-binder rule
+        # (each fixture is individually valid, which the flagged run's exit 0 proves).
+        (d / "ca.json").write_text(json.dumps(cb_cyc_a))
+        (d / "cb.json").write_text(json.dumps(cb_cyc_b))
+        code_pair, out_pair = run_here(["--binder", str(d / "ca.json")])
+        code_alone, out_alone = run_here(["--binder", str(d / "ca.json"), "--no-cross-binder"])
+        ok = (code_pair == 1 and "cross-binder" in out_pair and FINDINGS_SENTINEL in out_pair
+              and code_alone == 0 and "cross-binder" not in out_alone)
+        print(f"[{'PASS' if ok else 'FAIL'}] validator-no-cross-binder-isolated: --no-cross-binder "
+              f"keeps every single-binder check and skips only sibling discovery — an after-cycle "
+              f"pair that is INVALID without the flag validates alone with it "
+              f"(pair={code_pair} alone={code_alone})")
+        failures += 0 if ok else 1
+
+        # Malformed JSON is a finding with the sentinel, never a traceback. The control for
+        # "is it really the JSON?" is the same bytes made well-formed: a valid binder in the
+        # same place exits 0, so the denial is the parse and not the path or the tempdir.
+        (d / "broken.json").write_text("{ not json at all")
+        (d / "fine.json").write_text(json.dumps(cb_new))
+        code_bad, out_bad = run_here(["--binder", str(d / "broken.json"), "--no-cross-binder"])
+        code_fine, _ = run_here(["--binder", str(d / "fine.json"), "--no-cross-binder"])
+        ok = (code_bad == 1 and FINDINGS_SENTINEL in out_bad and "not valid JSON" in out_bad
+              and "Traceback" not in out_bad and code_fine == 0)
+        print(f"[{'PASS' if ok else 'FAIL'}] validator-malformed-json-invalid: unparseable JSON is a "
+              f"normal INVALID finding carrying the sentinel, with no traceback, while the same "
+              f"path holding a well-formed binder exits 0 (bad={code_bad} fine={code_fine})")
+        failures += 0 if ok else 1
+
+    print(f"\n{len(cases) + 14 + len(cb_cases) - failures}/{len(cases) + 14 + len(cb_cases)} checks passed")
     return 1 if failures else 0
 
 
@@ -1208,6 +1284,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--binder", type=Path)
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--no-cross-binder", action="store_true",
+                    help="validate this binder alone: every single-binder check still runs, "
+                         "only the sibling-glob and archive discovery is skipped")
     args = ap.parse_args()
     if args.self_test:
         return _run_self_test()
@@ -1216,19 +1295,24 @@ def main() -> int:
     if not args.binder.is_file():
         archived_twin = args.binder.resolve().parent / "archive" / args.binder.name
         if archived_twin.is_file():
-            print(f"INVALID: binder not found at {args.binder} — it was already delivered. "
-                  f"karta-deliver's end-of-life step archived it to {archived_twin}; "
-                  "plan new work as a new binder with a fresh slug.")
-        else:
-            print(f"INVALID: binder file not found: {args.binder}")
-        return 1
-    binder = json.loads(args.binder.read_text())
+            return _findings(f"INVALID: binder not found at {args.binder} — it was already "
+                             f"delivered. karta-deliver's end-of-life step archived it to "
+                             f"{archived_twin}; plan new work as a new binder with a fresh slug.")
+        return _findings(f"INVALID: binder file not found: {args.binder}")
+    # Malformed input is a finding, not a crash: unreadable bytes, a bad encoding and
+    # invalid JSON all arrive here as the same question — "can this be a binder?" — and
+    # the honest answer is no, with a nonzero exit a caller can act on.
+    try:
+        binder = json.loads(args.binder.read_text())
+    except json.JSONDecodeError as e:
+        return _findings(f"INVALID: {args.binder} is not valid JSON: {e}")
+    except UnicodeDecodeError as e:
+        return _findings(f"INVALID: {args.binder} is not decodable text: {e}")
+    except OSError as e:
+        return _findings(f"INVALID: {args.binder} could not be read: {e}")
     errs = validate_binder(binder)
     if errs:
-        print("INVALID:")
-        for e in errs:
-            print(f"  - {e}")
-        return 1
+        return _findings("INVALID:", errs)
     summ = opt_out_summary(binder)
     waived = sum(1 for it in binder["work_items"]
                  if isinstance(it.get("visual_check_waiver"), dict))
@@ -1248,8 +1332,11 @@ def main() -> int:
         print(f"  warning: {w}")
     # cross-binder `after` graph, when the binder is one of a set on disk — including
     # delivered (archived) slugs, so an `after` naming one reads satisfied and a slug
-    # reuse draws its warning even for a lone live binder.
-    if args.binder:
+    # reuse draws its warning even for a lone live binder. --no-cross-binder skips
+    # exactly this block and nothing else: the neighbours of a binder materialized
+    # somewhere else are not the set it belongs to, so reading them would be a verdict
+    # about the wrong directory.
+    if args.binder and not args.no_cross_binder:
         siblings = []
         for p in sorted(args.binder.resolve().parent.glob("*.json")):
             try:
@@ -1273,10 +1360,7 @@ def main() -> int:
             for w in cb_warns:
                 print(f"  warning: {w}")
             if cb_errs:
-                print("INVALID (cross-binder):")
-                for e in cb_errs:
-                    print(f"  - {e}")
-                return 1
+                return _findings("INVALID (cross-binder):", cb_errs)
     return 0
 
 
