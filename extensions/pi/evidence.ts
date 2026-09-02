@@ -17,7 +17,22 @@ const MAX_EVIDENCE_FILE_BYTES = 512 * 1024;
 const MAX_EVIDENCE_FILES_BYTES = 2 * 1024 * 1024;
 const MAX_EVIDENCE_CITATIONS = 8;
 const DEFAULT_DIFF_PAGE = 30_000;
-const MAX_DIFF_PAGE = 50_000;
+export const MAX_DIFF_PAGE = 50_000;
+
+// Rendered into the diff page itself. `offset`/`end` are string indices into the
+// diff text, not byte offsets, and the wording says so — a reader told "bytes"
+// would compute a wrong next offset on any diff carrying non-ASCII.
+function diffPageFooter(
+  offset: number,
+  end: number,
+  totalLength: number,
+  nextOffset: number | undefined,
+): string {
+  const range = `[karta_evidence] diff characters ${offset}-${end} of ${totalLength}.`;
+  if (nextOffset === undefined) return `${range} End of diff; nothing follows.`;
+  return `${range} TRUNCATED — ${totalLength - end} characters remain. Continue with` +
+    ` {"action":"diff","offset":${nextOffset}} (optional "limit", max ${MAX_DIFF_PAGE}).`;
+}
 
 interface BinderDocument {
   slug: string;
@@ -951,8 +966,17 @@ export function createEvidenceReadTool(
             const offset = params.offset ?? 0;
             const limit = params.limit ?? DEFAULT_DIFF_PAGE;
             totalLength = manifest.payload.diff.content.length;
-            value = manifest.payload.diff.content.slice(offset, offset + limit);
-            if (offset + limit < totalLength) nextOffset = offset + limit;
+            const page = manifest.payload.diff.content.slice(offset, offset + limit);
+            const end = offset + page.length;
+            if (end < totalLength) nextOffset = end;
+            // The page is the only thing the reviewing model sees; `details` is host
+            // telemetry it never reads. Without an in-band range line a truncated page
+            // is indistinguishable from a whole diff, and a gate that cannot tell the
+            // difference either blocks on evidence it was handed or passes on a
+            // fraction of it. State the range every time, so "I read all of it" is a
+            // fact the page carries rather than an inference from the absence of a
+            // marker.
+            value = `${page}\n${diffPageFooter(offset, end, totalLength, nextOffset)}`;
             break;
           }
           case "touchedFile":
@@ -965,8 +989,18 @@ export function createEvidenceReadTool(
             const offset = params.offset ?? 0;
             const limit = params.limit ?? DEFAULT_DIFF_PAGE;
             totalLength = content.length;
-            value = { ...entry, content: content.slice(offset, offset + limit) };
-            if (offset + limit < totalLength) nextOffset = offset + limit;
+            const page = content.slice(offset, offset + limit);
+            const end = offset + page.length;
+            if (end < totalLength) nextOffset = end;
+            value = {
+              ...entry,
+              content: page,
+              pageOffset: offset,
+              pageEnd: end,
+              totalLength,
+              truncated: nextOffset !== undefined,
+              ...(nextOffset === undefined ? {} : { nextOffset }),
+            };
             break;
           }
           case "pack": {
