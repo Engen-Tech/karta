@@ -36,19 +36,20 @@ Externally managed cross-runtime skills are the exception to `.agents/skills/` o
 
 ## Before you commit
 
-All five must be clean.
+All six must be clean.
 
 Mac/Linux/Windows, local terminal from the repository root:
 
 ```
 uv run scripts/validate_plugin.py --self-test
 uv run scripts/check_shared_copies.py --self-test
+uv run scripts/check_invariant_register.py --self-test
 uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 npm run check:pi
 ```
 
-The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs these four plus a fifth gate — `validate_packs` over every built-in and `.karta/sme/` pack — so a clean four can still be blocked at commit by an invalid pack. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
+The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs a longer list than this checklist: six gates — `check_shared_copies`, `check_invariant_register` over `docs/conventions/invariants.md`, both sync `--check` paths, `validate_plugin`, and `validate_packs` over every built-in and `.karta/sme/` pack — and then a binder-validity step over the exact bytes of every live binder the commit would record. So a clean local run can still be blocked at commit by a drifted register carrier, an invalid pack, or an invalid binder. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
 
 ## Before Pi package changes go remote
 
