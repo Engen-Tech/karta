@@ -237,19 +237,6 @@ latter.
   `current_branch()` report the feature branch, so the condition is false and the gate stays silent.
   A gate that is meant to make one decision unmissable can be silently absent.
 
-**Fix, and why it is partial.** Reading `cwd` off the PreToolUse payload instead of `ROOT` covers a
-session whose working directory *is* the worktree, which is the common case. It does not cover the
-case that produced the observed block: the command was `cd <worktree> && git merge ...`, so the
-payload's cwd was the project directory and only the command text named the real location. Resolving
-a leading `cd <path> &&` in the same shell segment narrows that too. Neither closes the gap, and the
-entry should not pretend otherwise — a PreToolUse hook sees command text, and where a shell command
-finally runs is not decidable from text. State the residual plainly in `AGENTS.md` alongside the
-bypasses already named there, the same way `git cherry-pick` is named.
-
-**Also worth doing.** `decide()` is already pure over a stubbed `git`, so the regression is cheap to
-pin: drive it with a git stub reporting a worktree HEAD that differs from the primary checkout's and
-assert both directions — no block for integration-to-integration, block for a real landing.
-
 **Found by** the `watch-drill-in-remediation` delivery, which hit the false positive on three item
 merges and then again on the consolidation.
 
