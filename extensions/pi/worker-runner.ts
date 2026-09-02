@@ -44,6 +44,10 @@ export interface BuildWorkerInvocation {
   ctx: ExtensionContext;
   registry: ChildRegistry;
   profile: BuildWorkerCapabilityProfile;
+  // Carried so the corrective turn can validate identity on the same terms as
+  // the strict parse; without them the predicate would be the looser of the two.
+  binder: string;
+  item: string;
   systemPrompt: string;
   userPrompt: string;
   parentId?: string;
@@ -53,32 +57,93 @@ export type BuildWorkerModelInvoker = (
   invocation: BuildWorkerInvocation,
 ) => Promise<{ text: string; runtime: ChildRuntimeReport }>;
 
+const MAX_WORKER_SUMMARY = 2000;
+const MAX_WORKER_CHECKS = 16;
+
 const WORKER_ENVELOPE_REPAIR_PROMPT =
   'Your previous message was not the required result. Reply now with ONLY the single JSON object envelope described in your instructions (schema "karta-worker-result-v2") — no prose, no headings, no code fence, and nothing before or after the object.';
 
-function looksLikeWorkerEnvelope(text: string): boolean {
+// Every rule the strict parse enforces, in one place, returning the reason the
+// envelope is unacceptable or null when it is fine. The repair turn and the
+// strict parse read the SAME function deliberately: when the predicate was
+// looser than the parse, a worker that finished the build and then wrote an
+// over-long summary was told nothing and had its whole run discarded, which is
+// the opposite of what the corrective turn exists to do.
+export function workerEnvelopeViolation(
+  text: string,
+  expected: { binder: string; item: string; roleDefinitionHash: string; profileHash: string } | null,
+): string | null {
+  let value: unknown;
   try {
-    const value = parseWorkerEnvelopeJson(text);
-    return (
-      Boolean(value) &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as Record<string, unknown>).schema === WORKER_SCHEMA
-    );
-  } catch {
-    return false;
+    value = parseWorkerEnvelopeJson(text);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "the result must be a single JSON object";
+  }
+  const result = value as Record<string, unknown>;
+  const required = [
+    "schema",
+    "role",
+    "binder",
+    "item",
+    "roleDefinitionHash",
+    "profileHash",
+    "outcome",
+    "summary",
+    "checks",
+  ];
+  const missing = required.filter((key) => !(key in result));
+  const extra = Object.keys(result).filter((key) => !required.includes(key));
+  if (missing.length > 0) return `missing key(s): ${missing.join(", ")}`;
+  if (extra.length > 0) return `unknown key(s): ${extra.join(", ")}`;
+  if (result.schema !== WORKER_SCHEMA) return `"schema" must be "${WORKER_SCHEMA}"`;
+  if (result.role !== "build-worker") return '"role" must be "build-worker"';
+  // Identity and freshness are not repairable by rewording: say so, so the turn
+  // is not spent asking a worker to invent a hash it was never given.
+  if (expected) {
+    if (result.binder !== expected.binder) return `"binder" must be "${expected.binder}"`;
+    if (result.item !== expected.item) return `"item" must be "${expected.item}"`;
+    if (result.roleDefinitionHash !== expected.roleDefinitionHash) {
+      return '"roleDefinitionHash" does not match the hash given in your instructions';
+    }
+    if (result.profileHash !== expected.profileHash) {
+      return '"profileHash" does not match the hash given in your instructions';
+    }
+  }
+  if (!["ready", "no-change", "blocked"].includes(String(result.outcome))) {
+    return '"outcome" must be one of ready, no-change, blocked';
+  }
+  if (typeof result.summary !== "string" || !result.summary.trim()) {
+    return '"summary" must be a non-empty string';
+  }
+  if (result.summary.length > MAX_WORKER_SUMMARY) {
+    return `"summary" is ${result.summary.length} characters; the limit is ${MAX_WORKER_SUMMARY}` +
+      " — shorten it and resend the same envelope, keeping every other field byte-identical";
+  }
+  if (!Array.isArray(result.checks)) return '"checks" must be an array';
+  if (result.checks.length > MAX_WORKER_CHECKS) {
+    return `"checks" has ${result.checks.length} entries; the limit is ${MAX_WORKER_CHECKS}`;
+  }
+  return null;
 }
 
 export function promptWorkerForEnvelope(
   session: Parameters<typeof promptForJsonEnvelope>[0],
   userPrompt: string,
+  expected: { binder: string; item: string; roleDefinitionHash: string; profileHash: string },
 ): Promise<string> {
   return promptForJsonEnvelope(
     session,
     userPrompt,
-    looksLikeWorkerEnvelope,
-    WORKER_ENVELOPE_REPAIR_PROMPT,
+    (text) => workerEnvelopeViolation(text, expected) === null,
+    (text) => {
+      const violation = workerEnvelopeViolation(text, expected);
+      return violation === null
+        ? WORKER_ENVELOPE_REPAIR_PROMPT
+        : `${WORKER_ENVELOPE_REPAIR_PROMPT} The result you sent was rejected because ${violation}.`;
+    },
   );
 }
 
@@ -101,7 +166,12 @@ async function invokeBuildWorker(
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
   if (invocation.ctx.signal?.aborted) abort();
   try {
-    const text = await promptWorkerForEnvelope(session, invocation.userPrompt);
+    const text = await promptWorkerForEnvelope(session, invocation.userPrompt, {
+      binder: invocation.binder,
+      item: invocation.item,
+      roleDefinitionHash: invocation.profile.role.definitionHash,
+      profileHash: invocation.profile.profileHash,
+    });
     return { text, runtime: report };
   } finally {
     invocation.ctx.signal?.removeEventListener("abort", abort);
@@ -129,40 +199,21 @@ function parseWorkerResult(
   profile: BuildWorkerCapabilityProfile,
   runtime: ChildRuntimeReport,
 ): Omit<KartaWorkerResult, "attestation"> {
-  const value = parseWorkerEnvelopeJson(text);
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Karta build worker returned a non-object result");
+  const violation = workerEnvelopeViolation(text, {
+    binder,
+    item,
+    roleDefinitionHash: profile.role.definitionHash,
+    profileHash: profile.profileHash,
+  });
+  // Name the field. The blanket "malformed or stale" message covered nine
+  // different rules, so a discarded build told its operator nothing about which
+  // one to look at.
+  if (violation !== null) {
+    throw new Error(`Malformed or stale Karta worker result envelope: ${violation}`);
   }
-  const result = value as Record<string, unknown>;
-  exactKeys(result, [
-    "schema",
-    "role",
-    "binder",
-    "item",
-    "roleDefinitionHash",
-    "profileHash",
-    "outcome",
-    "summary",
-    "checks",
-  ]);
-  if (
-    result.schema !== WORKER_SCHEMA ||
-    result.role !== "build-worker" ||
-    result.binder !== binder ||
-    result.item !== item ||
-    result.roleDefinitionHash !== profile.role.definitionHash ||
-    result.profileHash !== profile.profileHash ||
-    !["ready", "no-change", "blocked"].includes(String(result.outcome)) ||
-    !Array.isArray(result.checks) ||
-    result.checks.length > 16 ||
-    typeof result.summary !== "string" ||
-    !result.summary.trim() ||
-    result.summary.length > 2000
-  ) {
-    throw new Error("Malformed or stale Karta worker result envelope");
-  }
+  const result = parseWorkerEnvelopeJson(text) as Record<string, unknown>;
   const checkIds = new Set<string>();
-  for (const proposal of result.checks) {
+  for (const proposal of result.checks as unknown[]) {
     if (!proposal || typeof proposal !== "object" || Array.isArray(proposal)) {
       throw new Error("Malformed Karta worker check proposal");
     }
@@ -284,6 +335,8 @@ export class KartaBuildWorkerRunner {
         ctx,
         registry: this.#registry,
         profile,
+        binder,
+        item,
         parentId,
         systemPrompt: workerSystemPrompt(profile),
         userPrompt: JSON.stringify({
