@@ -234,7 +234,9 @@ test("worker runner rejects prose and stale envelopes", async () => {
           "item-a",
           {},
         ),
-      /worker check proposal/,
+      // Names the offending proposal and rule, not a blanket "check proposal":
+      // the reviewer that has to fix it needs to know which one and why.
+      /checks\[0\]\.id must not be "oracle"/,
     );
   } finally {
     await rm(worktree, { recursive: true, force: true });

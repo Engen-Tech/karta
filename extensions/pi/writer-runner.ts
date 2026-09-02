@@ -19,17 +19,31 @@ const WRITER_SCHEMA = "karta-writer-result-v1";
 const WRITER_ENVELOPE_REPAIR_PROMPT =
   'Your previous message was not the required result. Reply now with ONLY the single JSON writer-result object described in your instructions (schema "karta-writer-result-v1") — no prose, no headings, no code fence, and nothing before or after the object.';
 
-function looksLikeWriterEnvelope(text: string): boolean {
+// The reason this result would be rejected, or null when it survives the same
+// parse the host runs afterwards. Delegating to that parse is the point: a
+// predicate that only recognised `schema` let every other rule — the summary
+// cap, the per-writer key set, the string-array bounds — be enforced after the
+// one corrective turn had already passed, so a writer that finished its work and
+// broke one of them lost the work with nothing said.
+export function writerEnvelopeViolation(
+  text: string,
+  expected: { binder: string; profile: WriterCapabilityProfile; runtime: ChildRuntimeReport } | null,
+): string | null {
   try {
     const value = parseJsonEnvelope(text, "writer");
-    return (
-      Boolean(value) &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as Record<string, unknown>).schema === WRITER_SCHEMA
-    );
-  } catch {
-    return false;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return "the result must be a single JSON object";
+    }
+    if ((value as Record<string, unknown>).schema !== WRITER_SCHEMA) {
+      return `"schema" must be "${WRITER_SCHEMA}"`;
+    }
+    // Without the dispatch's own binder and profile only the shape is knowable;
+    // the rest then belongs to the strict parse alone.
+    if (!expected) return null;
+    parseWriterResult(text, expected.binder, expected.profile, expected.runtime);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -92,6 +106,9 @@ export interface WriterInvocation {
   ctx: ExtensionContext;
   registry: ChildRegistry;
   profile: WriterCapabilityProfile;
+  // Carried so the corrective turn can apply the strict parse's own rules rather
+  // than a looser stand-in for them.
+  binder: string;
   systemPrompt: string;
   userPrompt: string;
   parentId?: string;
@@ -120,11 +137,17 @@ async function invokeWriter(
   invocation.ctx.signal?.addEventListener("abort", abort, { once: true });
   if (invocation.ctx.signal?.aborted) abort();
   try {
+    const expected = { binder: invocation.binder, profile: invocation.profile, runtime: report };
     const text = await promptForJsonEnvelope(
       session,
       invocation.userPrompt,
-      looksLikeWriterEnvelope,
-      WRITER_ENVELOPE_REPAIR_PROMPT,
+      (candidate) => writerEnvelopeViolation(candidate, expected) === null,
+      (candidate) => {
+        const violation = writerEnvelopeViolation(candidate, expected);
+        return violation === null
+          ? WRITER_ENVELOPE_REPAIR_PROMPT
+          : `${WRITER_ENVELOPE_REPAIR_PROMPT} The result you sent was rejected because: ${violation}.`;
+      },
     );
     return { text, runtime: report };
   } finally {
@@ -163,13 +186,28 @@ function parseWriterResult(
   }
   const value = parsed as Record<string, unknown>;
   const common = ["schema", "role", "binder", "roleDefinitionHash", "profileHash", "summary"];
-  if (
-    value.schema !== WRITER_SCHEMA || value.role !== profile.writer || value.binder !== binder ||
-    value.roleDefinitionHash !== profile.role.definitionHash || value.profileHash !== profile.profileHash ||
-    typeof value.summary !== "string" || !value.summary.trim() || value.summary.length > 2_000
-  ) {
-    throw new Error("Malformed or stale Karta writer result envelope");
+  // Name the field. One blanket message covered seven rules, so a discarded
+  // writer run told its operator nothing about which one to look at.
+  const envelopeFault = value.schema !== WRITER_SCHEMA
+    ? `"schema" must be "${WRITER_SCHEMA}"`
+    : value.role !== profile.writer
+    ? `"role" must be "${profile.writer}"`
+    : value.binder !== binder
+    ? `"binder" must be "${binder}"`
+    : value.roleDefinitionHash !== profile.role.definitionHash
+    ? '"roleDefinitionHash" does not match the hash given in your instructions'
+    : value.profileHash !== profile.profileHash
+    ? '"profileHash" does not match the hash given in your instructions'
+    : typeof value.summary !== "string" || !value.summary.trim()
+    ? '"summary" must be a non-empty string'
+    : value.summary.length > 2_000
+    ? `"summary" is ${(value.summary as string).length} characters; the limit is 2000 — shorten it` +
+      " and resend the same result, keeping every other field byte-identical"
+    : null;
+  if (envelopeFault !== null) {
+    throw new Error(`Malformed or stale Karta writer result envelope: ${envelopeFault}`);
   }
+  const summary = value.summary as string;
   if (profile.writer === "doc-gardner") {
     exactKeys(value, [...common, "correctedCount", "filesChanged", "residual"], ["focusStale"]);
     if (!Number.isInteger(value.correctedCount) || Number(value.correctedCount) < 0) {
@@ -184,7 +222,7 @@ function parseWriterResult(
       binder,
       roleDefinitionHash: profile.role.definitionHash,
       profileHash: profile.profileHash,
-      summary: value.summary,
+      summary,
       correctedCount: Number(value.correctedCount),
       filesChanged: stringArray(value.filesChanged, "filesChanged"),
       residual: stringArray(value.residual, "residual"),
@@ -208,7 +246,7 @@ function parseWriterResult(
     binder,
     roleDefinitionHash: profile.role.definitionHash,
     profileHash: profile.profileHash,
-    summary: value.summary,
+    summary,
     seeded: stringArray(value.seeded, "seeded"),
     packsChanged: stringArray(value.packsChanged, "packsChanged"),
     candidates: stringArray(value.candidates, "candidates"),
@@ -288,6 +326,7 @@ export class KartaWriterRunner {
         ctx,
         registry: this.#registry,
         profile,
+        binder,
         parentId,
         systemPrompt: writerSystemPrompt(profile, instructions),
         userPrompt: JSON.stringify({ binder, writer, ...input }),
