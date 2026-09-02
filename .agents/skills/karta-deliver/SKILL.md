@@ -8,6 +8,12 @@ description: >-
 
 karta-deliver takes a **validated binder** and builds all its work items onto the per-binder integration branch in **parallel waves**. Default is parallel; it drops to serial only when running two items together would produce a wrong or broken result. The output is a single assembled integration branch the user reviews and merges — no PR, no push, nothing else.
 
+**Bundled scripts.** When Pi provides `karta_script`, it resolves these package-owned scripts; otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
+
+## Pi route
+
+When Pi provides `karta_dispatch`, call it once with `action: deliverBinder` and the binder slug. The package host owns preflight, dependency waves, workers, checks, gates, serial integration, retries, waivers, rollback, enabled companion writers, archival, and Git-only recovery. Use its `karta-delivery-v1` result; do not run the legacy phases below yourself or fall back after a tool error. A blocked result keeps its durable Git frontier for the next run.
+
 The integration branch is also the resume record. karta tracks every item's outcome through commit markers, wave tags, and the `refs/karta/` ref namespace (see [references/integration-branch.md](references/integration-branch.md)). A later run detects leftovers from a prior partial run and offers to continue or clear.
 
 The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **immutable while a wave runs**. karta-deliver reads it; it never writes to it. For its full field reference, see [references/binder-reference.md](references/binder-reference.md). The build primitive for each item is `karta-build`. The parallelism rules live in [references/parallelism-gates.md](references/parallelism-gates.md).
@@ -19,10 +25,10 @@ The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **i
 **Run the preflight packet.** One command answers Phase 0's validation, Phase 1's branch/tip, and Step 1/2's frontier and partition in a single JSON object:
 
 ```bash
-python3 skills/karta-deliver/scripts/deliver_preflight.py --binder <path> --repo <integration worktree>
+uv run --script <skill-dir>/scripts/deliver_preflight.py --binder <path> --repo <integration worktree>
 ```
 
-Read its `validator` field instead of re-running `validate_binder.py` by hand — it already ran the binder through `skills/karta-plan/scripts/validate_binder.py` (schema validity, dependency cycles, dangling `depends_on` references) with the current interpreter. **The packet is a SNAPSHOT, not a cache: re-run deliver_preflight.py** after a Clear, after a Resume decision, and after any other change to the integration branch or the ref namespace before deriving a frontier from it — a first run needs only the one invocation.
+Read its `validator` field instead of re-running `validate_binder.py` by hand — it already ran the binder through `<skill-dir>/../karta-plan/scripts/validate_binder.py` (schema validity, dependency cycles, dangling `depends_on` references) with the current interpreter. **The packet is a SNAPSHOT, not a cache: re-run deliver_preflight.py** after a Clear, after a Resume decision, and after any other change to the integration branch or the ref namespace before deriving a frontier from it — a first run needs only the one invocation.
 
 The packet's `halt` field is the whole gate: **a packet with `halt` set is treated as a stop, never as a frontier to build from** — whether from a failed validator (its `frontier` is forced empty) or a `done_provenance` check that caught a forged `accepted`/`done` pair. On failure, bail with the packet's `validator.output` — no "continue anyway?".
 
@@ -56,11 +62,11 @@ The integration worktree is separate from per-item worktrees. Keep it alive for 
 
 The wave loop is the core mechanism. Its authoritative description is [references/integration-branch.md](references/integration-branch.md). The four steps:
 
-**Step 1 — Derive the frontier.** **Re-run `deliver_preflight.py` and read its `frontier` field** — do not re-derive it by hand. It already excludes every item with a `done` ref and requires every `depends_on` id to carry one; on resume it has already run, for every existing done ref, the same accepted-state assertion this step used to run inline — `python3 skills/karta-deliver/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <done>^1..<done> --slug <slug> --check-accepted` (the merge commit and its merged side; a wider range would contain wave-mates' commits and reject a valid item merged after one) — plus a `--first-parent` reachability check (`done_provenance`). **A packet with `halt` set is never a frontier to build from** — a nonzero `done_provenance` entry means the reconstructed frontier cannot be trusted, so halt with the packet's finding rather than skip past it. If the frontier is empty and items remain unbuilt (and `halt` is false), there is a dependency bottleneck — surface it and halt.
+**Step 1 — Derive the frontier.** **Re-run `deliver_preflight.py` and read its `frontier` field** — do not re-derive it by hand. It already excludes every item with a `done` ref and requires every `depends_on` id to carry one; on resume it has already run, for every existing done ref, the same accepted-state assertion this step used to run inline — `uv run --script <skill-dir>/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <done>^1..<done> --slug <slug> --check-accepted` (the merge commit and its merged side; a wider range would contain wave-mates' commits and reject a valid item merged after one) — plus a `--first-parent` reachability check (`done_provenance`). **A packet with `halt` set is never a frontier to build from** — a nonzero `done_provenance` entry means the reconstructed frontier cannot be trusted, so halt with the packet's finding rather than skip past it. If the frontier is empty and items remain unbuilt (and `halt` is false), there is a dependency bottleneck — surface it and halt.
 
 **Step 2 — Build concurrently.** Dispatch a `karta-build` per frontier item using the host's parallel primitive. Each item gets its own worktree, branched off the current integration tip. If no parallel primitive is available, build serially in frontier order.
 
-**The dispatch brief carries the `item_context.py` packet verbatim, plus the explicit ORCHESTRATED WAVE MODE signal.** Run `python3 skills/karta-build/scripts/item_context.py --binder <path> --item <id> --repo <integration worktree>` per dispatched item and paste its JSON packet into that item's brief unedited, alongside the literal instruction that this worker is running in **ORCHESTRATED WAVE MODE** — the mode is an explicit signal `karta-build` reads, never something it infers from repo state. The packet already answers `karta-build`'s Gates 1-3 and Phase-1 extraction (its `dependencies` map is Gate 3; its `item` slice is Gate 2; the orchestrator's own preflight already satisfied Gate 1) — see the BUILD DOCTRINE note in `karta-build`'s SKILL.md.
+**The dispatch brief carries the `item_context.py` packet verbatim, plus the explicit ORCHESTRATED WAVE MODE signal.** Run `uv run --script <skill-dir>/../karta-build/scripts/item_context.py --binder <path> --item <id> --repo <integration worktree>` per dispatched item and paste its JSON packet into that item's brief unedited, alongside the literal instruction that this worker is running in **ORCHESTRATED WAVE MODE** — the mode is an explicit signal `karta-build` reads, never something it infers from repo state. The packet already answers `karta-build`'s Gates 1-3 and Phase-1 extraction (its `dependencies` map is Gate 3; its `item` slice is Gate 2; the orchestrator's own preflight already satisfied Gate 1) — see the BUILD DOCTRINE note in `karta-build`'s SKILL.md.
 
 **On resume, partition the frontier by `built` marker first.** A frontier item that already carries `refs/karta/<slug>/item-<id>/built` from a prior partial run (its item branch is committed but was never merged when the run stopped) is **not** re-dispatched to `karta-build` — re-building would trip karta-build's clobber-guard on the existing branch. The orchestrator recovers it straight through the serial merge queue (Step 3): re-validate its oracle against the current integration tip, merge, write `done`. Dispatch a fresh `karta-build` only for frontier items with **no** `built` marker. If a recovered item fails re-validation or conflicts on the moved tip, its built branch is stale — halt with a call to action (or clear its `built` ref so it rebuilds fresh), since `karta-build` cannot be re-dispatched onto the existing branch.
 
@@ -73,7 +79,7 @@ An item with `serialize: true`, or one the packet placed in `parallelism.seriali
 **The orchestrator is the single writer of the integration tip.** Before the merge pass, tag `karta/<slug>/wave-<N>-base` on the pre-merge integration tip — the revert anchor for partial-wave failure (see `deliver:lifecycle`). Then merge the items that carry a `built` marker, one at a time, in FIFO order by completion (the queue is specified in [references/integration-branch.md](references/integration-branch.md)); the one other way an item reaches the tip is a human accept-waiver at the Phase-4 halt (`deliver:lifecycle`). Because the merges are serial there is no concurrency at the tip. The queue is one command per item:
 
 ```bash
-python3 skills/karta-deliver/scripts/merge_item.py merge --repo <integration worktree> --binder <binder path> --slug <slug> --item <id> [--allow-drift]
+uv run --script <skill-dir>/scripts/merge_item.py merge --repo <integration worktree> --binder <binder path> --slug <slug> --item <id> [--allow-drift]
 ```
 
 `--allow-drift` belongs on a re-run only, after a `drift: true` halt and only when the human says so (step 4 below).
@@ -93,7 +99,7 @@ The `done` ref is written **here, by the orchestrator's queue** — never by the
 **Step 4 — Post-wave integration check.** Run the post-wave check on the new integration tip through the same script:
 
 ```bash
-python3 skills/karta-deliver/scripts/merge_item.py close-wave --repo <integration worktree> --binder <binder path> --slug <slug> --check '<build command>' --check '<typecheck command>'
+uv run --script <skill-dir>/scripts/merge_item.py close-wave --repo <integration worktree> --binder <binder path> --slug <slug> --check '<build command>' --check '<typecheck command>'
 ```
 
 `--check` (required, repeatable) carries the project's build/type-check the orchestrator already resolved — `env_contract.command` is the command that **starts** the environment and is never used here. Each check runs through `run_oracle.py` with its capped record in the result; the script then runs the binder's declared-term check (`check_shared_terms.py`) on the same tip, whose result appears in the printed JSON under a `shared_terms` key. A `[FAIL]` there — a declared `shared_terms` string drifted between items that both landed — fails close-wave on the same footing as a failed build, while `[PENDING]` entries for items still in later waves are skipped by the checker itself, not failed (an absent or empty `shared_terms` is a clean no-op pass). close-wave verifies the branch and tip it started on are unchanged after every check, writes **no** tag, and does **not** revert: reverting a wave rewinds refs and restores failed markers and stays a doctrine decision made with the human.
@@ -103,7 +109,7 @@ On a close-wave failure, **revert the wave** and halt with a call to action — 
 **Defer the `wave-<N>` success tag** until the wave's Phase-4 accept/defer decisions (`deliver:lifecycle`) resolve and a final close-wave has passed on the resulting tip. The serial-merge set may not be the wave's final tip: a Phase-4 accept lands a merge after this step. Tagging `karta/<slug>/wave-<N>` here would point it at a stale tip and orphan a later accept on revert — so the tag waits for the true wave tip, with accepts included. Only then write it, through the subcommand that does that and nothing else:
 
 ```bash
-python3 skills/karta-deliver/scripts/merge_item.py tag-wave --repo <integration worktree> --slug <slug> --wave <N>
+uv run --script <skill-dir>/scripts/merge_item.py tag-wave --repo <integration worktree> --slug <slug> --wave <N>
 ```
 
 Repeat the loop for the next frontier until all items are built or a halt stops the run.
@@ -145,7 +151,7 @@ Tear the wave env down once at the end of the wave, after the post-wave check (S
 2. **Merge the item-branch tip onto the integration tip with `--no-ff` — forced, never a fast-forward** (a fast-forward leaves no merge commit to carry the subject and trailers, and the narrow `<done>^1..<done>` provenance range is then meaningless; `accepted`=item tip also stays distinct from `done`=merge commit), with the subject `Accept item <id> into integration [karta:item-<id>]` — the same marker grammar as the queue merge, so the accept merge itself passes the narrow provenance range — and the two `Karta-Accepted` + `Karta-Accept-Reason` trailers below it, stamped at step 4 only after the floor passes. A conflict halts per step 1.
 3. **Fresh post-accept floor check** on the new tip — the project's build/type-check. On failure, **revert-the-accept**: reset to the pre-accept tip, restore the `failed` ref, write no `accepted`/`done`, and report. The floor is never waived.
 4. **Stamp the merge commit's `Karta-Accepted` + `Karta-Accept-Reason` (the human's reason) trailers only after the floor passes.** A stamped trailer implies the floor already passed — the invariant that makes crash-resume safe.
-5. **Write refs, ref last:** write `done` → the trailer-stamped merge commit; delete `failed`; write `accepted` → the accepted item commit **last**. Immediately after that write — the other point where accepted state exists — re-assert it mechanically: `python3 skills/karta-deliver/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <done>^1..<done> --slug <slug> --check-accepted` (the same narrow range the queue's done-provenance check uses — a wider one would see wave-mates' commits and reject a valid accept merged after them). A nonzero result means the accept did not land as the doctrine describes; surface it rather than continuing.
+5. **Write refs, ref last:** write `done` → the trailer-stamped merge commit; delete `failed`; write `accepted` → the accepted item commit **last**. Immediately after that write — the other point where accepted state exists — re-assert it mechanically: `uv run --script <skill-dir>/scripts/check_item_provenance.py --repo <worktree> --item <id> --range <done>^1..<done> --slug <slug> --check-accepted` (the same narrow range the queue's done-provenance check uses — a wider one would see wave-mates' commits and reject a valid accept merged after them). A nonzero result means the accept did not land as the doctrine describes; surface it rather than continuing.
 6. **Backlog sink append**, if a sink is configured, **after** steps 2–5 succeed (so the recorded merge commit exists).
 
 Accept merges an item that, by definition, carries no `built` ref — the live human waiver is the queue's second merge precondition, standing beside the `built` marker (an item reaches the tip with one or the other, never neither), and an accepted item is never given `built` (the worker never cleared the gate). Accept can waive an acceptance-gate finding (an unmet `oracle.assertions[i]`, a missing contract artifact, or a SPEC-SUSPECT divergence); it **cannot** waive the floor (guarded by step 3) or a safety-gate VIOLATION (the safety gate keeps its own escalate-to-human path).
@@ -170,7 +176,7 @@ Committed item branches and the integration branch persist. A later `karta-deliv
 
 **Surface what's next.** After the wave's result is known, print the condensed next-step footer so the run ends pointing forward:
 
-  `uv run --script skills/karta-status/scripts/karta_next.py --footer --binder <slug>`
+  `uv run --script <skill-dir>/../karta-status/scripts/karta_next.py --footer --binder <slug>`
 
 This is read-only — it derives the next action from git, never writes. It is the same engine the `karta-status` skill uses, so the footer and the command never disagree.
 

@@ -95,6 +95,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -486,6 +487,13 @@ def cmd_tag_wave(args: argparse.Namespace) -> int:
 
 
 def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named cases
+    # Hermetic: never inherit the developer's global/system git config — a signing key,
+    # hooksPath, or credential helper would hang or taint the harness's temp repos.
+    os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+    os.environ["GIT_CONFIG_SYSTEM"] = os.devnull
+    os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+    os.environ.pop("GIT_CONFIG_COUNT", None)      # command-scope config env leaks in too
+    os.environ.pop("GIT_CONFIG_PARAMETERS", None)
     passed = 0
     total = 0
     failures = 0

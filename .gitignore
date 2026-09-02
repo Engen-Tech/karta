@@ -4,4 +4,8 @@
 
 # Python bytecode cache (e.g. from validate_plugin.py importing the sync_* scripts)
 __pycache__/
+
+# Pi package development dependencies
+node_modules/
+
 .DS_Store

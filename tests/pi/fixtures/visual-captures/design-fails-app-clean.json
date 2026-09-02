@@ -1,0 +1,148 @@
+{
+  "schema": "karta.validate.capture.v1",
+  "viewport": { "width": 1440, "height": 900 },
+  "design": {
+    "url": "http://127.0.0.1:5500/index.standalone.html",
+    "health": "OK",
+    "auth": null,
+    "screenshot": ".karta-validate/design.png",
+    "dom_snapshot": ".karta-validate/design-snapshot.yaml",
+    "extracted_data": {
+      "url": "http://127.0.0.1:5500/index.standalone.html",
+      "title": "Team dashboard",
+      "tokens": { "--color-primary": "#2563eb", "--radius-md": "8px" },
+      "headings": [
+        {
+          "identity": "h1#page-title",
+          "category": "heading",
+          "role": "heading",
+          "text": "Team dashboard",
+          "parentIdentity": "header.app-header:nth-child(1)",
+          "siblingOrder": 0,
+          "styles": {
+            "fontSize": "30px",
+            "fontWeight": "700",
+            "color": "rgb(17, 24, 39)",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px",
+            "fontFamily": "Inter, system-ui, sans-serif"
+          },
+          "box": { "x": 24, "y": 24, "width": 320, "height": 36 }
+        }
+      ],
+      "buttons": [
+        {
+          "identity": "button.btn.btn-primary:nth-child(2)",
+          "category": "button",
+          "role": "button",
+          "text": "New project",
+          "parentIdentity": "nav.toolbar:nth-child(1)",
+          "siblingOrder": 1,
+          "styles": {
+            "fontSize": "14px",
+            "fontWeight": "600",
+            "color": "rgb(255, 255, 255)",
+            "backgroundColor": "rgb(37, 99, 235)",
+            "borderRadius": "8px",
+            "padding": "8px 16px",
+            "fontFamily": "Inter, system-ui, sans-serif"
+          },
+          "box": { "x": 880, "y": 24, "width": 132, "height": 40 }
+        }
+      ],
+      "landmarks": [
+        {
+          "identity": "main#content",
+          "category": "landmark",
+          "role": "main",
+          "text": "Projects Active tasks",
+          "parentIdentity": "div#root:nth-child(1)",
+          "siblingOrder": 1,
+          "styles": {
+            "fontSize": "16px",
+            "fontWeight": "400",
+            "color": "rgb(17, 24, 39)",
+            "backgroundColor": "rgb(249, 250, 251)",
+            "borderRadius": "0px",
+            "padding": "24px",
+            "fontFamily": "Inter, system-ui, sans-serif"
+          },
+          "box": { "x": 0, "y": 64, "width": 1440, "height": 836 }
+        }
+      ]
+    },
+    "ready_selector": "#root > *",
+    "render_health": {
+      "schema": "karta-render-health-v1",
+      "result": "degraded",
+      "readySelector": "#root > *",
+      "visibleTextChars": 512,
+      "visibleLeafElements": 60,
+      "styledElementCount": 30,
+      "consoleErrorCount": 1,
+      "failedRequestCount": 1,
+      "consoleErrors": [
+        "Uncaught TypeError: Cannot read properties of undefined (reading 'map')"
+      ],
+      "failedRequests": [
+        "404 stylesheet http://127.0.0.1:5500/theme.css"
+      ]
+    },
+    "console_errors": "[error] Uncaught TypeError: Cannot read properties of undefined (reading 'map')",
+    "requests": "GET http://127.0.0.1:5500/index.standalone.html 200 document\nGET http://127.0.0.1:5500/theme.css 404 stylesheet"
+  },
+  "app": {
+    "url": "http://localhost:3000/dashboard",
+    "health": "OK",
+    "auth": { "isLikelyAuth": false },
+    "screenshot": ".karta-validate/app.png",
+    "dom_snapshot": ".karta-validate/app-snapshot.yaml",
+    "extracted_data": {
+      "url": "http://localhost:3000/dashboard",
+      "title": "Team dashboard",
+      "tokens": { "--color-primary": "#2563eb", "--radius-md": "8px" },
+      "headings": [
+        {
+          "identity": "h1#page-title",
+          "category": "heading",
+          "role": "heading",
+          "text": "Team dashboard",
+          "parentIdentity": "header.app-header:nth-child(1)",
+          "siblingOrder": 0,
+          "styles": {
+            "fontSize": "30px",
+            "fontWeight": "700",
+            "color": "rgb(17, 24, 39)",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px",
+            "fontFamily": "Inter, system-ui, sans-serif"
+          },
+          "box": { "x": 24, "y": 24, "width": 320, "height": 36 }
+        }
+      ],
+      "buttons": [],
+      "landmarks": []
+    },
+    "ready_selector": "main",
+    "render_health": {
+      "schema": "karta-render-health-v1",
+      "result": "healthy",
+      "readySelector": "main",
+      "visibleTextChars": 486,
+      "visibleLeafElements": 58,
+      "styledElementCount": 34,
+      "consoleErrorCount": 0,
+      "failedRequestCount": 0,
+      "consoleErrors": [],
+      "failedRequests": []
+    },
+    "console_errors": "",
+    "requests": "GET http://localhost:3000/dashboard 200 document\nGET http://localhost:3000/static/app.css 200 stylesheet"
+  },
+  "APP_HEALTH": "OK",
+  "STATUS": "captured",
+  "error": null,
+  "compare_ready": true
+}

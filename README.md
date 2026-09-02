@@ -27,7 +27,7 @@ Ten skills ship in the plugin, but the flow is simple: you describe the job, kar
 
 ## Install
 
-karta is a plugin for **both** Claude Code and Codex CLI — both first-class. The GitHub repo is public, so installing needs no auth, but the code is proprietary, not open source; use is governed by the [License](#license). Plugin and skill names are stable since 1.0.
+karta ships first-class integrations for **Claude Code, Codex CLI, and Pi**. The GitHub repo is public, so installing needs no auth, but the code is proprietary, not open source; use is governed by the [License](#license). Plugin and skill names are stable since 1.0.
 
 ### Claude Code
 
@@ -36,7 +36,7 @@ karta is a plugin for **both** Claude Code and Codex CLI — both first-class. T
 /plugin install karta@karta
 ```
 
-This registers all karta skills under the `karta:` namespace, plus four agents (two gates, two writers). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
+This registers all karta skills under the `karta:` namespace, plus five agents (three gates, two writers). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
 
 ### Codex CLI
 
@@ -46,6 +46,18 @@ Two ways in:
 - **Clone and run** — run `codex` in a karta checkout. Codex auto-discovers the skills from the committed `.agents/skills/` mirror (real directories, no symlinks, so macOS, Linux, and Windows all work).
 
 The gate runs automatically — no setup. On a plugin install (Codex can't register subagents) `karta-verify` spawns a read-only subagent from the gate instructions bundled in the skill; in a checkout, the same agents run as registered, sandbox-enforced read-only subagents. Full guide: [docs/how-to/codex.md](docs/how-to/codex.md).
+
+### Pi
+
+Install a reviewed Git tag while the npm package remains private.
+
+Mac or Linux, local terminal:
+
+```sh
+pi install https://github.com/Engen-Tech/karta.git@<approved-tag>
+```
+
+Pi loads one first-party extension and exposes Karta's skills only in a trusted project. Build, verification, and delivery use package-owned fixed actions; project collisions cannot replace their prompts or capability profiles. Gate children are isolated and read-only. Build workers can run Bash, so worktrees separate changes but are not hostile-code sandboxes. Full guide and current native support matrix: [docs/how-to/pi.md](docs/how-to/pi.md).
 
 ## The pipeline
 
@@ -90,12 +102,16 @@ It holds the slug (which names the integration branch and tags), scope, the env 
 | **`karta-debt`** | On-demand debt harvest. Collects every `KARTA-DEFER` and `KARTA-SME-OVERRIDE` marker into a one-shot ledger. Writes nothing. |
 | **`karta-status`** | Shows where a run stands and the single next action, derived from git. Live browser page by default; one-shot terminal map headless. Read-only. Opt a repo in and **Karta Watch** turns persistent: one stable local hub page for every opted-in repo, revived by ordinary karta activity — see [docs/how-to/karta-watch.md](docs/how-to/karta-watch.md). |
 
-## The four agents
+## The five agents
 
-Two are read-only gates, dispatched by `karta-verify` (and by `karta-build` for the behavioral floor):
+Three are read-only gates. Two check behavior, dispatched by `karta-verify` (and by `karta-build` for the behavioral floor):
 
 - **`karta-acceptance-reviewer`** — checks the diff against the item's `oracle`/`contract`, assertion by assertion. Verdict: `CONFORMANT | DEVIATION | BLOCKED | SPEC-SUSPECT`.
 - **`karta-safety-auditor`** — re-runs the seven review signals on the real diff, flagging anything sensitive, destructive, or outside the item's contract. Verdict: `PASS | VIOLATION`.
+
+The third checks visual fidelity:
+
+- **`karta-design-reviewer`** — judges the running app's screenshot against its design screenshot, grounded in the measured structured diff. Verdict: `PASS | CONCERNS | BLOCKED`.
 
 Two are opt-in writers — off until you enable them, and each edits one surface only:
 
@@ -137,6 +153,7 @@ karta builds each item in isolation, so two items can word the same user-facing 
 - **Parallel, gated.** Items run in waves and serialize only on collisions; each clears its gate before merging.
 - **Git-native resume.** The integration branch is the record; a re-run continues or clears a partial one.
 - **No PR.** karta stops at the assembled branch. You review and merge — it never opens a PR or pushes.
+- **Three runtimes, one Git frontier.** Claude Code, Codex, and Pi use the same binders, branches, tags, markers, and refs. Pi sessions are not a second state store.
 
 ## Requirements
 
@@ -144,6 +161,7 @@ karta builds each item in isolation, so two items can word the same user-facing 
 - **`karta-deliver` and `karta-build`** — `git` (per-item worktrees), your package manager + toolchain (lint/test/build/dev), and the binder on disk.
 - **`karta-verify`** — the diff and the binder. Read-only.
 - **`karta-validate`** — [`uv`](https://docs.astral.sh/uv/), [`playwright-cli`](https://playwright.dev) (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`), and Chromium. The app must already be running — you own the dev server.
+- **Pi package** — Pi 0.84.2 or a later tested version, Node.js 22.19 or newer, Git, and `uv`; plus [`playwright-cli`](https://playwright.dev) and Chromium only for visual oracles (`oracle.type: visual`). Karta 2.35.0 supports native macOS and Linux; see the [Pi guide](docs/how-to/pi.md#current-support-matrix).
 
 ## License
 

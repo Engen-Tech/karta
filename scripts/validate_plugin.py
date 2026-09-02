@@ -90,6 +90,7 @@ def check() -> list[str]:
             for name in sorted(listed - present):
                 errors.append(f"marketplace.json: plugin '{pname}' lists '{name}' but skills/{name}/SKILL.md is missing")
     _check_codex(errors, present)
+    _check_pi(errors)
     _check_hooks(errors)
     _check_skill_scripts(errors)
     _check_behaviour_anchor(errors)
@@ -108,6 +109,93 @@ def _load_json(path: Path, errors: list[str]) -> dict:
     except json.JSONDecodeError as e:
         errors.append(f"{path.relative_to(ROOT)}: invalid JSON ({e})")
         return {}
+
+
+def _check_pi(errors: list[str]) -> None:
+    """Guard the Pi package contract and its version parity."""
+    package = _load_json(ROOT / "package.json", errors)
+    claude = _load_json(ROOT / ".claude-plugin" / "plugin.json", errors)
+    lock = _load_json(ROOT / "package-lock.json", errors)
+    if not package:
+        return
+
+    package_name = package.get("name")
+    if not isinstance(package_name, str) or package_name.rsplit("/", 1)[-1] != "karta":
+        errors.append("package.json: name must identify the karta package")
+    for field in ("version", "license"):
+        if claude and package.get(field) != claude.get(field):
+            errors.append(
+                f"package.json: '{field}' ({package.get(field)!r}) != "
+                f".claude-plugin/plugin.json ({claude.get(field)!r})")
+    if package.get("private") is not True:
+        errors.append("package.json: private must stay true until publication is approved")
+    if package.get("type") != "module":
+        errors.append("package.json: type must be 'module'")
+    if "pi-package" not in package.get("keywords", []):
+        errors.append("package.json: keywords must include 'pi-package'")
+    if not str(package.get("packageManager", "")).startswith("npm@"):
+        errors.append("package.json: packageManager must pin npm")
+    expected_files = [
+        "extensions/pi/", "skills/", "agents/", "hooks/scripts/",
+        "!**/__pycache__/", "!**/*.pyc",
+    ]
+    if package.get("files") != expected_files:
+        errors.append(f"package.json: files must be {expected_files!r}")
+
+    pi = package.get("pi")
+    expected_extensions = ["./extensions/pi/index.ts"]
+    if not isinstance(pi, dict):
+        errors.append("package.json: missing pi manifest")
+    else:
+        if pi.get("extensions") != expected_extensions:
+            errors.append(
+                f"package.json: pi.extensions must be {expected_extensions!r}")
+        if "skills" in pi:
+            errors.append(
+                "package.json: pi.skills must stay absent; the extension trust-gates skill discovery")
+    for extension in expected_extensions:
+        if not (ROOT / extension).is_file():
+            errors.append(f"package.json: Pi extension '{extension}' is missing")
+
+    consumer_script = re.compile(
+        r"(?:python3|uv run(?: --script)?)\s+skills/karta-[a-z-]+/scripts/")
+    for skill in sorted((ROOT / "skills").glob("karta-*/SKILL.md")):
+        if consumer_script.search(skill.read_text()):
+            errors.append(
+                f"{skill.relative_to(ROOT)}: bundled script command resolves from the consumer cwd")
+
+    peers = package.get("peerDependencies", {})
+    for dependency in ("@earendil-works/pi-coding-agent", "typebox"):
+        if peers.get(dependency) != "*":
+            errors.append(f"package.json: peerDependencies.{dependency} must be '*'")
+    tested_pi = package.get("devDependencies", {}).get("@earendil-works/pi-coding-agent")
+    if not isinstance(tested_pi, str) or not re.fullmatch(r"\d+\.\d+\.\d+", tested_pi):
+        errors.append(
+            "package.json: devDependencies.@earendil-works/pi-coding-agent must pin one tested version")
+    scripts = package.get("scripts", {})
+    expected_smoke = "node scripts/smoke_pi_package.mjs"
+    if scripts.get("smoke:pi-package") != expected_smoke:
+        errors.append(
+            f"package.json: scripts.smoke:pi-package must be {expected_smoke!r}")
+    if not (ROOT / "scripts" / "smoke_pi_package.mjs").is_file():
+        errors.append("scripts/smoke_pi_package.mjs: packed-artifact smoke gate is missing")
+    lifecycle = {"preinstall", "install", "postinstall", "prepare"}
+    present_lifecycle = sorted(lifecycle & set(scripts))
+    if present_lifecycle:
+        errors.append(
+            f"package.json: install lifecycle scripts are forbidden ({', '.join(present_lifecycle)})")
+
+    if lock:
+        for field in ("name", "version"):
+            if lock.get(field) != package.get(field):
+                errors.append(
+                    f"package-lock.json: '{field}' ({lock.get(field)!r}) != "
+                    f"package.json ({package.get(field)!r})")
+        locked_root = lock.get("packages", {}).get("", {})
+        if locked_root.get("peerDependencies") != peers:
+            errors.append("package-lock.json: root peerDependencies differ from package.json")
+        if locked_root.get("devDependencies") != package.get("devDependencies"):
+            errors.append("package-lock.json: root devDependencies differ from package.json")
 
 
 def _check_codex(errors: list[str], skill_names: set[str]) -> None:

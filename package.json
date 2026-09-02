@@ -1,0 +1,46 @@
+{
+  "name": "@engen-tech/karta",
+  "version": "2.35.0",
+  "description": "Stack-agnostic orchestration for parallel, Git-native delivery.",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.6.2",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "pi-package",
+    "orchestration",
+    "worktree",
+    "agents"
+  ],
+  "files": [
+    "extensions/pi/",
+    "skills/",
+    "agents/",
+    "hooks/scripts/",
+    "!**/__pycache__/",
+    "!**/*.pyc"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/pi/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@types/node": "22.20.1",
+    "typebox": "1.3.7",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "check:pi": "npm run typecheck:pi && node --experimental-strip-types --test --test-concurrency=4 tests/pi/*.test.ts",
+    "smoke:pi-package": "node scripts/smoke_pi_package.mjs",
+    "typecheck:pi": "tsc --project tsconfig.json --noEmit"
+  }
+}

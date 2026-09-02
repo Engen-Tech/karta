@@ -37,7 +37,10 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 SPEC = ROOT / "benchmarks" / "bench-spec.json"
 PROBES = ROOT / "benchmarks" / "probes"
 RESULTS = ROOT / "benchmarks" / "results" / "gate"
-PROBE_TIMEOUT_S = 120
+# A probe may run several wrapped checkers back to back (parity-mirror-sync-integrity
+# runs three drills, each able to invoke validate_plugin.py at ~79s), so the per-probe
+# ceiling has to clear the sum, not one checker.
+PROBE_TIMEOUT_S = 600
 # Consumer-repo locations reach the probes through the environment rather than a
 # per-probe --consumers registry here: a registry would silently drift as probes
 # are added, and probes that ignore consumers ignore the variable harmlessly.

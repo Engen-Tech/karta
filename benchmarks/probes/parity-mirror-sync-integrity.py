@@ -66,8 +66,12 @@ CHECKS = [
 ]
 RESULTS_DIR = Path("benchmarks/parity/results")
 RESULTS_GLOB = "benchmarks/parity/results/*-sync-probes.json"
-CHECK_TIMEOUT_S = 55   # per wrapped checker
-DRILL_TIMEOUT_S = 60   # per subprocess inside a drill
+# Sized against a measured run: validate_plugin.py --self-test takes ~79s because it
+# executes every bundled script's own --self-test, and context-economy added three more
+# (merge_item.py alone is 35 checks doing real git work). The old 55/60s budgets predate
+# those scripts and made this probe ERROR on a healthy tree; keep headroom over 79s.
+CHECK_TIMEOUT_S = 180  # per wrapped checker
+DRILL_TIMEOUT_S = 180  # per subprocess inside a drill
 COPY_TIMEOUT_S = 90    # per rsync scratch copy
 OUTPUT_TAIL = 20       # evidence keeps the last N lines of each command output
 SYNTH_NAME = "bench-external-probe"

@@ -1,13 +1,13 @@
 {
   "name": "karta",
-  "version": "2.34.0",
+  "version": "2.35.0",
   "description": "Stack-agnostic, ad-hoc orchestration framework. karta synthesizes a binder of work items (karta-plan) and delivers it in parallel waves onto a per-binder integration branch (karta-deliver), building each item in an isolated git worktree (karta-build) and verifying it against its own acceptance check \u2014 behavioral (karta-verify) or visual (karta-validate). Works across stacks (frontend, backend, CLI, data, IaC, \u2026) while keeping deep frontend support: component/icon/token mapping, DTCG conformance, and a design-validation loop.",
   "author": {
     "name": "Tej Gandham",
     "email": "tej@engen.tech"
   },
-  "homepage": "https://github.com/Engen-Tech/karta",
-  "repository": "https://github.com/Engen-Tech/karta",
+  "homepage": "https://github.com/engen-tech/karta",
+  "repository": "https://github.com/engen-tech/karta",
   "license": "UNLICENSED",
   "keywords": [
     "orchestration",
@@ -26,14 +26,14 @@
   "interface": {
     "displayName": "karta",
     "shortDescription": "Synthesize a binder and deliver it in parallel waves, gated by acceptance checks.",
-    "longDescription": "karta packages five stack-agnostic orchestration skills, a bundled plain-language writing standard (karta-plainlanguage), and two read-only gate agents. karta-plan synthesizes a validated binder of work items; karta-deliver builds them in parallel waves onto a per-binder integration branch; karta-build implements one item in an isolated worktree; karta-verify (behavioral) and karta-validate (visual) are the acceptance gates. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation).",
+    "longDescription": "karta packages five stack-agnostic orchestration skills, a bundled plain-language writing standard (karta-plainlanguage), and five agents — three read-only gates (karta-acceptance-reviewer, karta-safety-auditor, karta-design-reviewer) and two opt-in writers (karta-doc-gardner, karta-kaizen). karta-plan synthesizes a validated binder of work items; karta-deliver builds them in parallel waves onto a per-binder integration branch; karta-build implements one item in an isolated worktree; karta-verify (behavioral) and karta-validate (visual) are the acceptance gates. Stack-agnostic across frontend, backend, CLI, data, and IaC, while keeping deep frontend support (component/token mapping, DTCG, design validation).",
     "developerName": "Tej Gandham",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/Engen-Tech/karta",
+    "websiteURL": "https://github.com/engen-tech/karta",
     "defaultPrompt": [
       "Synthesize a karta binder for this work.",
       "Deliver this binder in parallel waves.",

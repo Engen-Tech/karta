@@ -18,7 +18,7 @@ Every real invocation also fires a fail-open, fire-and-forget `serve_status.py -
 (Karta Watch hub revival), and the human renders — footer/terminal, never --json — carry one
 nudge line when this repo is opted in but the hub is unreachable."""
 from __future__ import annotations
-import argparse, json, os, subprocess, sys, time
+import argparse, fnmatch, json, os, subprocess, sys, time
 from pathlib import Path
 
 BINDERS_DIR = Path(".karta/binders")
@@ -67,7 +67,8 @@ def _item_status(deps: list[str], gi: dict, done_ids: set[str]) -> tuple[str, li
 
 
 def derive_state(binders: list[dict], git_facts: dict,
-                 archived: frozenset[str] = frozenset()) -> dict:
+                 archived: frozenset[str] = frozenset(),
+                 surface_on_default: dict[str, bool | None] | None = None) -> dict:
     default_branch = git_facts.get("default_branch", "main")
     gfb = git_facts.get("binders", {})
     by_slug = {b["slug"]: b for b in binders}
@@ -112,10 +113,17 @@ def derive_state(binders: list[dict], git_facts: dict,
             if blk:
                 entry["blocked_by"] = blk
             detail.append(entry)
-        out_binders.append({
+        row = {
             "slug": slug, "after": after[slug], "status": status,
             "items": {"total": len(items), **counts, "detail": detail},
-        })
+        }
+        # Finding 21: a not_started binder whose declared surface already exists
+        # on the default branch was likely delivered by another hand. Flag it
+        # (advisory only — never a state change) so the next action can say so.
+        if (status == "not_started" and surface_on_default
+                and surface_on_default.get(slug) is True):
+            row["surface_on_default"] = True
+        out_binders.append(row)
 
     # is_next: a not-started binder whose every `after` predecessor is merged
     for ob in out_binders:
@@ -123,7 +131,8 @@ def derive_state(binders: list[dict], git_facts: dict,
                          and all(status_by_slug.get(p) == "merged" for p in ob["after"]))
 
     order_view = order if order is not None else sorted(by_slug)
-    next_action = _next_action(out_binders, order_view, warnings, errors, archived)
+    next_action = _next_action(out_binders, order_view, warnings, errors,
+                               archived, default_branch)
     return {
         "repo": {"default_branch": default_branch},
         "order": order,                      # None on cycle — derived, never stored
@@ -145,7 +154,8 @@ DONE_HUMAN = "all binders merged — nothing left to run"
 
 
 def _next_action(out_binders: list[dict], order_view: list[str], warnings: list[str],
-                 errors: list[str], archived: frozenset[str] = frozenset()) -> dict:
+                 errors: list[str], archived: frozenset[str] = frozenset(),
+                 default_branch: str = "main") -> dict:
     by_slug = {ob["slug"]: ob for ob in out_binders}
     ordered = [by_slug[s] for s in order_view if s in by_slug]
 
@@ -161,9 +171,21 @@ def _next_action(out_binders: list[dict], order_view: list[str], warnings: list[
             done, total = ob["items"]["done"], ob["items"]["total"]
             return {"level": "item", "command": f"karta-deliver {ob['slug']}",
                     "human": f"resume {ob['slug']} ({done}/{total} done)"}
-    # 3) no in-flight work — start the next not-started, unblocked binder
+    # 3) no in-flight work — start the next not-started, unblocked binder.
+    #    Exception (finding 21): if that binder's declared surface already sits
+    #    on the default branch, re-delivering can only whiff on no-change — point
+    #    at reviewing and archiving instead, never a re-delivery loop.
     for ob in ordered:
         if ob.get("is_next"):
+            if ob.get("surface_on_default"):
+                slug = ob["slug"]
+                return {"level": "review",
+                        "command": (f"mkdir -p .karta/binders/archive && "
+                                    f"git mv .karta/binders/{slug}.json "
+                                    f".karta/binders/archive/"),
+                        "human": (f"{slug}: its declared surface already exists on "
+                                  f"{default_branch} — likely delivered outside karta; "
+                                  f"review, then archive (rather than re-deliver)")}
             return {"level": "binder", "command": f"karta-deliver {ob['slug']}",
                     "human": f"start {ob['slug']} (its predecessors are merged)"}
     # 4) everything merged or archived (zero live binders included) on a clean
@@ -386,6 +408,72 @@ def _default_branch() -> str:
         if _git("rev-parse", "--verify", "--quiet", cand).strip():
             return cand
     return "main"
+
+
+def default_branch_paths(default_branch: str, runner=None) -> frozenset[str] | None:
+    """Every file path tracked on the default branch, from one read-only
+    `git ls-tree -r --name-only <branch>`. None when the branch is missing or
+    the call fails — so a caller can tell 'no surface information' apart from
+    'the surface is empty'. Read-only by construction: it inspects a branch's
+    tree, never the working copy and never a ref. `runner` is the injection
+    seam the self-test drives."""
+    run = runner or subprocess.run
+    try:
+        proc = run(["git", "ls-tree", "-r", "--name-only", default_branch],
+                   capture_output=True, text=True)
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return frozenset(line for line in proc.stdout.splitlines() if line)
+
+
+def _binder_surface_on_default(binder: dict, tree_paths: frozenset[str] | None) -> bool | None:
+    """True when every file the binder's items declare in `touches` already
+    exists on the default branch, False when at least one is absent, None when
+    the question cannot be answered — the tree is unknown, or no item declares
+    any touch (an empty surface can never be 'already delivered'). A glob touch
+    is present when it matches at least one tracked path; a bare directory touch
+    when any tracked path sits under it. Advisory only: the answer is a hint,
+    never a state change — no ref is written and nothing is archived."""
+    if tree_paths is None:
+        return None
+    touches: list[str] = []
+    for it in binder.get("work_items", []) or []:
+        for t in it.get("touches", []) or []:
+            if isinstance(t, str) and t.strip():
+                touches.append(t.strip())
+    if not touches:
+        return None
+    for t in touches:
+        norm = (t[2:] if t.startswith("./") else t).rstrip("/")
+        if any(ch in norm for ch in "*?["):
+            present = any(fnmatch.fnmatch(p, norm) for p in tree_paths)
+        elif norm in tree_paths:
+            present = True
+        else:
+            prefix = norm + "/"
+            present = any(p.startswith(prefix) for p in tree_paths)
+        if not present:
+            return False
+    return True
+
+
+def _surface_hints(binders: list[dict], git_facts: dict, archived: frozenset[str],
+                   default_branch: str) -> dict[str, bool | None] | None:
+    """The read-only 'already delivered outside karta?' hints for the human
+    renders, or None. Computed only when at least one binder derives
+    not_started — the only state the hint can fire in — so a repo with no idle
+    binder never pays the tree read. None (rather than a partial map) whenever
+    the default-branch tree is unknown. Advisory: the result only colours the
+    next-action copy, never the derived state (finding 21)."""
+    prelim = derive_state(binders, git_facts, archived)
+    if not any(b["status"] == "not_started" for b in prelim["binders"]):
+        return None
+    tree = default_branch_paths(default_branch)
+    if tree is None:
+        return None
+    return {b["slug"]: _binder_surface_on_default(b, tree) for b in binders}
 
 
 def load_binders(binders_dir: Path = BINDERS_DIR) -> list[dict]:
@@ -1204,6 +1292,73 @@ def _run_self_test() -> int:
     checks.append(("no binders and no archive -> unchanged blocked derive",
                    derive_state([], {"default_branch": "main", "binders": {}})
                    ["next_action"]["level"] == "blocked"))
+
+    # surface-on-default hint (finding 21): a not_started binder whose declared
+    # touches all already exist on the default branch is flagged, and the next
+    # action points at archiving rather than a re-delivery that can only whiff.
+    surf_binder = {"slug": "landed-elsewhere", "motivation": "x",
+                   "scope": {"included": ["x"]},
+                   "work_items": [{"id": "a", "title": "A", "oracle": {"type": "unit"},
+                                   "touches": ["app/models.py", "app/views/*.py"]}]}
+    present = frozenset({"app/models.py", "app/views/list.py"})
+    absent = frozenset({"app/models.py"})
+    checks.append(("surface present: every touch on default -> True",
+                   _binder_surface_on_default(surf_binder, present) is True))
+    checks.append(("surface absent: a glob with no match -> False",
+                   _binder_surface_on_default(surf_binder, absent) is False))
+    checks.append(("surface unknown when the tree is None",
+                   _binder_surface_on_default(surf_binder, None) is None))
+    checks.append(("no declared touches -> unknown (never claim delivered)",
+                   _binder_surface_on_default(
+                       {"slug": "z", "work_items": [{"id": "a"}]}, present) is None))
+    checks.append(("bare directory touch present when a file sits under it",
+                   _binder_surface_on_default(
+                       {"work_items": [{"touches": ["app/views"]}]}, present) is True))
+    surf_facts = {"default_branch": "main",
+                  "binders": {"landed-elsewhere": {"items": {"a": {}}}}}
+    surf_state = derive_state([surf_binder], surf_facts,
+                              surface_on_default={"landed-elsewhere": True})
+    surf_row = surf_state["binders"][0]
+    checks.append(("not_started binder is flagged surface_on_default and stays is_next",
+                   surf_row["status"] == "not_started"
+                   and surf_row.get("surface_on_default") is True
+                   and surf_row["is_next"] is True))
+    surf_na = surf_state["next_action"]
+    checks.append(("next action redirects to archive, never re-deliver",
+                   "karta-deliver" not in (surf_na["command"] or "")
+                   and "archive" in surf_na["command"]
+                   and "already exists on main" in surf_na["human"]
+                   and surf_na["level"] == "review"))
+    plain_state = derive_state([surf_binder], surf_facts)
+    checks.append(("no surface signal -> unchanged 'start' recommendation",
+                   plain_state["next_action"]["command"] == "karta-deliver landed-elsewhere"
+                   and plain_state["binders"][0].get("surface_on_default") is None))
+    # default_branch_paths against a real repo: lists tracked files, None on a
+    # missing branch — the read-only tree query the hint is built on.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _td:
+        _r = Path(_td)
+        _mk = lambda *a: subprocess.run(["git", *a], cwd=str(_r),
+                                        capture_output=True, text=True, check=True)
+        _mk("init", "-q", "-b", "main", ".")
+        _mk("config", "user.email", "t@example.com")
+        _mk("config", "user.name", "t")
+        (_r / "app").mkdir()
+        (_r / "app" / "models.py").write_text("x")
+        (_r / "app" / "list.py").write_text("y")
+        _mk("add", "-A"); _mk("commit", "-q", "-m", "c")
+        _old = os.getcwd(); os.chdir(_r)
+        try:
+            tracked = default_branch_paths("main")
+            missing = default_branch_paths("no-such-branch")
+        finally:
+            os.chdir(_old)
+    checks.append(("default_branch_paths lists the branch's tracked files",
+                   tracked is not None and "app/models.py" in tracked
+                   and "app/list.py" in tracked))
+    checks.append(("default_branch_paths returns None for a missing branch",
+                   missing is None))
+
     done_foot = render_footer(all_merged, "m1")
     done_term = render_terminal(all_archived)
     checks.append(("footer and terminal render the done state calmly",
@@ -1242,7 +1397,10 @@ def main() -> int:
     _fire_ensure()  # every real engine touch revives the watch hub — fail-open
     binders = load_binders()
     archived = frozenset(b["slug"] for b in load_archived_binders())
-    state = derive_state(binders, gather_git_facts(binders, _default_branch()), archived)
+    default_branch = _default_branch()
+    git_facts = gather_git_facts(binders, default_branch)
+    surface = _surface_hints(binders, git_facts, archived, default_branch)
+    state = derive_state(binders, git_facts, archived, surface_on_default=surface)
     if args.json:
         print(json.dumps(state, indent=2))  # never altered by the watch surface
     else:

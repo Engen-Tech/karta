@@ -1,7 +1,7 @@
 ---
 name: karta-house-vue
 description: "karta's local narrowing of vue: the watch page is a vendored global-build Options-API app, so the SFC/TypeScript rules are replaced by the shape it actually ships"
-always: true
+match: ["vue"]
 extends: vue
 id_prefix: hvue
 exclude_rules: ["vue.1", "vue.2", "vue.3"]

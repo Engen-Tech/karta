@@ -1,0 +1,142 @@
+{
+  "slug": "pi-visual-capture",
+  "title": "Visual capture pipeline for Pi (dev-server lifecycle + evidence)",
+  "summary": "Give the Pi runtime what it needs to render a consumer app and its design side by side: a declared way to start the app, a per-item dev server the runtime owns and tears down cleanly, and one hash-bound visual-evidence artifact. It deliberately does not yet lift the fail-closed block on visual acceptance.",
+  "motivation": "Pi can already capture and diff, but it cannot get a consumer app running to capture; this builds the owned dev-server lifecycle and capture pipeline a later perceptual gate will judge.",
+  "scope": {
+    "included": [
+      "a committed, typed declaration of how a project starts its app for visual capture, validated fail-closed and parsed as a pure function so it can be read from a pinned commit OID rather than a moving branch",
+      "a per-item managed dev-server lifecycle owned by the Pi runtime: worktree-local start on an ephemeral loopback port with an injectable reservation seam, early-exit detection with captured output, route health-poll tied to child liveness with auth-redirect detection, and non-vetoable teardown that reclaims the process group and frees the port on every exit path",
+      "capture orchestration behind an injectable capture boundary that renders the live app and the design, runs the existing package-owned structured diff for real over fixture captures, and emits one schema-pinned visual-evidence artifact written outside the worktree and bound to the candidate tree, re-verified after capture"
+    ],
+    "excluded": [
+      "lifting the visual-required block — the shipped block-unrun-visual contract reserves that to the later screenshot-judgement binder",
+      "image-capable perceptual screenshot judgement, gate-child model routing, or provider fallback",
+      "sharing a single per-wave environment: this binder is per-item only, so rendered pixels come from the exact candidate tree the verdict binds to",
+      "multi-service apps that need additional backend ports beyond the one injected loopback port — v1 captures single-port apps only; injected backend ports are a later binder",
+      "installing or pinning playwright-cli: it stays a fail-closed host gate, exercised only by an opt-in live test",
+      "Windows enablement — POSIX-specific process-group tests skip cleanly on win32"
+    ]
+  },
+  "design_facts": {
+    "source": null,
+    "stack": "TypeScript/Node Pi extension consuming existing package-owned stdlib capture and structured-diff scripts run with uv and playwright-cli"
+  },
+  "env_contract": {
+    "command": "npm run check:pi",
+    "supports_isolation": false,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      { "name": "node", "version": ">=22.19.0" },
+      { "name": "uv", "version": ">=0.4" }
+    ],
+    "on_unavailable": "halt"
+  },
+  "sme": ["karta-house-minimalism", "karta-house-skill-authoring"],
+  "work_items": [
+    {
+      "id": "visual-env-contract",
+      "title": "Declare how a project starts its app for visual capture",
+      "summary": "Add a typed, committed visual_env declaration to the Pi environment config, parsed as a pure fail-closed function so the host can read it from a pinned commit rather than a mutable working tree.",
+      "estimate": "M",
+      "depends_on": [],
+      "contract": "Extend .karta/environment.json with an optional visual_env object declaring how a project starts its app for visual capture. Fields and requiredness: command (required, foreground start command, non-empty, at most 4096 chars); port_param (required, the environment variable the runtime injects an ephemeral loopback port into — it must match ^[A-Z][A-Z0-9_]*$, end in PORT (e.g. PORT, APP_PORT), and not be a reserved process or runtime variable (PATH, HOME, PWD, SHELL, NODE_OPTIONS, LD_PRELOAD, LD_LIBRARY_PATH, DYLD_LIBRARY_PATH), so injecting the port can never clobber the spawn environment); startup_timeout_seconds (required, integer bounded 1..120); cwd (optional, worktree-relative, no absolute path and no .., default the worktree root); auth (optional, a closed enum whose only value is none, default none). backend_ports is rejected as an unknown key in v1. Parsing is split from reading: a pure parseVisualEnv over an in-memory config object does all validation and is the unit-test seam, while the host resolves and reads the committed .karta/environment.json blob from a pinned commit OID (not a moving branch) and feeds its bytes to the parser — so a poisoned working-tree copy is ignored and the config matches the exact tree being captured. An absent visual_env is opt-out (undefined; no capture; the block stays); every malformed shape fails closed with a field-named error. Document visual_env in the Pi operator guide beside setup and preflight.",
+      "touches": [
+        "extensions/pi/environment.ts",
+        "tests/pi/environment.test.ts",
+        "docs/how-to/pi.md"
+      ],
+      "surface": {
+        "flagged": false,
+        "signals": ["not-computed:diff-size", "not-computed:cross-cutting"]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "npm run check:pi",
+        "assertions": [
+          "a well-formed visual_env (command, port_param, startup_timeout_seconds, optional cwd, optional auth: none) parses into a typed KartaEnvironmentConfig.visualEnv; an absent visual_env yields undefined and leaves setup and preflight parsing unchanged",
+          "every field's missing and malformed case fails closed with a field-named error: an absent, empty, or oversized command; a port_param that is absent, empty, not matching ^[A-Z][A-Z0-9_]*$, not ending in PORT, or naming a reserved variable such as PATH or HOME; an absent, non-integer, or out-of-range (0 or 121) startup_timeout_seconds; an unknown auth value; an absolute or traversing cwd; and any unknown key, including a now-rejected backend_ports",
+          "parseVisualEnv is pure over an in-memory config object (a fixture, no git); the host read path is exercised by a positive control that commits one visual_env, mutates the working-tree copy with a different command, and asserts the parsed host config matches the committed blob rather than the mutation",
+          "the existing setup and preflight parsing and their fail-closed cases stay green across the environment test suite"
+        ]
+      }
+    },
+    {
+      "id": "env-server-lifecycle",
+      "title": "The runtime owns and cleanly reclaims a per-item dev server",
+      "summary": "Start the declared app in the item's own worktree, detect an early crash with captured output, health-poll the real route while the child is alive, and always tear the process group down and free its port.",
+      "estimate": "L",
+      "depends_on": ["visual-env-contract"],
+      "contract": "Add a package-owned, per-item managed dev-server lifecycle to the Pi runtime. Port assignment: bind a loopback socket to :0 to reserve an ephemeral port, close it, inject the number through port_param, and spawn visual_env.command detached in its own process group inside the item's candidate worktree; an injectable port-reservation seam makes the reserve-to-spawn window testable, and a bind failure (the port taken by the time the child binds) surfaces through the child's early exit as a startup-crash carrying the EADDRINUSE tail — there is no separate bind-conflict outcome to be misreported as a timeout. Early-exit detection: watch the child for exit and error while health-polling, drain its stdout and stderr into a bounded ring buffer, and on premature exit abort polling immediately and return a typed startup-crash outcome carrying the exit code and the captured tail — it never burns the whole startup_timeout_seconds on a dead process. Health: poll the target route — supplied per capture as an argument to the withEnvServer API (the item-under-test's design_reference), URL-normalized against the loopback base rather than string-concatenated — with manual redirect handling until startup_timeout_seconds; a non-auth 3xx follows up to a small bounded number of hops; a terminal 2xx on the target route is healthy, but a 2xx is accepted only while the spawned child is still alive (a child that has already exited cannot own the port, so a squatter answering after exit is caught by the exit watcher, not reported healthy); a 3xx whose Location matches /login, /signin, or /auth (case-insensitive) is classified NOT healthy and returns a typed auth-required outcome; exhausting the timeout returns a typed timeout outcome after tearing down what it started. Ownership and teardown: register the process under a new env-server role added to the LifecycleRole union and the process manager, bound to the item's lifecycle owner, passing an explicit graceMs of 5000 at its registerProcess call site rather than churning the shared DEFAULT_GRACE_MS; tear down non-vetoably on every exit path including ctx.signal abort and abort during health-poll — SIGTERM, then the 5s grace, then SIGKILL of the whole process group on POSIX — reclaiming the tree and freeing the port. It never kills a process this run did not start: a foreign holder of the port makes it bail rather than kill, and global shutdown reclaims the env-server role. POSIX-specific process-group tests skip cleanly on win32. It never returns a handle it cannot prove it owns; each typed failure carries remediation. Exposes a withEnvServer-style API returning an owned handle plus the assigned URL. No app state survives, so resume stays git-derived.",
+      "touches": [
+        "extensions/pi/env-server-runner.ts",
+        "extensions/pi/process-manager.ts",
+        "extensions/pi/lifecycle-registry.ts",
+        "tests/pi/env-server-runner.test.ts",
+        "tests/pi/process-manager.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "spawns and supervises a long-lived external process group",
+          "extends shared orchestration infrastructure (the LifecycleRole union, process-manager roles, and shutdown)",
+          "new authority surface: the runtime binds host ports",
+          "not-computed:diff-size"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "npm run check:pi",
+        "assertions": [
+          "a declared visual_env starts in the item worktree on an injected ephemeral loopback port; a fixture server that answers the target route differently from / health-polls to a 2xx; the returned handle names the assigned URL",
+          "a child that exits before health (a crash fixture) aborts polling immediately and returns a typed startup-crash outcome carrying the exit code and captured stderr tail, without burning the startup timeout",
+          "a fixture that occupies the reserved port through the injectable reservation seam makes the child's bind failure surface as a startup-crash carrying the EADDRINUSE tail, never a timeout",
+          "a positive-control fixture that 3xx-redirects the target route to /login is classified NOT healthy and returns a typed auth-required outcome",
+          "a 2xx is accepted only while the spawned child is alive: a fixture where the child exits and a foreign responder answers the route is not reported healthy",
+          "teardown runs on every exit path — completion, error, ctx.signal abort, and abort during health-poll — freeing the port and reaping the group; a fixture whose child ignores SIGTERM proves SIGKILL escalation after the grace period, and a no-child-survives assertion holds",
+          "a port held by a foreign process this run did not start makes the lifecycle bail without killing it",
+          "the env-server role is added to the LifecycleRole union and the process manager and is reclaimed by a global shutdown alongside the existing delivery, host-check, and managed-process roles"
+        ]
+      }
+    },
+    {
+      "id": "capture-orchestration",
+      "title": "Render both views and emit one schema-pinned visual-evidence artifact",
+      "summary": "Behind an injectable capture boundary, bring the app up, capture live and design, run the real structured diff over fixture captures, and record one karta-visual-evidence-v1 artifact outside the worktree — without lifting the block.",
+      "estimate": "L",
+      "depends_on": ["env-server-lifecycle"],
+      "contract": "Add a package-owned capture orchestrator that produces the hash-bound visual evidence a future screenshot-judgement gate will consume, and that does not lift the fail-closed block. It is built around an injectable capture boundary: the deterministic floor (npm run check:pi) exercises the orchestration over injected fake captureView and serveDesign (the parts that need a browser and the running app) while running the REAL diffCapture over two fixture capture artifacts (uv, no browser) so the discrepancy checks exercise the actual structured diff, not stub plumbing; a single opt-in live test (guarded by KARTA_LIVE_VISUAL_CAPTURE, the existing gate-live idiom) exercises the real captureView and serveDesign with playwright-cli end to end. On the live path it hard-gates playwright-cli on PATH with a fail-closed preflight carrying the install remediation, the same idiom uv uses. Given a built item worktree and its design_reference route: read visual_env from the item's pinned candidate commit OID (not a moving branch), a property proven by a fixture whose working-tree and integration-ref copies carry a different command than the candidate commit; bring the app up through the env-server lifecycle and capture the live view (screenshot plus DOM, computed styles, and geometry); serve and capture the design reference, owning serveDesign's teardown on every exit path so no server process leaks; run diffCapture over the two captures; and emit one schema-pinned karta-visual-evidence-v1 artifact — both captures, their render-health, and the structured discrepancies — written to a temp path outside the candidate worktree (never into it) and bound to the candidate tree hash, which is re-verified before and after capture so a tracked-file mutation fails closed while the capture's own output never trips the check. Loopback-interface confinement is review-scoped trust (the app chooses its bind interface). It writes no verdict, moves no ref, and does not modify verification-runner.ts: per the shipped block-unrun-visual contract only the later screenshot-judgement binder may lift the visual-required block, so this item only strengthens the block's regression in tests/pi/verification-runner.test.ts, never the runner.",
+      "touches": [
+        "extensions/pi/visual-capture-runner.ts",
+        "tests/pi/visual-capture-runner.test.ts",
+        "tests/pi/verification-runner.test.ts"
+      ],
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "drives a real browser through playwright-cli on the opt-in live path",
+          "adds an external host dependency gate (playwright-cli)",
+          "produces a schema-pinned artifact a future gate will trust",
+          "not-computed:diff-size"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "command": "npm run check:pi",
+        "assertions": [
+          "over injected fake captureView and serveDesign but the REAL diffCapture, the orchestrator emits one karta-visual-evidence-v1 artifact carrying both render-healths and the structured discrepancies bound to the candidate tree hash; a positive control with a known injected discrepancy asserts that exact discrepancy appears by content, while an identical-capture fixture emits none",
+          "on the live path playwright-cli absent on PATH fails closed with the install remediation before any capture; the floor path uses the fake capture boundary and needs no browser (only uv, for the real diff)",
+          "an unhealthy or shell render, per the render-health schema, fails the capture closed rather than diffing a blank page",
+          "serveDesign is torn down on every exit path (completion, error, abort), asserted by a fixture that leaves no server process bound",
+          "a positive control proves the candidate-OID read: a fixture whose working-tree and integration-ref visual_env carry a different command than the candidate commit asserts capture used the candidate commit's command",
+          "the artifact and all capture scratch are written outside the candidate worktree, and the candidate tree hash is re-verified after capture: a fixture that mutates a tracked file mid-capture fails closed, while the capture's own output never trips the re-verify",
+          "the shipped block is unchanged — a full visual verification still returns blocked with blockedReason visual-required — and a new regression asserts that the mere existence of a visual-evidence artifact does not lift the block, with verification-runner.ts left untouched by this item",
+          "an opt-in live test guarded by KARTA_LIVE_VISUAL_CAPTURE exercises the real captureView, serveDesign, and diffCapture with playwright-cli end to end, and is skipped by the default floor run"
+        ]
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # AGENTS.md — working on karta
 
-karta is a stack-agnostic orchestration framework shipped as **both** a Claude Code plugin and a Codex CLI plugin. It plans a binder of work items, delivers it in parallel waves onto a per-binder integration branch, builds each item in an isolated git worktree, and gates each one against its own acceptance check. This file orients an agent editing karta itself; end-user usage lives in `README.md` and `docs/how-to/codex.md`.
+karta is a stack-agnostic orchestration framework shipped for Claude Code, Codex CLI, and Pi. It plans a binder of work items, delivers it in parallel waves onto a per-binder integration branch, builds each item in an isolated git worktree, and gates each one against its own acceptance check. This file orients an agent editing karta itself; end-user usage lives in `README.md` and `docs/how-to/`.
 
 ## Layout — canonical vs generated
 
@@ -10,7 +10,7 @@ Some files are hand-edited (canonical); others are generated projections you mus
 |-|-|-|
 | `skills/<name>/` | Skills — canonical, Claude-native | yes |
 | `.agents/skills/<name>/` | Codex repo-local skill mirror — generated, byte-identical | no — run `sync_codex_skills.py` |
-| `agents/<name>.md` | Agents — canonical (Claude registered subagents). Two read-only gates + two writers: `karta-doc-gardner` (docs) and `karta-kaizen` (stack packs) | yes |
+| `agents/<name>.md` | Agents — canonical (Claude registered subagents). Three read-only gates + two writers: `karta-doc-gardner` (docs) and `karta-kaizen` (stack packs) | yes |
 | `.codex/agents/<name>.toml` | Codex registered subagent — generated. `sandbox_mode` is derived from the agent's `tools` (Write/Edit → workspace-write; else read-only) | no — run `sync_codex_agents.py` |
 | `skills/<spawn-site>/references/<name>.agent.md` | Agent instructions bundled in the agent's sole spawn-site skill (Codex plugin-install fallback) — generated. Gates → `karta-verify`; gardner → `karta-doc-gardner`; kaizen → `karta-kaizen` (see `BUNDLE_SITE` in `sync_codex_agents.py`) | no — run `sync_codex_agents.py` |
 | `plugins/karta/` | Codex marketplace install projection — generated real directory. The marketplace points here (`./plugins/karta`) because Codex CLI expects plugin entries under a child path, and real files work on Windows/macOS/Linux | no — run `sync_codex_skills.py` |
@@ -21,6 +21,7 @@ Some files are hand-edited (canonical); others are generated projections you mus
 | `.claude-plugin/` | Claude plugin + marketplace manifests | yes |
 | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | Codex plugin + repo marketplace manifests | yes (keep name/version in step with `.claude-plugin/plugin.json`) |
 | `.codex-plugin/hooks/` | Codex hooks manifest and guard scripts — canonical, hand-maintained twins of the Claude guards in `hooks/scripts/` (same rule, Codex's payload shape) | yes — run `sync_codex_skills.py` to refresh the `plugins/karta/` mirror after editing |
+| `package.json`, `extensions/pi/`, `tests/pi/` | Pi package manifest, first-party runtime adapter, and compatibility tests — canonical | yes |
 
 Why committed mirrors and not symlinks: Codex does not detect symlinked skills on Windows (openai/codex#8400), so `.agents/skills/` and the marketplace install projection under `plugins/karta/` are real directories kept in sync by the generator and guarded by the validator.
 
@@ -31,19 +32,35 @@ Externally managed cross-runtime skills are the exception to `.agents/skills/` o
 - Edited a skill (including its `references/`, `scripts/`, or `agents/openai.yaml`): run `uv run scripts/sync_codex_skills.py`.
 - Edited an agent (`agents/*.md`): run `uv run scripts/sync_codex_agents.py`, then `uv run scripts/sync_codex_skills.py` (the bundled `*.agent.md` lives inside the agent's spawn-site skill, so that mirror changes too).
 - Edited a `skills/_shared/*.md`: copy it into each consuming skill's `references/` (keep them byte-equal), then run the skills mirror.
+- Edited `package.json`, `extensions/pi/`, or `tests/pi/`: run `npm run check:pi`.
 
 ## Before you commit
 
-All four must be clean:
+All five must be clean.
+
+Mac/Linux/Windows, local terminal from the repository root:
 
 ```
 uv run scripts/validate_plugin.py --self-test
 uv run scripts/check_shared_copies.py --self-test
 uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
+npm run check:pi
 ```
 
 The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs these four plus a fifth gate — `validate_packs` over every built-in and `.karta/sme/` pack — so a clean four can still be blocked at commit by an invalid pack. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
+
+## Before Pi package changes go remote
+
+Any change to the Pi package, runtime, tests, or operator docs must pass the packed-artifact smoke test on the exact local tree before it is pushed, tagged, or otherwise sent to a remote.
+
+Mac or Linux, local terminal in the Karta checkout:
+
+```sh
+npm run smoke:pi-package
+```
+
+The smoke test must use the installed `pi` executable, an isolated Pi agent directory, and the artifact produced by `npm pack`. A checkout loaded directly with `-e` does not satisfy this gate.
 
 ## How work reaches the default branch
 
@@ -179,6 +196,12 @@ A PreToolUse hook sees a command before it runs, so it can only match command te
 
 When the roundtable environment is down, or you need a deliberate partial commit, set `KARTA_SKIP_ROUNDTABLE=1` — as a leading assignment prefix on the git command, or in the environment — and the gate allows the command. The hook also fails open on any internal error: a broken hook never wedges the repo. With the switch back on the hatch is live again and it is the only way past a review gate, so reach for it deliberately and say why in the commit — an unexplained `KARTA_SKIP_ROUNDTABLE=1` is a review that did not happen.
 
+### When the retroactive panel rejects a hatch-committed binder
+
+The hatch defers the review; it never waives it. So the panel can come back with blockers against a plan that is already committed, and a committed binder is read-only — `guard_binder_immutability.py` denies the edit, and that guard stays.
+
+The sanctioned path is **withdrawal, not a history rewrite**. Commit the deletion of the binder file, then commit the corrected plan under the same slug together with its review record. The binder gate skips the deletion commit by construction (a deleted path has no staged plan to review), and both commits move forward, so the audit trail keeps the rejected plan, its rejection, and its replacement. Resetting or amending the offending commit destroys that trail and only works while it is unpushed.
+
 Full operator guide: [docs/how-to/roundtable.md](docs/how-to/roundtable.md).
 
 ## Kaizen dogfood policy (this repo)
@@ -195,6 +218,8 @@ convention keeps recurring — across packs, binders, or gate fixes — someone 
 outcomes (promote it, scope it with the reason, or reject it); nothing becomes law by being copied.
 A constant observed in one environment is configuration; only a decision is doctrine.
 
-## Two platforms, one behavior
+## Three runtimes, one behavior
 
 The gate agents are read-only on every install. On Claude Code and on Codex-with-`.codex/agents/`, they run as registered subagents (`sandbox_mode = "read-only"`). On a Codex plugin install — where plugins cannot register subagents — `karta-verify` spawns a read-only subagent using the bundled `references/*.agent.md`. Keep that adaptive dispatch intact when editing `skills/karta-verify/SKILL.md`.
+
+Pi has no registered-agent projection. Its adapter must load the canonical package-owned gate prompts into fresh child sessions with explicit read-only tools, in-memory settings, and no ambient skills, extensions, project context, or parent conversation. A project-local skill with the same name may affect conversational guidance, but it never becomes an authoritative Karta gate agent.

@@ -37,13 +37,15 @@ Karta Watch runs in one of two modes, and two explicit gates decide which:
 
 Ephemeral is the default and is unchanged. The persistent hub is a deliberate, per-repo choice.
 
+**Bundled scripts.** When Pi provides `karta_script`, use `statusControl` and `kartaNext` for the bounded actions below. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. The foreground ephemeral server still uses the fallback because it needs the runtime's managed-process facility. Never resolve a bundled script from the consumer repo's working directory.
+
 ## Ephemeral mode (the default) — open the live page
 
 When someone asks for karta status, "what's next", or to **see / watch / show / look at** where
 they are, **start Karta Watch, the live browser page.** That is the point of this skill, so it is
 the default — not an extra someone has to ask for:
 
-  `uv run --script skills/karta-status/scripts/serve_status.py --root <repo> --port 8765`
+  `uv run --script <skill-dir>/scripts/serve_status.py --root <repo> --port 8765`
 
 It is a **long-running** server (a browser polls it for as long as the page is open), so start it as a
 **persistent/managed process** — a bare `&` or `nohup` is often reaped by the agent runtime before
@@ -61,7 +63,7 @@ and a click-to-expand assertion + command), and the next action as a copy banner
 When someone asks to keep the watch page around — "opt this repo into karta watch", "make karta
 watch persistent" — flip the second gate:
 
-  `uv run --script skills/karta-status/scripts/serve_status.py --opt-in`
+  use `karta_script` action `statusControl` with `operation: optIn`; fallback: `uv run --script <skill-dir>/scripts/serve_status.py --opt-in`
 
 From then on, one per-user **hub** serves every opted-in repo at a stable local URL, and ordinary
 karta activity revives it automatically. The lifecycle flags, all on the same script:
@@ -89,9 +91,9 @@ Operator guide — opt-in, the stable URL, the off switch, the reboot gap, and t
 When the caller wants a quick textual answer, or there is no browser (CI, headless, a script), run
 the engine directly instead of the page:
 
-- `uv run --script skills/karta-status/scripts/karta_next.py` — the route + frontier + `▶ next`.
-- `uv run --script skills/karta-status/scripts/karta_next.py --json` — the full state (the page consumes this).
-- `uv run --script skills/karta-status/scripts/karta_next.py --footer --binder <slug>` — the one-line run-end nudge.
+- Use `karta_script` action `kartaNext` with `format: text`; fallback: `uv run --script <skill-dir>/scripts/karta_next.py` — the route + frontier + `▶ next`.
+- Use `karta_script` action `kartaNext` with `format: json`; fallback: `uv run --script <skill-dir>/scripts/karta_next.py --json` — the full state (the page consumes this).
+- Use `karta_script` action `kartaNext` with `format: footer` and `binder: <slug>`; fallback: `uv run --script <skill-dir>/scripts/karta_next.py --footer --binder <slug>` — the one-line run-end nudge.
 
 This skill is read-only and stack-agnostic. It never starts a build, never merges, never writes a
 binder. It only tells you where you are and what is next. The one exception to "starts nothing" is

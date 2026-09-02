@@ -13,10 +13,11 @@ See [references/verification-gate.md](references/verification-gate.md) for how t
 
 The skill uses bundled PEP 723 Python scripts to avoid Bash/WSL/POSIX assumptions:
 
-- `scripts/serve_design.py` resolves and serves the design HTML on an OS-assigned localhost port.
-- `scripts/capture_view.py` drives `playwright-cli`, captures both targets, and writes one JSON artifact.
+- `scripts/serve_design.py` resolves and serves the design HTML on an OS-assigned localhost port. Before opening a socket it applies one containment rule to both explicit-file and directory-discovery modes: the chosen file's parent is the document root, and a repository/worktree root — or any directory at or above it — is refused so the whole tree can never be served as a subtree (a design directory strictly inside the repository, such as `docs/`, stays allowed).
+- `scripts/capture_view.py` drives `playwright-cli`, captures both targets through two independently opened and closed named sessions (one suffixed `-design`, one `-app`, so request/console evidence can never cross-contaminate), computes an absolute per-target render-health verdict, and writes one JSON artifact.
+- `scripts/diff_capture.py` is Pass 1 as code: it consumes that one capture artifact, validates each target's `karta-render-health-v1` record, and emits a bounded, deterministic `karta-structured-diff-v1` discrepancy document — geometry-first element pairing, exact token/computed-style comparison, missing/extra elements, and measured geometry and sibling-gap findings — so every runtime performs the same structured comparison instead of re-deriving it from prose.
 
-Run both through `uv run`. Resolve the script paths relative to this `SKILL.md` directory. Do not invoke Python automation as `python script.py` in a uv-managed environment.
+When Pi provides `karta_script`, use `serveDesignSelfTest` for the bounded self-test, `captureView` for capture, and `diffCapture` for the structured Pass-1 diff. The long-running design server still uses the runtime's managed-process facility with the fallback command. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run scripts through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory, and do not invoke Python automation as `python script.py` in a uv-managed environment.
 
 `playwright-cli` is an external dependency. This skill uses the installed `playwright-cli` command; it does not patch, wrap, bypass, or maintain Playwright CLI behavior. If a Playwright action cannot be performed, fail with the command, exit code, stdout, and stderr. When `playwright-cli` is not installed at all, `capture_view.py` fails with a one-time install CTA (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills` for its companion agent skill); relay that message to the user and stop — do not auto-install or hand-drive Playwright.
 
@@ -45,9 +46,7 @@ All checks are hard gates. Fail with a clear report rather than prompting.
 1. **`uv` is available.** The bundled scripts are run with `uv run`.
 2. **Design files resolve.** Run:
 
-   ```powershell
-   uv run <skill-dir>/scripts/serve_design.py --self-test
-   ```
+   Use `karta_script` action `serveDesignSelfTest`; fallback: `uv run --script <skill-dir>/scripts/serve_design.py --self-test`.
 
    Then use the same script in the serve step (`validate:serve`) with the caller's design path. If it cannot resolve an HTML file, stop with: "No design HTML files found at `<path>`. Provide a Claude Design OR runtime-JSX design HTML export."
 
@@ -68,12 +67,13 @@ Do not assume Bash, WSL, `/tmp`, `curl`, `grep`, `find`, `lsof`, `kill`, or POSI
 Start the design server as a managed background process/session with the bundled script:
 
 ```powershell
-uv run <skill-dir>/scripts/serve_design.py --design-path <design-path> --metadata-out <metadata-json>
+uv run --script <skill-dir>/scripts/serve_design.py --design-path <design-path> --metadata-out <metadata-json>
 ```
 
 The script:
 
 - resolves the HTML path
+- refuses to serve a repository/worktree root (or a directory containing it) as the document root before opening a socket; a design directory strictly inside the repository stays allowed, and outside Git only a filesystem root is refused
 - serves from the design file's parent directory so relative `fonts/`, `assets/`, and `uploads/` paths work
 - binds to `127.0.0.1` on an OS-assigned port
 - writes JSON metadata containing `design_file`, `design_url`, `port`, and `metadata`
@@ -85,10 +85,10 @@ Keep the process handle so cleanup (`validate:cleanup`) can stop it. Read `desig
 
 Use a capture subagent OR host worker for mechanical capture only. It does not compare and does not suggest fixes.
 
-For simple route-only or text-click navigation, run:
+For simple route-only or text-click navigation, use `karta_script` action `captureView` with `designUrl`, `appUrl`, `viewport`, and `out`; fallback:
 
 ```powershell
-uv run <skill-dir>/scripts/capture_view.py `
+uv run --script <skill-dir>/scripts/capture_view.py `
   --design-url <design-url> `
   --app-url <app-base-url><app-route> `
   --viewport <WxH> `
@@ -102,14 +102,23 @@ Optional repeated flags:
 
 If the required navigation cannot be represented by the supported capture script inputs, stop and report the unsupported navigation requirement to the caller. Do not hand-drive Playwright outside the script and do not hand-produce a replacement artifact.
 
-The capture artifact contains:
+The capture artifact contains, per target (`design`, `app`):
 
 - design/app screenshot paths
 - design/app DOM snapshot paths with bounding boxes
-- extracted token/heading/button/landmark CSS data
-- console errors and request summaries
+- extracted token data, plus comparable heading/button/landmark records that each carry stable `identity`, `category`/`role`, normalized `text`, `parentIdentity`, `siblingOrder`, computed `styles`, and a `box` with `x`/`y`/`width`/`height`
+- `console_errors` and `requests` — the raw CLI text, preserved
+- `render_health` — an absolute per-target verdict (schema `karta-render-health-v1`)
 - `APP_HEALTH`
 - `compare_ready`
+
+**Render health (`render_health`, schema `karta-render-health-v1`).** An absolute answer to whether the page really rendered, distinct from the relative design diff and from the auth gate. `result` is `healthy | degraded | blocked`, alongside bounded evidence: `readySelector` (the matched selector `wait_for_any` returned), `visibleTextChars`, `visibleLeafElements`, `styledElementCount`, `consoleErrorCount`, `failedRequestCount`, and the bounded `consoleErrors` / `failedRequests` lists.
+
+- **`blocked`** — a `readySelector` matched but the page is an empty shell: fewer than 20 visible text characters **and** zero visible leaf elements **and** zero styled elements. Any one of the three being nonzero lifts it out of `blocked`. (A fully blank page never reaches here — it hard-fails earlier through `wait_for_any`.)
+- **`degraded`** — an otherwise-rendered page carrying an uncaught page exception, an unhandled promise rejection, or a failed document/stylesheet/script/image request. Incidental console warnings and informational logs do not degrade a render, so ordinary third-party noise cannot flip a good render to `degraded`.
+- **`healthy`** — rendered with none of the above.
+
+DEGRADED_AUTH remains the first gate for the app target; render health is computed only once auth permits comparison (it is `null` on a `DEGRADED_AUTH` return).
 
 **Auth-aware gate.** If the app route renders a login/auth screen instead of the target view, the artifact must set:
 
@@ -146,14 +155,16 @@ EXTRA_ELEMENTS:
 Not evaluated.
 ```
 
-Otherwise run the comparison in two passes and **ground every finding in evidence** — start from the exact structured data, but treat the screenshots as an equal, mandatory source, not an afterthought. The extracted data covers only some elements (headings, buttons, landmarks) and a few properties, so it finds much but not everything.
+Otherwise run the comparison in two passes and **ground every finding in evidence** — the shared script produces the exact structured data, and you treat the screenshots as an equal, mandatory source, not an afterthought. The extracted data covers only some elements (headings, buttons, landmarks) and a few properties, so it finds much but not everything.
 
-**Pass 1 — diff the structured captures (exact).** Compare `design.extracted_data` against `app.extracted_data`, and token map against token map. Match elements within a role by layout position and bounding-box proximity first, using text/label only as a secondary tie-breaker and ignoring mock-data text (dates, names, counts, seeded values) when pairing — **do not assume a 1:1 index match**. Route only what is genuinely present on one side and absent on the other to `MISSING_ELEMENTS` / `EXTRA_ELEMENTS`, then diff the matched pairs. These computed values are exact:
+**Pass 1 — the shared structured diff (`scripts/diff_capture.py`).** The exact, mechanical comparison is not prose you perform — it is one package-owned script every runtime runs. On Pi use `karta_script` action `diffCapture` with the capture-artifact path (and an optional `out` path); otherwise `uv run --script <skill-dir>/scripts/diff_capture.py --capture <capture-json>`. The script reads only the capture JSON (never the app or design source, never the playwright-cli YAML snapshot sidecar), validates each target's `karta-render-health-v1` record, and emits a bounded, deterministic `karta-structured-diff-v1` document:
 
-- colors and theming — `color`, `backgroundColor`, and the `--*` token map (also feeds `TOKEN_DRIFT`).
-- typography — `fontSize`, `fontWeight`, `fontFamily` per matched element.
-- spacing and component style — `padding`, `borderRadius`.
-- layout and structure — bounding boxes from the `--boxes` snapshots; flag element position/size differences over about 20px, and edge-to-edge gap differences between adjacent siblings over about 8px, as candidates (confirm spacing candidates against the screenshots).
+- It **consumes render health before any relative diff.** It surfaces `design` and `app` render health in the document's `renderHealth`, and **fails closed** — a malformed artifact, an auth-degraded app target, or a `blocked` render (the page never really rendered) yields `status: blocked` with a `blockedReason` and a non-zero exit, never a silent clean diff. A `degraded` render (an uncaught error or a failed asset) still compares, with its health surfaced first — a page that did not render is not a fidelity question.
+- It **pairs elements within each role/category by bounding-box geometry first**, using normalized text only as a secondary tie-breaker, so mock-data text (dates, names, counts, seeded values) can never drive pairing and array order never implies a 1:1 match. What is genuinely present on one side only becomes `missingElements` / `extraElements`.
+- It compares the `--*` token map (`tokenDrift`) and the captured computed styles — `color`, `backgroundColor`, `fontSize`, `fontWeight`, `fontFamily`, `padding`, `borderRadius` — **exactly**, per matched element.
+- It flags element position/size differences over about 20px and edge-to-edge gap differences between adjacent matched siblings over about 8px, each citing the measured boxes.
+
+Every candidate cites its evidence (a token, a computed-style value, a bounding-box delta, or a sibling gap) and the stable element identity it came from. Read that document as the exact, grounded starting point for Pass 2 — do not re-derive these numbers by hand, and confirm spacing candidates against the screenshots. A model-unavailable runtime may report this structured result but cannot on its own claim full visual acceptance; Pi stays blocked on a full visual oracle until its later screenshot-judgement binder lands.
 
 **Pass 2 — inspect the screenshots (mandatory, even if Pass 1 is clean).** Many real regressions never reach the extracted data: wrong or missing icons, missing shadows/borders, gradients, opacity, clipped or overlapping content, broken visual hierarchy, component fidelity, interactive-element presence, the styling (color, font, size) of elements the extracted data omits — body copy, links, and form inputs — and content/copy (ignoring mock-data value differences). Inspect the design and app screenshots directly for these across the whole view. **A difference you can see and point to is a valid finding even with zero data delta** — do not discount it for lacking a numeric anchor. But do not flag plausible capture or rendering artifacts (anti-aliasing, sub-pixel shifts, font rasterization, image compression); those are not product differences.
 
@@ -209,6 +220,10 @@ The final output is the structured report from the comparison worker (`validate:
 - **HTTP server directory matters.** Serve from the design file's parent directory so relative assets resolve.
 - **Standalone HTML is preferred.** The server script chooses standalone non-print HTML before other HTML files.
 - **Auth redirects are not visual mismatches.** `DEGRADED_AUTH` blocks comparison and routes the problem back to the caller for session setup.
+- **Render health is absolute, not relative.** `render_health` answers whether each target really rendered (`healthy | degraded | blocked`) from request/console/DOM/geometry evidence, independent of the design diff. The comparison consumes it first: a `blocked` shell or a `degraded` render is reported ahead of any fidelity finding.
+- **Pass 1 is one shared script, not model arithmetic.** `scripts/diff_capture.py` performs the exact structured comparison for every runtime — geometry-first pairing, exact token/computed-style diffs, missing/extra elements, and measured geometry/sibling-gap findings — deterministically, from the capture JSON alone. It never reads the app/design source or the playwright-cli YAML snapshot sidecar, and it fails closed (`status: blocked`, non-zero exit) on a malformed, auth-degraded, or `blocked`-render capture. Do not hand-derive these numbers or reimplement the pairing in prose; read the script's document and build Pass 2 on it.
+- **Design and app never cross-contaminate.** The two targets are captured in independently opened and closed named sessions, so one target's console errors or failed requests can never leak into the other's evidence.
+- **Serving the repository root is refused.** `serve_design.py` will not expose a repository/worktree root (or a directory containing it) as the design document root; point `--design-path` at a design subdirectory such as `docs/`.
 - **Validation is read-only.** This skill reports only. It never fixes, re-runs after fixes, or changes files.
 - **Playwright is external.** Do not repair or bypass `playwright-cli` internals. Fail clearly when a Playwright action fails.
 - **This is the visual acceptance gate.** karta routes `oracle.type: visual` items here. Other oracle types (unit, integration, e2e, smoke) go to `karta-acceptance-reviewer`, not here.
