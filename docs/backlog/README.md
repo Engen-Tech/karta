@@ -206,9 +206,12 @@ change rides in on a reviewed one. Found by the independent review of entry 8's 
 
 ---
 
-## 11. the gates read HEAD from the main checkout, not from where the merge runs — *Ready* (filed 2026-08-24)
+## 11. the gates read HEAD from the main checkout, not from where the merge runs — *Fixed for payload-cwd invocations (2026-09-01)*
 
-**What.** `scripts/hooks/roundtable_gate.py` roots every git call at a fixed path — `ROOT` is derived
+**What** (line numbers are as filed on 2026-08-24; the file has grown a great deal since, most of it
+unrelated to the fix recorded below, so trust the symbol names rather than the positions).
+`scripts/hooks/roundtable_gate.py`
+roots every git call at a fixed path — `ROOT` is derived
 from the hook script's own location (`roundtable_gate.py:65`) and `git()` runs with `cwd=ROOT`
 (`roundtable_gate.py:183`). So `current_branch()` (`roundtable_gate.py:257`) always reports the
 *primary checkout's* HEAD, whatever directory the command being judged actually runs in. Both places
@@ -249,6 +252,23 @@ assert both directions — no block for integration-to-integration, block for a 
 
 **Found by** the `watch-drill-in-remediation` delivery, which hit the false positive on three item
 merges and then again on the consolidation.
+
+**Fixed for payload-cwd invocations (2026-09-01).** `scripts/hooks/_worktree.py` resolves a cwd to
+the top level of the working tree containing it — walk-up containment, membership decided by
+comparing that tree's git common directory with the root's, so a different repository nested in
+this one is never mistaken for a worktree of it — and `roundtable_gate.py` calls it once at the top
+of `decide()`, ahead of the landing gate's first branch read. Both directions are pinned as suite
+cases that fail on the pre-fix ordering (`landing-worktree-false-positive`,
+`landing-worktree-false-negative`), together with the skip-hatch subdirectory case, the
+no-cwd preservation case, and the resolver-versus-`_check_cwd` agreement case. The config reads
+moved with the rescope, deliberately: the switch is now the resolved tree's committed one.
+
+**What is left, and it is item 22's half.** The observed 2026-08-24 block was a
+`cd <worktree> && git merge …` chain, whose payload cwd is the project directory — where a shell
+command finally runs is not decidable from command text, so resolving the payload's cwd does not
+touch that shape. `git -C <worktree>` is the other spelling, and it is denied rather than rescoped.
+Both are item 22, which proposes accepting `git -C <path>` when the path is a linked worktree of
+this repository. This entry stays partial rather than closed for that reason.
 
 ---
 
