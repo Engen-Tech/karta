@@ -658,10 +658,16 @@ test("a gate verdict the strict parse would reject gets the corrective turn, nam
     });
 
   assert.equal(gateVerdictViolation(verdict(), expected), null);
+  // The turn asks for a shorter summary because the reviewer's own words beat the
+  // host's cut — but length alone never voids a completed review, so the parse
+  // clamps rather than throwing.
   assert.match(
     gateVerdictViolation(verdict({ summary: "x".repeat(2500) }), expected) ?? "",
-    /invalid summary/,
+    /"summary" is 2500 characters; the limit is 2000/,
   );
+  const clamped = parseGateVerdict(verdict({ summary: "x".repeat(2500) }), expected);
+  assert.equal(clamped.summary.length, 2000);
+  assert.match(clamped.summary, /\[\u2026truncated from 2500\]$/);
   assert.match(
     gateVerdictViolation(verdict({ profileHash: "e".repeat(64) }), expected) ?? "",
     /profileHash does not match/,
@@ -671,7 +677,7 @@ test("a gate verdict the strict parse would reject gets the corrective turn, nam
   const recovered = await promptGateForVerdict(prompter, "GATE PROMPT", expected);
   assert.equal(recovered, verdict());
   assert.equal(prompter.calls.length, 2);
-  assert.match(prompter.calls[1], /rejected because: .*invalid summary/);
+  assert.match(prompter.calls[1], /rejected because: .*"summary" is 2500 characters/);
 
   // Without the dispatch's expectations only the shape is judged, so a caller
   // that has no hashes to compare cannot manufacture a false rejection.
