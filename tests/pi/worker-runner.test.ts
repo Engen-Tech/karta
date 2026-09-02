@@ -8,6 +8,7 @@ import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/chil
 import {
   KartaBuildWorkerRunner,
   promptWorkerForEnvelope,
+  workerEnvelopeViolation,
 } from "../../extensions/pi/worker-runner.ts";
 
 const authoritySnapshot = {
@@ -316,14 +317,36 @@ class FakePrompter {
   }
 }
 
-const validEnvelope = JSON.stringify({ schema: "karta-worker-result-v2", outcome: "ready" });
+const EXPECTED = {
+  binder: "demo",
+  item: "item-a",
+  roleDefinitionHash: "a".repeat(64),
+  profileHash: "b".repeat(64),
+};
+
+function envelope(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    schema: "karta-worker-result-v2",
+    role: "build-worker",
+    binder: EXPECTED.binder,
+    item: EXPECTED.item,
+    roleDefinitionHash: EXPECTED.roleDefinitionHash,
+    profileHash: EXPECTED.profileHash,
+    outcome: "ready",
+    summary: "Closed the false-success path.",
+    checks: [],
+    ...overrides,
+  });
+}
+
+const validEnvelope = envelope();
 
 test("a worker ending on prose gets exactly one envelope-repair turn", async () => {
   const proseFirst = new FakePrompter([
     "The implementation is complete.\n\n## Summary\nI closed the false-success path.",
     validEnvelope,
   ]);
-  const recovered = await promptWorkerForEnvelope(proseFirst, "USER PROMPT");
+  const recovered = await promptWorkerForEnvelope(proseFirst, "USER PROMPT", EXPECTED);
   assert.equal(recovered, validEnvelope);
   assert.equal(proseFirst.calls.length, 2);
   assert.equal(proseFirst.calls[0], "USER PROMPT");
@@ -332,14 +355,45 @@ test("a worker ending on prose gets exactly one envelope-repair turn", async () 
 
 test("a worker that returns the envelope first is not re-prompted", async () => {
   const cleanFirst = new FakePrompter([validEnvelope, "should not be used"]);
-  const result = await promptWorkerForEnvelope(cleanFirst, "USER PROMPT");
+  const result = await promptWorkerForEnvelope(cleanFirst, "USER PROMPT", EXPECTED);
   assert.equal(result, validEnvelope);
   assert.deepEqual(cleanFirst.calls, ["USER PROMPT"]);
 });
 
 test("a worker that stays prose-only after repair returns the last text for the diagnostic", async () => {
   const proseBoth = new FakePrompter(["first prose", "still prose, no object"]);
-  const result = await promptWorkerForEnvelope(proseBoth, "USER PROMPT");
+  const result = await promptWorkerForEnvelope(proseBoth, "USER PROMPT", EXPECTED);
   assert.equal(result, "still prose, no object");
   assert.equal(proseBoth.calls.length, 2);
+});
+
+test("an over-long summary is repaired, not discarded, and the turn says why", async () => {
+  // The burn this covers: a worker finished the build, wrote a 2000+ character
+  // summary, and the run was thrown away. The old predicate checked only
+  // `schema`, so the corrective turn never fired for it.
+  const long = envelope({ summary: "x".repeat(2500) });
+  const prompter = new FakePrompter([long, validEnvelope]);
+  const result = await promptWorkerForEnvelope(prompter, "USER PROMPT", EXPECTED);
+  assert.equal(result, validEnvelope);
+  assert.equal(prompter.calls.length, 2);
+  assert.match(prompter.calls[1], /"summary" is 2500 characters; the limit is 2000/);
+  assert.match(prompter.calls[1], /keeping every other field byte-identical/);
+});
+
+test("every rule the strict parse enforces also fires the repair turn", () => {
+  const cases: [string, string, RegExp][] = [
+    ["too many checks", envelope({ checks: new Array(17).fill({ id: "a", command: "b", cwd: "." }) }), /"checks" has 17 entries/],
+    ["empty summary", envelope({ summary: "   " }), /"summary" must be a non-empty string/],
+    ["bad outcome", envelope({ outcome: "done" }), /"outcome" must be one of/],
+    ["unknown key", envelope({ notes: "extra" }), /unknown key\(s\): notes/],
+    ["wrong item", envelope({ item: "item-b" }), /"item" must be "item-a"/],
+    ["stale profile hash", envelope({ profileHash: "c".repeat(64) }), /"profileHash" does not match/],
+    ["not an object", "[]", /must be a single JSON object/],
+  ];
+  for (const [name, text, expected] of cases) {
+    const violation = workerEnvelopeViolation(text, EXPECTED);
+    assert.ok(violation, `${name} should be a violation`);
+    assert.match(violation, expected, name);
+  }
+  assert.equal(workerEnvelopeViolation(validEnvelope, EXPECTED), null);
 });

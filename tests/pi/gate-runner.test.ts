@@ -15,6 +15,7 @@ import {
 import {
   evidenceReadGaps,
   executeGateOnEvidence,
+  gateVerdictViolation,
   parseGateVerdict,
   promptGateForGroundedVerdict,
   promptGateForVerdict,
@@ -630,3 +631,49 @@ test("the dispatch contract names the diff paging call, not just 'the paged diff
   assert.match(prompt, /Never report the diff as unreadable or capped/);
 });
 
+
+test("a gate verdict the strict parse would reject gets the corrective turn, named", async () => {
+  // Same defect as the worker envelope: the predicate checked only `schema`, so
+  // a reviewer that finished the review and wrote an over-long summary was told
+  // nothing and lost the verdict.
+  const expected = {
+    role: "acceptance-gate" as const,
+    evidenceHash: "a".repeat(64),
+    roleDefinitionHash: "b".repeat(64),
+    promptHash: "c".repeat(64),
+    profileHash: "d".repeat(64),
+  };
+  const verdict = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      schema: "karta-gate-verdict-v1",
+      role: expected.role,
+      evidenceHash: expected.evidenceHash,
+      roleDefinitionHash: expected.roleDefinitionHash,
+      promptHash: expected.promptHash,
+      profileHash: expected.profileHash,
+      verdict: "pass",
+      summary: "Evidence conforms.",
+      findings: [],
+      ...overrides,
+    });
+
+  assert.equal(gateVerdictViolation(verdict(), expected), null);
+  assert.match(
+    gateVerdictViolation(verdict({ summary: "x".repeat(2500) }), expected) ?? "",
+    /invalid summary/,
+  );
+  assert.match(
+    gateVerdictViolation(verdict({ profileHash: "e".repeat(64) }), expected) ?? "",
+    /profileHash does not match/,
+  );
+
+  const prompter = new FakeGatePrompter([verdict({ summary: "x".repeat(2500) }), verdict()]);
+  const recovered = await promptGateForVerdict(prompter, "GATE PROMPT", expected);
+  assert.equal(recovered, verdict());
+  assert.equal(prompter.calls.length, 2);
+  assert.match(prompter.calls[1], /rejected because: .*invalid summary/);
+
+  // Without the dispatch's expectations only the shape is judged, so a caller
+  // that has no hashes to compare cannot manufacture a false rejection.
+  assert.equal(gateVerdictViolation(verdict({ profileHash: "e".repeat(64) }), null), null);
+});

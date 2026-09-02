@@ -69,6 +69,9 @@ export interface GateModelInvocation {
   profile: GateCapabilityProfile;
   systemPrompt: string;
   userPrompt: string;
+  // The same expectations the host's strict parse will apply, so the corrective
+  // turn can judge on identical terms instead of a looser proxy.
+  expected?: Parameters<typeof parseGateVerdict>[1];
 }
 
 export type GateModelInvoker = (
@@ -255,29 +258,51 @@ const GATE_VERDICT_REPAIR_PROMPT =
 // The gate verdict contract is strict: exactly one JSON object, no surrounding
 // prose. This predicate mirrors that strictness (no extraction) so a reviewer
 // that ends on prose gets one corrective turn before the strict parse rejects it.
-function looksLikeGateVerdict(text: string): boolean {
+// The reason this verdict would be rejected, or null when it survives the same
+// parse the host runs afterwards. The predicate and the parse must agree: while
+// this only checked `schema`, a reviewer that finished the review and wrote an
+// over-long summary got no corrective turn and lost the whole review.
+export function gateVerdictViolation(
+  text: string,
+  expected: Parameters<typeof parseGateVerdict>[1] | null,
+): string | null {
   try {
     const value = JSON.parse(text.trim());
-    return (
-      Boolean(value) &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      (value as Record<string, unknown>).schema === VERDICT_SCHEMA
-    );
-  } catch {
-    return false;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return "the verdict must be a single JSON object";
+    }
+    if ((value as Record<string, unknown>).schema !== VERDICT_SCHEMA) {
+      return `"schema" must be "${VERDICT_SCHEMA}"`;
+    }
+    // Without the dispatch's expected hashes only the shape can be judged; the
+    // hash comparison then belongs to the strict parse alone.
+    if (!expected) return null;
+    parseGateVerdict(text, expected);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
+}
+
+function looksLikeGateVerdict(text: string): boolean {
+  return gateVerdictViolation(text, null) === null;
 }
 
 export function promptGateForVerdict(
   session: Parameters<typeof promptForJsonEnvelope>[0],
   userPrompt: string,
+  expected: Parameters<typeof parseGateVerdict>[1] | null = null,
 ): Promise<string> {
   return promptForJsonEnvelope(
     session,
     userPrompt,
-    looksLikeGateVerdict,
-    GATE_VERDICT_REPAIR_PROMPT,
+    (text) => gateVerdictViolation(text, expected) === null,
+    (text) => {
+      const violation = gateVerdictViolation(text, expected);
+      return violation === null
+        ? GATE_VERDICT_REPAIR_PROMPT
+        : `${GATE_VERDICT_REPAIR_PROMPT} The verdict you sent was rejected because: ${violation}.`;
+    },
   );
 }
 
@@ -363,12 +388,13 @@ export async function promptGateForGroundedVerdict(
   session: Parameters<typeof promptForJsonEnvelope>[0],
   userPrompt: string,
   evidenceGaps: () => string[],
+  expected: Parameters<typeof parseGateVerdict>[1] | null = null,
 ): Promise<string> {
-  const text = await promptGateForVerdict(session, userPrompt);
-  if (!looksLikeGateVerdict(text)) return text;
+  const text = await promptGateForVerdict(session, userPrompt, expected);
+  if (gateVerdictViolation(text, expected) !== null) return text;
   const gaps = evidenceGaps();
   if (gaps.length === 0) return text;
-  return promptGateForVerdict(session, gateEvidenceRepairPrompt(gaps));
+  return promptGateForVerdict(session, gateEvidenceRepairPrompt(gaps), expected);
 }
 
 export async function invokeGateModel(
@@ -393,6 +419,7 @@ export async function invokeGateModel(
       session,
       invocation.userPrompt,
       () => evidenceReadGaps(invocation.profile),
+      invocation.expected ?? null,
     );
     return { text: text.trim(), runtime: report };
   } finally {
@@ -472,6 +499,13 @@ export async function executeGateOnEvidence(
     profile,
     systemPrompt,
     userPrompt: `Review Karta evidence ${manifest.evidenceHash} for ${roleId}. Use only your fixed tools and return the required JSON object.`,
+    expected: {
+      role: roleId,
+      evidenceHash: manifest.evidenceHash,
+      roleDefinitionHash: profile.role.definitionHash,
+      promptHash,
+      profileHash: profile.profileHash,
+    },
   });
   if (runtime.provider !== preflightReport.provider || runtime.model !== preflightReport.model) {
     throw new Error("Karta gate runtime changed after provider preflight");

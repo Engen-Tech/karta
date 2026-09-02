@@ -35,16 +35,21 @@ export function parseJsonEnvelope(text: string, label: string): unknown {
 // instead of the required JSON envelope. One corrective turn recovers the work
 // rather than discarding it; a second failure falls through to the caller's
 // strict parse, which reports a diagnostic snippet.
+//
+// `isValid` must be as strict as that later parse. A predicate that accepts what
+// the parse will reject spends the corrective turn on nothing and then discards
+// the work anyway. `repairPrompt` may be a function so the turn can name the
+// specific violation instead of restating the format in general.
 export async function promptForJsonEnvelope(
   session: EnvelopePrompter,
   userPrompt: string,
   isValid: (text: string) => boolean,
-  repairPrompt: string,
+  repairPrompt: string | ((text: string) => string),
 ): Promise<string> {
   await session.prompt(userPrompt);
   let text = session.getLastAssistantText() ?? "";
   if (!isValid(text)) {
-    await session.prompt(repairPrompt);
+    await session.prompt(typeof repairPrompt === "function" ? repairPrompt(text) : repairPrompt);
     text = session.getLastAssistantText() ?? text;
   }
   return text;
