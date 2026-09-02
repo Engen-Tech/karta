@@ -6,17 +6,22 @@
 
 Wired in .claude/settings.json (karta repo tooling, NOT the plugin surface).
 Reads the PreToolUse payload JSON from stdin; when tool_input.command contains
-a `git commit` invocation it runs the repo gate suite from the repo root —
-check_shared_copies, sync_codex_skills --check, sync_codex_agents --check,
-validate_plugin, and validate_packs over skills/_shared/sme/ — and exits 2
-with the failing gate's name plus an output tail (last ~40 lines) so the
-commit is blocked with actionable feedback. All gates green, or any command
-that is not a git commit, exits 0. Escape hatch for intentional partial
-commits: KARTA_SKIP_GATE=1 in the command text or the environment.
+a `git commit` invocation it runs the repo gate suite from the INVOCATION ROOT
+— the tree the payload's cwd names, resolved through _worktree.py, so a commit
+issued in a linked worktree is judged on that worktree (register INV-11) —
+check_shared_copies, check_invariant_register, sync_codex_skills --check,
+sync_codex_agents --check, validate_plugin, and validate_packs over
+skills/_shared/sme/ — and exits 2 with the failing gate's name plus an output
+tail (last ~40 lines) so the commit is blocked with actionable feedback. All
+gates green, or any command that is not a git commit, exits 0. Escape hatch for
+intentional partial commits: KARTA_SKIP_GATE=1 in the command text or the
+environment.
 
 Internal errors (unreadable stdin, malformed payload, unexpected exceptions)
 fail OPEN — exit 0 — so a broken hook never wedges the repo. A gate that runs
-and fails (or times out) is not an internal error: that blocks.
+and fails (or times out) is not an internal error: that blocks — with one named
+exception, the register checker, whose crash and timeout paths are described in
+DENY_CODES below.
 
 Binder-validity step: a commit that would record a live binder under .karta/binders/
 is refused when those exact bytes do not validate. Per commit shape,
@@ -53,14 +58,45 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # the sibling module b
 from _worktree import resolve_invocation_root  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/hooks/ -> repo root
-GATE_TIMEOUT = 100   # seconds per gate; a hung gate is a failed gate, not a stall.
-                     # 5 gates x 100s, plus the binder step's 50s budget below, stays
-                     # inside the hook's 600s timeout in .claude/settings.json — the
-                     # harness must never kill this hook mid-run, because a timed-out
-                     # PreToolUse hook does not block. Raising either number without
-                     # raising that timeout would spend the whole margin.
+
+# --- the timeout budget, derived ---------------------------------------------------
+#
+# The harness must never kill this hook mid-run: a timed-out PreToolUse hook does not
+# block, so the whole gate budget has to fit inside the hook's own timeout with room to
+# spare. The margin is DERIVED from that timeout rather than restated beside it, so the
+# two cannot silently disagree.
+HOOK_TIMEOUT = 600   # the `timeout` this hook is wired with in .claude/settings.json,
+                     # re-read 2026-09-02. A self-test case below reads that file and
+                     # fails when the two drift, so this number is checked, not asserted.
+HOOK_OVERHEAD = 60   # what this hook spends OUTSIDE its gates: interpreter start, the
+                     # invocation-root resolver's pointer-file reads, the release block's
+                     # git plumbing, payload I/O, process teardown.
+KILL_MARGIN = HOOK_TIMEOUT - HOOK_OVERHEAD   # 540s of gate budget
+
+GATE_TIMEOUT = 90    # seconds per gate; a hung gate is a failed gate, not a stall
+REGISTER_GATE_TIMEOUT = 20   # the register checker parses one markdown file and stats a
+                             # few dozen paths: no subprocess, no network, no git
+GATE_INCOMPLETE = -1  # the runner's own code for "did not run to completion" (a timeout
+                      # or a failed spawn), which is never a real gate's exit status
+# Worst case, every gate burning its whole timeout: 5 x 90 (the four repo gates plus the
+# pack gate) + 20 (the register checker) + BINDER_BUDGET 50 = 520 <= KILL_MARGIN 540. The
+# case register-timeout-budget-under-margin sums the LIVE gate list plus the binder budget
+# and asserts that against KILL_MARGIN, so adding a gate moves the sum, never the assertion.
+
 TAIL_LINES = 40      # cap on the captured output relayed in a deny reason
 SKIP_VAR = "KARTA_SKIP_GATE"
+
+# Register checker: which exit codes DENY. Every other gate blocks on any nonzero, which
+# stays the default for a gate absent from this map.
+#
+# check_invariant_register.py pins 0 = clean, 1 = a named verification or parse failure,
+# 2 = its own internal crash. Only 1 blocks. A crash, a timeout, or a failed spawn is not
+# a verdict and fails OPEN with a warning — the same asymmetry the binder step keeps, and
+# INV-21's rule that an error never wedges the repo. A DRIFTED register still denies by
+# name: the register is doctrine, and a broken doctrine file blocking a commit is exactly
+# what a drifted mirror already does in this suite.
+REGISTER_GATE = "check_invariant_register"
+DENY_CODES = {REGISTER_GATE: (1,)}
 
 # Release block: a version bump must ship with a green full-gate file for the new
 # version and this commit's parent HEAD, staged into the same commit.
@@ -113,17 +149,27 @@ def is_true_commit(command: str) -> bool:
     return any(_TRUE_COMMIT_RE.search(seg) for seg in _SPLIT_RE.split(command))
 
 
-def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
-    """The five repo gates, in the order the spec lists them. The pack gate is
-    dropped (not failed) when skills/_shared/sme/ has nothing to validate —
-    validate_packs errors on an empty file list, and an absent pack dir is a
-    repo-shape question for the other gates, not this one."""
+def gate_specs(root: Path) -> list[tuple[str, list[str], int]]:
+    """The repo gates as (name, argv, timeout), in the order the spec lists them, with
+    every script path rooted at `root` — the invocation root, so a commit issued in a
+    linked worktree is judged by that worktree's own gates. The pack gate is dropped (not
+    failed) when skills/_shared/sme/ has nothing to validate — validate_packs errors on an
+    empty file list, and an absent pack dir is a repo-shape question for the other gates,
+    not this one."""
     py = sys.executable or "python3"
     gates = [
-        ("check_shared_copies", [py, str(root / "scripts/check_shared_copies.py")]),
-        ("sync_codex_skills --check", [py, str(root / "scripts/sync_codex_skills.py"), "--check"]),
-        ("sync_codex_agents --check", [py, str(root / "scripts/sync_codex_agents.py"), "--check"]),
-        ("validate_plugin", [py, str(root / "scripts/validate_plugin.py")]),
+        ("check_shared_copies", [py, str(root / "scripts/check_shared_copies.py")],
+         GATE_TIMEOUT),
+        # Beside check_shared_copies on purpose: that one holds shared prose byte-equal
+        # across locations, this one holds the invariant register's carriers in place at
+        # phrase grain. Same job, one grain apart.
+        (REGISTER_GATE, [py, str(root / "scripts/check_invariant_register.py"),
+                         "--root", str(root)], REGISTER_GATE_TIMEOUT),
+        ("sync_codex_skills --check", [py, str(root / "scripts/sync_codex_skills.py"), "--check"],
+         GATE_TIMEOUT),
+        ("sync_codex_agents --check", [py, str(root / "scripts/sync_codex_agents.py"), "--check"],
+         GATE_TIMEOUT),
+        ("validate_plugin", [py, str(root / "scripts/validate_plugin.py")], GATE_TIMEOUT),
     ]
     # platform-native.md is shared reference data the packs point at via see_also,
     # not a pack (karta-plan skips it the same way) — validating it would fail
@@ -135,7 +181,7 @@ def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
     if packs:
         gates.append(("validate_packs (packs)",
                       [py, str(root / "skills/karta-kaizen/scripts/validate_packs.py"),
-                       *map(str, packs)]))
+                       *map(str, packs)], GATE_TIMEOUT))
     return gates
 
 
@@ -146,24 +192,55 @@ def _tail(text: str, limit: int = TAIL_LINES) -> str:
     return "\n".join([f"... ({len(lines) - limit} earlier lines omitted)"] + lines[-limit:])
 
 
-def _subprocess_runner(name: str, argv: list[str]) -> tuple[int, str]:
-    """Run one gate from the repo root; stdout+stderr interleaved."""
+def _subprocess_runner(name: str, argv: list[str], timeout: int, cwd) -> tuple[int, str]:
+    """Run one gate from `cwd` under its own timeout; stdout+stderr interleaved. A run
+    that did not finish — timed out, or never started — reports GATE_INCOMPLETE rather
+    than a made-up exit status, because a gate that did not complete has no verdict and
+    DENY_CODES has to be able to tell the difference."""
     try:
-        proc = subprocess.run(argv, cwd=ROOT, text=True, timeout=GATE_TIMEOUT,
+        proc = subprocess.run(argv, cwd=str(cwd or ROOT), text=True, timeout=timeout,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         return proc.returncode, proc.stdout or ""
     except subprocess.TimeoutExpired as e:
         out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-        return 1, f"{out}\n[gate timed out after {GATE_TIMEOUT}s]"
+        return GATE_INCOMPLETE, f"{out}\n[gate timed out after {timeout}s]"
+    except OSError as e:
+        return GATE_INCOMPLETE, f"[gate could not be started: {e}]"
 
 
-def run_gates(gates, runner) -> tuple[str, int, str] | None:
-    """First failing (name, exit_code, output) or None when all gates are green."""
-    for name, argv in gates:
-        code, output = runner(name, argv)
-        if code != 0:
-            return name, code, output
-    return None
+def run_gates(gates, runner, cwd=None) -> tuple[tuple[str, int, str] | None, list[str]]:
+    """(first failing (name, exit_code, output) or None, warnings) — every gate run from
+    `cwd` under its own timeout.
+
+    RECORDED DECISION (2026-09-02, registers INV-5 and INV-21). Rooting the suite at the
+    invocation root means the resolved tree can be one that does not carry these scripts
+    at all — a worktree on a branch older than a gate, most plainly. A gate whose script
+    is not there never ran, so it returned no verdict, and this suite fails OPEN for it
+    with a warning rather than blocking every commit in such a tree. That is a deliberate
+    narrowing of what blocks, chosen over the alternative and recorded here rather than
+    left to be inferred."""
+    warnings: list[str] = []
+    for name, argv, timeout in gates:
+        script = argv[1] if len(argv) > 1 else ""
+        if script.endswith(".py") and not Path(script).is_file():
+            warnings.append(f"precommit_gate: the '{name}' gate did not run and is allowing "
+                            f"this commit: {script} is not in the tree this commit runs in")
+            continue
+        code, output = runner(name, argv, timeout, cwd)
+        if code == 0:
+            continue
+        deny = DENY_CODES.get(name)
+        if deny is not None and code not in deny:
+            warnings.append(f"precommit_gate: the '{name}' gate did not produce a verdict "
+                            f"({_gate_status(code)}) and is allowing this commit:\n"
+                            f"{_tail(output)}")
+            continue
+        return (name, code, output), warnings
+    return None, warnings
+
+
+def _gate_status(code: int) -> str:
+    return "did not run to completion" if code == GATE_INCOMPLETE else f"exit {code}"
 
 
 # --- binder-validity step ---------------------------------------------------------
@@ -884,37 +961,44 @@ def decide(payload, env, runner, gates=None, git=None, root=None,
     injected_git = git is not None
     if git is None:
         git = lambda args: _real_git(root, args)
-    # The five repo gates run exactly as before, first.
-    failure = run_gates(gate_specs(ROOT) if gates is None else gates, runner)
+    # Where this invocation's tree is. Resolved ONCE, at the top, and used by everything
+    # below it that reads repository state: the gate suite's script paths and working
+    # directory, and the binder step's index, working tree and file bytes. Every one of
+    # those has to come from where the commit happens (INV-11), which is the tree the
+    # payload's cwd names, not the one this script file sits in. The release block keeps
+    # the root it was given: rescoping that one is the same fix for a different gate and
+    # belongs to its own change.
+    top = (resolve_root or resolve_invocation_root)(payload.get("cwd"))
+    gate_root = root if top is None else Path(top)
+    warnings: list[str] = []
+    # The repo gates run first, from that root.
+    failure, gate_warnings = run_gates(gate_specs(gate_root) if gates is None else gates,
+                                       runner, gate_root)
+    warnings += gate_warnings
     if failure is not None:
         name, code, output = failure
         reason = (
-            f"Commit blocked by the karta repo gate suite: gate '{name}' failed (exit {code}). "
-            f"A `git commit` was detected, so the pre-commit gates ran from the repo root; this one "
-            f"did not pass. Fix the failure shown below and commit again — or, for an intentional "
-            f"partial commit, prefix the command with {SKIP_VAR}=1 (documented escape hatch).\n\n"
+            f"Commit blocked by the karta repo gate suite: gate '{name}' failed "
+            f"({_gate_status(code)}). A `git commit` was detected, so the pre-commit gates ran "
+            f"from {gate_root}; this one did not pass. Fix the failure shown below and commit "
+            f"again — or, for an intentional partial commit, prefix the command with "
+            f"{SKIP_VAR}=1 (documented escape hatch).\n\n"
             f"--- {name} output (last {TAIL_LINES} lines) ---\n{_tail(output)}"
         )
         return 2, reason
-    # Then the binder-validity step, on the tree the invocation actually runs in. It
-    # reads an index, a working tree and file bytes, and every one of those has to come
-    # from where the commit happens (INV-11) — so its root is the one the payload's cwd
-    # names, not this script's. The release block below keeps the root it was given:
-    # rescoping that one is the same fix for a different gate, and belongs to its change.
-    warning = ""
+    # Then the binder-validity step, on the same resolved tree.
     if is_true_commit(command):
-        top = (resolve_root or resolve_invocation_root)(payload.get("cwd"))
-        binder_root = root if top is None else Path(top)
-        bgit = (git if injected_git or str(binder_root) == str(root)
-                else (lambda args: _real_git(binder_root, args)))
-        deny, warn = binder_block(command, payload.get("cwd"), binder_root, bgit,
+        bgit = (git if injected_git or str(gate_root) == str(root)
+                else (lambda args: _real_git(gate_root, args)))
+        deny, warn = binder_block(command, payload.get("cwd"), gate_root, bgit,
                                   validate=validate, clock=clock)
         if deny is not None:
             return 2, deny
-        warning = warn or ""
+        if warn:
+            warnings.append(warn)
     # Then the release block: a version bump needs its green staged gate file.
     block = _release_block(command, git, root)
-    return (2, block) if block is not None else (0, warning)
+    return (2, block) if block is not None else (0, "\n".join(warnings))
 
 
 def hook_main(stdin_text: str, env, runner) -> tuple[int, str]:
@@ -964,23 +1048,26 @@ def _run_self_test() -> int:
     for cmd, want in detect:
         check(f"detect {cmd!r} -> {want}", is_commit_command(cmd) == want)
 
-    green = lambda name, argv: (0, f"{name}: OK")
+    green = lambda name, argv, *_: (0, f"{name}: OK")
     # a git stub reporting no version change, so gate-suite cases stay hermetic
     no_bump = lambda args: (0, json.dumps({"version": "2.21.0"}))
     calls: list[str] = []
 
-    def failing(name, argv):
+    def failing(name, argv, *_):
         calls.append(name)
         if name == "sync_codex_skills --check":
             return 1, "\n".join(f"L{i:03d} drift detail" for i in range(1, 101))
         return 0, "OK"
 
-    def must_not_run(name, argv):
+    def must_not_run(name, argv, *_):
         raise AssertionError("gate runner invoked for a non-commit command")
 
-    stub_gates = [("check_shared_copies", []), ("sync_codex_skills --check", []),
-                  ("sync_codex_agents --check", []), ("validate_plugin", []),
-                  ("validate_packs (packs)", [])]
+    stub_gates = [("check_shared_copies", [], GATE_TIMEOUT),
+                  (REGISTER_GATE, [], REGISTER_GATE_TIMEOUT),
+                  ("sync_codex_skills --check", [], GATE_TIMEOUT),
+                  ("sync_codex_agents --check", [], GATE_TIMEOUT),
+                  ("validate_plugin", [], GATE_TIMEOUT),
+                  ("validate_packs (packs)", [], GATE_TIMEOUT)]
 
     # allow paths
     code, _ = decide(_payload("ls -la"), {}, must_not_run, stub_gates)
@@ -1003,7 +1090,8 @@ def _run_self_test() -> int:
     check("deny reason drops early lines beyond the cap", "L001" not in reason and "omitted" in reason)
     check("deny reason mentions the escape hatch", "KARTA_SKIP_GATE=1" in reason)
     check("gates fail fast (later gates not run)",
-          calls == ["check_shared_copies", "sync_codex_skills --check"], f"calls={calls}")
+          calls == ["check_shared_copies", REGISTER_GATE, "sync_codex_skills --check"],
+          f"calls={calls}")
 
     # fail-open paths
     code, _ = hook_main("this is not json", {}, must_not_run)
@@ -1011,18 +1099,18 @@ def _run_self_test() -> int:
     code, _ = hook_main("[1, 2, 3]", {}, must_not_run)
     check("non-object payload fails open", code == 0)
 
-    def exploding(name, argv):
+    def exploding(name, argv, *_):
         raise RuntimeError("boom")
     code, _ = hook_main(json.dumps(_payload("git commit -m x")), {}, exploding)
     check("runner exception fails open", code == 0)
 
     # real gate list has the expected shape (no gates executed)
     specs = gate_specs(ROOT)
-    names = [n for n, _ in specs]
+    names = [n for n, _, _ in specs]
     check("gate_specs lists the spec's gates in order",
-          names[:4] == ["check_shared_copies", "sync_codex_skills --check",
+          names[:5] == ["check_shared_copies", REGISTER_GATE, "sync_codex_skills --check",
                         "sync_codex_agents --check", "validate_plugin"], f"names={names}")
-    pack_argv = next((argv for n, argv in specs if n.startswith("validate_packs")), [])
+    pack_argv = next((argv for n, argv, _ in specs if n.startswith("validate_packs")), [])
     check("pack gate skips platform-native.md (reference data, not a pack)",
           not any(a.endswith("platform-native.md") for a in pack_argv))
 
@@ -1465,6 +1553,115 @@ def _run_self_test() -> int:
           vcode == 1 and BINDER_FINDINGS_SENTINEL in vout
           and gcode == 0 and BINDER_FINDINGS_SENTINEL not in gout,
           f"invalid={vcode} valid={gcode}")
+
+    # --- the register-checker gate, its root, and the budget it fits in -------------
+    GATE_SCRIPTS = ["scripts/check_shared_copies.py", "scripts/check_invariant_register.py",
+                    "scripts/sync_codex_skills.py", "scripts/sync_codex_agents.py",
+                    "scripts/validate_plugin.py"]
+
+    def mk_gate_root(*, omit=()):
+        """A tree carrying the gate scripts as empty files — nothing here executes them;
+        the recording runner below stands in for every run."""
+        r = Path(tempfile.mkdtemp(prefix="pcg-root-"))
+        tmp_roots.append(str(r))
+        for rel in GATE_SCRIPTS:
+            if rel in omit:
+                continue
+            p = r / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("")
+        return r
+
+    ran: list[tuple[str, str, str, int]] = []
+
+    def recorder(name, argv, timeout, cwd):
+        ran.append((name, argv[1], str(cwd), timeout))
+        return 0, "OK"
+
+    seen_root = mk_gate_root()
+    code, _ = decide({**_payload('git commit -m "x"'), "cwd": "/anywhere"}, {}, recorder,
+                     git=no_bump, root=ROOT, resolve_root=lambda cwd: seen_root)
+    check("precommit-gates-run-at-resolved-root: every gate's script path and subprocess cwd "
+          "come from the invocation root the payload resolves to, not from the checkout this "
+          "hook's own file sits in — so a commit issued in a linked worktree is judged by that "
+          "worktree's own gates",
+          code == 0 and len(ran) == 5
+          and all(script.startswith(str(seen_root) + os.sep) and cwd == str(seen_root)
+                  for _n, script, cwd, _t in ran)
+          and not any(str(ROOT) in script for _n, script, _c, _t in ran),
+          f"code={code} ran={ran[:2]}")
+
+    # the negative control for the same posture: a resolved tree missing one gate script
+    lame_root = mk_gate_root(omit=["scripts/sync_codex_agents.py"])
+    ran.clear()
+    code, msg = decide({**_payload('git commit -m "x"'), "cwd": "/anywhere"}, {}, recorder,
+                       git=no_bump, root=ROOT, resolve_root=lambda cwd: lame_root)
+    check("a resolved root that does not carry a gate script fails that gate's spawn and fails "
+          "open with a warning naming it, while every gate that IS there still runs — the "
+          "recorded decision in run_gates, and the control for the case above",
+          code == 0 and "sync_codex_agents.py" in msg
+          and [n for n, _s, _c, _t in ran] == ["check_shared_copies", REGISTER_GATE,
+                                               "sync_codex_skills --check", "validate_plugin"],
+          f"code={code} msg={msg} ran={[n for n, *_ in ran]}")
+
+    def register_exit(status):
+        def runner(name, argv, timeout, cwd):
+            return (status, "register checker output") if name == REGISTER_GATE else (0, "OK")
+        return runner
+
+    code_crash, msg_crash = decide(_payload('git commit -m "x"'), {}, register_exit(2),
+                                   stub_gates, git=no_bump)
+    code_deny, reason_deny = decide(_payload('git commit -m "x"'), {}, register_exit(1),
+                                    stub_gates, git=no_bump)
+    check("register-crash-fail-open: the register checker exiting 2 — its own pinned internal "
+          "crash — allows the commit with a warning, while exit 1, its named verification or "
+          "parse failure, denies. A crash never blocks anyone; a drifted register always does",
+          code_crash == 0 and REGISTER_GATE in msg_crash and "exit 2" in msg_crash
+          and code_deny == 2 and REGISTER_GATE in reason_deny,
+          f"crash={code_crash}/{msg_crash} deny={code_deny}")
+
+    def incomplete(which):
+        def runner(name, argv, timeout, cwd):
+            if name != which:
+                return 0, "OK"
+            return GATE_INCOMPLETE, f"partial output\n[gate timed out after {timeout}s]"
+        return runner
+
+    code_to, msg_to = decide(_payload('git commit -m "x"'), {}, incomplete(REGISTER_GATE),
+                             stub_gates, git=no_bump)
+    code_other, reason_other = decide(_payload('git commit -m "x"'), {},
+                                      incomplete("validate_plugin"), stub_gates, git=no_bump)
+    check("register-timeout-fail-open: a register-checker run that never finished is no verdict "
+          "and allows the commit with a warning quoting its own timeout — while the same "
+          "incomplete run on any other gate still blocks, the suite's unchanged posture",
+          code_to == 0 and f"timed out after {REGISTER_GATE_TIMEOUT}s" in msg_to
+          and code_other == 2 and "did not run to completion" in reason_other,
+          f"to={code_to}/{msg_to} other={code_other}")
+
+    live = gate_specs(ROOT)
+    budget = sum(t for _n, _a, t in live) + BINDER_BUDGET
+    # The control is this suite's own history: at the 100s per-gate timeout this hook
+    # carried before the register checker joined it, the same list overruns the margin.
+    # So the assertion has teeth — it is not satisfied by any arrangement of numbers.
+    overrun = sum(100 if t == GATE_TIMEOUT else t for _n, _a, t in live) + BINDER_BUDGET
+    check("register-timeout-budget-under-margin: the LIVE gate list's timeouts plus the binder "
+          "step's end-to-end budget fit inside the kill margin DERIVED from the hook's configured "
+          "timeout, never a hardcoded twin of it — so adding a gate moves the sum, not this "
+          "assertion; and the pre-change 100s per-gate timeout overruns that same margin",
+          budget <= KILL_MARGIN and KILL_MARGIN == HOOK_TIMEOUT - HOOK_OVERHEAD
+          and overrun > KILL_MARGIN,
+          f"{budget}s of gates ({len(live)}) vs a {KILL_MARGIN}s margin; at 100s: {overrun}s")
+
+    try:
+        wired = json.loads((ROOT / ".claude/settings.json").read_text())
+        entries = [h for group in wired["hooks"]["PreToolUse"] for h in group["hooks"]
+                   if "precommit_gate.py" in h.get("command", "")]
+        configured = entries[0]["timeout"]
+    except (OSError, ValueError, KeyError, IndexError):
+        configured = None
+    check("HOOK_TIMEOUT is the timeout this hook is actually wired with in "
+          ".claude/settings.json, read from that file rather than asserted beside it",
+          configured == HOOK_TIMEOUT, f"settings.json says {configured}")
 
     for r in tmp_roots:
         shutil.rmtree(r, ignore_errors=True)

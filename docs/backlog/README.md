@@ -519,7 +519,7 @@ writes. Raised by codex on 2026-08-27.
 
 ---
 
-## 21. nothing verifies the invariant register's carriers — *Ready* (filed 2026-08-31)
+## 21. nothing verifies the invariant register's carriers — *FIXED 2026-09-02*
 
 `docs/conventions/invariants.md` names each invariant's carriers by file plus a distinctive phrase
 quoted from the woven sentence, and its "How this file stays true" section says plainly that no
@@ -530,12 +530,25 @@ conflict caught it only because both edits touched the same sentence's paragraph
 elsewhere in the section would have merged clean and left the register quoting a sentence that no
 longer exists.
 
-**Fix.** A register checker in the commit hook's gate list, beside `check_shared_copies.py` — the
-precedent for prose held in place by a validator. For each entry: the carrier file exists, the
-quoted phrase is present, every named enforcement script exists. Failure is a named denial
-pointing at the entry and the carrier. When it lands, flip the register's "How this file stays
-true" layer-2 paragraph and INV-20's status in the same diff. Planned for the
-invariant-foundations binder.
+**Fixed in the invariant-foundations binder.** `scripts/check_invariant_register.py` parses the
+register under a pinned grammar and joins the commit hook's gate list beside
+`check_shared_copies.py` — the precedent for prose held in place by a validator. Per entry it
+verifies that every carrier file exists, that every quoted phrase is still present in the file that
+segment names (whitespace-normalized, case-sensitive), and that every enforcement script a Carriers
+bullet names exists for an entry claiming **enforced** or **partial**. A parse or verification
+failure is a named denial citing the entry id and its line number; a crash, a timeout, or a failed
+spawn fails open with a warning. The register's "How this file stays true" layer-2 paragraph and
+INV-20 flipped in the same diff, and the grammar is documented there as the register's authoring
+constraint. The first run against the live register found six entries already out of shape: three
+carrier quotes that no longer matched their file (INV-20's "All four must be clean" against a floor
+that had grown to five, INV-22's "Two platforms, one behavior" against a section renamed for Pi,
+INV-23 quoting a sentence in the wrong case) and three Carriers segments that named no file at all.
+
+**Not a full fix — INV-20 grades itself *partial*, for two reasons that stay open.** A phrase check
+proves presence, not meaning: whether a claim's wording still matches what its enforcement delivers
+is not decidable by grep and remains review-held. And the checker reads the working tree of the
+resolved root rather than the staged blob, so bytes a partial staging would commit can differ from
+what was checked — the bound every gate in that suite shares.
 
 ---
 
