@@ -226,6 +226,22 @@ function parseStringList(value: string | undefined): Set<string> {
   }
 }
 
+// Prose surfaces: they describe the override mechanism rather than exercising it.
+function isProse(path: string): boolean {
+  return path.startsWith("docs/") ||
+    path.startsWith("benchmarks/") ||
+    path.startsWith(".karta/binders/") ||
+    path.startsWith("agents/") ||
+    path.startsWith(".codex/") ||
+    path.endsWith(".md");
+}
+
+// Generated projections of `skills/` (INV-19). Byte-equal by construction, so a
+// marker in one is the same marker, not another occurrence of it.
+function isGeneratedMirror(path: string): boolean {
+  return path.startsWith(".agents/skills/") || path.startsWith("plugins/karta/");
+}
+
 export function assertMonotonicProjectPack(path: string, before: string, after: string): void {
   const oldFrontmatter = frontmatter(before);
   const newFrontmatter = frontmatter(after);
@@ -243,8 +259,24 @@ export function assertMonotonicProjectPack(path: string, before: string, after: 
   const newChecklist = checklist(after);
   for (const [id, text] of oldChecklist.active) {
     const replacement = newChecklist.active.get(id);
-    if (!replacement || !replacement.includes(text)) {
-      throw new Error(`Karta kaizen weakened or removed rule '${id}' in ${path}`);
+    if (replacement === undefined) {
+      throw new Error(
+        `Karta kaizen removed rule '${id}' from ${path}; an existing rule is never dropped`,
+      );
+    }
+    // Byte equality, deliberately. The previous test was substring containment,
+    // which let any weakening through as long as it was phrased as an appended
+    // exception — the most natural way to widen a carve-out, and exactly the edit
+    // that was attempted here on 2026-09-02. It also rejected rewordings that
+    // strengthened a rule, and a typo fix, while reporting all of them as
+    // "weakened". No mechanical test can tell a tightening from a loosening, so
+    // this one stops pretending to: an existing rule's text does not change, and
+    // sharpening happens by adding a rule beside it.
+    if (replacement !== text) {
+      throw new Error(
+        `Karta kaizen rewrote rule '${id}' in ${path}; an existing rule's text is immutable — ` +
+          "add a new rule beside it and leave the wording of this one to a human",
+      );
     }
   }
   for (const id of oldChecklist.retired) {
@@ -501,21 +533,56 @@ export class KartaCompanionRunner {
       if (!match) return [];
       const marker = match[3].match(/KARTA-SME-OVERRIDE\(([^)]+)\):\s*(.+)$/);
       if (!marker) return [];
-      return [{ path: match[1], line: Number(match[2]), rule: marker[1].trim(), reason: marker[2].trim() }];
+      const path = match[1];
+      const rule = marker[1].trim();
+      // A repo-wide grep for the marker finds the prose that documents the marker
+      // grammar as readily as it finds an override. Measured on this repo, 45 of
+      // 60 hits were `<rule-id>` placeholders from READMEs, agent files and
+      // benchmark fixtures. Only a real rule id counts.
+      if (!/^[a-z][a-z0-9-]*\.\d+$/.test(rule)) return [];
+      // Documentation and benchmark corpora explain overrides using real ids.
+      if (isProse(path)) return [];
+      // The generated skill mirrors are byte-equal to their canonical source
+      // (INV-19), so one marker in a skill script appeared three times and
+      // cleared the "two or more occurrences" threshold on its own. A projection
+      // is never the source: count the canonical path and drop the copies.
+      if (isGeneratedMirror(path)) return [];
+      return [{ path, line: Number(match[2]), rule, reason: marker[2].trim() }];
     }).slice(0, 500);
-    const branches = (await git(worktree, [
+    if (records.length === 0) return [];
+    // Attribution keys on the durable `done` refs, not on item branches, and on
+    // each item's own narrow range rather than everything its tip can reach.
+    //
+    // The previous version asked `rev-list --first-parent <item-tip>`, which
+    // returns the whole history the branch was cut from. Item branches are also
+    // short-lived: this repo had run 20 deliveries and kept item branches for
+    // one, so every marker in the repository was credited to that single
+    // delivery. Where several survived, `deliveries[0]` after a sort awarded the
+    // marker to whichever delivery name sorted first. The "across two or more
+    // distinct deliveries" threshold cannot be evaluated on a field like that.
+    //
+    // `<done>^1..<done>` is the range karta already treats as an item's own
+    // commits, and `refs/karta/` outlives the branches.
+    const doneRefs = (await git(worktree, [
       "for-each-ref",
       "--format=%(refname)%09%(objectname)",
-      "refs/heads/karta",
+      "refs/karta",
     ])).split("\n").filter(Boolean).flatMap((line) => {
       const [ref, tip] = line.split("\t");
-      const match = ref.match(/^refs\/heads\/karta\/([^/]+)\/item-/);
+      const match = ref.match(/^refs\/karta\/([^/]+)\/item-[^/]+\/done$/);
       return match ? [{ delivery: match[1], tip }] : [];
     });
-    const ancestry = await Promise.all(branches.map(async (branch) => ({
-      delivery: branch.delivery,
-      commits: new Set((await git(worktree, ["rev-list", "--first-parent", branch.tip])).split("\n")),
-    })));
+    const introducedBy = new Map<string, string>();
+    for (const { delivery, tip } of doneRefs) {
+      // A `done` with no second parent is an unmerged item tip; its own commit is
+      // the range. allowFailure keeps a pruned or malformed ref from failing the
+      // whole companion phase.
+      const range = await git(worktree, ["rev-list", `${tip}^1..${tip}`], true) ||
+        await git(worktree, ["rev-list", "-1", tip], true);
+      for (const commit of range.split("\n").filter(Boolean)) {
+        if (!introducedBy.has(commit)) introducedBy.set(commit, delivery);
+      }
+    }
     const commits = new Map<string, { date: string; delivery: string }>();
     const evidence: KartaOverrideEvidence[] = [];
     for (const record of records) {
@@ -530,13 +597,14 @@ export class KartaCompanionRunner {
       const commit = blame.split(/\s+/, 1)[0];
       let identity = commits.get(commit);
       if (!identity) {
-        const deliveries = ancestry
-          .filter((candidate) => candidate.commits.has(commit))
-          .map((candidate) => candidate.delivery)
-          .sort();
         identity = {
           date: await git(worktree, ["show", "-s", "--format=%cs", commit]),
-          delivery: deliveries[0] ?? (blastRadius.includes(record.path) ? binder : "unknown"),
+          // A marker whose commit belongs to no recorded item is honestly
+          // unknown. Saying so beats naming a delivery that did not write it:
+          // the threshold counts distinct deliveries, and a wrong name is a
+          // miscount in the direction of acting.
+          delivery: introducedBy.get(commit) ??
+            (blastRadius.includes(record.path) ? binder : "unknown"),
         };
         commits.set(commit, identity);
       }

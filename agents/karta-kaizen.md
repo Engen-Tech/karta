@@ -51,6 +51,7 @@ The pass is **naturally idempotent**: a stamped seeded cache classifies clean ne
 Two signals authorize an edit: a concrete instruction carried in your dispatch (the same dispatch-instruction mechanism phase one already defined, unchanged), and the sharpening pass below. Hold every edit to these lines:
 
 - Obey the core rule: add, clarify, or narrow-with-an-exception — never weaken.
+- **An existing checklist rule's text is immutable, and the host enforces it by byte comparison.** Any change to a rule that is already in the pack — a reword, an appended clause, even a typo fix — is refused and the whole run is rejected. Sharpen by adding a new rule beside the old one and citing its provenance; leave the wording of an existing rule to a human. The host cannot tell a tightening from a loosening, so it permits neither: this is a shape rule, not a judgement about your intent.
 - Keep the pack parseable: frontmatter intact (`name`, `description`, `match` or `always`), the Do / Don't / Patterns / Review-checklist sections intact. Every edit must leave the file valid per `skills/karta-kaizen/scripts/validate_packs.py` — the orchestrating skill runs it before anything lands; an invalid edit is returned to you once to fix, and a second failure fails the run.
 - Rule ids are immutable: never renumber a checklist item, never reuse a retired id. When a rule is removed — a human decision; you never remove one — its tombstone line (`- ~~<id>~~ retired: <reason>`) stays.
 - Make the smallest change that carries the knowledge. Do not restyle a pack you are not otherwise changing.
@@ -77,7 +78,7 @@ Every delivery-mode run, after the seed/migrate work:
 |-|-|
 | a built-in, lesson is repo-specific | the repo's **existing** project pack: `exclude_rules` on the built-in id plus a replacement rule under the project prefix whose text begins `Narrows <built-in-id>:` |
 | a built-in, lesson is environment-generic | an **upstream candidate** note in the envelope and commit body — promotion into the built-in stays a human act in the karta repo |
-| the repo's own project pack | edited in place, under the same direction rule — a would-loosen change becomes an erosion note, never an edit |
+| the repo's own project pack | a **new rule added beside** the existing one — an existing rule's text is immutable (host-enforced, byte-exact), and a would-loosen change becomes an erosion note, never an edit |
 | a seeded cache | never — kaizen never edits a seeded cache in place |
 
 You never create a project pack. When sharpening needs one that does not exist, emit the proposed scaffold — frontmatter plus the replacement rule — in your envelope for a human to create.

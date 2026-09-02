@@ -65,13 +65,21 @@ Probed directly against the shipped function:
 
 Two consequences.
 
-**The advertised invariant is not delivered.** INV-23 says kaizen never weakens a rule.
-The guard permits weakening whenever it is phrased as an appended exception — which is
-the most natural phrasing for widening a carve-out, and precisely the edit kaizen was
-drafting. Had it appended *"…except for a branch that mirrors a proven adjacent block in
-the same validator"* instead of rewording, **the weakening would have landed silently**.
-The guard fired in this incident because kaizen reworded, not because it weakened. This
-is INV-2: doctrine claiming more than enforcement delivers.
+**Weakening had a silent path in.** The guard permitted it whenever it was phrased as an
+appended exception — the most natural phrasing for widening a carve-out, and precisely
+the edit kaizen was drafting. Had it appended *"…except for a branch that mirrors a
+proven adjacent block in the same validator"* instead of rewording, **the weakening
+would have landed silently**. The guard fired in this incident because kaizen reworded,
+not because it weakened.
+
+**Correction, entered 2026-09-02 after this report was first filed.** An earlier draft
+of this section claimed the register overstated the guard, citing INV-2. That was wrong,
+and checking it is what showed the error: INV-23 is recorded as **prose**, not enforced,
+and says in as many words that "nothing mechanical diffs a kaizen edit for weakening".
+The register was accurate. The overclaim lived in the guard's own error message
+(`weakened or removed rule`) and in the skill and agent descriptions ("it never weakens
+a rule"), which read as statements of an enforced property. Those are the surfaces that
+needed correcting, and they were.
 
 **The rule is append-only, and nothing says so.** Neither `agents/karta-kaizen.md` nor
 the Pi writer execution contract in `extensions/pi/writer-runner.ts` states that an
@@ -157,20 +165,33 @@ kaizen run.
 
 Ordered by severity, not by effort.
 
-1. **Make the guard test direction, not shape.** Appending an exception clause is the
-   weakening path that currently passes; catching it is what INV-23 claims. Until then,
-   INV-23's register entry should say what the guard actually enforces.
-2. **Tell the writer the constraint.** Whatever the guard becomes, state it in
-   `agents/karta-kaizen.md` and in the Pi writer contract, so a writer can comply on the
-   first attempt.
-3. **Fix the message.** Say which condition failed — not-a-superstring is not the same
-   claim as weakened-or-removed.
-4. **Filter the evidence feed.** Exclude placeholder markers, generated mirrors
-   (count the canonical path only), documentation, and test fixtures. Roughly 90% of what
-   kaizen currently receives is not an override.
-5. **Fix or retire the delivery attribution.** Use the delivery base to item-tip range,
-   or drop the "distinct deliveries" clause from the threshold rather than leaving a rule
-   defined on a field that cannot support it.
+All five were fixed on 2026-09-02; what shipped is recorded beside each.
+
+1. **Close the weakening path.** *Done — by giving up on direction rather than guessing
+   at it.* No mechanical test separates a tightening from a loosening, so the guard
+   stopped implying it could: an existing rule's text is now compared byte for byte and
+   any in-place change is refused, appended clauses included. Sharpening happens by
+   adding a rule beside the old one. This is strictly more restrictive than the previous
+   behaviour and adds no new powers — in particular it does not let kaizen retire a rule.
+2. **Tell the writer the constraint.** *Done.* Stated in `agents/karta-kaizen.md`, in
+   `skills/karta-kaizen/SKILL.md`, and — the surface the Pi writer certainly reads — in
+   the kaizen branch of the writer execution contract in `extensions/pi/writer-runner.ts`.
+3. **Fix the message.** *Done.* A refusal now says `rewrote rule '<id>' … an existing
+   rule's text is immutable`, or `removed rule '<id>' … never dropped`, rather than
+   asserting a weakening it cannot detect.
+4. **Filter the evidence feed.** *Done.* Placeholder ids, prose surfaces
+   (`docs/`, `benchmarks/`, `agents/`, `.codex/`, `.karta/binders/`, any `.md`) and the
+   generated `skills/` projections are dropped before the tally.
+5. **Fix the delivery attribution.** *Done.* Attribution now keys on the durable
+   `refs/karta/<delivery>/item-*/done` refs and each item's own `<done>^1..<done>` range
+   — the range karta already treats as an item's commits — instead of everything an item
+   branch could reach. A marker belonging to no recorded item reports `unknown`, falling
+   back to the current binder only when its file is genuinely in this delivery's blast
+   radius.
+
+Still open: the skill's threshold clause and INV-23's own wording were left alone,
+because the unlanded `invariant-foundations` integration branch edits INV-23's Carriers
+line and a concurrent edit would collide. Revisit once that branch lands.
 
 ## What is not wrong
 

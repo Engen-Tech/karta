@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
 import {
+  assertMonotonicProjectPack,
   KartaCompanionRunner,
   type KartaCompanionCheckpoint,
 } from "../../extensions/pi/companion-runner.ts";
@@ -265,7 +266,7 @@ test("archive ref-first interruption is repaired from Git by a fresh delivery ow
   }
 });
 
-test("kaizen cannot weaken an existing project rule", async () => {
+test("kaizen cannot rewrite an existing project rule, in either direction", async () => {
   const state = await fixture({ docs: false, kaizen: true, sme: ["project"] });
   await mkdir(join(state.repo, ".karta", "sme"), { recursive: true });
   const pack = [
@@ -310,7 +311,7 @@ test("kaizen cannot weaken an existing project rule", async () => {
     // kaizen is still refused — INV-23 is untouched — but the refusal is a
     // recorded outcome, and the pack on the branch is the unweakened one.
     assert.equal(result.kaizen.status, "rejected");
-    assert.match(result.kaizen.reason ?? "", /weakened or removed rule 'proj\.1'/);
+    assert.match(result.kaizen.reason ?? "", /rewrote rule 'proj\.1'.*immutable/s);
     assert.deepEqual(
       (await git(state.repo, ["log", "--format=%s", `${before}..HEAD`])).split("\n").filter(Boolean),
       ["chore(karta): archive binder demo — delivered"],
@@ -413,4 +414,100 @@ test("a writer result the strict parse would reject gets the corrective turn, na
   // them cannot manufacture a rejection.
   assert.equal(writerEnvelopeViolation(result({ profileHash: "c".repeat(64) }), null), null);
   assert.match(writerEnvelopeViolation("[]", null) ?? "", /single JSON object/);
+});
+
+test("the pack guard is byte-exact, so an appended exception cannot weaken a rule", () => {
+  // The hole this closes: the guard used to test substring containment, so any
+  // weakening phrased as an appended clause passed — the natural way to widen a
+  // carve-out. It also called a strict tightening, and a typo fix, "weakened".
+  // No mechanical test separates a tightening from a loosening, so the guard
+  // stopped claiming to and now enforces one thing it can actually prove.
+  const head = ["---", "name: p", "description: d", "always: true", "---", "## Review checklist"].join("\n");
+  const pack = (rule: string) => `${head}\n- [ ] p.1 — ${rule}\n`;
+  const base = "New non-trivial logic must leave one runnable check.";
+  for (
+    const [name, edit] of [
+      ["weaken by appending an exception", `${base} This does not apply to validator branches.`],
+      ["tighten by appending", `${base} No exceptions apply.`],
+      ["tighten by rewording", "All new logic, trivial or not, must leave one runnable check."],
+      ["weaken by rewording", "New non-trivial logic should usually leave one runnable check."],
+      ["typo fix", `${base}!`],
+    ] as const
+  ) {
+    assert.throws(
+      () => assertMonotonicProjectPack("p.md", pack(base), pack(edit)),
+      /rewrote rule 'p\.1'.*immutable/s,
+      name,
+    );
+  }
+  // Adding a rule beside the old one is the sanctioned path and still passes.
+  assert.doesNotThrow(() =>
+    assertMonotonicProjectPack("p.md", pack(base), `${pack(base)}- [ ] p.2 — A narrower companion rule.\n`)
+  );
+  // Dropping a rule is named as a removal, not as a rewrite.
+  assert.throws(
+    () => assertMonotonicProjectPack("p.md", pack(base), `${head}\n`),
+    /removed rule 'p\.1'.*never dropped/s,
+  );
+});
+
+test("the override feed drops placeholders, prose and mirror duplicates", async () => {
+  const state = await fixture({ docs: false, kaizen: true, sme: [] });
+  try {
+    // One real override, copied into both generated mirrors exactly as INV-19
+    // requires; plus the documentation that explains the marker grammar. On this
+    // repo that documentation was 45 of 60 records, and the mirrors turned one
+    // marker into three occurrences — enough to clear the sharpening threshold
+    // by itself.
+    const marker = "# KARTA-SME-OVERRIDE(min.4): no test framework in this script\n";
+    for (
+      const path of [
+        "skills/karta-status/scripts/serve_status.py",
+        ".agents/skills/karta-status/scripts/serve_status.py",
+        "plugins/karta/skills/karta-status/scripts/serve_status.py",
+      ]
+    ) {
+      await mkdir(join(state.repo, dirname(path)), { recursive: true });
+      await writeFile(join(state.repo, path), marker);
+    }
+    await writeFile(join(state.repo, "README.md"), "Use `KARTA-SME-OVERRIDE(<rule-id>): <why>` to declare.\n");
+    await mkdir(join(state.repo, "docs", "how-to"), { recursive: true });
+    await writeFile(
+      join(state.repo, "docs", "how-to", "stack-packs.md"),
+      "For example `KARTA-SME-OVERRIDE(min.1): mirrors the block above`.\n",
+    );
+    await git(state.repo, ["add", "--all"]);
+    await git(state.repo, ["commit", "--no-gpg-sign", "-m", "markers"]);
+
+    let seen: { path: string; rule: string; delivery: string; inBlastRadius: boolean }[] = [];
+    await runCompanions(state, async (invocation) => {
+      seen = JSON.parse(invocation.userPrompt).overrideEvidence ?? [];
+      return {
+        runtime,
+        text: envelope(invocation, {
+          seeded: [],
+          packsChanged: [],
+          candidates: [],
+          erosionNotes: [],
+          upstreamCandidates: [],
+          proposedScaffolds: [],
+          residual: [],
+          summary: "Nothing to sharpen.",
+        }),
+      };
+    });
+
+    // The placeholder and the doc example are gone; the mirrors collapse to one.
+    assert.deepEqual(seen.map((entry) => `${entry.rule} ${entry.path}`), [
+      "min.4 skills/karta-status/scripts/serve_status.py",
+    ]);
+    // No `done` ref introduced that commit, so attribution falls back to the
+    // blast radius — the marker's file did change in this delivery's range. What
+    // it must never do again is name whichever delivery happens to still have
+    // item branches, which credited every marker in the repo to one delivery.
+    assert.equal(seen[0].delivery, "demo");
+    assert.equal(seen[0].inBlastRadius, true);
+  } finally {
+    await state.cleanup();
+  }
 });

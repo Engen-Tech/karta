@@ -287,7 +287,11 @@ ${instructions || "No committed AGENTS.md or CLAUDE.md files were present at thi
 
 You are an isolated ${profile.writer} writer in a disposable worktree. You have only ${profile.toolNames.join(", ")}; there is no shell or Git tool. The host supplied the delivery blast-radius paths because this isolated profile cannot run git diff. Package pack contents supplied in the request are authoritative installed-package inputs.
 
-Edit only your declared surface. Never stage, commit, create refs, or modify Git administration. The host independently attests every changed path, validates applicable files, scans the exact candidate, reproduces hooks, and alone creates or moves commits.
+Edit only your declared surface. Never stage, commit, create refs, or modify Git administration. The host independently attests every changed path, validates applicable files, scans the exact candidate, reproduces hooks, and alone creates or moves commits.${
+    profile.writer === "kaizen"
+      ? "\n\nAn existing checklist rule's text is immutable and the host compares it byte for byte. Any change to a rule already in the pack — a reword, an appended clause, a typo fix — is refused and your whole run is rejected. Sharpen by adding a new rule beside the old one; leave the wording of an existing rule to a human. The host cannot tell a tightening from a loosening, so it permits neither. Existing prose outside the checklist must also survive in order, and pack frontmatter is fixed."
+      : ""
+  }
 
 Return exactly one JSON object and no prose using this envelope:
 ${output}`;
