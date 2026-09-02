@@ -574,13 +574,23 @@ export class KartaDeliveryRunner {
             { manager: this.#processes, owner },
             { diffBase: await this.#deliveryBase(repoRoot, binder), sme: document.sme },
           );
+          // A refused companion never downgrades a delivery whose items are all
+          // done and archived, but it is never silent either: it is named in the
+          // message a person actually reads.
+          const refused = [companions.docGardner, companions.kaizen]
+            .filter((writer) => writer.status === "rejected");
+          const message = refused.length === 0
+            ? "Every binder item is durably done, companion writers finished, and the binder is archived."
+            : `Every binder item is durably done and the binder is archived. ${
+              refused.map((writer) => `The ${writer.role} companion was refused: ${writer.reason}`).join(" ")
+            } Its changes were not committed; the delivery is unaffected.`;
           return {
             schema: "karta-delivery-v1",
             binder,
             status: "complete",
             integrationWorktree,
             waves,
-            message: "Every binder item is durably done, companion writers finished, and the binder is archived.",
+            message,
             companions,
           };
         }

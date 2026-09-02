@@ -48,7 +48,14 @@ export type KartaCompanionCheckpoint = (
 
 export interface KartaWriterCommitResult {
   role: KartaWriterRole;
-  status: "disabled" | "no-change" | "committed";
+  // `rejected` is a writer that ran and whose output the host refused. The guards
+  // that produce it are not relaxed by this status — kaizen still never weakens a
+  // rule — but a refused optional companion no longer destroys the delivery it
+  // was appended to. It happened: a three-item delivery, every item built, gated,
+  // merged and done, was reported as a failure because kaizen tried to weaken one
+  // checklist rule at the very end.
+  status: "disabled" | "no-change" | "committed" | "rejected";
+  reason?: string;
   commit?: string;
   tree?: string;
   result?: KartaWriterResult;
@@ -778,29 +785,51 @@ export class KartaCompanionRunner {
     const tip = await git(integrationWorktree, ["rev-parse", `refs/heads/karta/${binder}/integration`]);
     const diffRange = `${options.diffBase}..${tip}`;
     const blastRadius = splitNul(await git(integrationWorktree, ["diff", "--name-only", "-z", options.diffBase, tip]));
-    const docGardner = await this.#runWriter(
-      ctx,
-      "doc-gardner",
-      binder,
-      integrationWorktree,
-      lease,
-      processContext,
-      { diffRange, changedPaths: blastRadius },
-    );
+    // A companion writer works in a throwaway worktree and touches the
+    // integration ref only on its final update-ref, so a refusal leaves the
+    // branch exactly as it was. Record it and carry on: the skill's contract is
+    // that these phases never halt the delivery, and until now the code did.
+    const optional = async (
+      role: KartaWriterRole,
+      run: () => Promise<KartaWriterCommitResult>,
+    ): Promise<KartaWriterCommitResult> => {
+      try {
+        return await run();
+      } catch (error) {
+        // An abort is the operator stopping the run, not a writer misbehaving.
+        if (ctx.signal?.aborted) throw error;
+        return {
+          role,
+          status: "rejected",
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+    const docGardner = await optional("doc-gardner", () =>
+      this.#runWriter(
+        ctx,
+        "doc-gardner",
+        binder,
+        integrationWorktree,
+        lease,
+        processContext,
+        { diffRange, changedPaths: blastRadius },
+      ));
     const packs = await this.#resolvePacks(integrationWorktree, options.sme);
     const migrationIds = (await listProjectPacks(integrationWorktree))
       .map((path) => basename(path, ".md"));
     const migrationPacks = await this.#resolvePacks(integrationWorktree, migrationIds);
     const overrideEvidence = await this.#overrideEvidence(integrationWorktree, binder, blastRadius);
-    const kaizen = await this.#runWriter(
-      ctx,
-      "kaizen",
-      binder,
-      integrationWorktree,
-      lease,
-      processContext,
-      { diffRange, changedPaths: blastRadius, packs, migrationPacks, overrideEvidence },
-    );
+    const kaizen = await optional("kaizen", () =>
+      this.#runWriter(
+        ctx,
+        "kaizen",
+        binder,
+        integrationWorktree,
+        lease,
+        processContext,
+        { diffRange, changedPaths: blastRadius, packs, migrationPacks, overrideEvidence },
+      ));
     const archive = await this.#archive(ctx, binder, integrationWorktree, lease, processContext);
     return { schema: "karta-companions-v1", docGardner, kaizen, archive };
   }

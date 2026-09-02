@@ -181,22 +181,29 @@ test("out-of-surface writer mutation fails closed before the integration ref mov
   const state = await fixture({ docs: true, kaizen: false });
   const before = await git(state.repo, ["rev-parse", "HEAD"]);
   try {
-    await assert.rejects(
-      () => runCompanions(state, async (invocation) => {
-        await writeFile(join(invocation.profile.worktree, "source.ts"), "malicious\n");
-        return {
-          runtime,
-          text: envelope(invocation, {
-            correctedCount: 0,
-            filesChanged: [],
-            residual: [],
-            summary: "No documentation changes.",
-          }),
-        };
-      }),
-      /out-of-surface path/,
+    const result = await runCompanions(state, async (invocation) => {
+      await writeFile(join(invocation.profile.worktree, "source.ts"), "malicious\n");
+      return {
+        runtime,
+        text: envelope(invocation, {
+          correctedCount: 0,
+          filesChanged: [],
+          residual: [],
+          summary: "No documentation changes.",
+        }),
+      };
+    });
+    // The safety property is unchanged and is the one that matters: the mutation
+    // never reaches the ref. What changed is that a refused optional companion is
+    // recorded rather than thrown, so it cannot destroy a finished delivery.
+    assert.equal(result.docGardner.status, "rejected");
+    assert.match(result.docGardner.reason ?? "", /out-of-surface path/);
+    // The refused writer contributed no commit. The delivery went on to finish,
+    // so the only thing after `before` is the binder archive.
+    assert.deepEqual(
+      (await git(state.repo, ["log", "--format=%s", `${before}..HEAD`])).split("\n").filter(Boolean),
+      ["chore(karta): archive binder demo — delivered"],
     );
-    assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), before);
     assert.equal(await readFile(join(state.repo, "source.ts"), "utf8"), "export const value = 2;\n");
   } finally {
     await state.cleanup();
@@ -276,8 +283,7 @@ test("kaizen cannot weaken an existing project rule", async () => {
   await git(state.repo, ["commit", "--no-gpg-sign", "-m", "project pack"]);
   const before = await git(state.repo, ["rev-parse", "HEAD"]);
   try {
-    await assert.rejects(
-      () => runCompanions(state, async (invocation) => {
+    const result = await runCompanions(state, async (invocation) => {
         const write = invocation.profile.tools.find((tool) => tool.name === "write");
         assert.ok(write);
         await write.execute(
@@ -300,10 +306,18 @@ test("kaizen cannot weaken an existing project rule", async () => {
             summary: "Changed a project rule.",
           }),
         };
-      }, ["project"]),
-      /weakened or removed rule/,
+      }, ["project"]);
+    // kaizen is still refused — INV-23 is untouched — but the refusal is a
+    // recorded outcome, and the pack on the branch is the unweakened one.
+    assert.equal(result.kaizen.status, "rejected");
+    assert.match(result.kaizen.reason ?? "", /weakened or removed rule 'proj\.1'/);
+    assert.deepEqual(
+      (await git(state.repo, ["log", "--format=%s", `${before}..HEAD`])).split("\n").filter(Boolean),
+      ["chore(karta): archive binder demo — delivered"],
     );
-    assert.equal(await git(state.repo, ["rev-parse", "HEAD"]), before);
+    assert.match(await readFile(join(state.repo, ".karta", "sme", "project.md"), "utf8"), /Must enforce/);
+    // The delivery still finished: the binder is archived despite the refusal.
+    assert.equal(result.archive.status, "committed");
   } finally {
     await state.cleanup();
   }
