@@ -20,6 +20,7 @@ import {
 import type { CheckToolDetails } from "./check-tool.ts";
 import { loadKartaRole } from "./role-catalog.ts";
 import { promptForJsonEnvelope } from "./child-envelope.ts";
+import { clampSummary } from "./worker-runner.ts";
 
 const VERDICT_SCHEMA = "karta-gate-verdict-v1" as const;
 const MAX_FINDINGS = 50;
@@ -195,13 +196,13 @@ export function parseGateVerdict(
   if (!(["pass", "concerns", "blocked"] as unknown[]).includes(verdict.verdict)) {
     throw new Error("Malformed Karta gate verdict: invalid verdict");
   }
-  if (
-    typeof verdict.summary !== "string" ||
-    !verdict.summary.trim() ||
-    verdict.summary.length > MAX_SUMMARY_LENGTH
-  ) {
+  if (typeof verdict.summary !== "string" || !verdict.summary.trim()) {
     throw new Error("Malformed Karta gate verdict: invalid summary");
   }
+  // Length alone never voids a completed review: the summary is display prose.
+  // The corrective turn asks for a shorter one; if the reviewer does not comply,
+  // the host clamps rather than discarding the judgement it already made.
+  verdict.summary = clampSummary(verdict.summary, MAX_SUMMARY_LENGTH);
   if (!Array.isArray(verdict.findings) || verdict.findings.length > MAX_FINDINGS) {
     throw new Error("Malformed Karta gate verdict: invalid findings");
   }
@@ -271,8 +272,13 @@ export function gateVerdictViolation(
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return "the verdict must be a single JSON object";
     }
-    if ((value as Record<string, unknown>).schema !== VERDICT_SCHEMA) {
-      return `"schema" must be "${VERDICT_SCHEMA}"`;
+    const record = value as Record<string, unknown>;
+    if (record.schema !== VERDICT_SCHEMA) return `"schema" must be "${VERDICT_SCHEMA}"`;
+    // Asked for even though the parse now clamps it: a reviewer's own shorter
+    // summary is better than the host's cut, so spend the turn on it.
+    if (typeof record.summary === "string" && record.summary.length > MAX_SUMMARY_LENGTH) {
+      return `"summary" is ${record.summary.length} characters; the limit is ${MAX_SUMMARY_LENGTH}` +
+        " — shorten it and resend the same verdict, keeping every other field byte-identical";
     }
     // Without the dispatch's expected hashes only the shape can be judged; the
     // hash comparison then belongs to the strict parse alone.

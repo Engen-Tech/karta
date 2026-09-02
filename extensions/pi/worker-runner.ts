@@ -60,6 +60,25 @@ export type BuildWorkerModelInvoker = (
 const MAX_WORKER_SUMMARY = 2000;
 const MAX_WORKER_CHECKS = 16;
 
+// A violation the child should be asked to fix. `fatal` separates the two kinds:
+// identity, structure and semantics are fatal, because acting on them would mean
+// acting on something other than what was dispatched. An over-long summary is
+// not — it is display prose, carried into a report line and a commit body and
+// nowhere else. Destroying a finished build over a prose field's length is a
+// disproportionate failure, and it happened: a correct item was discarded for a
+// summary 41 characters past the cap. The corrective turn still fires, so the
+// worker gets to write a better short summary; if it does not, the host clamps.
+export interface EnvelopeViolation {
+  reason: string;
+  fatal: boolean;
+}
+
+export function clampSummary(summary: string, max: number): string {
+  if (summary.length <= max) return summary;
+  const marker = ` […truncated from ${summary.length}]`;
+  return `${summary.slice(0, Math.max(0, max - marker.length))}${marker}`;
+}
+
 const WORKER_ENVELOPE_REPAIR_PROMPT =
   'Your previous message was not the required result. Reply now with ONLY the single JSON object envelope described in your instructions (schema "karta-worker-result-v2") — no prose, no headings, no code fence, and nothing before or after the object.';
 
@@ -72,15 +91,16 @@ const WORKER_ENVELOPE_REPAIR_PROMPT =
 export function workerEnvelopeViolation(
   text: string,
   expected: { binder: string; item: string; roleDefinitionHash: string; profileHash: string } | null,
-): string | null {
+): EnvelopeViolation | null {
+  const fatal = (reason: string): EnvelopeViolation => ({ reason, fatal: true });
   let value: unknown;
   try {
     value = parseWorkerEnvelopeJson(text);
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return fatal(error instanceof Error ? error.message : String(error));
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return "the result must be a single JSON object";
+    return fatal("the result must be a single JSON object");
   }
   const result = value as Record<string, unknown>;
   const required = [
@@ -96,40 +116,44 @@ export function workerEnvelopeViolation(
   ];
   const missing = required.filter((key) => !(key in result));
   const extra = Object.keys(result).filter((key) => !required.includes(key));
-  if (missing.length > 0) return `missing key(s): ${missing.join(", ")}`;
-  if (extra.length > 0) return `unknown key(s): ${extra.join(", ")}`;
-  if (result.schema !== WORKER_SCHEMA) return `"schema" must be "${WORKER_SCHEMA}"`;
-  if (result.role !== "build-worker") return '"role" must be "build-worker"';
+  if (missing.length > 0) return fatal(`missing key(s): ${missing.join(", ")}`);
+  if (extra.length > 0) return fatal(`unknown key(s): ${extra.join(", ")}`);
+  if (result.schema !== WORKER_SCHEMA) return fatal(`"schema" must be "${WORKER_SCHEMA}"`);
+  if (result.role !== "build-worker") return fatal('"role" must be "build-worker"');
   // Identity and freshness are not repairable by rewording: say so, so the turn
   // is not spent asking a worker to invent a hash it was never given.
   if (expected) {
-    if (result.binder !== expected.binder) return `"binder" must be "${expected.binder}"`;
-    if (result.item !== expected.item) return `"item" must be "${expected.item}"`;
+    if (result.binder !== expected.binder) return fatal(`"binder" must be "${expected.binder}"`);
+    if (result.item !== expected.item) return fatal(`"item" must be "${expected.item}"`);
     if (result.roleDefinitionHash !== expected.roleDefinitionHash) {
-      return '"roleDefinitionHash" does not match the hash given in your instructions';
+      return fatal('"roleDefinitionHash" does not match the hash given in your instructions');
     }
     if (result.profileHash !== expected.profileHash) {
-      return '"profileHash" does not match the hash given in your instructions';
+      return fatal('"profileHash" does not match the hash given in your instructions');
     }
   }
   if (!["ready", "no-change", "blocked"].includes(String(result.outcome))) {
-    return '"outcome" must be one of ready, no-change, blocked';
+    return fatal('"outcome" must be one of ready, no-change, blocked');
   }
   if (typeof result.summary !== "string" || !result.summary.trim()) {
-    return '"summary" must be a non-empty string';
+    return fatal('"summary" must be a non-empty string');
   }
-  if (result.summary.length > MAX_WORKER_SUMMARY) {
-    return `"summary" is ${result.summary.length} characters; the limit is ${MAX_WORKER_SUMMARY}` +
-      " — shorten it and resend the same envelope, keeping every other field byte-identical";
-  }
-  if (!Array.isArray(result.checks)) return '"checks" must be an array';
+  if (!Array.isArray(result.checks)) return fatal('"checks" must be an array');
   if (result.checks.length > MAX_WORKER_CHECKS) {
-    return `"checks" has ${result.checks.length} entries; the limit is ${MAX_WORKER_CHECKS}`;
+    return fatal(`"checks" has ${result.checks.length} entries; the limit is ${MAX_WORKER_CHECKS}`);
   }
-  // The proposals are part of the envelope, so they are the turn's business too.
-  // Validating them only in the strict parse put a blanket "malformed check
-  // proposal" one loop past the last point the worker could have fixed it.
-  return checkProposalsViolation(result.checks);
+  const proposals = checkProposalsViolation(result.checks);
+  if (proposals !== null) return fatal(proposals);
+  // Last, and the only non-fatal one: a correct build is never thrown away for it.
+  if (result.summary.length > MAX_WORKER_SUMMARY) {
+    return {
+      fatal: false,
+      reason: `"summary" is ${result.summary.length} characters; the limit is ` +
+        `${MAX_WORKER_SUMMARY} — shorten it and resend the same envelope, keeping every other` +
+        " field byte-identical. If you do not, the host will keep the build and truncate it.",
+    };
+  }
+  return null;
 }
 
 function checkProposalsViolation(checks: unknown[]): string | null {
@@ -176,7 +200,7 @@ export function promptWorkerForEnvelope(
       const violation = workerEnvelopeViolation(text, expected);
       return violation === null
         ? WORKER_ENVELOPE_REPAIR_PROMPT
-        : `${WORKER_ENVELOPE_REPAIR_PROMPT} The result you sent was rejected because ${violation}.`;
+        : `${WORKER_ENVELOPE_REPAIR_PROMPT} The result you sent was rejected because ${violation.reason}`;
     },
   );
 }
@@ -226,7 +250,7 @@ function parseWorkerEnvelopeJson(text: string): unknown {
   return parseJsonEnvelope(text, "build worker");
 }
 
-function parseWorkerResult(
+export function parseWorkerResult(
   text: string,
   binder: string,
   item: string,
@@ -241,13 +265,15 @@ function parseWorkerResult(
   });
   // Name the field. The blanket "malformed or stale" message covered nine
   // different rules, so a discarded build told its operator nothing about which
-  // one to look at.
-  if (violation !== null) {
-    throw new Error(`Malformed or stale Karta worker result envelope: ${violation}`);
+  // one to look at. A non-fatal violation survived the corrective turn and is
+  // repaired here instead of discarding the work.
+  if (violation !== null && violation.fatal) {
+    throw new Error(`Malformed or stale Karta worker result envelope: ${violation.reason}`);
   }
   const result = parseWorkerEnvelopeJson(text) as Record<string, unknown>;
   return {
     ...(result as Omit<KartaWorkerResult, "runtime" | "attestation">),
+    summary: clampSummary(result.summary as string, MAX_WORKER_SUMMARY),
     runtime,
   } as Omit<KartaWorkerResult, "attestation">;
 }

@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, createWorkerChildSession, type ChildRuntimeReport } from "./child-runtime.ts";
+import { clampSummary } from "./worker-runner.ts";
 import {
   attestWorkerAuthority,
   snapshotWorkerAuthority,
@@ -34,8 +35,11 @@ export function writerEnvelopeViolation(
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return "the result must be a single JSON object";
     }
-    if ((value as Record<string, unknown>).schema !== WRITER_SCHEMA) {
-      return `"schema" must be "${WRITER_SCHEMA}"`;
+    const record = value as Record<string, unknown>;
+    if (record.schema !== WRITER_SCHEMA) return `"schema" must be "${WRITER_SCHEMA}"`;
+    if (typeof record.summary === "string" && record.summary.length > 2_000) {
+      return `"summary" is ${record.summary.length} characters; the limit is 2000 — shorten it` +
+        " and resend the same result, keeping every other field byte-identical";
     }
     // Without the dispatch's own binder and profile only the shape is knowable;
     // the rest then belongs to the strict parse alone.
@@ -200,14 +204,14 @@ function parseWriterResult(
     ? '"profileHash" does not match the hash given in your instructions'
     : typeof value.summary !== "string" || !value.summary.trim()
     ? '"summary" must be a non-empty string'
-    : value.summary.length > 2_000
-    ? `"summary" is ${(value.summary as string).length} characters; the limit is 2000 — shorten it` +
-      " and resend the same result, keeping every other field byte-identical"
     : null;
   if (envelopeFault !== null) {
     throw new Error(`Malformed or stale Karta writer result envelope: ${envelopeFault}`);
   }
-  const summary = value.summary as string;
+  // Length alone never voids finished writer work; the summary is display prose
+  // carried into a report line and a commit body. The turn asks for a shorter
+  // one first, and the host clamps only if that is refused.
+  const summary = clampSummary(value.summary as string, 2_000);
   if (profile.writer === "doc-gardner") {
     exactKeys(value, [...common, "correctedCount", "filesChanged", "residual"], ["focusStale"]);
     if (!Number.isInteger(value.correctedCount) || Number(value.correctedCount) < 0) {

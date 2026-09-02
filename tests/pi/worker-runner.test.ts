@@ -7,6 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ChildRegistry, type ChildRuntimeReport } from "../../extensions/pi/child-runtime.ts";
 import {
   KartaBuildWorkerRunner,
+  parseWorkerResult,
   promptWorkerForEnvelope,
   workerEnvelopeViolation,
 } from "../../extensions/pi/worker-runner.ts";
@@ -382,6 +383,40 @@ test("an over-long summary is repaired, not discarded, and the turn says why", a
   assert.match(prompter.calls[1], /keeping every other field byte-identical/);
 });
 
+test("a summary the worker refuses to shorten is clamped, never fatal", () => {
+  // The disproportionality this closes: a correct, finished build was discarded
+  // for a summary 41 characters past the cap. The turn still asks; the host no
+  // longer destroys the work when the answer is the same length.
+  const violation = workerEnvelopeViolation(envelope({ summary: "y".repeat(2041) }), EXPECTED);
+  assert.ok(violation);
+  assert.equal(violation.fatal, false);
+  assert.match(violation.reason, /the host will keep the build and truncate it/);
+
+  const parsed = parseWorkerResult(
+    envelope({ summary: "y".repeat(2041) }),
+    EXPECTED.binder,
+    EXPECTED.item,
+    { role: { definitionHash: EXPECTED.roleDefinitionHash }, profileHash: EXPECTED.profileHash } as never,
+    {} as never,
+  );
+  assert.equal(parsed.summary.length, 2000);
+  assert.match(parsed.summary, /\[\u2026truncated from 2041\]$/);
+
+  // A fatal violation alongside an over-long summary still throws: the clamp is
+  // for prose length alone, never a way past a stale or doctored envelope.
+  assert.throws(
+    () =>
+      parseWorkerResult(
+        envelope({ summary: "y".repeat(2041), profileHash: "e".repeat(64) }),
+        EXPECTED.binder,
+        EXPECTED.item,
+        { role: { definitionHash: EXPECTED.roleDefinitionHash }, profileHash: EXPECTED.profileHash } as never,
+        {} as never,
+      ),
+    /"profileHash" does not match/,
+  );
+});
+
 test("every rule the strict parse enforces also fires the repair turn", () => {
   const cases: [string, string, RegExp][] = [
     ["too many checks", envelope({ checks: new Array(17).fill({ id: "a", command: "b", cwd: "." }) }), /"checks" has 17 entries/],
@@ -395,7 +430,10 @@ test("every rule the strict parse enforces also fires the repair turn", () => {
   for (const [name, text, expected] of cases) {
     const violation = workerEnvelopeViolation(text, EXPECTED);
     assert.ok(violation, `${name} should be a violation`);
-    assert.match(violation, expected, name);
+    assert.match(violation.reason, expected, name);
+    // Everything in this table is fatal: acting on it would mean acting on
+    // something other than what was dispatched.
+    assert.equal(violation.fatal, true, name);
   }
   assert.equal(workerEnvelopeViolation(validEnvelope, EXPECTED), null);
 });
