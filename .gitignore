@@ -9,3 +9,7 @@ __pycache__/
 node_modules/
 
 .DS_Store
+
+# Local Pi agent settings: machine-specific skill enablement, never shared.
+# Committing this file would disable the karta skills for every consumer.
+.pi/settings.json
