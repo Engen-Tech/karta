@@ -340,9 +340,15 @@ test("evidence reader exposes fixed sections and bounded diff pages only", async
       undefined,
       TOOL_CONTEXT,
     );
-    assert.equal(text(diff).length, 20);
+    const diffText = text(diff);
+    assert.ok(diffText.startsWith(evidence.payload.diff.content.slice(0, 20)));
     assert.equal(diff.details?.totalLength, evidence.payload.diff.content.length);
     assert.equal(diff.details?.nextOffset, 20);
+    // The page must say so in band: `details` is host telemetry the reviewing
+    // model never sees, so a truncated page that looks whole is what made a gate
+    // report the diff as uncapturable instead of paging through it.
+    assert.match(diffText, /\[karta_evidence\] diff characters 0-20 of \d+\. TRUNCATED/);
+    assert.match(diffText, /\{"action":"diff","offset":20\}/);
 
     const touchedFile = await tool.execute(
       "file",
@@ -414,4 +420,75 @@ test("canonical evidence JSON ignores object insertion order", () => {
     canonicalJson({ z: 1, a: { d: 2, b: 3 } }),
     canonicalJson({ a: { b: 3, d: 2 }, z: 1 }),
   );
+});
+
+test("following the diff page footer's offsets reconstructs the whole diff", async () => {
+  const { repo, cleanup } = await fixture();
+  try {
+    const evidence = await buildKartaEvidence({ cwd: repo, binder: "demo", item: "item-a" });
+    const tool = createEvidenceReadTool(evidence);
+    const whole = evidence.payload.diff.content;
+    const footer = /\n\[karta_evidence\] diff characters \d+-(\d+) of (\d+)\.(.*)$/;
+
+    // Page deliberately small so the fixture diff spans several reads: this is
+    // the loop a gate must run, and the only thing steering it is the footer.
+    let offset = 0;
+    let assembled = "";
+    let pages = 0;
+    for (;;) {
+      const result = await tool.execute(
+        `diff-${pages}`,
+        { action: "diff", offset, limit: 64 },
+        undefined,
+        undefined,
+        TOOL_CONTEXT,
+      );
+      const body = text(result);
+      const match = body.match(footer);
+      assert.ok(match, `page ${pages} carried no range line`);
+      assembled += body.slice(0, body.length - match[0].length);
+      assert.equal(Number(match[2]), whole.length);
+      pages += 1;
+      assert.ok(pages < 500, "page footer never reported the end of the diff");
+      if (match[3].includes("End of diff")) {
+        assert.equal(result.details?.nextOffset, undefined);
+        break;
+      }
+      assert.match(match[3], /TRUNCATED/);
+      assert.equal(result.details?.nextOffset, Number(match[1]));
+      offset = Number(match[1]);
+    }
+
+    assert.ok(pages > 1, "fixture diff must span more than one page to test paging");
+    assert.equal(assembled, whole);
+
+    // A single page wide enough for the whole diff says so, so a gate can prove
+    // it read everything rather than infer it from a missing marker.
+    const single = await tool.execute(
+      "diff-whole",
+      { action: "diff", offset: 0, limit: 50_000 },
+      undefined,
+      undefined,
+      TOOL_CONTEXT,
+    );
+    assert.match(text(single), /End of diff; nothing follows\./);
+    assert.equal(single.details?.nextOffset, undefined);
+
+    // touchedFile pages the same way, and reports its bounds as data.
+    const partial = await tool.execute(
+      "file-partial",
+      { action: "touchedFile", index: 0, offset: 0, limit: 10 },
+      undefined,
+      undefined,
+      TOOL_CONTEXT,
+    );
+    const partialBody = JSON.parse(text(partial));
+    assert.equal(partialBody.truncated, true);
+    assert.equal(partialBody.nextOffset, 10);
+    assert.equal(partialBody.pageOffset, 0);
+    assert.equal(partialBody.pageEnd, 10);
+    assert.ok(partialBody.totalLength > 10);
+  } finally {
+    await cleanup();
+  }
 });

@@ -525,7 +525,25 @@ test("a gate that read only part of a large diff is nudged to read the rest", ()
     evidenceReadGaps(
       gapsProfile({ actions: ["summary", "workItem", "diff"], diffReads: [[0, 30]], diffTotal: 100 }),
     ),
-    ["the rest of the diff (you read only part of it)"],
+    [
+      'the rest of the diff (you read only part of it) — resume with {"action":"diff","offset":30}' +
+        " and keep going while the page footer says TRUNCATED",
+    ],
+  );
+  // The resume offset is the first uncovered character, not the last read's end:
+  // a reviewer that jumped ahead must be sent back to the hole it left.
+  assert.deepEqual(
+    evidenceReadGaps(
+      gapsProfile({
+        actions: ["summary", "workItem", "diff"],
+        diffReads: [[0, 30], [50, 100]],
+        diffTotal: 100,
+      }),
+    ),
+    [
+      'the rest of the diff (you read only part of it) — resume with {"action":"diff","offset":30}' +
+        " and keep going while the page footer says TRUNCATED",
+    ],
   );
   assert.deepEqual(
     evidenceReadGaps(
@@ -580,3 +598,35 @@ test("a gate that grounded its verdict in all evidence is not re-prompted", asyn
   assert.equal(result, validVerdict);
   assert.deepEqual(grounded.calls, ["GATE PROMPT"]);
 });
+
+test("the dispatch contract names the diff paging call, not just 'the paged diff'", async () => {
+  // A gate reported a 44KB diff as uncapturable after guessing at "page" and
+  // "index" arguments the diff action does not take. The instruction has to name
+  // the mechanism, or the reviewer invents one and blocks on its own guess.
+  const seen: string[] = [];
+  const { manifest, ctx, cleanup } = await fixture();
+  try {
+    await executeGateOnEvidence(
+      ctx,
+      "acceptance-gate",
+      manifest,
+      preflight,
+      new ChildRegistry(),
+      validInvoker("pass", {
+        async mutate(invocation) {
+          seen.push(invocation.systemPrompt);
+        },
+      }),
+    );
+  } finally {
+    await cleanup();
+  }
+  const prompt = seen.at(0);
+  assert.ok(prompt);
+  assert.match(prompt, /\{"action":"diff","offset":<the offset it names>\}/);
+  assert.match(prompt, /TRUNCATED/);
+  assert.match(prompt, /"page" and "index" are not diff arguments/);
+  assert.match(prompt, /"boundary" is a separate tool, never a karta_evidence action/);
+  assert.match(prompt, /Never report the diff as unreadable or capped/);
+});
+
