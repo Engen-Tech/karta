@@ -126,6 +126,40 @@ export function workerEnvelopeViolation(
   if (result.checks.length > MAX_WORKER_CHECKS) {
     return `"checks" has ${result.checks.length} entries; the limit is ${MAX_WORKER_CHECKS}`;
   }
+  // The proposals are part of the envelope, so they are the turn's business too.
+  // Validating them only in the strict parse put a blanket "malformed check
+  // proposal" one loop past the last point the worker could have fixed it.
+  return checkProposalsViolation(result.checks);
+}
+
+function checkProposalsViolation(checks: unknown[]): string | null {
+  const ids = new Set<string>();
+  for (const [index, proposal] of checks.entries()) {
+    const at = `checks[${index}]`;
+    if (!proposal || typeof proposal !== "object" || Array.isArray(proposal)) {
+      return `${at} must be an object`;
+    }
+    const check = proposal as Record<string, unknown>;
+    const keys = Object.keys(check);
+    const missing = ["id", "command", "cwd"].filter((key) => !keys.includes(key));
+    const extra = keys.filter((key) => !["id", "command", "cwd"].includes(key));
+    if (missing.length > 0) return `${at} is missing key(s): ${missing.join(", ")}`;
+    if (extra.length > 0) return `${at} has unknown key(s): ${extra.join(", ")}`;
+    if (typeof check.id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(check.id)) {
+      return `${at}.id must be lowercase letters, digits and hyphens, starting with a letter`;
+    }
+    if (check.id === "oracle") return `${at}.id must not be "oracle"; the host owns that check`;
+    if (ids.has(check.id)) return `${at}.id "${check.id}" is a duplicate`;
+    if (typeof check.command !== "string" || !check.command.trim()) {
+      return `${at}.command must be a non-empty string`;
+    }
+    if (check.command.length > 16 * 1024) return `${at}.command is longer than 16384 characters`;
+    const cwd = typeof check.cwd === "string" ? check.cwd.replaceAll("\\", "/") : "";
+    if (!cwd) return `${at}.cwd must be a non-empty worktree-relative path`;
+    if (cwd.startsWith("/")) return `${at}.cwd must be worktree-relative, not absolute`;
+    if (cwd.split("/").includes("..")) return `${at}.cwd must not traverse outside the worktree`;
+    ids.add(check.id);
+  }
   return null;
 }
 
@@ -212,30 +246,6 @@ function parseWorkerResult(
     throw new Error(`Malformed or stale Karta worker result envelope: ${violation}`);
   }
   const result = parseWorkerEnvelopeJson(text) as Record<string, unknown>;
-  const checkIds = new Set<string>();
-  for (const proposal of result.checks as unknown[]) {
-    if (!proposal || typeof proposal !== "object" || Array.isArray(proposal)) {
-      throw new Error("Malformed Karta worker check proposal");
-    }
-    const check = proposal as Record<string, unknown>;
-    exactKeys(check, ["id", "command", "cwd"]);
-    const cwd = typeof check.cwd === "string" ? check.cwd.replaceAll("\\", "/") : "";
-    if (
-      typeof check.id !== "string" ||
-      !/^[a-z][a-z0-9-]{0,63}$/.test(check.id) ||
-      check.id === "oracle" ||
-      checkIds.has(check.id) ||
-      typeof check.command !== "string" ||
-      !check.command.trim() ||
-      check.command.length > 16 * 1024 ||
-      !cwd ||
-      cwd.startsWith("/") ||
-      cwd.split("/").includes("..")
-    ) {
-      throw new Error("Malformed Karta worker check proposal");
-    }
-    checkIds.add(check.id);
-  }
   return {
     ...(result as Omit<KartaWorkerResult, "runtime" | "attestation">),
     runtime,

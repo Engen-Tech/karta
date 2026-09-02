@@ -19,7 +19,11 @@ import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
 import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
 import type { KartaWaveRunner } from "../../extensions/pi/wave-runner.ts";
 import type { KartaBuildWorkerRunner } from "../../extensions/pi/worker-runner.ts";
-import { KartaWriterRunner, type WriterModelInvoker } from "../../extensions/pi/writer-runner.ts";
+import {
+  KartaWriterRunner,
+  writerEnvelopeViolation,
+  type WriterModelInvoker,
+} from "../../extensions/pi/writer-runner.ts";
 
 const exec = promisify(execFile);
 const runtime: ChildRuntimeReport = {
@@ -345,4 +349,54 @@ test("kaizen may seed only an exact pinned pack with package provenance", async 
   } finally {
     await state.cleanup();
   }
+});
+
+test("a writer result the strict parse would reject gets the corrective turn, named", () => {
+  // Fourth instance of one defect: the writer predicate recognised only
+  // `schema`, so the summary cap, the per-writer key set and the string-array
+  // bounds were all enforced after the single corrective turn had passed.
+  const profile = {
+    writer: "doc-gardner" as const,
+    role: { definitionHash: "a".repeat(64) },
+    profileHash: "b".repeat(64),
+  } as unknown as Parameters<typeof writerEnvelopeViolation>[1] extends null ? never
+    : NonNullable<Parameters<typeof writerEnvelopeViolation>[1]>["profile"];
+  const runtime = {} as NonNullable<Parameters<typeof writerEnvelopeViolation>[1]>["runtime"];
+  const expected = { binder: "demo", profile, runtime };
+
+  const result = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      schema: "karta-writer-result-v1",
+      role: "doc-gardner",
+      binder: "demo",
+      roleDefinitionHash: "a".repeat(64),
+      profileHash: "b".repeat(64),
+      summary: "Corrected two drifted paragraphs.",
+      correctedCount: 2,
+      filesChanged: ["README.md"],
+      residual: [],
+      ...overrides,
+    });
+
+  assert.equal(writerEnvelopeViolation(result(), expected), null);
+  assert.match(
+    writerEnvelopeViolation(result({ summary: "x".repeat(2500) }), expected) ?? "",
+    /"summary" is 2500 characters; the limit is 2000/,
+  );
+  assert.match(
+    writerEnvelopeViolation(result({ profileHash: "c".repeat(64) }), expected) ?? "",
+    /"profileHash" does not match/,
+  );
+  assert.match(
+    writerEnvelopeViolation(result({ notes: "extra" }), expected) ?? "",
+    /unexpected or missing keys/,
+  );
+  assert.match(
+    writerEnvelopeViolation(result({ residual: [1] }), expected) ?? "",
+    /field 'residual'/,
+  );
+  // With no dispatch expectations only the shape is judged, so a caller without
+  // them cannot manufacture a rejection.
+  assert.equal(writerEnvelopeViolation(result({ profileHash: "c".repeat(64) }), null), null);
+  assert.match(writerEnvelopeViolation("[]", null) ?? "", /single JSON object/);
 });
