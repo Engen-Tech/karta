@@ -224,6 +224,37 @@ test("stopProcess reaps a single managed process with its per-call grace and lea
   }
 });
 
+test("stopProcess resolves only once a SIGKILLed group is gone, not when the signal is sent", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX process-group assertion has a native Windows release fixture");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "karta-stop-settle-"));
+  try {
+    // Ignores SIGTERM, so the only way out is the SIGKILL escalation after the grace.
+    const script = join(root, "stubborn.mjs");
+    await writeFile(script, 'process.on("SIGTERM", () => {});\nsetInterval(() => {}, 60000);\n');
+    const child = spawn(process.execPath, [script], { cwd: root, detached: true, stdio: "ignore" });
+    assert.ok(child.pid);
+    const pid = child.pid;
+    // Let the child install its SIGTERM handler before we signal it.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const lifecycles = new LifecycleRegistry();
+    const manager = new KartaProcessManager(lifecycles, 1_000);
+    const owner = manager.createBinderOwner(root, "demo");
+    manager.registerProcess(pid, { cwd: root, parentId: owner.id, label: "dev-server", role: "env-server", graceMs: 100 });
+    await manager.stopProcess(pid);
+    // kill(2) only queues SIGKILL; the group dies when its members next get scheduled.
+    // The contract is that stopProcess has already waited that out: no polling, no
+    // awaiting the child's close event — the pid is gone the moment the promise settles.
+    assert.equal(processExists(pid), false, "stopProcess resolved while the killed process still existed");
+    assert.equal(manager.size, 0);
+    await manager.stopOwner(owner);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("normally exited processes can be forgotten without stopping their owner", async () => {
   const lifecycles = new LifecycleRegistry();
   const manager = new KartaProcessManager(lifecycles, 10);
