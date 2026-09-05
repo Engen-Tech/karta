@@ -471,7 +471,10 @@ test("a child that ignores SIGTERM is SIGKILLed after the grace, leaving no surv
     assert.ok(graceUsed >= 250, `teardown returned in ${graceUsed}ms — grace not honored`);
     assert.equal(await waitGone(pid), true);
     assert.equal(harness.manager.size, 0);
-    assert.equal(await isPortFree(reserved), true);
+    // Checked at once, not polled: the shell wrapper above is reaped first, while the node
+    // grandchild that actually holds the port dies a few milliseconds after SIGKILL is sent.
+    // stop() must have waited that out, or the next listener on this port gets EADDRINUSE.
+    assert.equal(await isPortFree(reserved), true, "port still held after stop(): teardown resolved before the killed group released it");
   } finally {
     await harness.manager.stopOwner(harness.context.owner);
     await fx.cleanup();
