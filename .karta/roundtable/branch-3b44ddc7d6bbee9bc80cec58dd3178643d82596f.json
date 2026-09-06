@@ -1,0 +1,43 @@
+{
+  "reviewed_hash": "3b44ddc7d6bbee9bc80cec58dd3178643d82596f",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "karta/invariant-foundations/integration",
+  "run_at": "2026-09-06T04:20:43.584070+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "codex",
+      "verdict": "revise",
+      "summary": ""
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "revise",
+      "summary": ""
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "merge",
+      "summary": "Three items delivered, test surface green on the merged preview. Fourteen findings, no blockers; the largest exposures are two documented fail-open branches (git -C and shell-wrapped commits skipping the binder step; missing gate scripts warning instead of denying). Doctrine coverage is honest: each named remainder is stated in INV-7, INV-11 and INV-21."
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "verdict": null,
+      "summary": "Request timed out after 931s."
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/branch-3b44ddc7d6bbee9bc80cec58dd3178643d82596f.rounds.json",
+  "final_round": 1
+}
