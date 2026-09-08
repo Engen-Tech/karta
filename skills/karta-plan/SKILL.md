@@ -3,10 +3,10 @@ name: karta-plan
 model: opus
 effort: xhigh
 description: >-
-  Analyze a problem/feature description and/or a design mock or non-functional prototype and synthesize a validated binder of work items for ad-hoc orchestration; stack-agnostic (frontend, backend, CLI, data, library/SDK, IaC, mobile, ML, docs — UI is one stack among many); emits .karta/binders/<slug>.json. The draft is reviewed as an editable in-chat card — or one plannotator browser annotation session when that separately-installed CLI is present — and commits only on the explicit "commit" verb. Trigger phrases: "plan this with karta", "synthesize a binder", "break this work into a binder", "karta-plan this feature".
+  Analyze a problem/feature description and/or a design mock or non-functional prototype, grill the user in rounds about every decision the repo cannot answer, and synthesize a validated binder of work items — or an ordered set when a named test says the work must land in stages — for ad-hoc orchestration; stack-agnostic (frontend, backend, CLI, data, library/SDK, IaC, mobile, ML, docs — UI is one stack among many); emits .karta/binders/<slug>.json. The draft is reviewed as an editable in-chat card — or one plannotator browser annotation session when that separately-installed CLI is present — and commits only on the explicit "commit" verb. Trigger phrases: "plan this with karta", "synthesize a binder", "break this work into a binder", "karta-plan this feature".
 ---
 
-karta-plan ingests intent and — without fail — synthesizes a binder. Give it a problem or feature description; optionally attach a design mock or non-functional prototype. It asks a minimal set of questions, runs a synthesis subagent to draft the binder, and commits on an explicit "commit" verb. The output lands at `.karta/binders/<slug>.json` and is validated by `validate_binder.py` before any build run.
+karta-plan ingests intent and — without fail — synthesizes a binder. Give it a problem or feature description; optionally attach a design mock or non-functional prototype. It looks up every fact the repo can answer, grills you in rounds about every decision it cannot — until nothing is left silently assumed, including whether the work is one binder or an ordered set — then runs a synthesis subagent to draft the binder, and commits on an explicit "commit" verb. The output lands at `.karta/binders/<slug>.json` and is validated by `validate_binder.py` before any build run.
 
 **Bundled scripts.** When Pi provides `karta_script`, use the named action below. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
@@ -18,19 +18,19 @@ karta-plan is **stack-agnostic**. It plans frontend, backend, CLI, data pipeline
 
 - Intent ingestion handles design exports too: when the input is a Claude Design or runtime-JSX export, the UI-analysis path applies (component inventory, token map, icon map). This is a **stack-specific aside**, not a precondition for the whole skill.
 - A synthesis subagent drafts the binder from ingested intent.
-- A minimal interview loop asks only what it cannot detect.
+- Facts come from the repo, never from you: the survey (`plan:survey`) looks them up. Decisions come from you, all of them: the grilling phase (`plan:grill`) works the design tree in rounds until its frontier is empty, and puts the binder's shape — one binder or an ordered set — to you as the tree's last decision (`plan:shape`).
 - Commit-on-verb: the binder is presented as an editable card and committed when you say "commit."
 - Review is smart-surfaced: the synthesis subagent flags items that warrant human attention (`surface.flagged` + `surface.signals`); unflagged items don't require a per-card walk.
 
 **Scope limits (V1):**
 
 - Repo detection is light and never blocks (see Project configuration below).
-- When the scope spans multiple natural binders that must land in order, it emits a *set* of self-sufficient binders (each independently valid and mergeable) and suggests the run order — see Phase 5. Default is still one binder; a set is the exception, not the reflex.
+- When the work must land in ordered, separately-merged stages, it emits a *set* of self-sufficient binders (each independently valid and mergeable), each after the first carrying an `after` edge to its predecessor, and states the derived run order — `plan:shape` holds the two tests that decide it, `plan:emit` how a set is written. Default is one binder; a set needs a named reason, never a reflex.
 - Synthesis runs as a single subagent, not a panel.
 
 ## Project configuration (resolve once, never blocking)
 
-Resolve in order: **explicit user input → detect from the repo → ask the user** (batch all unknowns into one question). Skip what you can detect. When detection conflicts with the project's stated stack, the stated stack wins — a repo can be mid-migration.
+Resolve in order: **explicit user input → detect from the repo → ask the user**. Skip what you can detect; what the repo cannot answer is asked inside the grilling rounds (`plan:grill`) as a fact the survey could not settle — never as a questionnaire of its own. When detection conflicts with the project's stated stack, the stated stack wins — a repo can be mid-migration.
 
 | Setting | What it is | How to resolve |
 |-|-|-|
@@ -64,6 +64,8 @@ Resolved UI values feed the binder's `design_facts` and each work item's `compon
 
 Accept a problem or feature description as the only hard requirement. Optionally accept a path to a design mock or non-functional prototype. Some statement of intent is required — if the user provides nothing, ask once.
 
+**Open the design tree.** The stated intent is the tree's root. Note, without asking yet, the decisions that visibly hang off it — where the scope's edges are, what the intent leaves unsaid, which project-configuration settings only the user can supply, and the shape question (`plan:shape`). The tree is worked in Phase 2; Phase 1 is dispatched first so its findings settle as many of those branches as the repo can.
+
 **Repo detect (light, never blocking).** Check for a recognizable repo layout to resolve the binder's landing path and later feed the repo survey (`plan:survey`). Never fail on an unfamiliar structure.
 
 **UI-format gate (conditional).** When the input includes a design file path, check whether it is a Claude Design or runtime-JSX export: verify that `.jsx` siblings exist or the HTML contains a `<script type="text/babel">` block. If the check fails, tell the user what was found and ask them to re-export or point at the `.jsx` sources. Only run this check when a design file is provided; a plain text description has no format to gate.
@@ -89,7 +91,7 @@ Report:
 6. Architecture or decision-record notes relevant to the stated intent (if any docs exist).
 7. Required runtime: per runtime, the version or range and the pin file or manifest field it came from (`.nvmrc`, `.tool-versions`, `.python-version`, `engines`, `requires-python`, …). This feeds the binder's `runtime_contract`. Say so plainly when nothing pins a runtime — an absent floor is a clean result, not a gap to guess at.
 
-When context is thin on a point, say so — the main thread will interview the user for the missing piece.
+When context is thin on a point, say so — the main thread will put the missing piece to the user in the grilling rounds (`plan:grill`).
 
 Report with `file:line` citations.
 
@@ -115,7 +117,7 @@ Non-UI stacks skip this annex entirely — the base survey above is all they nee
 
 Because `sme` is matched from one repo survey, it is identical across every binder in a planning run unless a binder's scope genuinely excludes a stack.
 
-Load the applied packs now — their guidance feeds synthesis (Phase 2) and their ids are pinned into the binder (Phase 5). These packs are **advisory for decomposition**: they shape how items are split, what each `contract` says, and which `oracle` assertions you choose; they never add a gate at plan time.
+Load the applied packs now — their guidance feeds synthesis (`plan:synthesize`) and their ids are pinned into the binder (`plan:emit`). These packs are **advisory for decomposition**: they shape how items are split, what each `contract` says, and which `oracle` assertions you choose; they never add a gate at plan time.
 <!-- karta:matching-rule:end -->
 
 **Provenance classification (read-only reporting).** As you enumerate the overlay packs (step 2), classify where each local copy came from, so the plan reports its origin next to the match result. Use `karta_script` action `checkPackProvenance` with `root: <repo-root>`; fallback: `uv run --script <skill-dir>/scripts/check_pack_provenance.py <repo-root>`; report each pack's state. A pack lands in exactly one of six states: `seeded cache` (a clean copy of the current built-in), `stale cache` (a clean copy of an older built-in), `suppression` (a `disabled: true` override), `project pack` (the project's own pack, with no built-in of that name), `local fork` (a copy that carries a genuine user edit over the shipped built-in), or `orphaned cache` (its `seeded_from` names a built-in that no longer exists). The comparison is byte-level on canonicalized content; the provenance stamp is diagnostic only, never the cleanliness signal.
@@ -133,7 +135,39 @@ Load the applied packs now — their guidance feeds synthesis (Phase 2) and thei
 
 ---
 
-### Phase 2 — Synthesize the binder (synthesis subagent; main thread owns judgment)  `plan:synthesize`
+### Phase 2 — Grill the intent (rounds, until nothing is assumed)  `plan:grill`
+
+Run the interview exactly as [references/grilling.md](references/grilling.md) prescribes. That file is a verbatim copy of the `grilling` skill from mattpocock/skills — `skills/productivity/grilling/SKILL.md` at commit `85f83d3` (2026-08-20) — and it is the whole method: a design tree of decisions, a frontier of the ones that can be asked now, numbered rounds with your recommended answer under every question, facts found by you and decisions made by the user, done only when the frontier is empty and the user confirms. Do not paraphrase it, trim it, or ask one question at a time when a round is due; to change the method, change it upstream and re-copy the file byte for byte.
+
+What karta-plan binds into that method:
+
+- **The tree's root is the stated intent (Phase 0).** Its first branches are the decisions the repo cannot settle: where the scope's edges are — what is in, what is out, what is deliberately left for later; what happens at the edges the intent does not mention; what "done" looks like to the user, in terms an oracle can check; and any project-configuration setting the survey came back without. Recommend an answer under every question, and put the cheap ones to the user too — a decision confirmed in a word costs less than one assumed and rebuilt.
+- **Facts are yours; the survey is the sub-agent.** A question the repo can answer is never asked. The Phase 1 survey is the running exploration the method names: dispatch it before the first round, ask the questions that do not depend on it now, and hold the ones that do for the round after it reports. When a fact lives in neither the repo nor the intent — an env command nothing pins, a runtime floor no file records — it is asked in a round, as a fact the survey could not settle, not batched into a questionnaire of its own. When the host cannot spawn a fact-finding subagent, look the fact up inline and say so; never turn a fact into a question because the lookup was inconvenient.
+- **The shape question is the tree's last decision (`plan:shape`, below).** It depends on the scope boundary, so it is asked in a round after the boundary settles — never in the first round beside it — and the frontier is not empty until it is answered.
+- **Confirmation is the user's words.** The phase ends when the frontier is empty *and* the user says the understanding is shared. A round that produced no new questions is not confirmation; neither is silence. Synthesis (Phase 3) does not start before it.
+
+Nothing enforces this phase — no gate can see a chat. What a reader can check is its residue: every decision the rounds settled appears in the binder as a scope line, a contract term, or an oracle assertion (Phase 3 lists that as a review check), and the review card and the report both carry the shape line with its reason.
+
+**One binder or an ordered set  `plan:shape`.** Every plan answers this exactly once, in the round after the scope boundary settles, with your recommendation attached; the answer is carried onto the review card (`plan:emit`) and into the report (`plan:report`) with its reason. The default is one binder. Recommend a set only when one of two tests holds, and name which:
+
+1. **The user asked for separate binders.** Their words, recorded as their decision — *"new first, then edit, then delete — separate binders"* is the canonical case. Say why one binder would do if you think so; do not overrule them.
+2. **An event outside the branch must happen between two stages.** Some of the work cannot be built, verified, or safely kept until earlier work has merged to the default branch *and something has happened since*: a migration has run against real data, a deprecation or soak window has elapsed, another repo or service has shipped against the new contract, a flag has flipped in production, a consumer has cut over. Name the event. If the only thing between the stages is "the earlier code exists", that is a `depends_on` edge inside one binder, not a set — deliver's waves already honour it.
+
+The canonical set is expand → migrate → contract ([references/example-sequence/](references/example-sequence/)): each stage leaves the tree green on its own because the event between stages is what makes the next stage safe.
+
+What does **not** make a set — recommend one binder, and say which of these the intent leaned on:
+
+- **Size.** A large binder is still one binder; waves run its items in parallel, and Phase 5 offers a smaller first slice. Trimming is not splitting: a smaller binder now and a later plan for the rest is one binder with no `after` edge to anything.
+- **Order inside the work.** "B needs A first" is `depends_on`. A set is for work that needs a *merge* between A and B, not a build order.
+- **Different stacks, areas, or teams.** A polyglot repo's frontend and backend items share one binder; `touches`, `serialize`, and `shared_resources` carry the collisions.
+- **A stage that *could* merge on its own.** Every wave could. Could is not must; only test 2's named event makes it must.
+- **Smaller reviews.** If that is what the user wants, it is test 1 — ask, and let them say it. Do not split on their behalf.
+
+Record the outcome as one line the card and the report both carry — *Shape: one binder — <reason>* or *Shape: a set of N — test <1|2>: <the user's words, or the event>*. For a set, each binder's `summary` names its stage and its `after` edge names its predecessor (`plan:emit`); for one binder nothing extra is stored. `validate_binder.py` never reads the reason: across a set it checks only that each binder is valid on its own, that every `after` slug resolves (a dangling one is a warning), and that the `after` graph has no cycle (an error).
+
+---
+
+### Phase 3 — Synthesize the binder (synthesis subagent; main thread owns judgment)  `plan:synthesize`
 
 Decompose the stated intent into work items. Do not delegate this judgment — the synthesis subagent drafts; you review and own the output.
 
@@ -141,7 +175,7 @@ When the runtime cannot spawn the synthesis subagent (a host that gates delegati
 
 **Subagent brief:**
 
-Given the intent `<intent>` and the repo survey (`plan:survey`), draft a binder JSON that conforms to [references/binder-reference.md](references/binder-reference.md).
+Given the intent `<intent>`, the decisions settled in the grilling rounds (`plan:grill`) — including the shape decision (`plan:shape`) — and the repo survey (`plan:survey`), draft a binder JSON that conforms to [references/binder-reference.md](references/binder-reference.md). When the shape is a set, draft one binder per stage, each self-sufficient and each after the first carrying its `after` edge (see `plan:emit`).
 
 **Domain guidance (when stack packs matched in `plan:sme`).** When one or more stack packs matched, their do's/don'ts are domain guidance for this synthesis. Decompose items, write `contract`s, and choose `oracle` assertions so they respect each matched stack's patterns and avoid its anti-patterns (e.g. an Angular slice's `contract` speaks in standalone-component / signals terms; a FastAPI item's `oracle` expects Pydantic-validated request/response shapes). This guidance shapes the plan; it never adds a plan-time gate.
 
@@ -156,6 +190,8 @@ For the binder level, populate:
 - `runtime_contract` when the project pins a runtime floor: one `runtimes` entry per runtime (`name`, the required `version`/range, and an optional `manager` — the version manager that pins it, e.g. `nvm`/`mise`), plus `on_unavailable` (always `halt` — karta never auto-provisions or selects a runtime). Detect the floor from version-manager pin files and manifest fields (`engines`, `requires-python`), then record the resolved `version`; omit the whole object when no runtime floor exists
 - `token_manifest` only when the stack has a token system
 - `sme` — the stack pack ids pinned in `plan:sme`. An always-on pack applies to every binder, so an empty `sme` is legitimate only when every always-on pack is suppressed by a `disabled: true` overlay and nothing else matched — never because the match step was skipped
+
+**Every settled decision has a home in the binder.** Each answer the grilling rounds settled lands as a `scope.included`/`scope.excluded` line, a `contract` term, or an `oracle` assertion — the plan of record carries it, not the conversation. A settled decision with no home is a gap to raise in the draft, never a fact to drop.
 
 For each work item, set:
 - `id` (kebab-case, unique)
@@ -212,6 +248,8 @@ Return the draft binder JSON.
 After the subagent returns, review the draft. Check:
 - The binder has a human `title` and a plain-language `summary`, and every work item has a one-sentence `summary` — none of them just restate the slug/id.
 - Every work item has an `id`, a `contract`, and an `oracle`.
+- Every decision the grilling rounds settled has a home in the binder — a scope line, a contract term, or an oracle assertion — and none lives only in the conversation.
+- The shape matches the recorded `plan:shape` decision: one binder, or exactly the stages decided, each after the first carrying its `after` edge.
 - `depends_on` references resolve to real IDs in this binder (no dangling refs).
 - Oracle assertions trace to the item's contract.
 - `serialize`/`shared_resources` are set for any items that write shared state (migrations, lock files, config that multiple items touch).
@@ -222,7 +260,7 @@ Fix gaps in the main thread before proceeding.
 
 ---
 
-### Phase 3 — Smart-surfaced review (the one human-in-the-loop point)  `plan:surface`
+### Phase 4 — Smart-surfaced review (the review point)  `plan:surface`
 
 Per [references/smart-surfaced-review.md](references/smart-surfaced-review.md): compute the seven boundary signals for each work item and write `surface { flagged, signals }` into the binder. When a signal cannot be computed yet (no diff, no path conventions), record `not-computed:<signal-name>` in `surface.signals` rather than giving a clean pass.
 
@@ -234,31 +272,31 @@ Show the user which items are flagged and why. Then give them three ways to go:
 - **Review flagged only** — walk only the flagged items.
 - **Accept as-is** — skip the walk and move on.
 
-Keep the list short: don't show oracle details for routine, unflagged items. Settle any decisions here so the deliver and build steps can run hands-off.
+Keep the list short: don't show oracle details for routine, unflagged items. The grilling rounds settled the intent; this point settles what the flags raise, so the deliver and build steps can run hands-off.
 
 ---
 
-### Phase 4 — Cost education  `plan:cost`
+### Phase 5 — Cost education  `plan:cost`
 
-When the binder has many work items or several large (`L`) estimates, tell the user plainly: this scope will cost time and real money before anything lands. Suggest a smaller first slice — the items with no `depends_on` that form the first wave — as a lower-risk start.
+When the binder has many work items or several large (`L`) estimates, tell the user plainly: this scope will cost time and real money before anything lands. Suggest a smaller first slice — the items with no `depends_on` that form the first wave — as a lower-risk start. A smaller slice is a smaller binder, not a set: it changes nothing in the `plan:shape` decision.
 
 Educate; don't forbid. If the user wants the full scope, move on.
 
 ---
 
-### Phase 5 — Emit, validate, and commit  `plan:emit`
+### Phase 6 — Emit, validate, and commit  `plan:emit`
 
 **Write the binder(s)** to the resolved location (`.karta/binders/<slug>.json`).
 
-**When the work is one sequence of stages, emit a set.** Split into an ordered set of binders only when **either** the user asks for separate ordered binders (e.g. *"new first, then edit, then delete — separate binders"*) **or** the work genuinely needs ordered, separately-mergeable stages — the expand → migrate → contract shape is the canonical one (see [references/example-sequence/](references/example-sequence/)). Each binder in the set is a normal, self-sufficient binder: it must pass `validate_binder.py` on its own and leave the tree green on its own (e.g. *new* adds standalone code, *edit* rewires call sites, *delete* removes the now-dead code). Slugs are **descriptive and unique, grouped by a shared prefix, and carry no sequence number** (`note-tags-new`, `note-tags-edit`, `note-tags-delete`) — a number would be a stored order that rots when the set changes.
+**When the shape decision is a set, emit a set.** The split was decided once, in the grilling rounds (`plan:shape`), by one of its two tests — the user asked for separate binders, or a named event outside the branch must happen between two stages. Do not re-decide it here, and never split at emit time for size or tidiness. The expand → migrate → contract shape is the canonical set (see [references/example-sequence/](references/example-sequence/)). Each binder in the set is a normal, self-sufficient binder: it must pass `validate_binder.py` on its own and leave the tree green on its own (e.g. *new* adds standalone code, *edit* rewires call sites, *delete* removes the now-dead code). Slugs are **descriptive and unique, grouped by a shared prefix, and carry no sequence number** (`note-tags-new`, `note-tags-edit`, `note-tags-delete`) — a number would be a stored order that rots when the set changes.
 
-**Emit `after` edges when emitting a set.** For each binder in the set except the first, set its top-level `after` to the slug(s) of its immediate predecessor(s) in the suggested order — `note-tags-edit` carries `"after": ["note-tags-new"]`, `note-tags-delete` carries `"after": ["note-tags-edit"]`, and `note-tags-new` carries no `after` at all (it has no predecessor). The `after` field is the **only** persisted cross-binder dependency. (An `after` may also name an already-delivered binder — one karta-deliver archived to `.karta/binders/archive/` — which the status engine resolves as satisfied, not dangling.) The run order the user sees in Phase 6 is the topo sort the engine derives from these edges — which means `karta-status`'s live order and this plan-time advice are always the same sort over the same stored edges. Only the edge is stored; the order is derived, never stored. Do **not** write a sequence manifest or encode order in slugs.
+**Emit `after` edges when emitting a set.** For each binder in the set except the first, set its top-level `after` to the slug(s) of its immediate predecessor(s) in the suggested order — `note-tags-edit` carries `"after": ["note-tags-new"]`, `note-tags-delete` carries `"after": ["note-tags-edit"]`, and `note-tags-new` carries no `after` at all (it has no predecessor). The `after` field is the **only** persisted cross-binder dependency. (An `after` may also name an already-delivered binder — one karta-deliver archived to `.karta/binders/archive/` — which the status engine resolves as satisfied, not dangling.) The run order the user sees in the report (`plan:report`) is the topo sort the engine derives from these edges — which means `karta-status`'s live order and this plan-time advice are always the same sort over the same stored edges. Only the edge is stored; the order is derived, never stored. Do **not** write a sequence manifest or encode order in slugs.
 
 **Validate it.** Use `karta_script` action `validateBinder` with `binder: <path>`; fallback: `uv run --script <skill-dir>/scripts/validate_binder.py --binder <path>`.
 
 The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, or `python3` all run it. Do not proceed on a validation failure. Fix the binder and re-validate until it passes. **For a set, validate every binder** — each must pass on its own before you present the set.
 
-A clean run still prints two recorded escapes: the opted-out items, and the waived visual checks — every item naming a design view it does not open, with its reason and the item covering it. **Carry both onto the review card**, so the person saying `commit` sees each escape and its cover before the binder is committed rather than in the report afterwards.
+A clean run still prints two recorded escapes: the opted-out items, and the waived visual checks — every item naming a design view it does not open, with its reason and the item covering it. **Carry both onto the review card, with the shape line from `plan:shape`**, so the person saying `commit` sees each escape, its cover, and why the work is one binder or a set before the binder is committed rather than in the report afterwards.
 
 **Single-work-item hatch.** A binder with exactly one work item can skip the deliver phase and go straight to build. Tell the user this option exists; let them make the call.
 
@@ -282,10 +320,11 @@ A clean run still prints two recorded escapes: the opted-out items, and the waiv
 
 ---
 
-### Phase 6 — Report back  `plan:report`
+### Phase 7 — Report back  `plan:report`
 
 Lead with the binder path and the total work-item count, then give the user:
 
+- **Shape** — the `plan:shape` line: one binder and why, or a set of N and the test that decided it.
 - **Work order** — the item IDs in dependency order (topological sort), and the dependency chain.
 - **Flagged for review** — the IDs and the signals that flagged each one.
 - **Opted-out items** — the IDs and their recorded reasons (from the validator's opt-out summary).
@@ -305,6 +344,7 @@ Lead with the binder path and the total work-item count, then give the user:
 - **Opt-out is explicit and recorded.** There is no silent opt-out. Every `opt_out: true` requires a `reason`. karta reports opted-out items after every run so nothing slips through unnoticed.
 - **A design claim is checked or waived — never neither.** An item whose `design_reference` names a real view carries a `visual` oracle or a `visual_check_waiver` (`reason` plus `covered_by`). `validate_binder.py` rejects the binder otherwise, and rejects a waiver that does no work. `none` is matched byte for byte, so `None` and `NONE` are view names, not the sentinel.
 - **Don't delegate synthesis judgment.** The synthesis subagent drafts; the main thread reviews, corrects, and owns the binder. Cross-referencing contracts, oracle traceability, and dependency order requires judgment — do not hand that off.
+- **Facts are never asked; decisions are never assumed.** The survey answers what the repo can answer, and the grilling rounds put every remaining decision to the user, one frontier at a time, with a recommendation attached. The interview ends on the user's confirmation — not on a round with no new questions, and not on silence.
 - **Validate before commit.** A binder that fails `validate_binder.py` is not a valid binder. Fix it before presenting it to the user for commit.
-- **A sequence is a set of self-sufficient binders; order is derived, never stored.** When scope spans multiple natural binders that must land in order, emit them as a set — each independently valid and mergeable, sliced expand → migrate → contract so each leaves the tree green. Slugs are descriptive and unique (no sequence number). Each binder except the first carries an `after` field naming its immediate predecessor(s); `after` is the only persisted cross-binder dependency. No sequence manifest, no ordering in slugs. The run order is derived (topo sort) from the edges — it is never stored directly. Movement between binders is the user's, done manually. Default is still one binder.
+- **A sequence is a set of self-sufficient binders; order is derived, never stored.** The split is decided once, in `plan:shape`, by a named test — the user's own words, or an event outside the branch that must happen between two stages — never at emit time, and never for size, build order, stack, or reviewability. When it is a set, each binder is independently valid and mergeable, sliced expand → migrate → contract so each leaves the tree green. Slugs are descriptive and unique (no sequence number). Each binder except the first carries an `after` field naming its immediate predecessor(s); `after` is the only persisted cross-binder dependency. No sequence manifest, no ordering in slugs. The run order is derived (topo sort) from the edges — it is never stored directly. Movement between binders is the user's, done manually. Default is one binder.
 - **The binder is read-only once committed.** Build steps read the binder; they do not modify it. A build step that tries to rewrite its own work item's oracle or estimate is corrupting its own governance.

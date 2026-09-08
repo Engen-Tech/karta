@@ -25,6 +25,26 @@ function processGroupAlive(pid: number): boolean {
 }
 
 const GRACE_POLL_MS = 50;
+// How long teardown waits for a SIGKILLed group to actually disappear before giving up on
+// it. A killed group is gone within a few milliseconds — measured at 3–4ms after the
+// signal on Linux 6.12 for a `sh -c node` pair holding a loopback listener — so this is
+// a ceiling for the pathological case (a member stuck in uninterruptible sleep), never a
+// wait that is normally consumed.
+const KILL_SETTLE_MS = 1_000;
+const KILL_POLL_MS = 5;
+
+// Poll until the group has no member left, or the budget runs out. Resolves true when the
+// group is gone. A zombie still counts as a member, so "gone" means every member has been
+// reaped, which is strictly after its descriptors — and any port they held — were released.
+async function awaitGroupGone(pid: number, budgetMs: number, pollMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  while (processGroupAlive(pid)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
+  }
+  return true;
+}
 
 async function stopProcessTree(pid: number, graceMs: number): Promise<void> {
   if (process.platform === "win32") {
@@ -40,18 +60,18 @@ async function stopProcessTree(pid: number, graceMs: number): Promise<void> {
   // The grace is an escalation ceiling, not a fixed wait: poll for the group to die so a
   // cooperative process is reclaimed promptly, and only SIGKILL one that outlives the
   // whole window.
-  const deadline = Date.now() + graceMs;
-  while (processGroupAlive(pid)) {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    await new Promise((resolve) => setTimeout(resolve, Math.min(GRACE_POLL_MS, remaining)));
-  }
-  if (!processGroupAlive(pid)) return;
+  if (await awaitGroupGone(pid, graceMs, GRACE_POLL_MS)) return;
   try {
     process.kill(-pid, "SIGKILL");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
+  // kill(2) only queues the signal; the members die when they next get scheduled. Returning
+  // here resolved teardown a few milliseconds before the group was gone, so a caller that
+  // reused the port straight after stop() hit EADDRINUSE against a listener the kernel had
+  // not yet released. Wait for the group to be gone, bounded so an unkillable member can
+  // never wedge teardown; on that bound elapsing there is nothing further this side can do.
+  await awaitGroupGone(pid, KILL_SETTLE_MS, KILL_POLL_MS);
 }
 
 export interface BinderLifecycleOwner {
