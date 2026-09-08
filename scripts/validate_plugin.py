@@ -1817,6 +1817,11 @@ def _check_hooks(errors: list[str]) -> None:
             errors.append(f"{script.relative_to(ROOT)}: not referenced by hooks/hooks.json — it would never run")
         _run_self_test(script, errors)
 
+    # Codex guards are hand-maintained implementations, not copies of the Claude
+    # guards above. Projection equality alone cannot prove they work.
+    for script in sorted((ROOT / ".codex-plugin/hooks/scripts").glob("*.py")):
+        _run_self_test(script, errors)
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
