@@ -3,7 +3,7 @@
   "vector": "sme-pack-static-suite",
   "run_date": "2026-09-08",
   "plugin_version": "2.36.0",
-  "karta_sha": "210a8e05efe740933cc48f56a3f6b49fa2d427dc",
+  "karta_sha": "0da806c51a9d1249964d892451dc6a75862f82ea",
   "consumer_shas": {
     "parchmark": "2b87e071fbcd50256c5cd18dc31d401c169b8eaf",
     "gringotts": "36652b1af25024226323e34698415b3c1b1a10a3"
@@ -766,6 +766,6 @@
     "seed-drift:gringotts:go-naming:DIVERGENT",
     "seed-drift:gringotts:minimalism:LOCAL-ADDITIVE"
   ],
-  "baseline_file": "benchmarks/sme/results/2026-09-01-sme-pack-static-suite.json",
-  "status": "fail"
+  "baseline_file": "benchmarks/sme/results/2026-09-08-sme-pack-static-suite.json",
+  "status": "pass"
 }
