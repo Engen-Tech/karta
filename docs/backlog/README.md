@@ -681,6 +681,104 @@ under-advised.
 results, instead of scanning only the passed directory's top level. Keep it stdlib-only. Evidence:
 [`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding D).
 
+## 27. karta-build prescribes a worker commit shape the gate is about to warn on — *Ready* (filed 2026-09-07)
+
+**What.** `skills/karta-build/SKILL.md:138` tells the worker to `cd "$worktree"` and commit from
+there. That is the shape item 22 already records as denied by the review gate, and the
+`invariant-gates-tightening` binder's recorded-bytes item turns it into a named-skip warning on
+*every* worker commit: a `cd`-chain is a segment the hook cannot see through, so the binder step
+reports that it could not read the shape.
+
+**Why it matters.** It is karta's own delivery loop. Once that item lands, every commit karta
+makes while building anything emits a warning about the way karta told it to commit. Nothing
+breaks — the outcome is warn-and-allow — but the signal that is supposed to mean "this commit's
+recorded bytes were not judged" fires constantly and stops being read.
+
+**Fix shape.** Move the prescribed shape to `git -C <worktree> commit …`, which the gate resolves
+rather than skips once item 22's narrow acceptance exists. The two are coupled: doing this before
+item 22 lands trades a warning for a denial, so sequence it after, or land both together. Relates
+to items 11 and 22 and to register entry INV-11.
+
+---
+
+## 28. karta-deliver ignores a binder's `after` edges when choosing its base — *Ready* (filed 2026-09-07)
+
+**What.** A binder may carry a top-level `after` naming a binder it depends on —
+`invariant-gates-tightening` carries `after: ["invariant-foundations"]`. Nothing in the delivery
+runtime reads it. karta-deliver picks its base from the default branch and never checks that the
+named predecessor actually landed there.
+
+**Why it matters.** The whole point of the edge is that the plan's oracles are written against the
+predecessor's delivered tree. Deliver a binder whose `after` has not landed and every floor is
+measured against the wrong baseline, every `present`/`absent` pin reads a file that has not been
+rewritten yet, and the failures look like plan defects rather than a sequencing mistake. The
+review rounds on `invariant-gates-tightening` hit a version of this repeatedly from the other
+side: providers handed pre-landing files filed blocking findings for text that was simply not on
+main yet.
+
+**Fix shape.** At the start of a delivery, resolve each `after` entry to its archived binder or
+its integration merge on the base branch, and refuse to start when one is missing — naming which
+predecessor and where it was looked for. A warning is not enough; the resulting failures are
+indistinguishable from real defects.
+
+---
+
+## 29. verify cannot observe a hook's live-session surface — *Ready* (filed 2026-09-07)
+
+**What.** karta-verify runs read-only against a diff. A PreToolUse hook's user-visible channel —
+whether a warning actually reaches the session as `systemMessage`, whether it is shown to the
+person or only added to the model's context — is not in the diff and cannot be checked there.
+
+**Why it matters.** A binder can oblige a hook to surface a warning, pin the field names in the
+source, and go green while the warning arrives nowhere. The
+`invariant-gates-tightening` binder is explicit that its own claim here rests on the documented
+field contract rather than an observation, and its oracles pin the literals in the hook source
+because that is all a diff-time gate can reach. So the strongest check karta has for this class
+stops one step short of the thing that matters.
+
+**Fix shape.** Name the limit where it applies rather than pretending to cover it: a contract that
+promises a live-session surface carries an explicit human-confirmation step after landing, and
+verify reports the claim as unobservable rather than as satisfied. A stronger version — a harness
+that drives a real hook invocation and captures what the host renders — is a larger piece of work
+and probably belongs to the host adapters, not to verify.
+
+---
+
+## 30. the landing gate's independence from the review hatch is not true for a relocated merge — *Ready* (filed 2026-09-07)
+
+**What.** AGENTS.md states that the landing gate "reads neither `.karta/roundtable.json` nor
+`KARTA_SKIP_ROUNDTABLE` — a downed review environment says nothing about who decides a delivery
+ships." Measured on 2026-09-07 against the delivered gate, that holds for an ordinary merge and
+fails for a relocated one. With review enabled and `KARTA_SKIP_ROUNDTABLE=1` set, from a linked
+worktree on a feature branch:
+
+| shape | pre-landing gate | delivered gate |
+|-|-|-|
+| plain merge from the primary checkout | blocked | blocked |
+| `env --chdir=<primary> git merge …` | blocked | allowed |
+| `cd <primary> && git merge …` | blocked | allowed |
+| `git -C <primary> merge …` | blocked | allowed |
+
+The cause is the worktree rescoping itself, which is otherwise a fix: `scope()` resolves the
+branch from the payload's cwd, so from a feature worktree the landing gate sees a feature branch,
+finds no landing, and allows — while git performs the merge in the primary checkout on the
+default branch. For those shapes the protection is supplied by the *review* gate, which does read
+both the config and the hatch.
+
+**Why it matters.** This is the repo's own rule-authoring invariant — doctrine never claims more
+than enforcement delivers — broken by the change that exists to strengthen the invariant
+register. The gap is narrow (it needs the hatch or a disabled switch) and it is a written promise
+that is currently false.
+
+**Fix shape.** The `invariant-gates-tightening` binder's `worktree-relocation-acceptance` item
+closes it, by denying a merge whose leading wrapper chain carries an option that sets the
+directory git runs in, ahead of the hatch. That binder is tabled as of 2026-09-07, so this is not
+scheduled. Until it is, either correct AGENTS.md to scope the independence claim to non-relocated
+shapes, or take the denial on its own. Evidence and the four probe scripts are named in the
+binder's round ledger.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
