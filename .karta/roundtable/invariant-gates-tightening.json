@@ -1,0 +1,53 @@
+{
+  "reviewed_hash": "99e6a96fadf0c7a74725b0f3a53d7e4a4de4989d26148985764cd6ce92b78b92",
+  "tool": "roundtable-critique",
+  "target_kind": "binder",
+  "target_ref": "invariant-gates-tightening",
+  "run_at": "2026-09-08T03:11:51.235427+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ship",
+      "summary": "{\"verdict\": \"ship\", \"summary\": \"Ship. The binder is fully buildable as it stands. Revision 15 resolved the remaining discrepancies from round 11: item 4 enumerates recorded-semi-joined-add-index-bytes with its discriminating arm in contract.cases, in exact agreement with row 6b, the oracle passed() invocation, the header count and the floor progression 82->94->100->123->127; item 5's contract.acceptance now expresses the wrapper-chain relocation rule identically to review_gate, doctrine, scope.excluded and cases; item 4's oracle pins both systemMessage and additionalContext. All five oracles execute without syntax or environment errors and fail honestly at their baseline floors. Declared touches match all obligations across all items.\", \"findings\": \"None. The binder is internally consistent, all cross-field references and floor chains match, and no defect that would mislead or block a builder was found.\"}"
+    },
+    {
+      "provider": "codex",
+      "verdict": "ship",
+      "summary": "{\"verdict\": \"ship\", \"summary\": \"The binder is buildable as it stands. Ship.\", \"findings\": \"No defects found.\"}"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "ship",
+      "summary": "{\"verdict\": \"ship\", \"summary\": \"Buildable as it stands. Each of the three revision-15 changes checks out against every other field the binder carries, and the floors/case counts chain consistently: item 1 twelve cases floor 94; item 2 six new plus the pre-existing register-timeout-budget-under-margin, floor 100; item 3 thirteen cases floor 30; item 4 twenty-three precommit plus list-inputs-mode, floors 123 and 31; item 5 eleven roundtable plus four precommit, 1803->1814, 123->127, _worktree 11. The chain-rule wording now reads identically in acceptance, review_gate, doctrine, scope.excluded and cases.\", \"findings\": \"No defects found that meet the reporting bar. Cross-checks performed, all clean: the new case is consistent across enumeration, passed(), header and floors; no stale '(env --chdir, or env -C, in either spelling)' wording remains in any visible field; the additionalContext pin follows item 4's doctrine. Near-misses chased and dismissed: the 'disarmed together' pin is grounded in recorded_bytes' own posture paragraph; the INV-8 Carriers regex runs under grep -qE so its ? is the ERE quantifier as intended; passed()'s anchors prevent prefix collisions between case ids.\"}"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "verdict": "ship",
+      "summary": "{\"verdict\": \"ship\", \"summary\": \"Buildable as it stands \\u2014 ship. All three revision-15 changes check out against every other visible statement of the same rule. The new case is consistent in every place it lives; item 5's acceptance now states the chain rule identically to scope.excluded and review_gate on all three elements \\u2014 the chain rather than its head, decided from what the parser resolves rather than a list of spellings, denied by name under every switch; the additionalContext pin corresponds exactly to item 4's doctrine obligation and cannot false-fail a correct build. Beyond the three changes I re-verified case-id sets against passed() lists, headers and floor arithmetic for every item, the shared-term pins, the wave/DAG structure, and touches versus obligations.\", \"findings\": \"None that would change the artifact. I specifically hunted the binder's dominant defect class \\u2014 a rule or case updated in some fields and left stale in another \\u2014 and each revision-15 change is now consistent with every other visible statement of its rule. The one asymmetry I examined and rejected: item 4's oracle.assertions prose says the hooks how-to section names systemMessage and says what a parse failure does, without mentioning the newly pinned additionalContext. That is an under-description of a summary field, not a defect \\u2014 the binding oracle command pins it and the doctrine paragraph obligates it, so no builder can produce a wrong artifact from the prose gap.\"}"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ship",
+      "summary": "{\"verdict\": \"ship\", \"summary\": \"Buildable as it stands. The three revision-15 changes each match every other place the same rule is stated; all five landing sites of the new case agree; the old single-wrapper enumeration is gone; the additionalContext pin is consistent with contract.warning_channel and the existing systemMessage pin. Floors chain correctly: precommit 82->94->100->123->127, register 17->30->31, roundtable 1803->1814, _worktree 11.\", \"findings\": \"None. I checked the three revision-15 changes against every other statement of the same rule and found no contradiction; each item's touches against the paths its oracle and contract obligations read, with no missing file or unsatisfied obligation; the named-case lists against the passed() lists and floor numbers, which match; and the wave structure, with no same-wave conflict on docs/conventions/invariants.md, docs/backlog/README.md, docs/how-to/hooks.md or AGENTS.md.\"}"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ship",
+      "summary": "{\"verdict\": \"ship\", \"summary\": \"Buildable as it stands. The three revision-15 changes are consistent with the rest of the binder: item 4's newly enumerated case is present in the case list, oracle passed list, count and floor chain; item 5's acceptance wording now matches the wrapper-chain rule stated elsewhere; and item 4's oracle now pins additionalContext alongside systemMessage. No contradiction or missing obligation would cause a builder to produce the wrong artifact.\", \"findings\": \"None.\"}"
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/invariant-gates-tightening.rounds.json",
+  "final_round": 12
+}

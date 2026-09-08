@@ -1,0 +1,679 @@
+{
+  "target_ref": "invariant-gates-tightening",
+  "target_kind": "binder",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4-pro-0813"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "73bb70055914692c80910954f54837eeffe97ffbd7ea2ffefa369367be9458cb",
+      "run_at": "2026-09-06T22:32:32.376414+00:00",
+      "providers": {
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1 plumbing-nonzero-warns split: _name_status and _nul_paths each proven by their own failing stub, warning names command and exit code",
+        "codex#2 hooks.md overclaim: closed by oracle assertions on both the paragraph (:47) and the enforcement-table row (:19); binder states it is oracle-only, not a named case",
+        "codex#3 two-places grammar rule proven repo-wide: the oracle lists every file carrying the grammar line (excluding .git, node_modules, .karta, .worktrees) and requires exactly the register and the checker",
+        "codex#4 divergence design withdrawn: item 4 is now recorded-bytes-register-check \u2014 the register gate runs on the bytes each commit shape records (index/worktree/HEAD/absent per the WHAT BYTES rule), with per-shape cases for plain, pathspec-covered, pathspec-uncovered, -a and untracked",
+        "codex#6 deadline promise narrowed to subprocesses; HOOK_OVERHEAD named a design reserve; host kill past it kept as INV-21's named residual",
+        "deepseek#1 unresolvable -C denial narrowed to a relocating merge naming a karta/*/integration ref; a foreign plain merge keeps today's behaviour (denied with review on, allowed with review off) with a positive-control case",
+        "deepseek#2 script-token grammar stated (charset, backticks, quotes mask, no globs, trailing punctuation stripped, flags excluded) with case script-token-rule",
+        "deepseek#3 realpath normalization stated; case relocate-c-normalized-spelling-accepted",
+        "deepseek#4 roundtable.md stale bullet: absence check added for the joined -C/--git-dir/--work-tree denial",
+        "deepseek#5 none yet is exact: any suffix is a parse failure; INV-8 rewritten; case grammar-none-yet-exact",
+        "deepseek#6 remedy text is per shape; the untracked case says add it or remove it from the register",
+        "deepseek#7 checker docstring absence now has a presence control (the recorded-bytes fragment)",
+        "deepseek#8 bare -m named: opaque shape with the named-skip warning, exercised under shape-skip-is-named",
+        "deepseek#9 case relocate-c-every-lookup-rescoped: the recording runner shows every git invocation on the target top",
+        "glm#1 blanket divergence denial gone with the redesign: an honest unrelated commit records HEAD's register copy, which passed when it landed",
+        "glm#2 item 5 summary reworded to the split rule (review gate denies unresolvable landings; commit hook warns and allows)",
+        "glm#3 twins fact recorded in the exclusion: .codex-plugin/hooks mirrors hooks/scripts, no script under scripts/ names it, no gate compares it with scripts/hooks",
+        "glm#4 .py-token rule for prose bullets stated (same as deepseek#2)",
+        "glm#5 masking control's unmasked path sits on a note bullet",
+        "glm#6 positive control added for the checker docstring replacement",
+        "glm#7 listing order stated once: register first, then carriers sorted; the oracle checks the first line",
+        "glm#8 untracked remedy fixed (add it or remove it from the register)",
+        "glm#9 inherited checker fail-open named in INV-20 (disarmed together) and checked by the oracle",
+        "glm#10 plumbing counts stated exactly: two release reads on every true commit, two more on a bump, three enumeration calls plus one show per candidate; the arithmetic case dropped",
+        "glm#11 hatch-proof denial stated as deliberate with its reason (INV-18: a landing decision never depends on the review environment or its hatch) in the contract, AGENTS.md and the how-to",
+        "glm#12 commit-and-merge-only residual named in INV-11 and the roundtable how-to bullet",
+        "qwen#F1 one consistent rule per hook; -C with --git-dir/--work-tree/GIT_* is never rescoped and the suite still runs (case relocate-c-with-gitdir-not-rescoped)",
+        "qwen#F2 untracked rule replaced: the recorded tree simply lacks the blob; ls-files --others is gone",
+        "qwen#F4 remaining = max(0, ...); at zero no spawn; case deadline-zero-remaining-skips",
+        "qwen#F5 carrier-undecodable-named made an invariant property; the other two plausible findings likewise",
+        "qwen#F6 docs finding stated as oracle-only",
+        "qwen#F7 detached HEAD target defined (not the default branch; landing gate does not fire); case relocate-c-detached-target",
+        "qwen#F8 unknown short letters opaque and named; operators longest-first; -- ends options; global -C owned by item 5",
+        "qwen#F9 glob metacharacters excluded from script tokens",
+        "qwen#F10 listing paths fed to git cat-file --batch on stdin, never as arguments",
+        "qwen#F11 43.9 s labelled a planning note, not a floor",
+        "qwen#F12 positive control for the checker docstring",
+        "qwen#F13 the accepted-shape fragment is required present in precommit_gate.py",
+        "binder-level (from the same review pass): after edge added naming invariant-foundations; passed() anchored at both ends so a prefix id cannot satisfy a shorter one; every exit-0 warning delivered as the hook's JSON systemMessage (Claude Code routes exit-0 stderr to the debug log only); AGENTS.md's hook-enumeration sentence updated by the item that adds the step; INV-25 oracle anchored on the Carriers bullet; backlog-21 trim given a negative control; INV-20's Carriers no longer asked to carry the grammar line"
+      ],
+      "findings_refuted_or_deferred": [
+        "codex#5 env --chdir wrapper: a cwd-changing wrapper before git is the anchoring residual AGENTS.md's landing-gate section already names (an invocation not heading its segment reads as text); it predates -C acceptance and is now named in the binder's exclusions rather than closed here",
+        "qwen#F3 precommit self-test breakage from the strict grammar: refuted \u2014 precommit_gate.py's self-test spawns the register gate as a stubbed command and writes no register fixture (the branch file contains no Carriers or ### INV text), so the grammar cannot change its count; stated in the contract, floor kept as a regression guard"
+      ],
+      "notes": "Round 1 on the first draft (item 4 = staged-divergence-denial, no after edge). Four real verdicts, all revise. The revision that follows reshapes item 4, item 5's -C rule, and the warning channel; round 2 reviews the revised bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 2,
+      "reviewed_hash": "7a83bf7fbc196e210d2c1d2481d8b7eaf26a37696a84d4b1610d7a70448ea4b1",
+      "run_at": "2026-09-06T22:46:16.908388+00:00",
+      "providers": {
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1 / deepseek#1 / glm#2 / qwen#2 / deepseek#3: a listing exit 1 is the checker's verdict on the recorded register and blocks; warn-and-allow is reserved for exit 2, a crash, a timeout, a spawn failure, or a cat-file failure; hooks.md names exactly those; case recorded-register-parse-failure-blocks",
+        "codex#2 / glm#1: the listing mode becomes --list-inputs \u2014 every path the checker reads or stats (register, carriers, and the script tokens of enforced and partial entries) \u2014 and the temporary root materializes all of them from the recorded source; case recorded-scripts-materialized; the oracle asserts an INV-19 script appears in the listing",
+        "codex#3 / deepseek#1 / glm#2 / qwen#1 / qwen#6: two-phase materialization \u2014 the recorded register bytes are written first, the listing is derived from that copy, then the listed paths are materialized and judged; case recorded-staged-register-lists-new-carrier",
+        "codex#4: a pathspec or --include covered path takes working-tree bytes only when git knows the path (index or HEAD); an untracked covered path is absent (git refuses that commit itself); folded into recorded-untracked-carrier-absent",
+        "codex#5: a chained add counts only when every edge to the commit is &&; an add joined by ; || | or & makes the shape opaque and named-skipped; the tokenizer keeps operator edges; case shape-chain-edge-semantics",
+        "codex#6 / glm#7 / qwen#7: one emitter, emit_outcome, is the hook's only output site; hook_main's internal-error path returns its warning through it; case warning-channel-internal-error; every warn case asserts the message through that path",
+        "deepseek#2 / qwen#3: --include stated separately \u2014 covered paths from the working tree, uncovered paths from the index (a plain commit's rule), never HEAD; --amend builds its tree the same way; case recorded-include-uncovered-index-bytes",
+        "deepseek#4 / glm#4 / qwen#5: a redirected command (--git-dir, --work-tree, --namespace, GIT_* prefix, with or without -C) is stated as content-unjudged: the suite still runs from the cwd root as a regression guard, the recorded-bytes read, binder step and release block are skipped with one warning saying the recorded content was not judged, and the residual is named in INV-7 and hooks.md; the absolute claim is gone; case relocate-redirect-content-unjudged",
+        "deepseek#5: the layer-2 replacement names the five gates that read the working tree and says the binder step and the register gate read the bytes the commit records",
+        "glm#3: a merge naming a karta/*/integration ref with any relocation other than a single resolvable -C (two -C, --git-dir, --work-tree, --namespace, GIT_DIR/GIT_WORK_TREE prefix) is denied before hatch and config; case relocate-redirect-landing-denied",
+        "glm#5: INV-11's remainder enumerates every still-denied shape",
+        "glm#6: INV-21 verified on the branch (its entry names no timeout); its status and its AGENTS.md carrier phrase are pinned by item 2's oracle",
+        "glm#8: dry runs named among INV-20's working-tree-judged remainders and in hooks.md",
+        "minimax#2: --only (the default pathspec shape) and --amend stated explicitly in the byte-source rule",
+        "minimax#3: script tokens may not contain a .. segment",
+        "minimax#4: the emitter is named emit_outcome in the contract and the case",
+        "minimax#5: relocate-c-every-lookup-rescoped requires a non-empty recording that includes the branch and default-branch lookups",
+        "minimax#6: the decision tags (D1(h), D2, D4-D9, D11) are spelled out in the motivation, since the schema allows no decisions field",
+        "qwen#4: a relative pathspec resolves against the -C target directory as git resolves it, then normalizes to the worktree top; contract and cases aligned"
+      ],
+      "findings_refuted_or_deferred": [
+        "minimax#1 (warning channel unverified end to end): the claim rests on the Claude Code hooks reference read 2026-09-06 (systemMessage is 'Message shown to Claude in the transcript, visible to the user'; exit-0 stderr goes to the debug log only); no self-test can prove transcript delivery, so the delivery's verify step gains one manual check \u2014 trigger a named skip in a live session and confirm the warning appears \u2014 recorded in the build notes; deferred to that step, not refuted"
+      ],
+      "notes": "Round 2 on the first revision (recorded-bytes item 4, one -C rule per hook, warning channel, after edge). Five real verdicts, all revise, converging on the recorded-bytes byte-source rules; the revision that follows makes the listing two-phase, blocks on parse failure, materializes script tokens, fixes --include, widens the pre-hatch landing denial to every redirect, and names the redirected-commit residual. Round 3 reviews the revised bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 3,
+      "reviewed_hash": "8c70a0af96ac78bb48553b5a4c6a68e2243dec10d1ae88567aa8cc5629dd4b26",
+      "run_at": "2026-09-07T00:06:55.509794+00:00",
+      "providers": {
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1: a chained add counts only when every operator from the first segment through the commit is && (verified: true || add && commit skips the add and runs the commit); any || ; | or & before the commit makes the shape opaque and named-skipped; case extended",
+        "codex#2: an unrecognised long option (git accepts abbreviations such as --incl, verified to act as --include) makes the shape opaque and named-skipped; --incl added to shape-skip-is-named",
+        "codex#3: add modes stated \u2014 -u tracked only, -A and bare specs untracked too, -N records nothing (verified) and, with --ignore-removal, --renormalize, --chmod and any unmodelled option, makes the shape opaque; case shape-add-modes",
+        "codex#4 / qwen#2: the hook reads working-tree bytes from disk and applies no clean filter, eol conversion or symlink resolution; this repository's carriers are LF text with no filter attributes and no symlinks (verified 2026-09-06), and INV-20 names that bound rather than the binder modelling conversion",
+        "codex#5: --amend --only with no pathspec (and --fixup=reword, which implies it) records HEAD's tree \u2014 verified; row 6 states it; case recorded-amend-only-head-bytes",
+        "codex#6: any non-add segment before the commit (a mutator the hook cannot see) makes the shape opaque for the register gate: working-tree run with the named skip; case recorded-mutator-segment-reads-worktree; INV-20 names the remainder",
+        "deepseek#3: a -C value carrying an unexpanded ~ $ glob or brace character is not resolvable from text: the commit hook treats it as redirected (content unjudged, named warning); the review gate denies it as today; stated in the residual",
+        "deepseek#4: a script token starts with an alphanumeric character \u2014 a run preceded by a colon or a slash (a URL) is not a token; URL arm added to script-token-rule",
+        "deepseek#5: the three positive-control cases are labelled regression guards (green before and after, red if the byte source regresses) rather than red-before proofs",
+        "deepseek#6: the absent check on the stderr print spelling is dropped; the main()-driven case guards the channel",
+        "deepseek#7 / qwen#3: --list-inputs parses and prints only, reads the register and nothing else, stats no listed path; a missing or unreadable register exits 1 and blocks; list-inputs-mode runs against a root holding only the register",
+        "glm#1: row 5 restated as a composition (verified: an && add followed by a pathspec commit that leaves the path out records HEAD's blob): the add places working-tree bytes into the index, then the commit's own row applies; case recorded-add-then-pathspec-head-bytes",
+        "glm#2: row 4 restated (verified: -a records a tracked carrier deleted on disk as absent): working-tree bytes for a tracked path present on disk, absence for one deleted on disk, nothing for an untracked path; case recorded-all-deleted-carrier-absent",
+        "glm#3: INV-20's claim narrowed to every shape whose recorded bytes the hook can derive; item 5 adds the redirected-command residual to INV-20 and pins it",
+        "glm#4: the acceptance fragment is scoped per file \u2014 precommit_gate.py carries 'a worktree of this same repository or a directory inside one'; the strict fragment stays in the review gate's doctrine files",
+        "glm#5: the temporary root is removed in a finally (shutil.rmtree, ignore_errors) around both phases; two cases assert it is gone after a deny and after a warn-and-allow",
+        "glm#7: the release-block sentence names the branches precisely \u2014 the deadline-cut read gains the warning; the unreadable-version arms (:856, :873) stay silent by explicit exclusion",
+        "qwen#1: git refuses -a with a pathspec and -a with --include (verified), so no row combines them and the hook treats such a command as opaque",
+        "qwen#4: the batch reads feed object names :<path> and HEAD:<path> on stdin; recorded-paths-from-listing asserts the qualifiers",
+        "qwen#5: item 5's oracle pins each still-denied relocation shape in INV-11 and the exact warn-and-allow exceptions in hooks.md",
+        "qwen#6: on an enforced or partial entry a .py run containing a glob metacharacter or a .. segment is a named parse failure, not a silent non-token; a quoted path stays a phrase (the masking rule) and is checked for presence as one"
+      ],
+      "findings_refuted_or_deferred": [
+        "deepseek#1 (glued -C<path> spelling): refuted for -C \u2014 git rejects `-C<path>` as an unknown option (verified 2026-09-06), so it is not a relocation; the =-joined --git-dir/--work-tree/--namespace spellings are the same relocation as the spaced ones and the branch already parses them (roundtable_gate.py :1922 tests --git-dir=.git); relocate-redirect-landing-denied names the = spelling explicitly",
+        "deepseek#2 (--include naming an untracked path): refuted \u2014 git refuses that commit ('did not match any file(s) known to git', verified), so no tree is recorded and no honest commit is denied; the cell is stated as git's own refusal",
+        "glm#6 (HEAD-only covered path): refuted \u2014 after git rm --cached, a pathspec commit naming the path records the working-tree bytes (verified), so 'in the index or in HEAD' is right as written"
+      ],
+      "notes": "Round 3 on the second revision (rounds 1-2 applied). Four real verdicts, all revise; the remaining findings are git-semantics edges in item 4's byte-source table and the shape parser, each reproduced or refuted in a scratch repository before the revision that follows. Round 4 reviews the revised bytes.",
+      "below_floor": false
+    },
+    {
+      "round": 4,
+      "reviewed_hash": "532bf76c634c666a4935473805697c36f240ec8fb433ef1751f87b1e70c3938c",
+      "run_at": "2026-09-07T05:43:35.385821+00:00",
+      "providers": {
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1 / deepseek#5 / glm#1: directory pathspecs \u2014 probes A, A3, A4 (2026-09-07) show a directory spec or `.` proceeds when it matches a known path and records no untracked path under it, refusing only when a spec matches nothing known; rows 2 and 3 now state the coverage rule (a listed path is covered when it equals a spec or lies under a directory spec), a covered unknown path is absent, a covered known path deleted on disk is absent (probe I); new case recorded-dir-pathspec-coverage; floors 118->119 and 122->123; item 1 says a directory spec is a resolvable containment, not a glob",
+        "codex#2: the branch accepts --literal-pathspecs, --glob-pathspecs, --noglob-pathspecs and --icase-pathspecs as inert flags (:297-298) while `git --icase-pathspecs commit -- agents.md` records AGENTS.md (probe G); the four now make the shape opaque with the named skip; arm on shape-skip-is-named",
+        "codex#3: `git commit --only --allow-empty` with no pathspec records HEAD's tree with the index ignored (probe B; --only alone is git's own refusal, probe B2); row 6 restated for --only without a pathspec beside --amend or --allow-empty, the parser keeps explicit --only state, and recorded-amend-only-head-bytes gains the --only --allow-empty arm",
+        "deepseek#1: two or more -C options in the commit hook are applied in order, each relative to the previous (probe H: `git -C <top> -C sub` runs in <top>/sub), then judged by the same acceptance rule; the review gate keeps denying the shape; arm on relocate-c-subdir-rescopes-hook",
+        "deepseek#2: the warn-and-allow exception is worded 'crash, timeout or spawn failure' everywhere (contract posture, INV-20 remainder, hooks.md sentence, item 3's hooks.md rewrite) \u2014 the branch's runner already maps a spawn error to GATE_INCOMPLETE (:207-208); the item 5 oracle pins the new phrase in hooks.md",
+        "deepseek#4: a tracked carrier deleted on disk gets a restore-based remedy (git restore --worktree -- <path>, or remove it from the register) since git add on a deleted path stages the deletion; recorded-all-deleted-carrier-absent names it",
+        "deepseek#6: INV-11's enumeration gains a -C naming a subdirectory of a worktree top; the oracle insecs 'subdirectory' in INV-11",
+        "deepseek#7: the mandated comment and docstring fragments are now exact and pinned by present greps \u2014 item 1 'a warning reaches the session as systemMessage'; item 2 'the deadline is shared and derived', 'HOOK_OVERHEAD is a reserve', 'a host kill past the reserve'",
+        "glm#2: a payload holding more than one true commit is an opaque shape with the named skip (the branch's commit_plan reads the first commit only, :520-523); arm on shape-skip-is-named; the one-run rule says so",
+        "glm#3: `git -c core.autocrlf=input commit -- <path>` records LF where the disk holds CRLF (probe E), and the branch skips every -c as an inert value option (:293); a -c or --config-env global under core. or filter. is now the named skip, and INV-20's disk-bytes bound names the config prefixes the hook does not read (GIT_CONFIG_*, GIT_ATTR_NOSYSTEM)",
+        "glm#4: recorded-amend-only-head-bytes, recorded-include-uncovered-index-bytes (both arms) and recorded-scripts-materialized (the deletion arm) now pin the index-versus-disk state that makes each red on the branch; the three regression guards stay the three labelled ones",
+        "glm#6: the checker gains --register-path (prints its one register-path constant, reads nothing, exit 0); phase one asks it, so the hook carries no copy of the register location; arm on list-inputs-mode",
+        "glm#7: the script-token algorithm is stated as the branch's _TOKEN_RE (:109-110) \u2014 masked phrases, maximal [A-Za-z0-9_./-] runs, trailing period and hyphen stripped, then the ends-in-.py and alphanumeric-start tests; a run that is not a token is prose, silently, except the glob and .. parse failures; script-token-rule gains the sentence-final-period arm",
+        "minimax#2: passed() in the shared prelude now requires exactly one [PASS]-or-[FAIL] line per case id (smoke-tested: two lines for one id fail), and the case contracts say each case is one check() call; every oracle assertion says so",
+        "deepseek#3 (restated, not conceded): the -N claim re-verified in a clean repository (probe C: plain commit records no path; probe C4: -a records it) and the wording now says so; the intent-to-add index-versus-tree remainder (the index reads it as an empty blob) is named in INV-20 rather than claimed closed"
+      ],
+      "findings_refuted_or_deferred": [
+        "deepseek#3: `git add -N new && git commit` in a clean repository (2026-09-07) records no path for new \u2014 `git ls-tree -r HEAD` lists it absent \u2014 so the binder's claim was right; the 2026-09-06 probe was reproduced, not contradicted (the review's 'empty blob' reading is what the index holds, not what the commit records)",
+        "glm#5 / minimax#3: `git commit -h` on the floor host lists exactly -q -v -F -m -c -C -s -t -e -S -a -i -p -o -n -z -u; -i is --include, -o is --only, -z is --null, -u is --untracked-files[=<mode>] \u2014 the binder's letter set is git's own list, unchanged",
+        "minimax#1 / minimax#5: disposed in rounds 2 and 3 \u2014 the raw hooks reference (fetched 2026-09-06) defines hookSpecificOutput.additionalContext for PreToolUse as 'String added to Claude's context alongside the tool result'; no CI-replayable harness for hook delivery exists, so the live check in the delivery's verify step, recorded in the build notes, stays the honest guard; the self-test pins the documented JSON shape",
+        "minimax#4: a `git rm --cached` segment before the commit stays a mutator segment (working-tree run with the named skip) by design \u2014 the parser models add only, the working-tree run is the branch's behaviour today, and the skip is named; modelling index operations beyond add is scope this binder does not take",
+        "codex#1 (the implementation pointer): precommit_gate.py:603-626 is the binder step's own candidate walk, cited as analogy; the fix above is in the register gate's byte-source table, which is where the review located the gap"
+      ],
+      "notes": "Round 4 on bytes 532bf76c634c666a (revision after round 3 and the third panel). Four usable providers: codex, fireworks-deepseek, fireworks-glm5p3, fireworks-minimax, all 'revise'. Every git-semantics claim was reproduced in fresh scratch repositories (gitsem3.sh, gitsem4.sh, 2026-09-07) before the revision that round 5 reviews.",
+      "below_floor": false
+    },
+    {
+      "round": 5,
+      "reviewed_hash": "dc687fa4180a596b7597fc4f45d9e2d229c310e9f0b7feaebe9ae4bcf0b69e01",
+      "run_at": "2026-09-07T07:28:06.982409+00:00",
+      "providers": {
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1: the release block read plugin.json through commit_reads_worktree, one boolean for the whole commit (:806-844), so `--include other`, `git add plugin.json && git commit` and `--amend --only` each read bytes git does not record; the reader is retired and the release block takes plugin.json's source from the plan's per-path resolution; new case release-recorded-bytes; floors 121->122 and 125->126",
+        "codex#2 / glm#1: --edit joins the plain long flags; a --no- form cancels its option's state in token order, last wins (probes F5-F8: `--all --no-all` records the index, `--include --no-include -- <path>` is a pathspec commit, `--amend --no-amend` is a plain new commit); arms on shape-long-flags-known",
+        "codex#3: `|&` is bash's pipe of both streams, a pipe boundary like `|`, not a redirection glyph; removed from the glyph list; arm on shape-chain-edge-semantics",
+        "codex#4: `--fixup=reword:HEAD` over a staged change keeps HEAD's tree (probe F1); arm on recorded-amend-only-head-bytes; --amend with a pathspec follows row 2 (probe F9: covered from disk, uncovered from HEAD), both arms pinned",
+        "deepseek#1: on an unborn branch a pathspec commit records only its covered paths (probe F10); an uncovered listed path is absent without a read, `git rev-parse --verify HEAD` precedes the cat-file batch so an unborn HEAD is never a plumbing failure, and phase one denies with the missing-register verdict; arm on recorded-pathspec-uncovered-head-bytes",
+        "deepseek#2 / glm#4: the hooks.md sentences name the whole action \u2014 an unresolvable -C or redirected command has its recorded-content steps skipped while the five working-tree gates still judge the invocation cwd's tree and may still block; the warn-and-allow list names the checker's crash, timeout or spawn failure, plumbing failures of the recorded-bytes reads and of the binder step's enumeration, the shared deadline cutting off the checker, the binder plumbing or the release block, and the named skip; pinned by 'shared deadline' (item 4) and 'may still block' (item 5)",
+        "deepseek#3: any GIT_CONFIG_* or GIT_ATTR_* prefix joins the redirecting environment set (content unjudged, named warning), since it redirects the config or attributes that decide what git records; arm on relocate-redirect-content-unjudged",
+        "deepseek#4 (partial): two more sentence-level pins ('shared deadline', 'may still block'); doctrine wording beyond the pinned fragments stays review-held, which INV-20's remainder already says",
+        "glm#2: the four unpinned arms of the byte-source table are pinned \u2014 a pathspec naming a deleted tracked carrier (row 2) on recorded-all-deleted-carrier-absent, `--include <carrier>` judged from disk (row 3) on recorded-include-uncovered-index-bytes, a carrier modified on disk but not add-covered judged from its index blob after `git add other && git commit` (row 5) on recorded-plain-index-bytes, and --amend with a pathspec (row 6) on recorded-amend-only-head-bytes",
+        "glm#3: a merge naming a karta/*/integration ref that does not head its own segment (a wrapper such as env --chdir, xargs or time before git \u2014 the loose _MERGE_RE at :182 sees it, the anchored parser does not, and with review disabled the grammar is off at :1571-1572) is denied under every switch, remedy 'run the merge as a plain command from that worktree'; arm on relocate-redirect-landing-denied; INV-11's enumeration, AGENTS.md's landing-gate paragraph and scope.excluded say so; a wrapper before a commit stays the anchoring residual",
+        "glm#5: coverage is stated as equality with the normalized spec or the spec followed by a slash (`.` is the empty spec; `docs` does not cover docs-other/x); sibling-prefix arm on recorded-dir-pathspec-coverage",
+        "glm#6: the register absent from the recorded tree (staged for deletion, or deleted on disk under -a; probe F11) is a stated row \u2014 phase one has no register bytes, --list-inputs exits 1 with its missing-register verdict, the gate denies with a restore remedy; arm on recorded-register-parse-failure-blocks",
+        "glm#7 / qwen#4: git refuses -i with -o ('cannot be used together', probe F2) and a bare --include even beside --allow-empty (probes F3/F4, 'No paths with --include/--only does not make sense'); stated beside the -a refusals, no row combines them",
+        "glm#8: item 1's assertion says twelve named cases",
+        "qwen#1: the glued example is the whole chain, `git add x.json&&git commit -m x`, in the contract and in shape-glued-operator-splits",
+        "qwen#2: the glob parse failure is checked on the whitespace-delimited word before the character-set run is taken, since the run cannot hold *, ? or [; the case stands",
+        "qwen#3: a leading-slash .py spelling that no colon or slash precedes is a named parse failure on an enforced or partial entry (write the repo-relative path), like the bare basename; arm on script-token-rule",
+        "qwen#5: a payload holding more than one true commit is row 8 explicitly \u2014 the working-tree run with the named skip, no phase one"
+      ],
+      "findings_refuted_or_deferred": [
+        "qwen#6: a -C target whose HEAD is detached at the default branch's tip is not on the default branch \u2014 a merge there moves no branch ref, so nothing lands on main and there is no landing to gate; the landing gate protects the branch ref, and the branch's own cwd rule already reads a detached cwd the same way (:1526-1533); the contract rescopes that rule to the -C target, it does not weaken it",
+        "minimax: empty output at the 65536 completion-token cap; antigravity: probe failed at dispatch time (repaired afterwards, rejoins from round 6) \u2014 both omitted"
+      ],
+      "notes": "Round 5 on bytes dc687fa4180a596b (revision after round 4 and the fourth six-lens panel). Four usable providers: codex, fireworks-deepseek, fireworks-glm5p3, fireworks-qwen, all 'revise'; the release block's one-boolean reader, --no- cancellation, |&, --fixup=reword, an unborn HEAD, GIT_CONFIG_* prefixes, the wrapper-hidden landing merge and the register's own absence were the substantive gaps; every git claim was reproduced in fresh scratch repositories (gitsem6.sh) before the revision that round 6 reviews.",
+      "below_floor": false
+    },
+    {
+      "round": 6,
+      "reviewed_hash": "087b618c8f949e313b51651491540ad14eae44646247b41027bef836abfbafae",
+      "run_at": "2026-09-07T08:46:12.298076+00:00",
+      "providers": {
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1 (blocking): the release block's evidence is still read from the working tree \u2014 it enumerates *-gate.json with gate_dir.glob and parses each with p.read_text() (:876-880), and calls a file committed when `rel in staged or (worktree_mode and p.is_file())` (:905), so under a pathspec or -a any green gate file merely present on disk (untracked, unstaged, or not covered by the pathspec) satisfies the test although the commit records none of it, and a disk-green/index-red file passes; worse, that predicate is the second caller of commit_reads_worktree, which this item retires, so retiring it without re-expressing the predicate would delete a function the release block still calls. The enumeration, the contents and the committed test all move to the plan's per-path resolution, and release-recorded-bytes gains arms for an untracked green gate file under a pathspec and under -a, and for a gate file green on disk and red in the index",
+        "codex#4 (corrected): round 5's glm#3 rested on a false premise and is superseded. The branch's anchored matcher already looks through executing wrappers \u2014 _WRAPPERS at :215-226 carries env (with --chdir), time, timeout, nice, nohup, stdbuf, command, builtin and exec, and _head strips them before _MERGE_RE \u2014 so `env --chdir=<primary> git merge karta/x/integration` is already gated today, and `env -S` is already denied by name through hidden_invocation (:539-545). Closing 'every wrapper-hidden merge' with the loose _MERGE_RE search would match a merge quoted in an echo, a heredoc or a grep pattern, which is exactly what the anchoring at :668-682 and AGENTS.md's landing-gate paragraph exist to avoid. The item now asserts the parsed wrappers as a regression guard, keeps the -C and redirect shapes as the new denials, and names xargs and loop bodies as the anchoring residual AGENTS.md already names rather than pretending to close them",
+        "codex#2 (partial): the Codex adapter kills the delegate at 590 s (codex_precommit_gate.py :65-69 on the branch), so under Codex the reserve behind the 540 s deadline is 50 s, not the 60 s HOOK_OVERHEAD names; the deadline itself still holds (540 < 590 < 600), which the item already said \u2014 the narrowed reserve is now said too",
+        "codex#3 / glm#7: the per-subprocess caps for what this item adds were unstated. The register gate's two spawns (phase one --list-inputs, phase two --root) and the cat-file batches share the register checker's 20 s cap from gate_specs rather than taking one each, and --register-path reads nothing; the worst-case sum is re-derived so it stays under KILL_MARGIN instead of landing on it",
+        "deepseek#1 (partial): GIT_LITERAL_PATHSPECS, GIT_GLOB_PATHSPECS, GIT_NOGLOB_PATHSPECS and GIT_ICASE_PATHSPECS join the redirecting environment set, closing the asymmetry with the flag spellings item 1 already makes opaque named skips \u2014 probed 2026-09-07: `GIT_ICASE_PATHSPECS=1 git commit -m x -- upper.md` records Upper.md, where the same spec without the variable is refused ('did not match any file(s) known to git'), so the case-sensitive coverage rule would judge a different byte source than the commit records",
+        "deepseek#2: the masking scope was stated once as 'the segment's double-quoted phrases' while script-token-rule asserts a quoted path on a note bullet is not a token; the scope is now stated once as every bullet and segment the checker takes tokens from, so the algorithm, script-token-rule and masking_control agree",
+        "deepseek#5: the byte-source table's verification date is 2026-09-06 and 2026-09-07, the two dates its rows were actually probed on",
+        "deepseek#6: item 5's eleven cases carried no house.4 sentence at all, unlike items 3 and 4; it gains one naming its two exceptions \u2014 relocate-c-subdir-denied (already labelled a regression guard) and relocate-c-unresolvable-commit-split (the positive control for the narrow landing denial)",
+        "deepseek#7: the binder now says where a bare VAR=value prefix on a plain commit is pinned \u2014 item 5's relocate-redirect-content-unjudged positive control (`GIT_EDITOR=true git commit -m x` with an invalid staged binder, still denied) \u2014 rather than leaving it unstated through items 1-4",
+        "glm#1: item 4's re-derivation list named two cases and read as exhaustive; item 1's shape-attached-short-value-not-all asserts 'commit_reads_worktree is False for it', so it is named as the third and re-expressed against the plan's per-path resolution",
+        "glm#2 (corrected): git refuses -a beside --only in every spelling ('options -o/--only and -a/--all cannot be used together' for `-a -o --allow-empty`, `--amend -a -o` and `-a -o -- <path>`) and refuses `-a --fixup=reword:HEAD` by name ('reword option of --fixup and --patch/--interactive/--all/--include/--only cannot be used together'), all probed 2026-09-07 \u2014 so no shape is unclassifiable, but the refusal enumeration claimed completeness without naming these two, and now names them",
+        "glm#3: the cat-file --batch missing-object protocol is stated, since every absence verdict turns on it \u2014 a missing object prints `<name> missing` on the stream and the exit stays 0 even when every requested object is missing, including HEAD:<path> on an unborn branch (probed 2026-09-07), so absence is read from the stream and only a nonzero exit is the plumbing failure that warns; recorded-untracked-carrier-absent runs against real git so the seam is pinned by execution",
+        "glm#4: spec-windows-absolute-recognised was the one case with no stated arms; it now states them \u2014 the named-skip warning naming the drive-letter spelling and the spec resolving to None, against the branch's silent join onto the repository prefix",
+        "glm#5: item 3's floor is restated as at least 82 on the branch and 100 once items 1 and 2 have landed, with the delivery order named, since depends_on [] lets it build first",
+        "glm#6: 'a stub returning str is a type error the parsers raise' is narrowed to the operations that actually raise (decode, split on a bytes literal), since equality, slicing, len and truthiness against bytes all succeed silently on a str",
+        "minimax#1: a repo-local git hook \u2014 pre-commit, prepare-commit-msg \u2014 can stage or rewrite carrier bytes after this hook has decided, invisibly to the byte-source table for the same reason a `sed -i` segment is; it joins INV-20's named remainders",
+        "minimax#2: item 2's utf-8 case names the branch's sentinel constant (BINDER_FINDINGS_SENTINEL) rather than 'the validator's findings sentinel', so the assertion is greppable without reading validate_binder.py",
+        "minimax#4: the -c / --config-env named skip on any core. or filter. key is stated as deliberate over-defense \u2014 a key that cannot change recorded bytes costs a warning, never a denial \u2014 rather than implying every such key is byte-affecting"
+      ],
+      "findings_refuted_or_deferred": [
+        "deepseek#3: --fixup=amend: is correctly stated. Probed 2026-09-07: `git commit --fixup=amend:HEAD` over a staged change records the staged change (subject 'amend! base'), the index bytes any plain commit records, while --fixup=reword: keeps HEAD's tree; and git refuses `-a --fixup=reword` outright. Row 6 and attached_values say exactly this",
+        "deepseek#4: no git spawn precedes decide. main() (:1673-1677) calls hook_main, which parses the payload and calls decide (:1004-1014) with nothing between; the deadline taken at the top of decide therefore covers every subprocess the hook spawns, so the summary does not overclaim",
+        "deepseek#1 (second half): GIT_CEILING_DIRECTORIES and GIT_DISCOVERY_ACROSS_FILESYSTEM bound how far upward git searches for a repository \u2014 they can make discovery fail, not point git at a different one \u2014 so they are not the D1(h) class of landing-gate escape and do not join the redirecting set on that argument",
+        "minimax#3: `--amend --only --no-edit --allow-empty` follows row 6 exactly as the four arms already listed do; a case's arms are chosen to discriminate, not to enumerate every legal spelling, and adding a fifth arm that exercises the same rule would not make the case red for any behaviour the others leave green",
+        "antigravity: status error after 906 s, 'timeout waiting for response'; fireworks-qwen: empty output at the 32768 completion-token cap (finish_reason 'length') \u2014 both omitted"
+      ],
+      "notes": "Round 6 on bytes 087b618c8f949e31 (the revision carrying round 5's eighteen fixes and the fifth panel's ten). Four usable providers: codex, fireworks-deepseek, fireworks-glm5p3, fireworks-minimax, all 'revise'. Two findings changed the plan rather than its wording: the release block's gate-file evidence is read from the working tree by the same reader this binder retires, and round 5's glm#3 rested on a false premise \u2014 the branch's anchored matcher already looks through env, time and the other executing wrappers, so the wrapper-hidden merge it set out to close was already gated and the remaining residual (xargs, loop bodies) cannot be closed without breaking the anchoring the gate documents. Every git claim was reproduced in fresh scratch repositories (gitsem9.sh) before the revision that round 7 reviews.",
+      "below_floor": false
+    },
+    {
+      "round": 7,
+      "reviewed_hash": "5f675b5c724ac4bca43acef5e98b4b69f5396500e6da545ed48b87a12f24d093",
+      "run_at": "2026-09-07T22:14:56.426341+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "antigravity#1 / codex#2 / deepseek#1 / glm#1+#2 / minimax#1 / qwen#1 (blocking, six-provider consensus): the chained-add rescoping this binder took from the sixth panel was applied to contract.glued_operators and nowhere else, so the item now specified two opposite behaviours for one shape. named_skip still listed 'an add the commit does not depend on' and 'a payload holding more than one true commit' among opaque shapes where the binder step does not run; shape-chain-edge-semantics still asserted the non-&&-joined add is 'opaque with the named skip'; shape-skip-is-named still asserted the two-commit payload exits 0 as a skip; item 1's INV-7 doctrine line still added it as a residual; and item 4's row 8 still sent a multi-commit payload to the working-tree run. All five now state the one rule \u2014 the add's contribution is dropped, the commit's own shape is still judged, the index-sourced candidates are still enumerated and validated \u2014 and the case gains the discriminating arm that was missing entirely: an invalid binder staged before a `;`-joined add is still denied with exit 2, which no arm asserted, so both readings passed the suite as written. Two wording defects go with it: the warning names the add's own arguments rather than 'the paths the add would have covered', which is unbuildable for `git add .` or `-A` without a filesystem walk (antigravity), and a later commit is no longer called 'an add the commit does not depend on', which it is not (glm, codex)",
+        "glm#3: the rescoping left a shape with no row \u2014 a modelled, resolvable add joined to the commit by a non-&& operator or a newline (`git add car; git commit -m x`) fell between row 5 (which requires every operator to be &&) and row 7 (which covers only an unresolvable spec or a non-add segment). The byte-source table gains that row: the commit's own row applies, the add-covered paths are judged from the current index, and the warning names those paths as unverified",
+        "codex#1 / glm#4 (blocking): round 6's codex#4 correction was itself half-wrong, and this is the correction of the correction. Detection is not rescoping. `env --chdir=<primary> git merge karta/x/integration` IS seen by the anchored matcher \u2014 the round-6 probe was right about that \u2014 but scope() (:1505-1523) resolves the branch from payload.cwd alone and nothing in the gate resolves a --chdir target, so from a feature worktree with review disabled the landing gate reads the feature branch, finds no landing and allows, while git executes the merge in the primary checkout on the default branch. That is D1(h) with --chdir in place of -C, and the item's denial list did not cover it. A merge naming a karta/*/integration ref whose segment head is a wrapper carrying a cwd-changing argument is now denied by name under every switch \u2014 still anchored text, no loose search \u2014 and the case asserts the exit code under both switches rather than saying 'gated'",
+        "deepseek#2 / glm#4: round 5's superseded wrapper denial survived in three places after round 6 corrected the review_gate section \u2014 scope.excluded's 'denied by name under every switch', item 5's INV-11 remainder enumeration, and the AGENTS.md 'Anchored, not searched' rewrite. All three now match the position the enforcement actually delivers",
+        "antigravity#2 (blocking, reproduced): item 1's doctrine took on the INV-7 residual-list update in the last revision, but docs/conventions/invariants.md is not in item 1's touches \u2014 and adding it makes the binder INVALID, since items 1 and 3 both have depends_on [] and would touch that file in the same wave with no serialize and no shared_resources entry (validate_binder.py run with the file added returns exactly that). The INV-7 residual update moves to item 4, which already declares the file and lands after both; item 1 keeps only the NAMED RESIDUAL BOUNDS comment in the hook",
+        "antigravity#3 / codex#3 / deepseek#4 / qwen#2 (high): the release-evidence enumeration as written broke the diagnostics it was meant to preserve. Enumerating only the recorded tree never visits a green gate file present on disk and absent from the index, so seen['unstaged'] is never set, the actionable 'run git add <gate>' reason disappears, and the branch's own checks green-but-unstaged-gate-file-blocks and unstaged-block-names-git-add (:1173-1175) go red, taking the 122 floor with them. Candidates are now discovered from the union of the working tree and the recorded tree so every diagnostic class can still be reached, while committed means the recorded tree holds it and its recorded bytes are green; the enumeration query is stated per byte-source row, and arms are added for a gate file staged into the index but absent from disk and for unchanged green evidence a plain commit records",
+        "codex#4 (high): the release block's rescope was unfalsifiable \u2014 relocate-c-rescopes-hook checks the suite, register and binder roots but not the release block, and the oracle only removed the stale comment. The case now sets divergent plugin versions and gate evidence in the primary and the -C target and asserts every release read comes from the target root and target-scoped git",
+        "antigravity#4: items 4 and 5 both claimed the decide() comment at :968-970. Item 4 owns the edit, since it is the item that makes the release block read the resolved root; item 5's oracle keeps the absence assertion as a regression guard and says so",
+        "antigravity#5 (medium, reproduced): check_register reads the register with `except OSError` (:232-236) while its own docstring promises it 'Never raises for a missing or unreadable register \u2014 that is itself a named failure'. A register carrying an undecodable byte raises UnicodeDecodeError, escapes to main's catch-all, exits 2 \u2014 which the commit hook treats as the checker crashing \u2014 and the commit is allowed with a warning. Item 3 catches it and returns a named failure, so a corrupted register blocks instead of failing open",
+        "deepseek#3: the new undecodable-plugin.json arm would have passed on the branch too \u2014 both before and after, the block disarms and the hook exits 0 \u2014 so it proved nothing. It is paired with an invalid staged binder and asserts the ordinary denial (exit 2 with the findings sentinel) plus the absence of an internal-error warning, which is red on the branch, where the UnicodeDecodeError short-circuits decide() into hook_main's handler",
+        "glm#5 / minimax#8 / qwen#4: the worst-case timeout sum was stated as a total and is not one \u2014 every _real_git call carries its own cap, and the release block adds two reads on any true commit and two more on a bump, so the arithmetic 5x90 + 20 + 50 = 520 describes the named components only. Restated as exactly that, with the shared deadline named as the runtime bound that no subprocess outlives, and register-timeout-budget-under-margin re-derived to match the comment rather than to a sum that omits what the same item mandates counting",
+        "deepseek#5 / minimax#5: the re-derivation list named the checks to re-point but not what they assert afterwards, so the '122 stays green' claim could not be audited. Each named re-derivation now states its new assertion",
+        "qwen#3: the recorded-evidence path had no verdict for an absent, undecodable, invalid-JSON or plumbing-failed gate file. Stated: absent means not committed, undecodable or invalid JSON disarms the block with a warning, a plumbing failure warns and allows, with a case for invalid JSON evidence",
+        "qwen#5 / minimax#6: an exported GIT_DIR or GIT_WORK_TREE leaves the command text plain, so the redirect set \u2014 which matches command prefixes \u2014 cannot see it; D1(h)'s closure is scoped to parsed relocation and ambient GIT_* is named as a residual in INV-11 and INV-20 rather than left implied. GIT_ALTERNATE_OBJECT_DIRECTORIES keeps its place with the honest rationale: it widens where git looks for objects rather than changing the bytes recorded, so it is named for the tree it can make git read, not as a byte-changer",
+        "antigravity#6: item 5's house.4 sentence said 'those three' and listed four \u2014 relocate-cd-chain-still-denied was labelled a regression guard in the case list and left out of the exception sentence",
+        "minimax#2: the operator rule read two ways in consecutive sentences \u2014 'every operator from the add through the commit' and 'a `||`, `;`, `|` or `&` or a newline anywhere before the commit'. Stated once, as the rule the cited examples actually need: the add counts when the operators from the add to the commit are all &&, and any earlier operator that leaves the add conditional drops it too",
+        "minimax#4: item 1 builds before item 4 but its shape-attached-short-value-not-all arm asserts through the reader item 4 retires. The binder now says which diff re-expresses it \u2014 item 4's, in the same diff that deletes the function \u2014 so item 1 lands green against the branch's reader and item 4 moves both together"
+      ],
+      "findings_refuted_or_deferred": [
+        "minimax#3: the short-cluster rule is right as written and the counter-claim is not. Probed 2026-09-07: `git commit -Su -m x` fails with gpg 'skipped \"u\": No secret key', so -S consumed the u as its key-id exactly as the binder says; `git commit -u no -m x` reports 'pathspec no did not match', so the next token is never consumed; `-uno` attached works; and `git commit -h` lists `-S, --[no-]gpg-sign[=<key-id>]` and `-u, --[no-]untracked-files[=<mode>]` as optional-attached-value options",
+        "minimax#9: the same rule already predicts the ambiguous ordering it asks about. Probed 2026-09-07: `git commit -cm k` fails with 'could not lookup commit m', so the first value-taking letter consumed the rest of the token as its value, which is what the contract states; no table of orderings is needed for a rule that is positional and already stated",
+        "minimax#6 (first half): GIT_ALTERNATE_OBJECT_DIRECTORIES stays in the set. The claim that it cannot change recorded bytes is right and the conclusion does not follow \u2014 the set is the redirecting environment the hook cannot judge content through, and a variable that changes which object store git reads belongs there; the rationale is corrected rather than the membership"
+      ],
+      "notes": "Round 7 on bytes 5f675b5c724ac4bc. Six usable providers \u2014 antigravity and qwen both answered for the first time on this binder, alongside codex, deepseek, glm5p3 and minimax \u2014 and all six returned 'revise'. Two blocking findings carried a six-provider consensus and both were self-inflicted by the previous two revisions: the chained-add rescoping was written into one paragraph and contradicted by five others, and item 1 took on a register edit without declaring the file, which validate_binder rejects as a same-wave collision. The third correction reverses round 6's own: an env --chdir merge is seen by the matcher but the landing gate still reads the payload cwd's branch, so the escape D1(h) names is open through --chdir and detection was never rescoping.",
+      "below_floor": false
+    },
+    {
+      "round": 8,
+      "reviewed_hash": "f4957b689fd27b464fbba17aed97b4777a364754886ca2543e68a87d23c74e55",
+      "run_at": "2026-09-08T01:58:33.868933+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "block",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1 / antigravity#1 (blocking, and the third revision in a row to be caught by this same pattern): item 5 gave env --chdir three incompatible dispositions. contract.acceptance said a cwd-changing wrapper 'stays what AGENTS.md already names - uncaught by anchoring, never accepted'; contract.review_gate said the same spellings are 'denied by name under every switch'; and contract.cases called them 'a regression guard ... already gated on the branch and still gated after'. Round 7 corrected review_gate and left the other two carrying the superseded reading, so the two fields a builder reads as 'nothing to build' were the stale pair and the arm would have passed green either way. Measured rather than argued: the same merge returns exit 2 against the pre-landing gate and exit 0 against the delivered one with review off or the skip hatch set, so 'already gated' was false. acceptance now states the division scope.excluded already stated - xargs and a loop body stay the anchoring residual, env --chdir and env -C are denied by name - and records that detection is not rescoping: _head strips the wrapper so the merge is seen, while scope() resolves the payload cwd alone so git lands elsewhere. cases moves both directory-changing spellings out of the guard list into newly-denied arms, red before the item builds and asserted under both switches, leaving time and env -S as the guards they really are; and the house.4 exception list is narrowed to the non-relocating wrapper arms so the new denials are not exempted from being red-before",
+        "antigravity#2 / codex#3 (major): the undecodable-register fix that round 7's ledger recorded as resolved had only half landed. Item 3 covered an undecodable CARRIER (carrier-undecodable-named, errors=replace at :248) and never the register file itself, which check_register decodes at :231-236 under except OSError alone - so invalid UTF-8 raises UnicodeDecodeError, escapes to main's catch-all, exits 2, and the commit hook reads that as the checker crashing and allows the commit with a warning. A corrupted register failed open. It is now a named verification failure returning exit 1 like every other, with register-undecodable-named pinning it red before the change, and the floors cascade in both the prose and the enforced oracle calls: item 3 29 -> 30 (floor \"$OUT\"), item 4 30 -> 31 (floor \"$R\")",
+        "antigravity#4 / deepseek#1 (major, and the panel counted it independently): item 4's doctrine owns the INV-7 residual-list rewrite - the five shapes the named skip creates plus a restated remainder count - and no oracle in the binder asserted any of it. INV-7 appeared once across all five oracle commands, in item 5, and only for three unrelated -C swap checks; the register checker verifies only phrases already quoted in a Carriers bullet, so it catches none of it either. A builder who skipped the register edit entirely passed every case. Item 4's oracle now pins the section: notinsec on the stale 'Five remainders' plus insec on each of the five shapes, with the matching assertion added to its claim list",
+        "glm#1 (major, panel B4 independently): a payload holding more than one true commit sat inside item 1's opaque-shape enumeration, under the header predicate 'the binder step does not run', while glued_operators, the shape-skip-is-named case and item 4's row 8 all say the first commit is judged and an invalid staged binder is still denied exit 2. Fourth residue of the round-7 chained-add fix. The clause is lifted out of the parenthesis and restated as its own sentence: not an opaque shape, the first commit is judged and can still deny, and the hook additionally warns naming the later commit it did not judge",
+        "deepseek#5, sharpened by the panel (B3): named_skip claimed a dry run 'is passed over without a warning, which is what row 8 ... already says and what its own case asserts' - and no case in the binder had a dry-run arm. The panel added the reason it matters: the branch collapses both paths identically at :529 (`if shape.dry_run or shape.opaque: return None`), so this item is newly splitting behaviours that are byte-identical today and an implementation that warns on a dry run passed every other case. shape-skip-is-named gains the positive control - `git commit --dry-run -m x` over an invalid staged binder, exit 0 with nothing on either stream",
+        "From the multi-lens panel rather than this round, folded in the same revision and named as such: item 5's oracle pinned `absent \"The release block keeps the root it was given\"`, a sentence that wraps precommit_gate.py:968-969, so grep -F being line-based means the check could never fire before or after the edit. It was the only check anywhere for a comment retirement item 4's contract requires. Dropped from item 5; item 4's oracle gains a live one on the single line that does carry the text, `absent \"rescoping that one is the same fix for a different gate\"`. The panel also removed row 7's 'or an option it does not model', a trigger that cannot reach row 7 because item 1's add_modes sets shape.opaque for an unmodelled add option, sending it to row 8",
+        "codex#5 / glm#2 (major, partial): the Codex build rule forbids continue, stopReason and suppressOutput and only permissionDecision was pinned. suppressOutput and stopReason now have their own absent assertions. Deliberately NOT `absent continue`, which the panel showed would false-fire - `continue` appears 26 times in the hook as the Python keyword. The 10,000-character cap still has no over-cap arm and carries to the next round",
+        "codex#7 / antigravity#3 (minor): _worktree.py was declared in item 5's touches while cases said no change to it is required. Kept, with the reason stated - a permission rather than an obligation, since the resolver is the one file a relocation fix would plausibly need and item 5 is alone in its wave, so declaring it collides with nothing",
+        "deepseek#3 (minor): item 4's same-wave rationale read as a present-tense fact when the collision is counterfactual - it exists only if the edit is placed on item 1, which would put docs/conventions/invariants.md in that item's touches. Reworded to match how item 1 already states it",
+        "Provenance re-baselined, which the landing made possible: every floor was measured against a preview merge of tip 3b44ddc onto main. That merge is now main at 6555869, so the numbers were re-taken from the real tree - precommit 82, register 17, roundtable 1803, _worktree 11, all unchanged - and the 'merged preview' hedge is gone from the binder"
+      ],
+      "findings_refuted_or_deferred": [
+        "minimax#1, #2, #3 and #5 (all four filed blocking), one cause: the provider read the WORKTREE copies of AGENTS.md and docs/conventions/invariants.md, which at review time were main's pre-landing versions, while this binder's oracles are written against the delivered tree. Checked file by file - 'All six must be clean' and the sixth command, 'The commit hook runs a longer list than this checklist', 'that bound is shared by every gate in the suite', and 'the bytes are the ones git actually records' are each present on the branch and absent from pre-landing main. None is a defect. The mismatch is now moot: the branch landed at 6555869, so the worktree and the measured tree are the same thing from round 9 on",
+        "minimax#4 / glm#3 / deepseek#6: 'item 5 is truncated, its touches and oracle unreviewable'. A delivery artifact of those providers' context limits, not the binder - the file is 143640 bytes at the reviewed hash and parses, and antigravity and codex both quoted item 5's full touches list in their findings",
+        "antigravity#6: 'item 5's doctrine says INV-11's AGENTS.md carrier is \"which is not decided here\"', a string in no file in the repository. The binder contains that string zero times - it already says 'which is not decidable from command text', which is the registered carrier. The misquote is the finding's, not the binder's. Recorded because the first pass accepted it: verifying that the phrase was absent from AGENTS.md confirmed only half the claim, and a 'the plan says X but reality is Z' finding needs both halves checked - that reality is Z, and that the plan really says X",
+        "glm#4a and #4b: 'the oracle pins a literal the contract's own mandated wording cannot contain'. Both read a paraphrase as a pin. precommit_gate.py:227 emits `{script} is not in the tree this commit runs in` verbatim, so insec \"$H\" \"is not in the tree\" matches; 'a gate whose script is not in the resolved tree' is unquoted description. Same convention for 'disarmed together', whose governing wording sits in item 4's recorded_bytes. The contract single-quotes what it pins"
+      ],
+      "notes": "Round 8 on bytes f4957b689fd27b46. Five usable providers - antigravity, codex, deepseek, glm5p3, minimax; fireworks-qwen returned an empty body and is omitted. Codex returned block, the other four revise. The round's shape is the finding: three of the four confirmed blockers are one failure - a correction from rounds 6 and 7 that landed in some paragraphs and not others (env --chdir, the undecodable register, the multi-commit payload), which is now the dominant defect class in this binder and is self-inflicted rather than present in the original plan. One provider's four blocking findings were all false for a single reason - it read pre-landing worktree files against a binder written for the delivered tree - and that whole class disappears from round 9, because the branch landed on main at 6555869 between this round and the next. A separate multi-lens panel ran on the same bytes; it is NOT part of this record and is not counted toward min_providers, but two of its findings are folded into the same revision and attributed to it in the fixed list.",
+      "below_floor": false
+    },
+    {
+      "round": 9,
+      "reviewed_hash": "6e3c65269b386c045560577bc5c09ccfda8e17ac7c9bac48624b55695ce9640d",
+      "run_at": "2026-09-08T02:22:17.869646+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "block",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "ALL FOUR usable providers, blocking, and self-inflicted by the previous revision: item 3's register-undecodable-named went into the prose case list and NOT into the Python id list that feeds the oracle's passed() call. The floor had already moved to 30, so any thirteenth case satisfied it while the undecodable-register fix itself stayed unpinned - the precise fail-open the case was added to close. The id is now in the pinned list and the paragraph header reads 'Thirteen new self-test cases' instead of 'Twelve'. A mechanical checker (scratchpad/binder_selfconsistency.py) now reproduces this class independently: it cross-reads every case id across contract.cases, the passed() call and the floor arithmetic, and on the reviewed bytes it found exactly one true positive - this one",
+        "antigravity#3 / codex#2 / deepseek#3 / minimax#3, also self-inflicted: item 4's oracle assertion claims INV-7 carries all five shapes the named skip creates and the command pinned four. The fifth, the core./filter. config global on a working-tree-reading shape, now has its own insec against INV-7's section",
+        "deepseek#1 / antigravity#2 second half, also self-inflicted: the dry-run positive control was written into named_skip and never into the cases paragraph that defines shape-skip-is-named, whose positive controls still read 'a plain commit and git -c user.name=x commit -m x'. The arm is now in the case definition, with the measurement that justifies it",
+        "codex#3, confirmed by probe and broader than filed: the relocation denial was written as a list of spellings, and the gate's own wrapper parser accepts more than the list. merge_invocations() on main resolves `env -C<primary>` attached and the GNU long abbreviations `env --chd=<primary>` and `env --chdi=<primary>` to the same merge as the spaced and =-joined --chdir forms. An implementation denying only the enumerated spellings would pass the case while the relocation stayed open. The rule is restated as a property - a wrapper option that sets the directory git runs in is denied in every spelling the parser already accepts for it - and the arms now cover the attached and abbreviated forms",
+        "antigravity#4: item 5's doctrine told the builder to rewrite AGENTS.md's 'Anchored, not searched' cost as though every wrapper-hidden merge is denied, contradicting scope.excluded and review_gate, which keep xargs and a loop body uncaught by design. The instruction now draws the line the enforcement draws - segment-heading directory-changing wrappers denied, mid-segment invocations still the named residual",
+        "antigravity#5: review_gate carried a second remedy wording ('run the merge from the worktree it belongs to') while doctrine, AGENTS.md and the oracle all pin 'run the merge from that worktree'. One string now",
+        "minimax#6, self-inflicted: the absent-check added last revision names a sentence the contract never quoted, so a builder was told to remove text with no source. The contract now quotes the hook's sentence and says which clause is the matchable one, and why the earlier pin on the other clause could never fire - it wraps :968-969 and grep -F is line-based",
+        "Found by executing the oracles rather than reading them, and self-inflicted: three of item 1's assertions are green before and after - absent permissionDecision, absent suppressOutput, absent stopReason - because none of those strings is in the hook today and the item's obligation is that none appears. house.4 exempts only LABELLED regression guards, and item 1's sentence carried no exception list where item 5's does. Two of the three were added in the previous revision. The sentence now labels them, and the scan that found them (scratchpad/scan_absent.py) evaluates every statically-analysable present/absent assertion against main: 8 absent assertions are red-before, 26 present assertions are red-before, and these three were the only always-green ones"
+      ],
+      "findings_refuted_or_deferred": [
+        "antigravity#2 first half: 'item 1 and item 4 contradict each other on dry runs, and item 4's row 8 makes item 1's positive control unmeetable'. Measured instead of argued, against main at 6555869 with an invalid binder staged in a worktree: a plain commit exits 2 with the binder-validity denial and 755 bytes of stderr, while `git commit --dry-run -m x` and `git commit --dry-run -a -m x` each exit 0 with zero bytes on both streams. A dry run does not reach the binder step at all - commit_plan returns None at :529 - so row 8's working-tree assignment and item 1's silence are about different things and do not collide. The control is exactly meetable, and the plain-commit-denies / dry-run-silent contrast is what makes it discriminating",
+        "minimax#5: 'the case id precommit-gates-run-at-resolved-root keeps a pre-item-4 assertion in its name'. Deferred rather than refuted on the merits, and recorded here so it is not re-raised as new: that case already exists in the landed precommit_gate.py self-test, so renaming it is a change to an existing case's identity, which costs a floor re-derivation across three items. The assertion it makes is not wrong today; it becomes imprecise only after item 4 lands. Worth doing in the build, not in the plan",
+        "The self-consistency checker's other flags, resolved as false positives and recorded so the next round does not chase them: binder-valid-staged-passes, precommit-gates-run-at-resolved-root, register-crash-fail-open and register-timeout-fail-open are cases that ALREADY EXIST in the landed self-test, referenced by item 4 as context rather than added by it, so they are correctly absent from its new-case pin list; and modified-but-unstaged, warn-and-allow, enforced-or-partial and restore-it-or-remove-it are hyphenated prose phrases, not case ids"
+      ],
+      "notes": "Round 9 on bytes 6e3c65269b386c04, the first round whose supplied files ARE the tree the oracles target - the delivery landed on main at 6555869 between rounds, which retires the whole class of false blockers round 8 saw from reading pre-landing copies. Four usable providers: antigravity, codex, deepseek, minimax (codex block, the rest revise); glm5p3 and qwen both hit their completion caps and returned empty bodies. The round's result is blunt and worth recording as such: four of its findings are defects the ROUND-8 REVISION introduced, every one of them the same mistake - a change written into one place and not its partner (a case id added to prose but not to the pinned list; an assertion claiming five shapes while pinning four; a test arm added to one paragraph and not the paragraph that governs it; a pin whose target the contract never quotes). That is the third consecutive round where the largest findings are self-inflicted rather than present in the original plan. Two responses beyond fixing the instances: the oracles were executed against a throwaway worktree of main for the first time, which is how the unlabelled always-green assertions were found, and a mechanical cross-reader now checks every case id against contract.cases, the passed() call and the floor arithmetic, so this class is detectable instead of depending on a reviewer noticing it.",
+      "below_floor": false
+    },
+    {
+      "round": 10,
+      "reviewed_hash": "94c2cd22ecdb568dfc9c022b0a8280767b334f172a8a8c7174c579bfb8301c9b",
+      "run_at": "2026-09-08T02:43:39.587947+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "fireworks-deepseek",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "fireworks-glm5p3",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "fireworks-minimax",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "fireworks-qwen",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "codex#1 / qwen#1 (the only two dissenting verdicts, and measurement makes it worse than either filed): the previous revision taught item 5's CASE ARMS about attached and abbreviated spellings and left the normative rule saying 'segment head' and 'either spelling'. Two defects in one sentence. Enumerating spellings cannot work - merge_invocations() on main resolves --chdir and every unambiguous abbreviation down to --c=, -C spaced, attached and clustered (-iC), chained wrappers and nested env. And the rule was keyed on the segment head, which `time env --chdir=<primary> git merge ...` defeats outright, because its head is `time` and the relocation sits behind it. The rule is now stated against the leading wrapper CHAIN and decided from what the parser resolves, never from a spelling list; the arms take one representative per shape class, including the chained-head case that is precisely the arm a segment-head implementation fails",
+        "glm#2 / qwen#2: a third passage called a different string 'the same remedy' - 'run it from that repository' for the cross-repo over-denial, against the unified 'run the merge from that worktree'. glm read it correctly: it is distinct, correct advice mislabelled as sameness. It now names its own remedy and says why it differs",
+        "codex#2: review_gate says the roundtable how-to carries the remedy and the oracle checked it only in roundtable_gate.py and AGENTS.md. The how-to assertion is added",
+        "deepseek#1 / qwen#4, self-inflicted by the previous revision: the house.4 sentence I added named three exceptions as though the set were complete, while the same contract labels a seven-arm guard inside shape-long-flags-known - so a builder reconciling them could demand impossible pre-change red arms or delete the guard. qwen adds the sharper point: the three forbidden-field checks are not self-test cases at all but source-absence assertions in the oracle, so calling them case exceptions conflated two different things. The sentence now names both kinds, apart, and says neither adds to the twelve named cases",
+        "glm#1 (the one finding glm said it would act on): byte-source row 6b - a modelled, resolvable add joined to the commit by anything but && - had no acceptance case, so a build that routed that class to row 5's post-add bytes or row 7's working-tree run passed the entire suite while judging the wrong bytes for a whole command class. Closed with recorded-semi-joined-add-index-bytes. Worth recording how the cascade went, because it is the failure shape of the last three revisions: adding one case touched EIGHT places - the id list, the prose enumeration, the header count, item 4's floor in prose and in its enforced call and in its assertion, and item 5's floor in prose and in its call - and the first pass caught six of them. The seventh (item 5's assertion text) and eighth (a 'the count stays 122' clause inside item 4's doctrine) were found by grepping every remaining occurrence of the old numbers rather than by trusting the edit list",
+        "Deferred item resolved by probing main, and it needed the probe: the core./filter. narrowing is conditional on the shape, and with an invalid binder staged EVERY -c spelling denies today - including a plain `git -c core.autocrlf=input commit -m x`, exit 2. So an implementation that made every core./filter. global opaque would turn that into exit 0 and trade a live denial for a warning, which the contract forbids. The positive control now pins the plain-commit shape, which also satisfies minimax#4 from round 9 (the arm had to name its shape because the rule is conditional on it)",
+        "Deferred item resolved by probing main, and the round-8 framing of it was wrong: the undecodable plugin.json was filed as a fail-open a real commit could ride through. It cannot. A commit with a corrupted .claude-plugin/plugin.json is denied exit 2 by the gate suite - validate_plugin fails on that same file long before the release block is consulted - so the silent disarm is observable only where the self-test drives _new_version directly with stubs. The arm stays; the claim around it is narrowed to what is true",
+        "glm#7 from round 8, confirmed by reading both items: item 4 said 'one rule for the version and its evidence' while item 2 says twice that an unreadable version disarms SILENTLY and is 'its own backlog line, not this item'. Item 4 claimed a parity item 2 denies. It now covers the evidence files and leaves the version's silent disarm where item 2 scopes it",
+        "My own 'dead oracle helpers' finding, downgraded rather than fixed after looking at the generator: all five oracles share ONE prelude constant and each item calls the subset it needs. That is a shared helper library, not dead code per item, and splitting it five ways would duplicate the semantics and invite drift between copies - worse than the smell. Resolved by disclosure instead: the binder now says the prelude is shared, so a reader does not infer from the section helpers being defined that item 1 inspects the register"
+      ],
+      "findings_refuted_or_deferred": [
+        "qwen#3: 'item 5 edits _worktree.py but the stated floors are only roundtable 1814 and precommit 126; the measured _worktree baseline of 11 is not accounted for.' It is. Item 5's floor paragraph carries '_worktree.py --self-test at least 11' and its oracle carries `floor \"$W\" 11 _worktree` - a third floor call beside the roundtable and precommit ones. Verified by reading both the contract and the oracle command",
+        "Nothing else was refuted this round, and one thing nearly was on bad evidence - recorded because the near-miss is the point. The first pass at this entry was going to refute half of codex#1 by claiming the clustered form it named, `env -iC`, does not actually relocate. That came from a column in my own probe script whose 'relocates?' value was a string heuristic (does the prefix contain the literal '-C'), not a measurement - and '-iC' does not contain '-C', so the column said no. Tested against real env instead: from a directory whose marker file reads marker-Q, `env -iC <P> cat where` prints marker-P, as do the attached spelling and every abbreviation down to --c=. Every spelling codex named relocates. The finding is confirmed in full, and the lesson is the one this binder is about: a heuristic that stands in for a measurement will eventually be quoted as if it were one"
+      ],
+      "notes": "Round 10 on bytes 94c2cd22ecdb568d. First round on this binder where ALL SIX providers answered with usable structured output. Four ship (antigravity, deepseek, glm5p3, minimax), two revise (codex, qwen) - and both dissents name the same thing, item 5's normative wording being stale against its own updated case arms. That is the fourth consecutive round whose largest finding is a change the previous revision landed in one place and not its partner, so the pattern is not yet broken, only better instrumented: this round's cascade (one new case, eight places) was caught by grepping the old numbers rather than by trusting the edit list, and two of the eight would otherwise have shipped. The round was asked a direct question - buildable or not - rather than for an open findings list, and the answer is close to unanimous: buildable, ship with the deferred list, once item 5's rule says what its arms already test.",
+      "below_floor": false
+    },
+    {
+      "round": 11,
+      "reviewed_hash": "b019b85eb4f7577330d0cc168fde180921e69cdf7b58234e45714124defba795",
+      "run_at": "2026-09-08T02:59:13.446218+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "revise",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "fireworks-deepseek",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "fireworks-glm5p3",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "fireworks-minimax",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "fireworks-qwen",
+          "verdict": "revise",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "antigravity#2 / codex#1 / qwen#1 \u2014 the three dissenting verdicts, one defect, and it is mine from the previous revision: recorded-semi-joined-add-index-bytes landed in row 6b, in the oracle's passed() list, in the header count and in both floors, and NOT in the cases enumeration a builder reads as the checklist. Header said twenty-three, list held twenty-two, so a builder following the list ships 122 checks against a floor of 123 and the row-6b denial may simply be absent. The case is now enumerated with its full arm \u2014 the index-versus-disk setup, the denial from index bytes, the warning naming the file, and both ways it goes red (routed to row 5 it allows; routed to row 7 it denies for the wrong reason and names nothing)",
+        "antigravity#1 (high): item 5's contract.acceptance was the one field the previous revision did not carry the chain rule into. It still framed the denial around a single wrapper and enumerated '(env --chdir, or env -C, in either spelling)', contradicting review_gate, doctrine, scope.excluded and cases, all of which had moved. A builder reading acceptance would implement two spellings behind one wrapper and fail the item's own discriminating arm. It now states the chain rule in the same terms as its partners",
+        "deepseek#1 (low, and cheap): the contract obliges docs/how-to/hooks.md to say a warning arrives as both systemMessage and additionalContext, and the oracle pinned only systemMessage \u2014 so a hooks.md omitting the second field passed while violating the contract. The additionalContext pin is added beside it",
+        "A process failure of mine that is worth more than the two defects, recorded because it changes how the tooling gets used. The self-consistency checker built after round 9 DID catch the enumeration omission, on the first run, printing 'pinned by passed() but not named in prose: recorded-semi-joined-add-index-bytes'. I did not see it twice: once because I filtered the run through a case-sensitive grep for 'NOT pinned' while the message reads 'not named in prose', and once because I used grep -A2 and the line was three lines down. The tool worked; reading its output was the failure. From here the checker is run for its EXIT CODE, which is already non-zero on any inconsistency, and its output is read whole or not at all"
+      ],
+      "findings_refuted_or_deferred": [
+        "glm5p3#1 and the caveat in deepseek's summary: 'the binder text is truncated mid-item-5, so the 123->127 and 1803->1814 steps could not be re-derived'. A limit of the review materials, not a defect \u2014 the file is 153289 bytes at the reviewed hash, parses, and validates. Both providers said so themselves and neither filed it as a binder fault. The steps they could not see were verified locally by executing the oracles: item 4's reports 'below floor 123' and item 5's 'below floor 1814' against a throwaway worktree of main"
+      ],
+      "notes": "Round 11 on bytes b019b85eb4f75773, dispatched as the intended confirming round. Six providers: three ship (deepseek, glm5p3, minimax), three revise (antigravity, codex, qwen) \u2014 and the three dissents name one defect between them, with antigravity naming a second. Both are the same shape as the previous four rounds: a change landed in some of its partner places and not all. Fifth consecutive round of that, which is the honest headline. What is different this time is that the checker built in response to round 9 had already caught one of them and I filtered its output away \u2014 twice, once with a case-sensitive grep and once with grep -A2. So the instrumentation is not the gap any more; using it properly is. Both defects are narrow, neither touches enforcement behaviour, and the four floor chains were re-verified by execution rather than reading.",
+      "below_floor": false
+    },
+    {
+      "round": 12,
+      "reviewed_hash": "99e6a96fadf0c7a74725b0f3a53d7e4a4de4989d26148985764cd6ce92b78b92",
+      "run_at": "2026-09-08T03:11:43.579095+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "fireworks-deepseek",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "fireworks-glm5p3",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "fireworks-minimax",
+          "verdict": "ship",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "fireworks-qwen",
+          "verdict": "ship",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [],
+      "notes": "Round 12 on bytes 99e6a96fadf0c7a7. Six providers, six ships, no findings from any of them \u2014 the first unanimous round in twelve, and the round this binder is recorded on. Read it against round 11 rather than alone: eleven rounds in, three of six still said revise, and the two defects they named were both mine, both the same shape that had recurred for five rounds. What changed between the two rounds was not more scrutiny but better instrumentation used properly \u2014 the case-id cross-reader rebuilt to be precise enough that its exit code means something, and run for that exit code rather than grepped, which is how its answer had been missed twice. The deferred list stands as recorded and is not closed by this round: no over-cap arm for the hook-message cap, no case for malformed release evidence, no arm that fails a per-spawn implementation of the register pipeline's shared 20 s cap, and the precommit-gates-run-at-resolved-root case id that becomes imprecise once item 4 lands.",
+      "below_floor": false
+    }
+  ]
+}
