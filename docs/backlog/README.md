@@ -206,9 +206,12 @@ change rides in on a reviewed one. Found by the independent review of entry 8's 
 
 ---
 
-## 11. the gates read HEAD from the main checkout, not from where the merge runs — *Ready* (filed 2026-08-24)
+## 11. the gates read HEAD from the main checkout, not from where the merge runs — *Fixed for payload-cwd invocations (2026-09-01)*
 
-**What.** `scripts/hooks/roundtable_gate.py` roots every git call at a fixed path — `ROOT` is derived
+**What** (line numbers are as filed on 2026-08-24; the file has grown a great deal since, most of it
+unrelated to the fix recorded below, so trust the symbol names rather than the positions).
+`scripts/hooks/roundtable_gate.py`
+roots every git call at a fixed path — `ROOT` is derived
 from the hook script's own location (`roundtable_gate.py:65`) and `git()` runs with `cwd=ROOT`
 (`roundtable_gate.py:183`). So `current_branch()` (`roundtable_gate.py:257`) always reports the
 *primary checkout's* HEAD, whatever directory the command being judged actually runs in. Both places
@@ -234,21 +237,25 @@ latter.
   `current_branch()` report the feature branch, so the condition is false and the gate stays silent.
   A gate that is meant to make one decision unmissable can be silently absent.
 
-**Fix, and why it is partial.** Reading `cwd` off the PreToolUse payload instead of `ROOT` covers a
-session whose working directory *is* the worktree, which is the common case. It does not cover the
-case that produced the observed block: the command was `cd <worktree> && git merge ...`, so the
-payload's cwd was the project directory and only the command text named the real location. Resolving
-a leading `cd <path> &&` in the same shell segment narrows that too. Neither closes the gap, and the
-entry should not pretend otherwise — a PreToolUse hook sees command text, and where a shell command
-finally runs is not decidable from text. State the residual plainly in `AGENTS.md` alongside the
-bypasses already named there, the same way `git cherry-pick` is named.
-
-**Also worth doing.** `decide()` is already pure over a stubbed `git`, so the regression is cheap to
-pin: drive it with a git stub reporting a worktree HEAD that differs from the primary checkout's and
-assert both directions — no block for integration-to-integration, block for a real landing.
-
 **Found by** the `watch-drill-in-remediation` delivery, which hit the false positive on three item
 merges and then again on the consolidation.
+
+**Fixed for payload-cwd invocations (2026-09-01).** `scripts/hooks/_worktree.py` resolves a cwd to
+the top level of the working tree containing it — walk-up containment, membership decided by
+comparing that tree's git common directory with the root's, so a different repository nested in
+this one is never mistaken for a worktree of it — and `roundtable_gate.py` calls it once at the top
+of `decide()`, ahead of the landing gate's first branch read. Both directions are pinned as suite
+cases that fail on the pre-fix ordering (`landing-worktree-false-positive`,
+`landing-worktree-false-negative`), together with the skip-hatch subdirectory case, the
+no-cwd preservation case, and the resolver-versus-`_check_cwd` agreement case. The config reads
+moved with the rescope, deliberately: the switch is now the resolved tree's committed one.
+
+**What is left, and it is item 22's half.** The observed 2026-08-24 block was a
+`cd <worktree> && git merge …` chain, whose payload cwd is the project directory — where a shell
+command finally runs is not decidable from command text, so resolving the payload's cwd does not
+touch that shape. `git -C <worktree>` is the other spelling, and it is denied rather than rescoped.
+Both are item 22, which proposes accepting `git -C <path>` when the path is a linked worktree of
+this repository. This entry stays partial rather than closed for that reason.
 
 ---
 
@@ -499,7 +506,7 @@ writes. Raised by codex on 2026-08-27.
 
 ---
 
-## 21. nothing verifies the invariant register's carriers — *Ready* (filed 2026-08-31)
+## 21. nothing verifies the invariant register's carriers — *FIXED 2026-09-02*
 
 `docs/conventions/invariants.md` names each invariant's carriers by file plus a distinctive phrase
 quoted from the woven sentence, and its "How this file stays true" section says plainly that no
@@ -510,12 +517,25 @@ conflict caught it only because both edits touched the same sentence's paragraph
 elsewhere in the section would have merged clean and left the register quoting a sentence that no
 longer exists.
 
-**Fix.** A register checker in the commit hook's gate list, beside `check_shared_copies.py` — the
-precedent for prose held in place by a validator. For each entry: the carrier file exists, the
-quoted phrase is present, every named enforcement script exists. Failure is a named denial
-pointing at the entry and the carrier. When it lands, flip the register's "How this file stays
-true" layer-2 paragraph and INV-20's status in the same diff. Planned for the
-invariant-foundations binder.
+**Fixed in the invariant-foundations binder.** `scripts/check_invariant_register.py` parses the
+register under a pinned grammar and joins the commit hook's gate list beside
+`check_shared_copies.py` — the precedent for prose held in place by a validator. Per entry it
+verifies that every carrier file exists, that every quoted phrase is still present in the file that
+segment names (whitespace-normalized, case-sensitive), and that every enforcement script a Carriers
+bullet names exists for an entry claiming **enforced** or **partial**. A parse or verification
+failure is a named denial citing the entry id and its line number; a crash, a timeout, or a failed
+spawn fails open with a warning. The register's "How this file stays true" layer-2 paragraph and
+INV-20 flipped in the same diff, and the grammar is documented there as the register's authoring
+constraint. The first run against the live register found six entries already out of shape: three
+carrier quotes that no longer matched their file (INV-20's "All four must be clean" against a floor
+that had grown to five, INV-22's "Two platforms, one behavior" against a section renamed for Pi,
+INV-23 quoting a sentence in the wrong case) and three Carriers segments that named no file at all.
+
+**Not a full fix — INV-20 grades itself *partial*, for two reasons that stay open.** A phrase check
+proves presence, not meaning: whether a claim's wording still matches what its enforcement delivers
+is not decidable by grep and remains review-held. And the checker reads the working tree of the
+resolved root rather than the staged blob, so bytes a partial staging would commit can differ from
+what was checked — the bound every gate in that suite shares.
 
 ---
 

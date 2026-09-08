@@ -36,7 +36,8 @@ evaluating a post-condition a PreToolUse hook cannot see:
       assembled integration branch by design — no PR, no push, no auto-merge —
       so the merge is a separate act, and who decides a delivery ships is
       always the human. Assembling the branch and running the floor are the
-      agent's; the decision to land is not.
+      agent's; the decision to land is not. "On the default branch" means the
+      branch checked out in the tree the merge RUNS in — see THE INVOKING TREE.
 
 THE SOURCE GIT WILL COMMIT. Every gated file — binder, record, ledger, and the
 config on its first enable — is read from the one source git will actually
@@ -53,18 +54,38 @@ contain gets approved. Modes whose content the hook cannot see from the
 command text (`--patch`, `--interactive`, `--pathspec-from-file`) are denied by
 name, never guessed.
 
+THE INVOKING TREE. The payload's cwd is resolved once, at the top of the
+decision, to the top level of the working tree that contains it
+(scripts/hooks/_worktree.py), and every lookup after that point is answered by
+THAT tree: the landing gate's branch reads, the config in HEAD, the commit
+sources, both sub-dispatches. A hook rooted at its own script file reads the
+primary checkout, and a command run in a linked worktree then gets judged on a
+tree it has nothing to do with — which is wrong
+in both directions at once: an integration-to-integration merge run in a
+worktree reads main and is refused as a landing, and a real landing in the
+worktree that holds main reads the primary's feature branch and passes
+unnoticed (register INV-11). What a text gate still cannot see is where a shell
+command FINALLY runs: `cd <worktree> && git merge ...` carries the project
+directory as its cwd, and only the command text names the real location. That
+residual is named in AGENTS.md beside the bypasses, not papered over. Because
+the config is read from the resolved tree, a worktree whose committed
+.karta/roundtable.json disables review is honoured there even where the primary
+checkout's config would enforce — deliberate: the gate judges the tree the
+commit or merge is actually about.
+
 DENY-BY-DEFAULT GRAMMAR. The hook runs before bash evaluates the command, so
 it recognises exactly one shape — `[KARTA_*=1 ...] git commit|merge <options
 it knows> <pathspecs it can resolve>` issued from the repository root or the
-top level of one of its linked worktrees (there every lookup is rescoped to
-that worktree, so the commit is judged on the tree git will commit) — and
-denies every other shape it cannot reproduce: a preceding or trailing command
-segment, a command substitution anywhere, an unquoted expansion character, a
-redirection, a relocating `git -C`/`--git-dir`/`--work-tree` or `GIT_*=`
-prefix, an option outside the whitelist, a pathspec it cannot resolve
-root-relatively. The cost of that posture is over-denial of unusual but valid
-spellings, never under-denial. Malformed ledgers, records and configs are
-denials with the defect named, never internal errors.
+top level of one of its linked worktrees — there
+every lookup is rescoped to that worktree, so the commit is judged on the tree
+git will actually commit — and denies every other shape it cannot reproduce: a
+preceding or trailing command segment, a command substitution anywhere, an
+unquoted expansion character, a redirection, a relocating
+`git -C`/`--git-dir`/`--work-tree` or `GIT_*=` prefix, an option outside the
+whitelist, a pathspec it cannot resolve root-relatively. The cost of that
+posture is over-denial of unusual but valid spellings, never under-denial.
+Malformed ledgers, records and configs are denials with the defect named, never
+internal errors.
 
 git cherry-pick / rebase / reset --hard, `git update-ref` / `git symbolic-ref`
 moving the default branch to an integration tip, a merge that names the tip by
@@ -111,7 +132,8 @@ committed configuration) so a same-commit flip cannot disable the check that
 would catch it; only when HEAD has no config at all is it read from the source
 the commit will record. Escape hatch: KARTA_SKIP_ROUNDTABLE=1 as an exact
 assignment word prefixing the gated invocation, or in the environment,
-evaluated before every other rule — never a substring of the command text.
+evaluated before every other REVIEW rule — never a substring of the command
+text. The landing gate (c) is evaluated ahead of it and is not bypassed by it.
 
 The landing gate (c) is deliberately outside all of that. The config switch does
 not disable it and KARTA_SKIP_ROUNDTABLE does not bypass it, because that hatch
@@ -131,6 +153,9 @@ that blocks (exit 2), not an internal error.
 from __future__ import annotations
 import argparse, hashlib, json, os, re, subprocess, sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the sibling module below
+from _worktree import resolve_invocation_root  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/hooks/ -> repo root
 HELPER = "scripts/roundtable/run_review.py"
@@ -1280,44 +1305,28 @@ def _check_environment(env) -> None:
                              "repository or names a program git runs after the hook; unset it")
 
 
-def _linked_worktree_root(cwd: str, git) -> str | None:
-    """cwd's realpath when it is the TOP LEVEL of a linked worktree of this
-    repository — per `git worktree list --porcelain` run through the injected
-    (ROOT-scoped) git — else None. The main checkout itself returns None; the
-    caller has already matched ROOT. Fail-closed: an unreadable worktree list
-    is no worktree."""
-    code, out = git(["worktree", "list", "--porcelain"])
-    if code != 0:
-        return None
-    real = os.path.realpath(cwd)
-    root_real = os.path.realpath(str(ROOT))
-    for ln in out.decode(errors="replace").splitlines():
-        if ln.startswith("worktree "):
-            p = os.path.realpath(ln[len("worktree "):].strip())
-            if p == real and p != root_real:
-                return real
-    return None
-
-
-def _check_cwd(payload, git) -> str:
+def _check_cwd(payload, resolved) -> str:
     """The invocation's effective root: ROOT, or the top level of a linked
     worktree of this repository (karta's own wave workers commit item branches
     from worktrees — the first context-economy wave found the flat ROOT rule
     denying the framework's own delivery flow). A worktree cwd is not waved
-    through: decide() rescopes every git and file lookup to that worktree, so
-    the commit is judged on the tree git will actually commit, with the gate's
-    full force. Anything else — a subdirectory of either, an unrelated path —
-    is denied: a pathspec issued there is invisible to the effective root's
-    lookups."""
+    through: decide() has already rescoped every git and file lookup to that
+    worktree, so the commit is judged on the tree git will actually commit, with
+    the gate's full force. Anything else — a subdirectory of either, an
+    unrelated path — is denied: a pathspec issued there is invisible to the
+    effective root's lookups.
+
+    Which tree contains the cwd is NOT discovered here: `resolved` is decide()'s
+    single answer from _worktree.resolve_invocation_root, so where state is read
+    and where the invocation is accepted can never disagree. What stays here is
+    the acceptance decision itself, on the payload's own cwd — a subdirectory
+    resolves (its reads are right) and is still denied."""
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         raise Denial("payload carries no cwd — the hook cannot resolve a pathspec without knowing "
                      "where the shell is")
-    if os.path.realpath(cwd) == os.path.realpath(str(ROOT)):
-        return str(ROOT)
-    wt = _linked_worktree_root(cwd, git)
-    if wt is not None:
-        return wt
+    if resolved is not None and os.path.realpath(cwd) == os.path.realpath(str(resolved)):
+        return str(resolved)
     raise Denial(f"commit must run from the repository root ({ROOT}) or the top level of one of "
                  f"its linked worktrees, not {cwd} — a pathspec issued elsewhere is invisible to "
                  "the root-based lookups")
@@ -1472,14 +1481,16 @@ def _first_enable_possible(command: str, env, git, read_file) -> bool:
 
 
 def decide(payload, env, git, helper, config, read_file=_real_read,
-           is_symlink=_real_is_symlink, rescope=None) -> tuple[int, str]:
+           is_symlink=_real_is_symlink, rescope=None, resolve_root=None) -> tuple[int, str]:
     """(exit_code, stderr_message). Pure over its inputs so --self-test can drive
     it with fabricated payloads and stubbed git/helper. `config=None` makes the
     gate resolve its own switch from HEAD (or the commit's source on first enable).
-    `rescope` is the worktree seam: a callable (effective_root) -> (git,
-    read_file, is_symlink) used when the invocation's cwd is the top level of a
-    linked worktree, so every source lookup happens where git will actually
-    commit; None means the real subprocess-backed factory."""
+    `resolve_root` is the invocation-root seam: a callable (cwd) -> the top level
+    of the working tree containing it, or None; None means the real resolver in
+    _worktree.py. `rescope` is the worktree seam it feeds: a callable
+    (effective_root) -> (git, read_file, is_symlink) used when that top level is
+    not ROOT, so every lookup happens where git will actually commit or merge;
+    None means the real subprocess-backed factory."""
     if not isinstance(payload, dict):
         return 0, ""
     tool_input = payload.get("tool_input")
@@ -1489,20 +1500,48 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
     if not isinstance(command, str):
         return 0, ""
 
+    resolved: list = []
+
+    def scope():
+        """The one rescope call site, for the whole decision. Everything read
+        after the first call — the landing gate's branch, the config in HEAD,
+        _check_cwd's acceptance, the commit sources, both sub-dispatches — is
+        answered by the tree the invocation actually runs in, so the gate can
+        never judge one tree while the command runs in another (INV-11). Lazy
+        and memoised: a shape no gate judges resolves nothing, and a judged one
+        pays a single resolution. A cwd that resolves to None — absent, or
+        outside this repository — leaves the triple exactly as handed in; the
+        denial for it is _check_cwd's, at the position it has always fired
+        from, and never an early exit from here."""
+        nonlocal git, read_file, is_symlink
+        if not resolved:
+            cwd = payload.get("cwd")
+            top = (resolve_root or resolve_invocation_root)(cwd) if isinstance(cwd, str) and cwd else None
+            resolved.append(top)
+            if top is not None and str(top) != str(ROOT):
+                git, read_file, is_symlink = (rescope or _real_rescope)(str(top))
+        return resolved[0]
+
     # (c) LANDING gate. Deliberately ahead of both the skip hatch and the config
     # switch: neither one speaks to who decides a delivery ships, and that answer
     # never changes. Always the human. Every landing segment answers for itself:
-    # an approval prefix on one merge says nothing about the next one.
+    # an approval prefix on one merge says nothing about the next one. The branch
+    # it reads is the invoking tree's, not the primary checkout's — a landing is
+    # about where the merge runs.
     landings = merge_invocations(command)
     if landings and env.get(LAND_VAR) != "1":
+        scope()
         branch = current_branch(git)
         if branch == default_branch(git):
             for ref, approved_inline in landings:
                 if not approved_inline:
                     return 2, _deny_landing(ref, branch)
 
-    # the skip hatch is evaluated before every other rule — as an exact leading
-    # assignment on every gated invocation, or in the environment; never as text
+    # the skip hatch is evaluated before every other REVIEW rule — as an exact
+    # leading assignment on every gated invocation, or in the environment; never
+    # as text. The landing gate above is deliberately ahead of it: that hatch
+    # means "the review environment is down", which says nothing about who
+    # decides a delivery ships.
     if has_skip_prefix(command) or env.get(SKIP_VAR) == "1":
         return 0, ""
 
@@ -1519,6 +1558,7 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
         return cfg.get("points") if isinstance(cfg.get("points"), dict) else {}
 
     try:
+        scope()  # from here every read is the invoking tree's, the config included
         # the switch comes first: enabled:false (or no config) turns every review
         # rule off, the grammar included. Only a first enable — no config in HEAD
         # and the config staged for this commit — has to parse the command to find
@@ -1534,10 +1574,8 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
             raise Denial(f"env {hidden} hides the command it runs from the hook: env re-splits that "
                          f"string by its own rules, and the hook cannot read a split string. Spell the "
                          f"invocation as separate words instead of an env {hidden} string.")
-        effective = _check_cwd(payload, git)
+        _check_cwd(payload, scope())  # the same single answer, memoised
         _check_environment(env)
-        if effective != str(ROOT):
-            git, read_file, is_symlink = (rescope or _real_rescope)(effective)
         _, words = parse_invocation(command)
         sub = words[1].text
         if sub == "commit":
@@ -1706,11 +1744,32 @@ def _run_self_test() -> int:
 
     stale = lambda args, data: 1
 
-    def run(cmd, tree, config=CFG, env=None, cwd=None, helper_=helper, rescope=None, **kw):
+    def stub_resolve(tops):
+        """_worktree.resolve_invocation_root's walk-up containment over a
+        FABRICATED set of worktree tops. The real resolver reads the .git
+        pointer files on disk; driving these cases through it would mean
+        creating real worktrees of this repository to run its own test suite,
+        so the seam is stubbed here and the resolver proves its own semantics
+        in _worktree.py --self-test."""
+        real = {os.path.realpath(str(t)): t for t in tops}
+
+        def resolve(cwd):
+            if not isinstance(cwd, str) or not cwd:
+                return None
+            here = Path(os.path.realpath(cwd))
+            for cand in (here, *here.parents):
+                top = real.get(str(cand))
+                if top is not None:
+                    return ROOT if str(cand) == os.path.realpath(str(ROOT)) else Path(str(cand))
+            return None
+        return resolve
+
+    def run(cmd, tree, config=CFG, env=None, cwd=None, helper_=helper, rescope=None, resolve=None, **kw):
         git, rf, isl, calls = make(tree, **kw)
         seen.clear()
         code, msg = decide(_payload(cmd, cwd=cwd), env or {}, git, helper_, config, read_file=rf,
-                           is_symlink=isl, rescope=rescope)
+                           is_symlink=isl, rescope=rescope,
+                           resolve_root=resolve or stub_resolve((ROOT, *kw.get("worktrees", ()))))
         return code, msg, calls
 
     # fixtures
@@ -1765,7 +1824,8 @@ def _run_self_test() -> int:
     def hm(ledger):
         t = dict(PLAIN); t[LP] = {"head": ledger, "index": ledger, "work": ledger}
         git, rf, isl, _ = make(t)
-        return decide(_payload("git commit -m x"), {}, git, helper, ON, read_file=rf, is_symlink=isl)
+        return decide(_payload("git commit -m x"), {}, git, helper, ON, read_file=rf, is_symlink=isl,
+                      resolve_root=stub_resolve((ROOT,)))
     code, msg = hm(b"{not json")
     check("malformed ledger JSON denies instead of failing open", code == 2 and "round ledger" in msg, msg)
     code, msg = hm(json.dumps({"target_ref": "x", "rounds": []}).encode())
@@ -1942,10 +2002,11 @@ def _run_self_test() -> int:
     code, _, _ = run(f"{SKIP_VAR}=1 FOO='a b' git commit -m x", PLAIN, ON, helper_=stale)
     check("the skip hatch still applies ahead of a quoted prefix", code == 0)
     code, _, _ = run("KARTA_SKIP_ROUNDTABLE=1 git commit .karta", PLAIN, ON)
-    check("the skip hatch is evaluated before every other rule", code == 0)
+    check("the skip hatch is evaluated before every other REVIEW rule", code == 0)
     nocwd = _payload("git commit . -m x"); del nocwd["cwd"]
     git, rf, isl, _ = make(PLAIN)
-    code, msg = decide(nocwd, {}, git, helper, ON, read_file=rf, is_symlink=isl)
+    code, msg = decide(nocwd, {}, git, helper, ON, read_file=rf, is_symlink=isl,
+                       resolve_root=stub_resolve((ROOT,)))
     check("a payload without cwd is denied", code == 2 and "cwd" in msg, msg)
     code, msg, _ = run("git commit binders/x.json -m x", PLAIN, ON, cwd=str(ROOT / ".karta"))
     check("a commit issued from a subdirectory is denied — the hook anchors to the repository root", code == 2 and "root" in msg, msg)
@@ -1962,7 +2023,11 @@ def _run_self_test() -> int:
     check("a worktree commit staging a stale binder still gates — rescoping keeps the gate's force",
           code == 2, msg)
     code, msg, _ = run("git commit -m x", PLAIN, ON, cwd=str(ROOT / ".worktrees" / "not-listed"))
-    check("a directory git does not list as a worktree is denied", code == 2 and "root" in msg, msg)
+    check("a directory that is no worktree top of its own is denied — it resolves to the tree that "
+          "contains it, and _check_cwd accepts only that tree's own top level", code == 2 and "root" in msg, msg)
+    code, msg, _ = run("KARTA_SKIP_ROUNDTABLE=1 git commit -m x", PLAIN, ON, cwd="/elsewhere/entirely")
+    check("a cwd outside the repository resolves to nothing and is not denied early — the skip hatch "
+          "still answers first", code == 0, msg)
     for envv in ({"GIT_INDEX_FILE": "/tmp/i"}, {"GIT_CONFIG_PARAMETERS": "x"}, {"GIT_EDITOR": "touch x"},
                  {"GIT_EDITOR": "vim"}, {"GIT_PAGER": "touch x"}, {"GIT_SSH_COMMAND": "touch x"}):
         code, _, _ = run("git commit -m x", PLAIN, ON, env=envv)
@@ -2034,6 +2099,95 @@ def _run_self_test() -> int:
     code, msg, calls = run("git commit -m x", cfgtree(ONB, ONB, ONB), None)
     check("the read bound is seven git show when the gate resolves the config itself",
           len([c for c in calls if c[0] == "show"]) <= 7, str(calls))
+
+    # the invoking tree: one resolution at the top of the decision, so every read
+    # — the landing gate's branch among them — comes from the tree the command
+    # actually runs in (register INV-11; backlog item 11 recorded both failures)
+    WTI = str(ROOT / ".worktrees" / "wt-i")   # a worktree, checked out on its own branch
+    MERGE_Y = "git merge --no-ff --no-edit karta/y/integration"
+    DIS = json.dumps({"enabled": False}).encode()
+
+    def wt_triple(tree=PLAIN, **kw):
+        """the (git, read_file, is_symlink) a rescope to the worktree hands back:
+        that tree's own stubbed git, with its own HEAD"""
+        return lambda top: make(tree, **kw)[:3]
+
+    code, msg, _ = run(MERGE_Y, PLAIN, ON, cwd=WTI, worktrees=(WTI,), cur="main", tip=TIP,
+                       rescope=wt_triple(cur="karta/x/integration", tip=TIP))
+    check("landing-worktree-false-positive: an integration-to-integration merge run from a worktree "
+          "whose HEAD is an integration branch is no landing, though the primary checkout sits on "
+          "main — on pre-fix code the landing gate reads the primary checkout's stubbed HEAD and "
+          "refuses it, which is the block observed on 2026-08-24", code == 0, msg)
+    code, msg, _ = run(MERGE_Y, PLAIN, ON, cwd=WTI, worktrees=(WTI,), cur="feature/x", tip=TIP,
+                       rescope=wt_triple(cur="main", tip=TIP))
+    check("landing-worktree-false-negative: a real landing — the default branch checked out in the "
+          "worktree while the primary checkout sits on a feature branch — is blocked; on pre-fix "
+          "code the landing gate reads the primary checkout's stubbed HEAD, finds a feature branch, "
+          "and stays silent through the one moment it exists for", code == 2 and "human" in msg, msg)
+    code, msg, _ = run(f"{SKIP_VAR}=1 {MERGE_Y}", PLAIN, ON, cwd=str(Path(WTI) / "docs"),
+                       worktrees=(WTI,), cur="main", tip=TIP,
+                       rescope=wt_triple(cur="karta/x/integration", tip=TIP))
+    check("skip-hatch-subdir-cwd-merge-allowed: a subdirectory of a worktree resolves to that "
+          "worktree for reading — so the landing gate sees its integration HEAD and stays silent, "
+          "where pre-fix it read main and refused — and the cwd denial it will earn is deferred to "
+          "_check_cwd, which the skip hatch returns ahead of", code == 0, msg)
+    nocwd_m = _payload(MERGE_Y); del nocwd_m["cwd"]
+    git, rf, isl, _ = make(PLAIN, cur="main", tip=TIP)
+    code, msg = decide(nocwd_m, {}, git, helper, ON, read_file=rf, is_symlink=isl,
+                       resolve_root=stub_resolve((ROOT, WTI)))
+    nocwd_c = _payload("git commit . -m x"); del nocwd_c["cwd"]
+    git2, rf2, isl2, _ = make(PLAIN)
+    code2, msg2 = decide(nocwd_c, {}, git2, helper, ON, read_file=rf2, is_symlink=isl2,
+                         resolve_root=stub_resolve((ROOT, WTI)))
+    check("payload-without-cwd-unchanged: with no cwd to resolve, nothing is rescoped — the landing "
+          "gate reads the triple it was handed and blocks exactly as before, and the commit path "
+          "still meets _check_cwd's own no-cwd denial where it has always fired",
+          code == 2 and "human" in msg and code2 == 2 and "cwd" in msg2, f"{code}:{msg} | {code2}:{msg2}")
+    code, msg, _ = run("git commit -m x", cfgtree(ONB, ONB, ONB), None, cwd=WTI, worktrees=(WTI,),
+                       rescope=wt_triple({**cfgtree(ONB, ONB, ONB), CONFIG_PATH: {"head": DIS, "index": DIS, "work": DIS}}))
+    code2, msg2, _ = run("git commit -m x", cfgtree(DIS, DIS, DIS), None, cwd=WTI, worktrees=(WTI,),
+                         rescope=wt_triple(cfgtree(ONB, ONB, ONB)))
+    check("worktree-head-config-divergence: the switch is read from the resolved tree's HEAD, both "
+          "ways — a worktree whose committed config disables review is honoured where the primary's "
+          "would have enforced, and a worktree whose config enforces still gates a stale ledger "
+          "where the primary's config is off. Deliberate: the gate judges the tree the commit is about",
+          code == 0 and code2 == 2 and "round ledger" in msg2, f"{code}:{msg} | {code2}:{msg2}")
+
+    res = stub_resolve((ROOT, WTI))
+    rows = []
+    for c in (str(ROOT), str(ROOT / ".karta"), WTI, str(Path(WTI) / "docs"), "/elsewhere/entirely", None):
+        pay = _payload("git commit -m x", cwd=c)
+        if c is None:
+            del pay["cwd"]
+        found = res(c) if isinstance(c, str) else None
+        try:
+            rows.append((c, found, _check_cwd(pay, found)))
+        except Denial:
+            rows.append((c, found, None))
+    accepts_only_the_resolved = all(a is None or a == str(f) for _, f, a in rows)
+    accepts_exactly_the_top = all((a is not None) == (isinstance(c, str) and f is not None
+                                                      and os.path.realpath(c) == os.path.realpath(str(f)))
+                                  for c, f, a in rows)
+    denies_a_resolved_cwd = any(f is not None and a is None for _, f, a in rows)
+    check("resolver-check-cwd-agreement: _check_cwd never discovers a root of its own — it accepts "
+          "the resolver's answer or nothing, denies every cwd the resolver cannot place, and denies "
+          "a subdirectory the resolver DOES place, so the reads follow the tree while acceptance "
+          "stays _check_cwd's decision about the payload's own cwd",
+          accepts_only_the_resolved and accepts_exactly_the_top and denies_a_resolved_cwd, str(rows))
+
+    seen_cwds = []
+
+    def counting(c):
+        seen_cwds.append(c)
+        return res(c)
+    run(MERGE_Y, PLAIN, None, cwd=WTI, worktrees=(WTI,), cur="main", tip=TIP, resolve=counting,
+        rescope=wt_triple(cfgtree(ONB, ONB, ONB), cur="main", tip=TIP))
+    check("the invocation root is resolved once per decision — one answer serves the landing branch, "
+          "the config read, _check_cwd and the sub-dispatch", len(seen_cwds) == 1, str(seen_cwds))
+    seen_cwds.clear()
+    code, _, _ = run("git status", PLAIN, ON, cwd=WTI, worktrees=(WTI,), resolve=counting)
+    check("a shape no gate judges resolves nothing at all — the resolution is paid for by judged "
+          "invocations only", seen_cwds == [] and code == 0, str(seen_cwds))
 
     # merge gate
     E = {LAND_VAR: "1"}
@@ -2144,6 +2298,9 @@ def _run_self_test() -> int:
     code, _ = hook_main("not json", {}, git, stale, CFG)
     check("malformed payload fails open", code == 0)
 
+    # these two hook_main cases are the only ones that drive the REAL resolver
+    # against the real ROOT (hook_main takes no seam) — the production wiring,
+    # exercised once rather than stubbed everywhere
     def exploding(argv, input_bytes=None):
         raise RuntimeError("boom")
     code, _ = hook_main(json.dumps(_payload("git commit -m x")), {}, exploding, stale, CFG)

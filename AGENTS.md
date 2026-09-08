@@ -36,19 +36,20 @@ Externally managed cross-runtime skills are the exception to `.agents/skills/` o
 
 ## Before you commit
 
-All five must be clean.
+All six must be clean.
 
 Mac/Linux/Windows, local terminal from the repository root:
 
 ```
 uv run scripts/validate_plugin.py --self-test
 uv run scripts/check_shared_copies.py --self-test
+uv run scripts/check_invariant_register.py --self-test
 uv run scripts/sync_codex_agents.py --check
 uv run scripts/sync_codex_skills.py --check
 npm run check:pi
 ```
 
-The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs these four plus a fifth gate — `validate_packs` over every built-in and `.karta/sme/` pack — so a clean four can still be blocked at commit by an invalid pack. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
+The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs a longer list than this checklist: six gates — `check_shared_copies`, `check_invariant_register` over `docs/conventions/invariants.md`, both sync `--check` paths, `validate_plugin`, and `validate_packs` over every built-in and `.karta/sme/` pack — and then a binder-validity step over the exact bytes of every live binder the commit would record. So a clean local run can still be blocked at commit by a drifted register carrier, an invalid pack, or an invalid binder. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
 
 ## Before Pi package changes go remote
 
@@ -151,6 +152,7 @@ It fires on a `git merge` naming a `karta/*/integration` ref while HEAD is the d
 
 And the limits worth saying out loud, because the gate is not a proof:
 
+- **It reads the tree the merge runs in — as far as the payload's cwd reaches.** Since 2026-09-01 the branch check resolves from the invoking worktree (`scripts/hooks/_worktree.py`), which corrects both halves of the old defect: an integration-to-integration merge run inside a worktree is no longer refused as a landing, and a real landing in the worktree that holds the default branch is no longer missed in silence. What that does not reach is where a shell command *finally* runs, which is not decidable from command text: a cd-chain — `cd <worktree> && git merge …` — carries the project directory as its cwd, and that is the shape of the false block observed on 2026-08-24; `git -C <worktree>` is denied outright rather than rescoped (backlog item 22). One consequence to state plainly: the review config is read from the resolved tree's HEAD too, so a worktree whose committed `.karta/roundtable.json` disables review is honoured there even where the primary checkout's config would have enforced.
 - **It cannot tell an agent from a human.** A PreToolUse hook sees command text. An agent that sets `KARTA_LANDING_APPROVED=1` has forged an approval it was never given. The gate makes the moment impossible to pass through *silently*; the rule against forging it lives in doctrine, in this file and in CLAUDE.md.
 - **It shares the documented bypasses.** `git cherry-pick`, `git rebase`, `git reset --hard` reach the same end and are not `git merge`.
 - **It fails open.** Like every hook here, an internal error exits 0 rather than wedging the repo.
