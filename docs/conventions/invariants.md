@@ -26,7 +26,9 @@ deliberated and converged on each candidate.
 Status describes the strongest install — Claude Code with the plugin's hooks. Codex ships bundled
 twins of most of them, enforced once the user trusts the plugin's hooks; what stays doctrine there
 (writer confinement among it) is stated once in README's "Enforcement below the agent" and the
-parity table in docs/how-to/codex.md, so this file doesn't restate the split 27 times.
+parity table in docs/how-to/codex.md. Pi enforces its own subset through its extension surface and
+advises where Pi cannot refuse a stop; its parity table is in docs/how-to/pi.md. So this file
+doesn't restate the split 27 times.
 
 ## How this file stays true
 
@@ -172,9 +174,9 @@ Edit `skills/`, `agents/`, `skills/_shared/`; the Codex mirrors and the marketpl
 - Carriers: AGENTS.md "Layout — canonical vs generated".
 
 ### INV-20 · The validator floor states what it covers and what it does not
-The floor claim in doctrine matches the gate list the hook actually runs — including that the hook runs more than the manual checklist (the pack validator is its fifth gate), and that commits outside a hooked session meet no floor at all.
+The floor claim in doctrine matches the gate list the hook actually runs — including that the hook runs a gate the manual checklist does not (the pack validator) and skips one the checklist carries (`npm run check:pi`), and that commits outside a hooked session meet no floor at all.
 - 2026-08-31 review · **prose** — held by this register and review; the planned register checker (above, backlog item 21) is its intended backstop.
-- Carriers: AGENTS.md "Before you commit" ("All four must be clean", with the hook's fifth gate stated beside it).
+- Carriers: AGENTS.md "Before you commit" ("All five must be clean", with the hook's own gate list stated beside it).
 
 ### INV-21 · Hooks fail open; a review denial is named, never silent
 An internal error in any hook exits 0 — a broken hook never wedges the repo — while a review-gate denial always says which rule and which fix; a malformed ledger is a named denial, not a fail-open.
@@ -184,9 +186,9 @@ An internal error in any hook exits 0 — a broken hook never wedges the repo �
 ## Writers and packs
 
 ### INV-22 · Writers are confined; gates are read-only
-karta-doc-gardner writes only prose docs, karta-kaizen only `.karta/sme/` and its config — any other write is blocked before it lands — and the gate agents cannot write at all, on either platform.
-- founding · **enforced** — write hooks on Claude Code; `sandbox_mode = "read-only"` derived for Codex gate agents; README "Enforcement below the agent" names what stays skill doctrine on Codex (writer confinement).
-- Carriers: README.md "Enforcement below the agent"; AGENTS.md "Two platforms, one behavior".
+karta-doc-gardner writes only prose docs, karta-kaizen only `.karta/sme/` and its config — any other write is blocked before it lands — and the gate agents cannot write at all, on any runtime.
+- founding · **enforced** — write hooks on Claude Code; `sandbox_mode = "read-only"` derived for Codex gate agents; read-only tools in Pi's gate children; README "Enforcement below the agent" names what stays skill doctrine on Codex (writer confinement).
+- Carriers: README.md "Enforcement below the agent"; AGENTS.md "Three runtimes, one behavior".
 
 ### INV-23 · Kaizen never weakens a rule and never promotes a pack to enforcing
 It adds, clarifies, or narrows-with-an-exception; loosening what blocks a build is the human's decision, and every kaizen edit lands as a commit a human reviews.

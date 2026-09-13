@@ -48,6 +48,7 @@ Some files are hand-edited (canonical); others are generated projections you mus
 | `skills/<name>/references/<f>.md` | Per-skill copy of a `_shared` file | no — keep byte-equal |
 | `.claude-plugin/` | Claude plugin + marketplace manifests | yes |
 | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | Codex plugin + repo marketplace manifests | yes (keep name/version in step with `.claude-plugin/plugin.json`) |
+| `hooks/` | Claude Code hooks manifest (`hooks/hooks.json`) and the eight canonical guard scripts under `hooks/scripts/` — canonical | yes |
 | `.codex-plugin/hooks/` | Codex hooks manifest and guard scripts — canonical, hand-maintained twins of the Claude guards in `hooks/scripts/` (same rule, Codex's payload shape) | yes — run `sync_codex_skills.py` to refresh the `plugins/karta/` mirror after editing |
 | `package.json`, `extensions/pi/`, `tests/pi/` | Pi package manifest, first-party runtime adapter, and compatibility tests — canonical | yes |
 
@@ -76,7 +77,7 @@ uv run scripts/sync_codex_skills.py --check
 npm run check:pi
 ```
 
-The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs these four plus a fifth gate — `validate_packs` over every built-in and `.karta/sme/` pack — so a clean four can still be blocked at commit by an invalid pack. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
+The validator also runs the two `--check` paths itself, so a green `validate_plugin.py` already implies the projections are in sync; the explicit `--check` calls are here for a faster signal while iterating. The commit hook runs the four Python gates plus a fifth — `validate_packs` over every built-in and `.karta/sme/` pack — so a clean four can still be blocked at commit by an invalid pack. It does not run `npm run check:pi`: that one is yours to run, which is why it is on this list. And a commit made outside a hooked session meets no floor at all, which is why this checklist is written down rather than assumed.
 
 ## Before Pi package changes go remote
 
@@ -206,7 +207,7 @@ The tool per point is configured in `.karta/roundtable.json` (default `roundtabl
 2. After each round, keep it: `... | python3 scripts/roundtable/run_review.py --round --target <slug-or-branch> --fixed "..." --refuted "..."` appends the round — every provider's verdict or the reason it gave none, what was fixed, what was refuted — to `.karta/roundtable/<key>.rounds.json`.
 3. On the final round, file the record: `... | python3 scripts/roundtable/run_review.py --record --target <slug-or-branch>`. It refuses a record the ledger's last round did not review.
 
-The gate then confirms the record with `run_review.py --check`. The `min_providers` floor keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it. `.karta/roundtable/context-economy.rounds.json` — thirteen rounds on one binder — is the worked example of what the ledger holds.
+The gate then confirms the record with `run_review.py --check`. The `min_providers` floor keeps "multi-model" honest: a panel with fewer than `min_providers` distinct providers is not a review, and the recorder refuses to file it. `.karta/roundtable/context-economy.rounds.json` — nineteen rounds on one binder — is the worked example of what the ledger holds.
 
 #### Rules the gate enforced
 
@@ -238,6 +239,7 @@ Kaizen is enabled here (`.karta/kaizen.json`) under a scoped policy, because thi
 
 - karta is an ordinary consumer of its own framework: its `.karta/sme/` carries a project pack `.karta/sme/karta-house-minimalism.md` that declares `extends: minimalism` and narrows one rule locally, exactly the way any consumer repo tailors a built-in. A change to the built-in rule itself is only ever made upstream in `skills/_shared/sme/minimalism.md`, by a human — never by drifting a repo-local copy of the pack.
 - `.karta/sme/karta-house-skill-authoring.md` is this repo's own non-coding pack (reserved `karta-house-*` namespace, so it can never collide with a built-in). It is the pack kaizen is expected to actually evolve; its edits are reviewed like any `kaizen:` commit.
+- `.karta/sme/karta-house-vue.md` narrows the built-in `vue` pack for the one Vue app this repo ships: Karta Watch is a vendored global-build Options-API app with no compiler and no TypeScript, so the pack excludes `vue.1`–`vue.3` (the `<script setup>`, typed-macro, and typed-signature rules) and replaces them with `hvue` rules judged against the shape the page actually ships. Note that the pack declares `match: ["vue"]`, this repo's `package.json` carries no vue dependency, and its body's `always: true` claim is not in its frontmatter — so stack detection never emits that token and the pack is currently inactive. Turning it on adds gating, which is a human's decision, not a drift correction.
 - `.karta/sme/karta-house-invariants.md` applies the invariant register ([docs/conventions/invariants.md](docs/conventions/invariants.md)) at build time: checklist rules `inv.1`–`inv.4` cover what skill-authoring does not — register and carrier updated in the same diff, whole-action exceptions, content-proven identity, repetition-needs-a-recorded-decision. Like every project pack, its edits are reviewed before they land.
 - Never seed built-in copies here: the repo carries zero seeded built-in copies under `.karta/sme/`, only its own `karta-house-*` project packs; deliveries pin what their binders pin.
 
