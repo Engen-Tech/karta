@@ -661,51 +661,98 @@ under-advised.
 results, instead of scanning only the passed directory's top level. Keep it stdlib-only. Evidence:
 [`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding D).
 
-## 27. the Pi parity remainder — three guards unwired, and six runtime findings deferred — *Ready* (filed 2026-09-13)
+## 27. three of the eight Pi guards ship but are never wired on Pi — *Ready* (filed 2026-09-13)
 
-**What.** The Pi parity delivery landed on `main` (`e841f45`), and it closed four of the twenty
-gaps its own analysis found. This entry is the remainder, so the work is in the backlog index rather
-than sitting in a topic folder nobody links to.
+**What.** `hooks/scripts/` holds eight guards. `extensions/pi/guard-runner.ts` wires five, via
+`KARTA_GUARD_PATHS`. Three ship inside the deliverable and are never called on Pi:
+`guard_writer_confinement.py`, `guard_gate_dispatch.py`, `guard_auditor_dispatch.py`. Nothing fails —
+they are simply absent. Claude Code runs all eight; Codex runs seven (writer confinement is doctrine
+there by design).
 
-- **The largest item: three of the eight guards in `hooks/scripts/` ship but are never wired on
-  Pi** — `guard_writer_confinement.py`, `guard_gate_dispatch.py`, `guard_auditor_dispatch.py`.
-  `extensions/pi/guard-runner.ts` wires five via `KARTA_GUARD_PATHS`. Nothing fails; they are
-  simply never called. Claude Code runs all eight; Codex runs seven.
-- **Six runtime findings deferred at the review record:** the commit gate is bypassable by an agent
-  running `git commit` itself; slug freshness is unenforced (`validate_binder.py` only warns);
-  `collisionBatch` ignores `serialize` and `shared_resources`; `mapWithConcurrencyLimit` uses
-  `Promise.all` and leaves workers un-awaited; `plan-runner.ts` reads raw `ctx.cwd`; a set commits
-  under a subject naming only its first slug.
+**Why it matters, and why the fix is not "add three entries".** This is the part to read before
+starting. The two dispatch inspectors are **replaced, not missing**: `gate-runner.ts` throws when
+pinned packs or repo-rule citations went unread, and when the evidence hash does not match. So the
+open question is whether an after-the-fact runtime check is an acceptable substitute for a
+before-the-spawn inspection — and it is weaker on cost, because by the time `gate-runner` throws, two
+reviewer contexts have already run. Writer confinement splits a third way: writer *children* are
+already confined by construction in `writer-profile.ts`, and the surface left unprotected is the
+**main session** — someone editing `.karta/sme/` by hand. So this entry is partly a **decision to
+record**, not a wiring job.
 
-**Why it matters.** The guards are the security-flavoured half — writer confinement and two
-fail-closed dispatch inspectors do nothing on Pi. But **the fix is not "add three entries"** and
-this is the part worth reading before starting: the two dispatch inspectors are *replaced, not
-missing* — `gate-runner.ts` throws when pinned packs or repo-rule citations went unread — so the
-question is whether an after-the-fact check is an acceptable substitute for a before-the-spawn
-inspection. It is weaker on cost: by the time it throws, two reviewer contexts have already run.
-Writer confinement splits differently again: writer children are already confined by construction in
-`writer-profile.ts`, and what is unprotected is the *main session*. So this entry is partly a
-**decision to record**, not a wiring job.
+**Unblock path.** Read `extensions/pi/guard-adapter.ts` first: it has four hook points (`tool_call`,
+`tool_result`, `before_agent_start`, `agent_settled`), so each guard must be mapped to one before any
+code is written. Then decide and record, per guard, whether it is wired or deliberately unwired with
+the reason stated in `docs/how-to/pi.md`. Add a test asserting the relationship between
+`hooks/scripts/*.py` and `KARTA_GUARD_PATHS`, so a ninth guard cannot be added and silently ignored —
+the same class of fix as the manifest test that hardcodes a sample instead of deriving from the
+catalog. One further caveat: adapters fail open, so a wired guard that cannot spawn still reports
+success. "Wired" is not the same as "enforcing", and that may need its own entry.
 
-**Unblock path.** Read `extensions/pi/guard-adapter.ts` first — it has four hook points
-(`tool_call`, `tool_result`, `before_agent_start`, `agent_settled`), so each guard has to be mapped
-to one before any code is written. Then decide and record, per guard, whether it is wired or
-deliberately unwired with the reason stated in `docs/how-to/pi.md`. Add a test asserting the
-relationship between `hooks/scripts/*.py` and `KARTA_GUARD_PATHS` so a ninth guard cannot be added
-and silently ignored — the same class of fix as the manifest test that hardcodes a sample instead of
-deriving from the catalog.
+**Evidence.** [`pi-parity-gaps/FINDINGS.md`](pi-parity-gaps/FINDINGS.md) rows 1, 6 and 18; the
+enforcement table in `docs/how-to/pi.md`; [`pi-parity-gaps/TRAPS.md`](pi-parity-gaps/TRAPS.md) for
+the traps and the exact gate set (entries 27–29 all draw on it).
 
-**Full evidence and the traps.** [`pi-parity-gaps/TODOS.md`](pi-parity-gaps/TODOS.md) — the handoff
-document, including the traps the originating session paid for (the `--provider` flag that does not
-switch provider alone, the `--tools` allowlist that hides what you are probing for, the
-record-key-versus-tip fixed point, and the fact that no git hook here enforces the gate set).
-Gap analysis and its twenty-entry register: [`pi-parity-gaps/FINDINGS.md`](pi-parity-gaps/FINDINGS.md).
+---
 
-**Not karta's, and listed here only so they are not lost.** Eight defect rows in roundtable-src
-(`docs/bugs/README.md`) are registered but their reports are unwritten, and two roundtable bridge
-defects are unfixed. They belong to that repository's register, not this one — see TODOS.md §B for
-their ids and the reproduction precondition. Also open there: one branch,
-`docs/bug-0002-rewrite` at `5621998`, is committed and unmerged.
+## 28. six deferred findings on the Pi delivery runtime — *Ready* (filed 2026-09-13)
+
+**What.** Deferred at the review record for `fix/pi-parity/integration`. None is fixed.
+
+- **The commit gate is bypassable.** `commitBinder` cannot have its verb supplied through
+  `karta_dispatch`, and headless correctly blocks — but an agent with shell access can run
+  `git commit` itself. The skill's "do not commit by hand" is prose, not enforcement. Unlike the
+  accept-waiver there is **no evidence ref recording what the human approved**, so the code comment
+  claiming it works "exactly as with the accept waiver" overstates it. Either narrow the claim or add
+  the record. *(The accept flow writes `refs/karta/<slug>/item-<id>/accepted`; this writes nothing.)*
+- **Slug freshness is unenforced.** `validate_binder.py` only *warns* about a binder shadowing an
+  archived slug, and the runner checks the exit code alone — so a shadowing binder commits, and a
+  later delivery can misread old refs and silently skip work.
+- **`collisionBatch` ignores `serialize` and `shared_resources` — the most consequential of the
+  six.** `extensions/pi/delivery-runner.ts` batches on `touches` overlap only, so items the binder
+  explicitly forbids running together are built concurrently. `karta-deliver` defines four parallelism
+  gates; Pi implements two. Predates this work (FINDINGS.md row 11).
+- **`mapWithConcurrencyLimit` uses `Promise.all`**, which rejects at the first worker failure and
+  leaves the remainder running un-awaited — after the lease has been released.
+- **`plan-runner.ts` reads raw `ctx.cwd`** instead of `git rev-parse --show-toplevel`, so a dispatch
+  from a subdirectory mis-resolves the binder path. Fails safe, but should match `delivery-runner.ts`.
+- **A set commits under a subject naming only its first slug.**
+
+**Why it matters.** The `serialize` gap is a correctness violation, not a rough edge: a migration and
+a lock-file change that the binder marked as never-parallel are dispatched together. The commit-gate
+one is a documentation claim that overstates its own enforcement, which is the failure this repo's
+doctrine names explicitly.
+
+**Unblock path.** Each is independently scoped and small; none needs the others. `serialize` needs the
+binder parser to read the field and `collisionBatch` to treat a `serialize` item as a batch of one and
+a shared `shared_resources` entry as overlap. For the commit gate, decide whether to narrow the claim
+or write the evidence record — it is the only one of the six that is primarily a decision.
+
+**Evidence.** The roundtable record
+[`.karta/roundtable/branch-579767e9f98724c239fbd9157c66ee3ad2da23b1.rounds.json`](../../.karta/roundtable/branch-579767e9f98724c239fbd9157c66ee3ad2da23b1.rounds.json);
+FINDINGS.md row 11 for `serialize`.
+
+---
+
+## 29. the roundtable remainder — not karta's, listed so it is not lost — *Blocked (external)* (filed 2026-09-13)
+
+**What.** In `/mnt/agent-storage/vader/src/roundtable-src`: eight rows in its `docs/bugs/README.md`
+register carry an id, a title and a severity but no report file — BUG-0003 (`ROUNDTABLE_BIN` in the Pi
+config ignored), BUG-0004/0005 (bridge connection lifecycle), BUG-0006 (silent `PATH` fallback),
+BUG-0008 (`INSTALL.md` has no Pi verification section), BUG-0009, BUG-0010, BUG-0011. And one branch,
+`docs/bug-0002-rewrite` at `5621998`, is committed and **unmerged**.
+
+**Why it is here and not a karta entry.** It is that repository's register, and this entry is a
+pointer, not a claim on the work. Filing it as karta's would repeat the misattribution that closed
+BUG-0002. The unmerged branch is the urgent half: it rots, and it was one `git switch main` away from
+a silent no-op merge.
+
+**Unblock path.** Land `docs/bug-0002-rewrite` first, verifying with `git log --oneline -1 main`
+after the merge rather than trusting the merge output. Then reproduce each of the eight before writing
+its report — all eight came from a panel, not from a human reproducing them, and the register's own
+first rule is "reproduce before filing, or say plainly you did not". BUG-0003 and BUG-0006 are the
+same function and should be fixed together.
+
+**Evidence.** `roundtable-src/docs/bugs/README.md` and `TEMPLATE.md`.
 
 ---
 
