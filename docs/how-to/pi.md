@@ -261,6 +261,60 @@ npm run smoke:pi-package
 
 The script runs `npm pack`, extracts the resulting artifact into a disposable directory, and loads that package into the installed `pi` executable with isolated settings. It verifies all ten skills, calls the package-owned `karta_dispatch` tool through a controlled model, removes the package, and leaves the user's real Pi settings untouched. Loading the checkout directly with `-e` does not satisfy this test.
 
+## What karta enforces on Pi
+
+Pi's extension surface is not the same as Claude Code's or Codex's hooks. This table is the honest
+parity story, so you know which rules a runtime enforces and which are only written down. "Enforced"
+means Pi itself runs the check; "doctrine" means the skill states the rule and the agent is expected
+to follow it, with nothing underneath to catch a slip.
+
+| Rule | Claude Code | Codex | Pi |
+|-|-|-|-|
+| Committed binders are read-only | Enforced (hook) | Enforced (hook) | Enforced for `write` and `edit`. A `bash` redirect or `rm` on a binder is not inspected — the same shell gap Claude Code and Codex have |
+| Pack edits must validate | Enforced (hook) | Enforced (hook) | Enforced. Checked before a `write` lands and after an `edit` lands |
+| Safety-auditor dispatch is complete | Enforced, fail-closed (hook) | Enforced, fail-closed (hook) | Enforced differently. The gate throws when pinned packs or repo-rule citations went unread — after the reviewer contexts start, not before |
+| Gate dispatches carry a real, sized diff | Enforced, fail-closed (hook) | Enforced, fail-closed (hook) | Enforced differently. The host derives the diff itself, so a caller-supplied range is never validated |
+| Confined writers stay inside their surfaces | Enforced (hook) | Doctrine | Enforced for dispatched writer children only. The main session is not confined |
+| You see your binders at session start | Informational (hook) | Enforced (hook) | Enforced (informational) |
+| **A delivery may not end dirty** | **Enforced — the Stop hook blocks** | **Enforced — the Stop hook blocks** | **Advisory. Pi cannot block a session end; it queues a follow-up turn instead** |
+| A build item that produced nothing is named | Enforced (SubagentStop) | Enforced (hook) | Advisory, on the same follow-up path |
+| Karta Watch hub auto-revives | SessionStart hook + embedded ensure | SessionStart hook + embedded ensure | Enforced. The same `inject_karta_status.py` runs on session start |
+| Plan phase: a binder validates before it commits | Skill doctrine | Skill doctrine | **Enforced.** `commitBinder` validates the binder and commits only on a human's `commit` verb at a prompt |
+| Plan phase: repository facts | Explore subagent | Subagent | **Enforced.** `planSurvey` returns the package's own stack and pack facts |
+| karta never pushes | — | Enforced (execpolicy) | Not enforced |
+| Commits pass the gate suite | Enforced (project settings) | Enforced (`.codex/hooks.json`) | Not available. `scripts/` is not part of the Pi package |
+
+Pi enforces a few things the other two do not, and they are worth knowing about:
+
+- **A binder-scoped dispatch lock.** Two concurrent deliveries of the same binder are mechanically
+  impossible, and a stale lock is recoverable by hand (see [Recover a dispatch lock](#recover-a-dispatch-lock)).
+- **Worker authority attestation.** A worker that moves HEAD, edits hooks, or touches a protected
+  path is detected and its work is rejected, rather than being trusted to have behaved.
+- **Evidence-bound gates.** A gate cannot pass on a check manifest that is missing or has not
+  passed.
+
+### Why the Stop gate only advises on Pi
+
+This is a limitation of Pi's extension API, not a choice karta made. Pi's `agent_settled` event is
+delivered after a run "has fully settled and no automatic retry, compaction, or queued continuation
+will run" — by which point there is nothing left to refuse. Only these events carry a result type an
+extension can use to block or rewrite: `tool_call`, `tool_result`, `input`, `message_end`,
+`before_agent_start`, `before_provider_request`, `context`, `user_bash`, and `project_trust`. None of
+them is a stop.
+
+So Pi runs the same dirty-delivery detection as the other two harnesses and then turns the result
+into a corrective chat turn. You are told; you are not stopped. If a delivery must not end dirty,
+watch for that message rather than relying on the session to refuse.
+
+### Two things to know before you rely on any of it
+
+- **Guards fail open.** A guard that cannot run — `uv` missing, a spawn error, a timeout — allows the
+  action rather than blocking it. If `uv` is not on your `PATH`, every Pi guard silently stops
+  guarding with no visible signal. Confirm `uv run --version` works before trusting the table above.
+- **Guards are a guardrail, not a boundary.** They inspect tool calls, so a shell command that
+  writes a binder through a redirection is outside what they see. For a hard boundary, use OS-level
+  file permissions on `.karta/binders`.
+
 ## Current support matrix
 
 This matrix records native runs, not architectural guesses. A container result may diagnose a problem but does not turn a missing native run green.
