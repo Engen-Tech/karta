@@ -10,6 +10,17 @@ karta-plan ingests intent and — without fail — synthesizes a binder. Give it
 
 **Bundled scripts.** When Pi provides `karta_script`, use the named action below. Otherwise replace `<skill-dir>` with the absolute directory containing this `SKILL.md` and run the fallback through `uv run --script`. Never resolve a bundled script from the consumer repo's working directory.
 
+## Pi route
+
+When Pi provides `karta_dispatch`, the two rules in this skill that a host can enforce are host-owned rather than yours:
+
+- **Survey facts.** Call `action: planSurvey` before the grilling rounds. It runs the package's stack detection and stack-pack provenance classification and returns both verbatim, so the repository's facts come from the package instead of improvised detection. Use its output for `plan:survey`.
+- **Emit and commit.** Write the draft to `.karta/binders/<slug>.json`, then call `action: commitBinder` with the slug. The host validates the binder (`validate_binder.py`), runs the cross-item shared-term check, presents the review card carrying the validator's recorded escapes and the shape line, and commits only when the human at the prompt gives the `commit` verb. For a set, pass every other stage's slug in `set`: the binders commit together, in one commit, exactly as this skill requires. Do not validate by hand and then `git commit` the binder — that path skips the review point and the verb, which is the one place a bad plan reaches delivery unchecked.
+
+`commitBinder` returns `karta-plan-commit-v1` with `status` of `committed`, `blocked`, or `cancelled`. `blocked` means the binder validated but no human was at a prompt: report that and stop rather than committing it yourself. A tool error is a failure, never a reason to fall back to a by-hand commit.
+
+Everything else stays yours — the intent ingest, the grilling rounds, the shape decision, synthesis judgment, the smart-surfaced walk, cost education, and the report. The host cannot take those, and this skill's own rule forbids delegating synthesis judgment.
+
 ## How this skill adapts to your project
 
 karta-plan is **stack-agnostic**. It plans frontend, backend, CLI, data pipelines, libraries/SDKs, IaC, mobile, ML, and docs work in the same way — UI is one stack among many, not the default.
@@ -292,7 +303,7 @@ Educate; don't forbid. If the user wants the full scope, move on.
 
 **Emit `after` edges when emitting a set.** For each binder in the set except the first, set its top-level `after` to the slug(s) of its immediate predecessor(s) in the suggested order — `note-tags-edit` carries `"after": ["note-tags-new"]`, `note-tags-delete` carries `"after": ["note-tags-edit"]`, and `note-tags-new` carries no `after` at all (it has no predecessor). The `after` field is the **only** persisted cross-binder dependency. (An `after` may also name an already-delivered binder — one karta-deliver archived to `.karta/binders/archive/` — which the status engine resolves as satisfied, not dangling.) The run order the user sees in the report (`plan:report`) is the topo sort the engine derives from these edges — which means `karta-status`'s live order and this plan-time advice are always the same sort over the same stored edges. Only the edge is stored; the order is derived, never stored. Do **not** write a sequence manifest or encode order in slugs.
 
-**Validate it.** Use `karta_script` action `validateBinder` with `binder: <path>`; fallback: `uv run --script <skill-dir>/scripts/validate_binder.py --binder <path>`.
+**Validate it.** Use `karta_script` action `validateBinder` with `binder: <path>`; fallback: `uv run --script <skill-dir>/scripts/validate_binder.py --binder <path>`. On Pi, `karta_dispatch` action `commitBinder` runs this validation itself as part of the review-and-commit step — do not validate by hand and then commit with `git`.
 
 The validator is pure stdlib (no dependencies), so `uv run --script`, `uv run`, or `python3` all run it. Do not proceed on a validation failure. Fix the binder and re-validate until it passes. **For a set, validate every binder** — each must pass on its own before you present the set.
 

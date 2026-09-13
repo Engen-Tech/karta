@@ -18,6 +18,7 @@ import { claimExtensionInstance } from "./extension-instance.ts";
 import { registerGuardAdapters } from "./guard-adapter.ts";
 import { KartaIntegrationRunner } from "./integration-runner.ts";
 import { PACKAGE_ROOT, requirePackagePath } from "./package-paths.ts";
+import { KartaPlanRunner } from "./plan-runner.ts";
 import { KartaProcessManager } from "./process-manager.ts";
 import { createKartaScriptTool } from "./script-tool.ts";
 import { KartaShutdownCoordinator } from "./shutdown-coordinator.ts";
@@ -39,6 +40,7 @@ export default function kartaPi(extension: ExtensionAPI): void {
   const integrations = new KartaIntegrationRunner(dispatchLocks, verification);
   const waves = new KartaWaveRunner(dispatchLocks);
   const writers = new KartaWriterRunner(children);
+  const plans = new KartaPlanRunner();
   const companions = new KartaCompanionRunner(dispatchLocks, writers);
   const deliveries = new KartaDeliveryRunner(
     dispatchLocks,
@@ -59,7 +61,7 @@ export default function kartaPi(extension: ExtensionAPI): void {
   });
   extension.registerTool(createKartaScriptTool(extension));
   extension.registerTool(
-    createKartaDispatchTool(gatePreflight, children, verification, buildItems, deliveries),
+    createKartaDispatchTool(gatePreflight, children, verification, buildItems, deliveries, plans),
   );
 
   extension.on("resources_discover", (_event, ctx) => {
