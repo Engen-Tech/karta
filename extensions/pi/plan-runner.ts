@@ -24,6 +24,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -37,6 +38,7 @@ const SCRIPT_TIMEOUT = 120_000;
 const BINDER_ID = /^[a-z0-9][a-z0-9-]*$/;
 const BINDER_ROOT = ".karta/binders";
 const ROUNDTABLE_ROOT = ".karta/roundtable/";
+const ROUNDTABLE_CONFIG = ".karta/roundtable.json";
 
 export const KARTA_PLAN_COMMIT_SUBJECT = (binder: string): string => `karta: commit binder ${binder}`;
 
@@ -83,14 +85,27 @@ async function git(cwd: string, args: string[], allowFailure = false): Promise<s
 }
 
 /**
- * A binder commit is the plan of record plus the review record filed beside it,
- * and nothing else. A set commits together, so every binder in the set belongs
- * to the same commit. Anything a pathspec or a stale index would sweep in makes
- * the commit more than its stated contents, so it is refused rather than
- * trimmed.
+ * A binder commit is the plan of record plus that binder's own review record, and nothing
+ * else. A set commits together, so every binder in the set belongs to the same commit.
+ *
+ * The record allowance names the exact files the recorder writes for these slugs — never the
+ * `.karta/roundtable/` directory. Accepting the prefix let a commit for one binder sweep in
+ * another binder's record, or any file at all that someone had staged under that path, which
+ * is the opposite of "and nothing else".
  */
-function isCommittablePath(repoPath: string, binderPaths: string[]): boolean {
-  return binderPaths.includes(repoPath) || repoPath.startsWith(ROUNDTABLE_ROOT);
+function isCommittablePath(repoPath: string, binderPaths: string[], recordPaths: string[]): boolean {
+  return binderPaths.includes(repoPath) || recordPaths.includes(repoPath);
+}
+
+function sha256(value: string | Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function recordPathsFor(slugs: string[]): string[] {
+  return slugs.flatMap((slug) => [
+    `${ROUNDTABLE_ROOT}${slug}.json`,
+    `${ROUNDTABLE_ROOT}${slug}.rounds.json`,
+  ]);
 }
 
 interface BinderCardFacts {
@@ -218,6 +233,36 @@ export class KartaPlanRunner {
     };
   }
 
+  /**
+   * When a repository opts into the roundtable at its plan-commit point, that binder's own
+   * record — and its ledger, when the config keeps one — must be staged in the same commit.
+   * That is the rule the review gate enforces in a hooked harness; Pi has no such hook, so
+   * without this check a binder could land here with no review record at all. The hatch is the
+   * same one the gate honours, for when the review environment is down.
+   */
+  async #roundtableRecords(
+    root: string,
+    slugs: string[],
+    staged: string[],
+  ): Promise<{ required: string[]; missing: string[] }> {
+    const none = { required: [], missing: [] };
+    if (process.env.KARTA_SKIP_ROUNDTABLE === "1") return none;
+    let config: Record<string, unknown>;
+    try {
+      config = JSON.parse(await readFile(join(root, ROUNDTABLE_CONFIG), "utf8")) as Record<string, unknown>;
+    } catch {
+      return none;
+    }
+    if (config.enabled !== true) return none;
+    const points = (config.points ?? {}) as Record<string, unknown>;
+    if (points.plan_commit !== true) return none;
+    const required = slugs.flatMap((slug) => [
+      `${ROUNDTABLE_ROOT}${slug}.json`,
+      ...(config.ledger === true ? [`${ROUNDTABLE_ROOT}${slug}.rounds.json`] : []),
+    ]);
+    return { required, missing: required.filter((path) => !staged.includes(path)) };
+  }
+
   async commit(
     ctx: ExtensionContext,
     binder: string,
@@ -240,8 +285,12 @@ export class KartaPlanRunner {
 
     const runs: KartaPlanScriptRun[] = [];
     const escapeBlocks: string[] = [];
+    // The bytes that validated are the bytes that must commit, so each binder is hashed across
+    // its own validation and the hash is re-checked before the commit is created.
+    const validated = new Map<string, string>();
     for (const [index, slug] of slugs.entries()) {
       const path = paths[index];
+      const before = sha256(await readFile(join(root, path)));
       const validation = await this.#script(ctx, "validateBinder", ["--binder", path]);
       runs.push(validation);
       if (validation.code !== 0) {
@@ -252,28 +301,46 @@ export class KartaPlanRunner {
       if (terms.code !== 0) {
         throw new Error(`Karta binder '${slug}' failed its shared-term check:\n${output(terms)}`);
       }
+      if (sha256(await readFile(join(root, path))) !== before) {
+        throw new Error(`Karta binder '${slug}' changed while it was being validated; re-run the commit`);
+      }
+      validated.set(path, before);
       escapeBlocks.push(slugs.length > 1 ? `--- ${slug} ---\n${output(validation)}` : output(validation));
     }
     const provenance = await this.#script(ctx, "checkPackProvenance", [root]);
     runs.push(provenance);
+    // Nothing may be staged except the plan of record and its own review record.
+    const recordPaths = recordPathsFor(slugs);
+    const stagedBefore = (await git(root, ["diff", "--cached", "--name-only"], true))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+    const strayBefore = stagedBefore.filter((line) => !isCommittablePath(line, paths, recordPaths));
+    if (strayBefore.length > 0) {
+      throw new Error(
+        `Karta refuses to commit a binder with unrelated changes staged: ${strayBefore.join(", ")}`,
+      );
+    }
+    const roundtable = await this.#roundtableRecords(root, slugs, stagedBefore);
+    if (roundtable.missing.length > 0) {
+      throw new Error(
+        `Karta refuses to commit binder '${binder}' without its review record staged: ` +
+          `${roundtable.missing.join(", ")}. Record the roundtable ` +
+          `(python3 scripts/roundtable/run_review.py --record --target ${binder}) and stage it, ` +
+          `or set KARTA_SKIP_ROUNDTABLE=1 if the review environment is down.`,
+      );
+    }
 
     const facts: BinderCardFacts[] = [];
     for (const [index, slug] of slugs.entries()) {
       facts.push(cardFacts(slug, await readFile(join(root, paths[index]), "utf8")));
     }
     const sme = [...new Set(facts.flatMap((binder) => binder.sme))];
-    const card = buildCard(facts, sme, escapeBlocks.join("\n\n"), output(provenance));
-
-    // Nothing may be staged except the plan of record and its review record.
-    const strayBefore = (await git(root, ["diff", "--cached", "--name-only"], true))
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line !== "" && !isCommittablePath(line, paths));
-    if (strayBefore.length > 0) {
-      throw new Error(
-        `Karta refuses to commit a binder with unrelated changes staged: ${strayBefore.join(", ")}`,
-      );
-    }
+    const card = `${buildCard(facts, sme, escapeBlocks.join("\n\n"), output(provenance))}\n\n${
+      roundtable.required.length
+        ? `Review record staged: ${roundtable.required.join(", ")}`
+        : "Review record: this repository's roundtable settings require none for a plan commit."
+    }`;
 
     if (!ctx.hasUI) {
       return {
@@ -326,9 +393,27 @@ export class KartaPlanRunner {
     for (const path of paths) {
       if (!staged.includes(path)) throw new Error(`Karta could not stage ${path} for commit`);
     }
-    const stray = staged.filter((line) => !isCommittablePath(line, paths));
+    const stray = staged.filter((line) => !isCommittablePath(line, paths, recordPaths));
     if (stray.length > 0) {
       throw new Error(`Karta refuses to commit a binder with unrelated changes staged: ${stray.join(", ")}`);
+    }
+    const stillMissing = roundtable.required.filter((path) => !staged.includes(path));
+    if (stillMissing.length > 0) {
+      throw new Error(
+        `Karta refuses to commit binder '${binder}' without its review record staged: ${stillMissing.join(", ")}`,
+      );
+    }
+    // The review prompt is a window. `git add` staged whatever is on disk once it ran, so prove
+    // the index still holds the bytes that validated — first that the file is unchanged, then
+    // that the index matches the file. Without this, anything edited while the human was looking
+    // at the card would be committed behind a validated-looking name.
+    for (const path of paths) {
+      if (sha256(await readFile(join(root, path))) !== validated.get(path)) {
+        throw new Error(`Karta refuses to commit ${path}: the file changed after it was validated`);
+      }
+      if ((await git(root, ["diff", "--name-only", "--", path], true)).trim() !== "") {
+        throw new Error(`Karta refuses to commit ${path}: the index does not hold the validated bytes`);
+      }
     }
 
     const subject = KARTA_PLAN_COMMIT_SUBJECT(binder);
