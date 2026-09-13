@@ -2,7 +2,7 @@
 
 Karta 1.19's installed Codex plugin passed live tests for fallback agents and gates, Kaizen, and Plannotator. Use the installed plugin for these features. Repo-local projections are in sync and expose the same skills, but this test drive did not repeat the live feature scenarios in repo-local mode.
 
-Codex does not provide Karta's Claude Code hooks. Where a Codex sandbox does not enforce a narrower boundary, Karta relies on instructions and deterministic scripts. Do not treat the results below as hook parity.
+This record describes the Codex surface as it stood at Karta 1.19: Codex then offered no hook surface Karta could use, so where a Codex sandbox did not enforce a narrower boundary, Karta relied on instructions and deterministic scripts. Do not treat the results below as hook parity, and do not read them as today's enforcement — karta now ships a Codex hooks manifest with payload-native twins of seven guards, live once you trust them. The current parity story is in [the Codex how-to](../../how-to/codex.md#what-karta-enforces-on-codex).
 
 ## What works
 
@@ -13,7 +13,7 @@ Codex does not provide Karta's Claude Code hooks. Where a Codex sandbox does not
 | Doc-gardner fallback writer | **Passed.** The writer corrected only the stale README sentence and changed no code, binder, commit, or ref. | A registered workspace-write agent is generated and sync-checked; no separate live repo-local run was recorded. | The workspace sandbox is broad. The documentation-only boundary is instruction-enforced. | [Doc-gardner fallback](fallback-agents-and-gates.md#doc-gardner-fallback) |
 | Kaizen switch, direct mode, and delivery mode | **Passed.** Absent and disabled switches were no-ops. Direct mode used detected packs and left changes uncommitted. Delivery mode seeded exactly the binder pins and committed on the supplied integration branch. | The repo-local skill is byte-synced, but these live scenarios were tested only through the installed plugin. | Switch checks and pack validation are script-enforced. The fallback writer's exact path boundary is instruction-enforced; Codex has no Karta confinement hook. | [Kaizen evidence](kaizen.md#scenario-evidence) |
 | Plannotator planning and delivery surfaces | **Passed with a human acceptance waiver.** The capability probe, review offer, browser annotations, unambiguous mapping, ambiguous-note return, binder validation, no-implicit-commit rule, and delivery review offer all worked. | The repo-local skills are byte-synced, but these live scenarios were tested only through the installed plugin. | The executable probe and binder validation are script-enforced. Annotation mapping and the no-implicit-commit boundary are instruction-enforced. | [Plannotator evidence](plannotator.md) |
-| Karta plugin hooks | **Unavailable.** The installed Codex plugin has no Karta hooks manifest. | **Unavailable.** Repo-local Codex uses agents, skills, rules, and scripts, not the Claude Code hooks. | Unavailable on Codex. | [Kaizen confinement note](kaizen.md#codex-confinement-is-weaker-than-claudes-hook) |
+| Karta plugin hooks | **Unavailable at 1.19.** The installed Codex plugin shipped no Karta hooks manifest then; it ships one now. | **Unavailable at 1.19.** Repo-local Codex used agents, skills, rules, and scripts, not the Claude Code hooks. | Unavailable on Codex at 1.19. | [Kaizen confinement note](kaizen.md#codex-confinement-is-weaker-than-claudes-hook) |
 
 ## What the waivers mean
 

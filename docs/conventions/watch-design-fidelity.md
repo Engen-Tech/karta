@@ -25,7 +25,7 @@ Then open `http://127.0.0.1:8700/?theme=light` at a 1440x900 viewport. The port 
 KARTA_WATCH_STATE_DIR=$(mktemp -d) uv run --script skills/karta-status/scripts/serve_status.py --root docs/designs/fixtures/watch-fidelity-state --port 8700
 ```
 
-Compare what renders at that URL against `docs/designs/karta-watch-1440x900-light.html`. **Open the design file directly** — a `file://` path in a browser, or a `file://` `--design-url` if you are driving `capture_view.py`. It is self-contained and needs no server. Do not put it behind `karta-validate`'s `serve_design.py`: that script roots at the design file's own parent, and this capture points at `../../skills/karta-status/assets/`, so all eight font faces and the mascot 404 and the page silently falls back to different faces with no error anywhere.
+Compare what renders at that URL against `docs/designs/karta-watch-1440x900-light.html`. **Open the design file directly** — a `file://` path in a browser, or a `file://` `--design-url` if you are driving `capture_view.py`. It is self-contained and needs no server. Do not put it behind `karta-validate`'s `serve_design.py`: that script roots at the design file's own parent, and this capture points at `../../skills/karta-status/assets/`, so all seven font faces and the mascot 404 and the page silently falls back to different faces with no error anywhere.
 
 **Two clicks are part of the run.** The fixture binder derives as `next`, and the page opens only the current binder's panel at rest — so the view at rest is the binder head alone. Take the head-level readings there, then:
 
