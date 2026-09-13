@@ -151,6 +151,37 @@ function worktreeMap(porcelain: string): Map<string, string> {
   return result;
 }
 
+/**
+ * How many items of one wave may build at the same time.
+ *
+ * A collision batch is every dependency-ready item whose `touches` do not overlap, which
+ * for a wide or thinly-declared binder can be most of the binder. Starting them all at once
+ * is a burst against the model provider and against the machine — the same hazard the
+ * project's own fan-out discipline works in waves to avoid — so the batch is still admitted
+ * in dependency order but built with a bounded number of workers.
+ */
+export const MAX_PARALLEL_BUILDS = 4;
+
+/** Run `fn` over `items` with at most `limit` calls in flight, preserving result order. */
+export async function mapWithConcurrencyLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function collisionBatch(items: DeliveryItem[]): DeliveryItem[] {
   const selected: DeliveryItem[] = [];
   const occupied = new Set<string>();
@@ -892,8 +923,10 @@ export class KartaDeliveryRunner {
             message: "No dependency-ready item exists; the binder graph or Git state is stuck.",
           };
         }
-        const builds = await Promise.all(
-          batch.map((item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates)),
+        const builds = await mapWithConcurrencyLimit(
+          batch,
+          MAX_PARALLEL_BUILDS,
+          (item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates),
         );
         const waveResult: KartaDeliveryWave = {
           wave: waveNumber,

@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KartaBuildItemRunner } from "../../extensions/pi/build-runner.ts";
-import { KartaDeliveryRunner } from "../../extensions/pi/delivery-runner.ts";
+import { KartaDeliveryRunner, MAX_PARALLEL_BUILDS, mapWithConcurrencyLimit } from "../../extensions/pi/delivery-runner.ts";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import type { KartaIntegrationRunner } from "../../extensions/pi/integration-runner.ts";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
@@ -450,6 +450,22 @@ test("choosing Clear removes the earlier run's state and starts over", async () 
   } finally {
     await state.cleanup();
   }
+});
+
+test("a wave's builds are capped so a wide binder cannot start every item at once", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const items = Array.from({ length: 12 }, (_, index) => index);
+  const results = await mapWithConcurrencyLimit(items, MAX_PARALLEL_BUILDS, async (item) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await new Promise((settle) => setTimeout(settle, 5));
+    inFlight -= 1;
+    return item * 2;
+  });
+  assert.ok(peak <= MAX_PARALLEL_BUILDS, `peak in-flight was ${peak}`);
+  assert.ok(peak > 1, "the cap must still allow real parallelism");
+  assert.deepEqual(results, items.map((item) => item * 2));
 });
 
 test("declared collision surfaces serialize otherwise-ready items", async () => {
