@@ -309,13 +309,13 @@ settles it.
 | # | Gap | Severity | Evidence |
 |-|-|-|-|
 | 1 | Three of eight guards shipped but unwired — writer confinement and both fail-closed dispatch inspectors absent | High | `guard-runner.ts:4-10` vs `hooks/scripts/` (8 scripts) |
-| 2 | Delivery Stop gate is advisory, not blocking | High | `guard-adapter.ts:196-213` |
+| 2 | Delivery Stop gate is advisory, not blocking — **closed as documented**: Pi's extension API has no stop-deny event, so no code change can make it block | ~~High~~ Closed | `docs/how-to/pi.md`, section "Why the Stop gate only advises on Pi" |
 | 3 | Plan phase had no dispatch action and no commit-verb gate — **fixed on this branch** | ~~High~~ Closed | `extensions/pi/plan-runner.ts`, `dispatch-tool.ts` |
-| 4 | Silent resume contradicts "never silently resume" | High | `delivery-runner.ts:456-468`; zero `resume` hits |
-| 5 | Unbounded concurrency in wave dispatch | High | `delivery-runner.ts:804` |
+| 4 | Silent resume contradicts "never silently resume" — **fixed on this branch** | ~~High~~ Closed | `delivery-runner.ts` `#clearDelivery` + the leftover prompt |
+| 5 | Unbounded concurrency in wave dispatch — **fixed on this branch** | ~~High~~ Closed | `MAX_PARALLEL_BUILDS` in `delivery-runner.ts` |
 | 6 | Binder-immutability guards have a `bash`-shaped hole | Medium | `guard-adapter.ts:30-38` |
 | 7 | Role model/effort pins not projected — deliberate (the session model runs everything), but undocumented in `pi.md` | Low | `child-runtime.ts:165`, `:200`; `role-catalog.ts` parses only `name` and body |
-| 8 | No Pi enforcement-parity table in `docs/how-to/pi.md` | Medium | `docs/how-to/pi.md:264-279` is platform-only |
+| 8 | No Pi enforcement-parity table in `docs/how-to/pi.md` — **fixed on this branch** | ~~Medium~~ Closed | `docs/how-to/pi.md`, "What karta enforces on Pi" |
 | 9 | Plan plannotator surface and commit guard absent | Medium | zero `plannotator` hits in `extensions/pi/` |
 | 10 | Backlog sink and `env_contract` binding absent | Medium | zero `backlog`, `env_contract` hits |
 | 11 | Four parallelism gates reduced to two | Medium | `skills/karta-deliver/SKILL.md:87-91` vs `delivery-runner.ts:108-119` |
@@ -357,11 +357,24 @@ inherits the session model by design (`child-runtime.ts:165`, `:200`) so that on
 runs every role; the reviewer's job does not include overriding which model the user picked. The
 pins are still not projected and still undocumented in `pi.md` — that part stands.
 
-**Resolved on branch `fix/pi-parity-gaps`.** Finding 3 is closed. `extensions/pi/plan-runner.ts`
-adds two `karta_dispatch` actions — `planSurvey` (package-owned stack and pack facts) and
-`commitBinder` (validate → shared-term check → host review card → commit only on the human's
-`commit` verb, with a set committing in one commit, and a refusal when anything but the binder and
-its review record is staged). `skills/karta-plan/SKILL.md` gained a Pi route naming both. Covered
-by `tests/pi/plan-runner.test.ts` (11 cases). The remaining plan gaps in section 3 — the plannotator
-probe and the synthesis role — are unchanged: the probe is skill-driven on every harness, so it is
-parity rather than a gap, and synthesis judgment is deliberately not delegated.
+**Resolved on branch `fix/pi-parity/integration`.** Four findings are closed and one is closed as a
+limitation rather than a fix.
+
+- **Finding 3, plan enforcement.** `extensions/pi/plan-runner.ts` adds `planSurvey` and
+  `commitBinder`; `skills/karta-plan/SKILL.md` gained a Pi route. Covered by
+  `tests/pi/plan-runner.test.ts` (11 cases).
+- **Finding 4, silent resume.** `deliverBinder` now detects leftovers and puts Resume or Clear to
+  the host, blocking when there is no host to ask. `#clearDelivery` sweeps the wave tags, item
+  refs, item branches and the integration branch, then verifies the sweep. Covered by two new cases
+  in `tests/pi/delivery-runner.test.ts`.
+- **Finding 5, unbounded concurrency.** Builds run through a bounded worker pool
+  (`MAX_PARALLEL_BUILDS = 4`), with a test that asserts a real peak in flight so the cap cannot
+  decay into a sequential loop unnoticed.
+- **Finding 8, the missing parity table.** `docs/how-to/pi.md` now carries the enforcement table,
+  mirroring the Codex one.
+- **Finding 2, the Stop gate.** Closed as documented, not fixed. Pi's `agent_settled` fires after a
+  run has fully settled and carries no result type, so no extension can refuse a session end. The
+  doc now says so, and says what to watch for instead.
+
+Still open: findings 1, 6, 7, and 9-20. Finding 1 (three of eight guards shipped but unwired) is
+the largest remaining item.
