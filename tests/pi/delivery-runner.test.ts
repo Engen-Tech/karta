@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KartaBuildItemRunner } from "../../extensions/pi/build-runner.ts";
-import { KartaDeliveryRunner } from "../../extensions/pi/delivery-runner.ts";
+import { KartaDeliveryRunner, MAX_PARALLEL_BUILDS, mapWithConcurrencyLimit } from "../../extensions/pi/delivery-runner.ts";
 import { DispatchLockManager } from "../../extensions/pi/dispatch-lock.ts";
 import type { KartaIntegrationRunner } from "../../extensions/pi/integration-runner.ts";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
@@ -319,8 +319,9 @@ test("interactive human acceptance records reason and resumes delivery", async (
       cwd: state.repo,
       hasUI: true,
       ui: {
-        async select() {
-          prompts.push("select");
+        async select(message: string) {
+          prompts.push(message);
+          if (message.includes("carries state from an earlier run")) return "Resume";
           return "Accept exact current findings";
         },
         async confirm(_title: string, message: string) {
@@ -357,7 +358,9 @@ test("fix-and-rerun clears only the expected failed ref and rebuilds", async () 
       cwd: state.repo,
       hasUI: true,
       ui: {
-        async select() { return "Fix and rerun"; },
+        async select(message: string) {
+          return message.includes("carries state from an earlier run") ? "Resume" : "Fix and rerun";
+        },
       },
     } as unknown as ExtensionContext;
     const result = await delivery.runner.run(ctx, "demo");
@@ -381,7 +384,11 @@ test("defer leaves the failed ref intact and stops without model authority", asy
       cwd: state.repo,
       hasUI: true,
       ui: {
-        async select() { return "Defer and stop delivery"; },
+        async select(message: string) {
+          return message.includes("carries state from an earlier run")
+            ? "Resume"
+            : "Defer and stop delivery";
+        },
       },
     } as unknown as ExtensionContext;
     const result = await delivery.runner.run(ctx, "demo");
@@ -391,6 +398,139 @@ test("defer leaves the failed ref intact and stops without model authority", asy
       await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/failed"]),
       itemTip,
     );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("leftover state is never resumed or cleared silently without a host prompt", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    const leftovers = (await git(state.repo, ["for-each-ref", "--format=%(refname)", "refs/karta/demo/"])).trim();
+    assert.notEqual(leftovers, "");
+    const delivery = createRunner(state.repo);
+    const result = await delivery.runner.run({ cwd: state.repo } as ExtensionContext, "demo");
+    assert.equal(result.status, "blocked");
+    assert.match(result.message, /rerun interactively to choose resume or clear/);
+    // Nothing was resumed and nothing was cleared: the state is exactly as it was.
+    assert.equal(
+      (await git(state.repo, ["for-each-ref", "--format=%(refname)", "refs/karta/demo/"])).trim(),
+      leftovers,
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("choosing Clear removes the earlier run's state and starts over", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    assert.notEqual(
+      (await git(state.repo, ["for-each-ref", "--format=%(refname)", "refs/karta/demo/"])).trim(),
+      "",
+    );
+    const delivery = createRunner(state.repo);
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select(message: string) {
+          return message.includes("carries state from an earlier run") ? "Clear" : "Fix and rerun";
+        },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "complete");
+    // The seeded failed ref is gone, because the run started from wave 1.
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/failed"]),
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a wave's builds are capped so a wide binder cannot start every item at once", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const items = Array.from({ length: 12 }, (_, index) => index);
+  const results = await mapWithConcurrencyLimit(items, MAX_PARALLEL_BUILDS, async (item) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await new Promise((settle) => setTimeout(settle, 5));
+    inFlight -= 1;
+    return item * 2;
+  });
+  assert.ok(peak <= MAX_PARALLEL_BUILDS, `peak in-flight was ${peak}`);
+  assert.ok(peak > 1, "the cap must still allow real parallelism");
+  assert.deepEqual(results, items.map((item) => item * 2));
+});
+
+test("a dirty worktree is disclosed before Clear, then removed with consent", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    // A leftover item worktree at the exact path the runner uses, holding uncommitted work.
+    const worktreesRoot = join(state.root, "repo-worktrees");
+    await mkdir(worktreesRoot, { recursive: true });
+    const worktree = join(worktreesRoot, "karta-demo-item-item-a");
+    await git(state.repo, ["worktree", "add", worktree, "karta/demo/item-item-a"]);
+    await writeFile(join(worktree, "uncommitted.txt"), "work in progress\n");
+
+    const delivery = createRunner(state.repo);
+    const messages: string[] = [];
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select(message: string) {
+          messages.push(message);
+          return message.includes("carries state from an earlier run") ? "Clear" : "Fix and rerun";
+        },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "complete");
+    // The human was told which worktree would go and that its work would be lost.
+    const disclosure = messages.find((message) => message.includes("carries state from an earlier run"));
+    assert.ok(disclosure);
+    assert.match(disclosure, /will also delete these worktrees/);
+    assert.match(disclosure, /karta-demo-item-item-a/);
+    // The worktree was really removed and rebuilt, so the next run cannot wedge on a half-sweep.
+    await assert.rejects(() => access(join(worktree, "uncommitted.txt")));
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a worktree that turns dirty between the prompt and the sweep stops the clear", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    const worktreesRoot = join(state.root, "repo-worktrees");
+    await mkdir(worktreesRoot, { recursive: true });
+    const worktree = join(worktreesRoot, "karta-demo-item-item-a");
+    await git(state.repo, ["worktree", "add", worktree, "karta/demo/item-item-a"]);
+
+    const delivery = createRunner(state.repo);
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select(message: string) {
+          if (!message.includes("carries state from an earlier run")) return "Fix and rerun";
+          // Clean when the prompt inspected it, dirty by the time the sweep runs — the case the
+          // consent flag cannot cover, because consent was given about a clean worktree.
+          await writeFile(join(worktree, "snuck-in.txt"), "written during the prompt\n");
+          return "Clear";
+        },
+      },
+    } as unknown as ExtensionContext;
+    await assert.rejects(() => delivery.runner.run(ctx, "demo"), /holds uncommitted work/);
+    // The work survived, which is the whole point of failing here instead of sweeping.
+    await access(join(worktree, "snuck-in.txt"));
   } finally {
     await state.cleanup();
   }

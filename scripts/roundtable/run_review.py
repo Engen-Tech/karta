@@ -99,10 +99,19 @@ ERROR_STATUSES = frozenset({"error", "timeout", "failed", "rate_limited", "cance
 
 def _nonerror_status(entry: dict) -> str | None:
     """The transport status usable as a last-resort verdict — but only when the
-    dispatch actually succeeded. An error-class status yields None so the entry
-    carries no verdict and does not count toward the floor."""
+    dispatch actually succeeded *and produced review text*. An error-class status
+    yields None so the entry carries no verdict and does not count toward the floor.
+
+    An empty response does too. A transport success with nothing in it is not a
+    review: without the content check below, a panel of two blank replies passed
+    the floor on the strength of their status alone, so a record could assert a
+    two-model review that reviewed nothing. `not_found` is the sharpest case — it
+    is a failure, but it is not in ERROR_STATUSES, so it read as a verdict."""
     s = _first_str(entry.get("status"))
-    return s if s and s.lower() not in ERROR_STATUSES else None
+    if not s or s.lower() in ERROR_STATUSES:
+        return None
+    content = _first_str(entry.get("response"), entry.get("summary")) or ""
+    return s if content.strip() else None
 
 
 def raw_provider_entries(raw) -> list[tuple[str, dict]]:
@@ -558,6 +567,12 @@ def _run_self_test() -> int:
     check("the same panel is refused when min_providers is 3", not ok)
     ok, _ = validate_normalized(normalize_panel({"a": {"provider": "a", "response": "x"}, "b": {"provider": "b", "response": "y"}}), 2)
     check("verdict-less entries do not count toward the floor", not ok)
+    ok, _ = validate_normalized(normalize_panel({"a": {"provider": "a", "status": "ok", "response": ""}, "b": {"provider": "b", "status": "ok", "response": ""}}), 2)
+    check("a non-error status with an empty response is not a verdict (regression: two blank replies met the floor)", not ok)
+    ok, _ = validate_normalized(normalize_panel({"a": {"provider": "a", "status": "not_found"}, "b": {"provider": "b", "status": "not_found"}}), 2)
+    check("not_found is a failure, not a verdict", not ok)
+    ok, _ = validate_normalized(normalize_panel({"a": {"provider": "a", "status": "ok", "response": "a real finding"}, "b": {"provider": "b", "status": "ok", "response": ""}}), 2)
+    check("one real verdict beside one blank reply is below a floor of 2", not ok)
     ok, _ = validate_normalized(normalize_panel({"": {"status": "ok", "response": "x"}, "b": {"provider": "b", "status": "ok", "response": "y"}}), 2)
     check("an entry missing a provider is refused", not ok)
     # an error-class status must not stand in as a verdict (the all-error gap)
@@ -776,8 +791,14 @@ def _run_self_test() -> int:
         led = json.loads(raw_text)
         check("migrated ledger no longer contains the string staged_blob_sha256", "staged_blob_sha256" not in raw_text)
         check("migrated ledger header uses target_ref/target_kind", led.get("target_ref") == "context-economy" and led.get("target_kind") == "binder")
-        check("migrated ledger has thirteen rounds numbered 1..13",
-              len(led.get("rounds", [])) == 13 and all(r.get("round") == i + 1 for i, r in enumerate(led["rounds"])))
+        rounds = led.get("rounds", [])
+        check("migrated ledger rounds are numbered contiguously from 1",
+              bool(rounds) and all(r.get("round") == i + 1 for i, r in enumerate(rounds)))
+        # The migration's real guarantee is that its thirteen rounds survive, not that the ledger
+        # stops there — it only ever appends. Asserting an exact count made this fixture fail the
+        # moment round fourteen was added, and it sat failing until now.
+        check("the thirteen migrated rounds survive — the ledger only appends after them",
+              len(rounds) >= 13 and [r.get("round") for r in rounds[:13]] == list(range(1, 14)))
         check("every migrated round carries reviewed_hash and below_floor is False",
               all("reviewed_hash" in r and r.get("below_floor") is False for r in led.get("rounds", [])))
 

@@ -36,6 +36,7 @@ test("npm package inventory contains runtime assets and excludes development pro
     "extensions/pi/managed-command.ts",
     "extensions/pi/writer-profile.ts",
     "extensions/pi/writer-runner.ts",
+    "extensions/pi/plan-runner.ts",
     "skills/karta-plan/SKILL.md",
     "agents/karta-acceptance-reviewer.md",
     "hooks/scripts/guard_binder_immutability.py",

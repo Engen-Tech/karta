@@ -46,6 +46,8 @@ Plugin hooks sit at the lowest layer of Claude Code's settings precedence. Anyth
 
 The commit gate exists because every pack and skill in this repo has generated mirror copies, and nothing else checks them at commit time. On `git commit` it runs `check_shared_copies.py`, `sync_codex_skills.py --check`, `sync_codex_agents.py --check`, `validate_plugin.py`, and the pack validator over `skills/_shared/sme/`, and blocks the commit if any gate fails.
 
+The same hook carries a release block. A commit that changes the plugin version in `.claude-plugin/plugin.json` is refused unless it also stages a green full-gate result for the new version — a `benchmarks/results/gate/<date>-gate.json` (never a `*.partial.json`, since a subset run is not the gate) whose recorded plugin version equals the new one and whose recorded karta sha equals this commit's parent. A missing, red, partial, malformed, mismatched, or unstaged gate file blocks with the exact fix named: run the gate, or `git add` the file you already have.
+
 Sometimes a partial commit is the point — say, committing a canonical skill edit before regenerating the mirrors. For that one command, set the escape hatch:
 
 ```bash

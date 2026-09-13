@@ -151,6 +151,45 @@ function worktreeMap(porcelain: string): Map<string, string> {
   return result;
 }
 
+/** Every worktree path in the listing, including ones sitting on a detached HEAD. */
+function worktreePaths(porcelain: string): string[] {
+  return porcelain
+    .split("\n")
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length));
+}
+
+/**
+ * How many items of one wave may build at the same time.
+ *
+ * A collision batch is every dependency-ready item whose `touches` do not overlap, which
+ * for a wide or thinly-declared binder can be most of the binder. Starting them all at once
+ * is a burst against the model provider and against the machine — the same hazard the
+ * project's own fan-out discipline works in waves to avoid — so the batch is still admitted
+ * in dependency order but built with a bounded number of workers.
+ */
+export const MAX_PARALLEL_BUILDS = 4;
+
+/** Run `fn` over `items` with at most `limit` calls in flight, preserving result order. */
+export async function mapWithConcurrencyLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function collisionBatch(items: DeliveryItem[]): DeliveryItem[] {
   const selected: DeliveryItem[] = [];
   const occupied = new Set<string>();
@@ -326,6 +365,115 @@ export class KartaDeliveryRunner {
     return expected;
   }
 
+  /**
+   * Every worktree this binder owns, found by branch ref *or* by the path the runner gives it.
+   * Matching on the ref alone misses a worktree left detached by an interrupted operation —
+   * which is precisely the one that would later trip `#ensureIntegrationWorktree`.
+   */
+  async #ownedWorktrees(repoRoot: string, binder: string): Promise<{ path: string; dirty: boolean }[]> {
+    const worktreesRoot = resolve(dirname(repoRoot), `${basename(repoRoot)}-worktrees`);
+    const ownedByPath = (candidate: string): boolean => {
+      const path = resolve(candidate);
+      return (
+        path === join(worktreesRoot, `karta-${binder}-integration`) ||
+        path.startsWith(join(worktreesRoot, `karta-${binder}-item-`))
+      );
+    };
+    const ownedByRef = (ref: string): boolean =>
+      ref === `refs/heads/karta/${binder}/integration` ||
+      ref.startsWith(`refs/heads/karta/${binder}/item-`);
+    const porcelain = await git(repoRoot, ["worktree", "list", "--porcelain"]);
+    const paths = new Set<string>([
+      ...worktreePaths(porcelain).filter(ownedByPath),
+      ...[...worktreeMap(porcelain).entries()]
+        .filter(([ref]) => ownedByRef(ref))
+        .map(([, path]) => path),
+    ]);
+    const found: { path: string; dirty: boolean }[] = [];
+    for (const path of paths) found.push({ path, dirty: await this.#dirty(path) });
+    return found;
+  }
+
+  async #dirty(path: string): Promise<boolean> {
+    if (!await exists(path)) return false;
+    try {
+      return (await git(path, ["status", "--porcelain"])).trim() !== "";
+    } catch {
+      // Unreadable is not the same as clean: never force-remove a worktree we could not read.
+      return true;
+    }
+  }
+
+  async #tryClear(cwd: string, args: string[]): Promise<boolean> {
+    try {
+      await git(cwd, args);
+      return true;
+    } catch {
+      // A ref or a worktree that is already gone is not a failure to clear; the re-read after
+      // the sweep is what decides whether clearing actually worked.
+      return false;
+    }
+  }
+
+  /**
+   * Doctrine: leftovers from an earlier run are never resumed or cleared silently — the human
+   * chooses. Clearing removes the wave tags, the item state refs, the item branches, and the
+   * integration branch with its worktrees, so the run below starts from wave 1 with nothing
+   * remembered.
+   *
+   * `discardDirty` is the human's informed consent. With it false, a worktree holding uncommitted
+   * work stops the clear instead of losing that work; the caller discloses the dirty worktrees in
+   * the prompt, so this is the safety net for one that turns dirty between the prompt and the
+   * sweep. It used to run `worktree remove --force` unconditionally, which deleted uncommitted
+   * work without saying so, destroyed it before the survivor check could fail, and left a
+   * detached worktree invisible to that check entirely.
+   */
+  async #clearDelivery(repoRoot: string, binder: string, discardDirty: boolean): Promise<string[]> {
+    if (!discardDirty) {
+      for (const worktree of await this.#ownedWorktrees(repoRoot, binder)) {
+        if (worktree.dirty) {
+          throw new Error(
+            `Karta refuses to clear ${worktree.path}: it holds uncommitted work. Commit, stash, or remove it, then clear again.`,
+          );
+        }
+      }
+    }
+    const removed: string[] = [];
+    // A branch cannot be deleted while a worktree still has it checked out.
+    for (const worktree of await this.#ownedWorktrees(repoRoot, binder)) {
+      const force = worktree.dirty ? ["--force"] : [];
+      if (await this.#tryClear(repoRoot, ["worktree", "remove", ...force, worktree.path])) {
+        removed.push(worktree.path);
+      }
+    }
+    await this.#tryClear(repoRoot, ["worktree", "prune"]);
+    const patterns = [
+      `refs/tags/karta/${binder}/`,
+      `refs/karta/${binder}/`,
+      `refs/heads/karta/${binder}/`,
+    ];
+    const refs = (await git(repoRoot, ["for-each-ref", "--format=%(refname)", ...patterns]))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const ref of refs) {
+      if (await this.#tryClear(repoRoot, ["update-ref", "-d", ref])) removed.push(ref);
+    }
+    // Verify both halves. A sweep that leaves a worktree behind still deletes the branch ref,
+    // reports success, and then wedges the next run on `Karta refuses to clobber integration path`.
+    const refSurvivors = (await git(repoRoot, ["for-each-ref", "--format=%(refname)", ...patterns]))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const worktreeSurvivors = (await this.#ownedWorktrees(repoRoot, binder)).map((worktree) => worktree.path);
+    if (refSurvivors.length > 0 || worktreeSurvivors.length > 0) {
+      throw new Error(
+        `Karta could not clear the earlier run's state: ${[...refSurvivors, ...worktreeSurvivors].join(", ")}`,
+      );
+    }
+    return removed;
+  }
+
   async #ensureItemWorktree(repoRoot: string, binder: string, item: string): Promise<string> {
     const branchRef = `refs/heads/karta/${binder}/item-${item}`;
     const registered = worktreeMap(await git(repoRoot, ["worktree", "list", "--porcelain"])).get(branchRef);
@@ -441,6 +589,54 @@ export class KartaDeliveryRunner {
     try {
       const repoRoot = await git(ctx.cwd, ["rev-parse", "--show-toplevel"]);
       const integrationRef = `refs/heads/karta/${binder}/integration`;
+      // Doctrine: leftovers from an earlier run — wave tags and item refs — are neither
+      // resumed nor cleared silently. The integration branch alone is not a leftover: a
+      // first run creates it a few lines below, and it carries no wave state on its own.
+      const leftoverPatterns = [
+        `refs/tags/karta/${binder}/`,
+        `refs/karta/${binder}/`,
+        `refs/heads/karta/${binder}/`,
+      ];
+      const leftovers = (
+        await git(repoRoot, ["for-each-ref", "--format=%(refname)", ...leftoverPatterns])
+      )
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((ref) => ref !== "" && ref !== integrationRef);
+      if (leftovers.length > 0) {
+        if (!ctx.hasUI) {
+          return {
+            schema: "karta-delivery-v1",
+            binder,
+            status: "blocked",
+            integrationWorktree: "",
+            waves: [],
+            message: `Binder '${binder}' carries state from an earlier run (${leftovers.length} refs); rerun interactively to choose resume or clear.`,
+          };
+        }
+        const ownedWorktrees = await this.#ownedWorktrees(repoRoot, binder);
+        const dirtyWorktrees = ownedWorktrees.filter((worktree) => worktree.dirty);
+        const disclosure = dirtyWorktrees.length
+          ? `\n\nClear will also delete these worktrees, losing any uncommitted work in them:\n${dirtyWorktrees
+              .map((worktree) => `  ${worktree.path}`)
+              .join("\n")}`
+          : "";
+        const choice = await ctx.ui.select(
+          `Binder '${binder}' carries state from an earlier run${disclosure}`,
+          ["Resume", "Clear"],
+        );
+        if (choice !== "Resume" && choice !== "Clear") {
+          return {
+            schema: "karta-delivery-v1",
+            binder,
+            status: "blocked",
+            integrationWorktree: "",
+            waves: [],
+            message: `Binder '${binder}' was neither resumed nor cleared; choose Resume or Clear to continue.`,
+          };
+        }
+        if (choice === "Clear") await this.#clearDelivery(repoRoot, binder, dirtyWorktrees.length > 0);
+      }
       const integrationWorktree = await this.#ensureIntegrationWorktree(
         repoRoot,
         binder,
@@ -801,8 +997,10 @@ export class KartaDeliveryRunner {
             message: "No dependency-ready item exists; the binder graph or Git state is stuck.",
           };
         }
-        const builds = await Promise.all(
-          batch.map((item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates)),
+        const builds = await mapWithConcurrencyLimit(
+          batch,
+          MAX_PARALLEL_BUILDS,
+          (item) => this.#builds.runWithLease(ctx, binder, item.id, lease, owner, waveMates),
         );
         const waveResult: KartaDeliveryWave = {
           wave: waveNumber,

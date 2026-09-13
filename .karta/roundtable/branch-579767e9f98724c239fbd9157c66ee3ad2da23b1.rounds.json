@@ -1,0 +1,85 @@
+{
+  "target_ref": "fix/pi-parity/integration",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4-pro-0813"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "579767e9f98724c239fbd9157c66ee3ad2da23b1",
+      "run_at": "2026-09-13T01:17:05.876064+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "error"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4-pro-0813",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [],
+      "findings_refuted_or_deferred": [
+        "DEFERRED (consensus, 4/4): TOCTOU in plan-runner commit() \u2014 validate and read the card, then prompt, then git add, with no re-verification that the staged bytes are the validated bytes. Fix: hash at validation and re-check the staged blob before committing.",
+        "DEFERRED (consensus, 4/4): isCommittablePath allows any path under .karta/roundtable/, so one binder's commit can sweep in another's review record. Fix: allow only the exact expected record path(s) and require they exist.",
+        "DEFERRED (consensus, 4/4): #clearDelivery runs git worktree remove --force with no cleanliness check and does not warn that Clear destroys uncommitted work; on a partial sweep destruction precedes the survivor check.",
+        "DEFERRED (2/4): the commit gate is bypassable because the model can run git commit itself; the verb is un-supplyable through karta_dispatch, but the skill's do-not-commit-by-hand is prose, not enforcement.",
+        "DEFERRED (1/4): commitBinder does not enforce slug freshness against .karta/binders/archive/ or surviving refs/karta/<slug>/ refs; validate_binder.py only warns, and the runner checks exit code alone.",
+        "DEFERRED (1/4, pre-existing): collisionBatch ignores serialize:true and shared_resources, so items the binder forbids running together are batched concurrently. Recorded as finding 11 in docs/backlog/pi-parity-gaps/FINDINGS.md.",
+        "DEFERRED (1/4): mapWithConcurrencyLimit uses Promise.all, which rejects at the first worker failure and leaves the rest running un-awaited after the lease is released. Fix: allSettled, then throw.",
+        "DEFERRED (1/4): plan-runner uses raw ctx.cwd instead of git rev-parse --show-toplevel, so a dispatch from a subdirectory mis-resolves the binder path.",
+        "REFUTED (1/4): that MAX_PARALLEL_BUILDS = 4 is arbitrary \u2014 three panelists judged it a documented policy constant and confirmed the pool preserves result order and dependency order."
+      ],
+      "notes": "First round on the committed delivery (16 files, +1342/-18). Four of six panelists returned real verdicts: antigravity, fireworks-deepseek, fireworks-glm5p3, fireworks-minimax. codex errored during initialize and fireworks-qwen returned an empty response, so neither counted toward the floor.",
+      "below_floor": false
+    }
+  ]
+}
