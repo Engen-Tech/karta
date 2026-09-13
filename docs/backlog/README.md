@@ -661,6 +661,54 @@ under-advised.
 results, instead of scanning only the passed directory's top level. Keep it stdlib-only. Evidence:
 [`pi-integration-session/FINDINGS.md`](pi-integration-session/FINDINGS.md) (Finding D).
 
+## 27. the Pi parity remainder — three guards unwired, and six runtime findings deferred — *Ready* (filed 2026-09-13)
+
+**What.** The Pi parity delivery landed on `main` (`e841f45`), and it closed four of the twenty
+gaps its own analysis found. This entry is the remainder, so the work is in the backlog index rather
+than sitting in a topic folder nobody links to.
+
+- **The largest item: three of the eight guards in `hooks/scripts/` ship but are never wired on
+  Pi** — `guard_writer_confinement.py`, `guard_gate_dispatch.py`, `guard_auditor_dispatch.py`.
+  `extensions/pi/guard-runner.ts` wires five via `KARTA_GUARD_PATHS`. Nothing fails; they are
+  simply never called. Claude Code runs all eight; Codex runs seven.
+- **Six runtime findings deferred at the review record:** the commit gate is bypassable by an agent
+  running `git commit` itself; slug freshness is unenforced (`validate_binder.py` only warns);
+  `collisionBatch` ignores `serialize` and `shared_resources`; `mapWithConcurrencyLimit` uses
+  `Promise.all` and leaves workers un-awaited; `plan-runner.ts` reads raw `ctx.cwd`; a set commits
+  under a subject naming only its first slug.
+
+**Why it matters.** The guards are the security-flavoured half — writer confinement and two
+fail-closed dispatch inspectors do nothing on Pi. But **the fix is not "add three entries"** and
+this is the part worth reading before starting: the two dispatch inspectors are *replaced, not
+missing* — `gate-runner.ts` throws when pinned packs or repo-rule citations went unread — so the
+question is whether an after-the-fact check is an acceptable substitute for a before-the-spawn
+inspection. It is weaker on cost: by the time it throws, two reviewer contexts have already run.
+Writer confinement splits differently again: writer children are already confined by construction in
+`writer-profile.ts`, and what is unprotected is the *main session*. So this entry is partly a
+**decision to record**, not a wiring job.
+
+**Unblock path.** Read `extensions/pi/guard-adapter.ts` first — it has four hook points
+(`tool_call`, `tool_result`, `before_agent_start`, `agent_settled`), so each guard has to be mapped
+to one before any code is written. Then decide and record, per guard, whether it is wired or
+deliberately unwired with the reason stated in `docs/how-to/pi.md`. Add a test asserting the
+relationship between `hooks/scripts/*.py` and `KARTA_GUARD_PATHS` so a ninth guard cannot be added
+and silently ignored — the same class of fix as the manifest test that hardcodes a sample instead of
+deriving from the catalog.
+
+**Full evidence and the traps.** [`pi-parity-gaps/TODOS.md`](pi-parity-gaps/TODOS.md) — the handoff
+document, including the traps the originating session paid for (the `--provider` flag that does not
+switch provider alone, the `--tools` allowlist that hides what you are probing for, the
+record-key-versus-tip fixed point, and the fact that no git hook here enforces the gate set).
+Gap analysis and its twenty-entry register: [`pi-parity-gaps/FINDINGS.md`](pi-parity-gaps/FINDINGS.md).
+
+**Not karta's, and listed here only so they are not lost.** Eight defect rows in roundtable-src
+(`docs/bugs/README.md`) are registered but their reports are unwritten, and two roundtable bridge
+defects are unfixed. They belong to that repository's register, not this one — see TODOS.md §B for
+their ids and the reproduction precondition. Also open there: one branch,
+`docs/bug-0002-rewrite` at `5621998`, is committed and unmerged.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
