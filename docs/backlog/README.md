@@ -733,29 +733,6 @@ FINDINGS.md row 11 for `serialize`.
 
 ---
 
-## 29. the roundtable remainder — not karta's, listed so it is not lost — *Blocked (external)* (filed 2026-09-13)
-
-**What.** In `/mnt/agent-storage/vader/src/roundtable-src`: eight rows in its `docs/bugs/README.md`
-register carry an id, a title and a severity but no report file — BUG-0003 (`ROUNDTABLE_BIN` in the Pi
-config ignored), BUG-0004/0005 (bridge connection lifecycle), BUG-0006 (silent `PATH` fallback),
-BUG-0008 (`INSTALL.md` has no Pi verification section), BUG-0009, BUG-0010, BUG-0011. And one branch,
-`docs/bug-0002-rewrite` at `5621998`, is committed and **unmerged**.
-
-**Why it is here and not a karta entry.** It is that repository's register, and this entry is a
-pointer, not a claim on the work. Filing it as karta's would repeat the misattribution that closed
-BUG-0002. The unmerged branch is the urgent half: it rots, and it was one `git switch main` away from
-a silent no-op merge.
-
-**Unblock path.** Land `docs/bug-0002-rewrite` first, verifying with `git log --oneline -1 main`
-after the merge rather than trusting the merge output. Then reproduce each of the eight before writing
-its report — all eight came from a panel, not from a human reproducing them, and the register's own
-first rule is "reproduce before filing, or say plainly you did not". BUG-0003 and BUG-0006 are the
-same function and should be fixed together.
-
-**Evidence.** `roundtable-src/docs/bugs/README.md` and `TEMPLATE.md`.
-
----
-
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
