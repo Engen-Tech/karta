@@ -2,6 +2,34 @@
 
 karta is a stack-agnostic orchestration framework shipped for Claude Code, Codex CLI, and Pi. It plans a binder of work items, delivers it in parallel waves onto a per-binder integration branch, builds each item in an isolated git worktree, and gates each one against its own acceptance check. This file orients an agent editing karta itself; end-user usage lives in `README.md` and `docs/how-to/`.
 
+## Two senses of "karta" — name the one you mean
+
+This repository and the thing it ships are both called karta. Conflating them produces wrong
+statements and wrong fixes, so say which one you mean whenever you write to the user. Both layers
+live in the same checkout, which is what makes the confusion easy.
+
+- **karta the deliverable** — what a consumer installs as `@engen-tech/karta`: the skills in
+  `skills/`, the agents in `agents/`, the guards in `hooks/scripts/`, the Pi runtime in
+  `extensions/pi/`, and the manifests that project them onto each harness. `docs/how-to/`
+  documents its behaviour for other repositories.
+- **karta this repository** — the checkout that authors the deliverable and also consumes it. It
+  carries a second layer that never ships: `.karta/roundtable.json` with
+  `scripts/hooks/roundtable_gate.py` and `scripts/hooks/precommit_gate.py`, the `karta-house-*`
+  packs under `.karta/sme/`, `.codex/hooks.json`, and its own `docs/`, `tests/`, and binders.
+
+Where the distinction changes the answer:
+
+| Question | The deliverable | This repository |
+|-|-|-|
+| What does a hook-enforcement table describe? | The eight guards in `hooks/scripts/`, as projected per harness | Those guards plus this repo's own commit gates, which no consumer receives |
+| Whose binders are in `.karta/binders/`? | A consumer's plan of record | karta's own plan to build karta |
+| Is `karta/*/integration` a delivery? | Yes — a consumer binder's integration branch | Only while running a karta delivery here; ordinary work uses a plainly named branch, because both merge gates match that namespace |
+| Does the roundtable edict apply? | Nowhere — it is not shipped | At plan-commit and deliver-merge here |
+
+Write "this repo" or name the path when you mean the checkout; write "the deliverable" or name the
+shipped surface when you mean the framework. Never let "karta does X" stand for either without the
+qualifier.
+
 ## Layout — canonical vs generated
 
 Some files are hand-edited (canonical); others are generated projections you must never hand-edit. Edit the canonical, then run the generator.
