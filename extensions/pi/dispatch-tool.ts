@@ -53,6 +53,18 @@ const dispatchParameters = Type.Union([
     item: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
     mode: Type.Union([Type.Literal("full"), Type.Literal("boundary-only")]),
   }),
+  Type.Object({
+    action: Type.Literal("planSurvey"),
+  }),
+  Type.Object({
+    action: Type.Literal("commitBinder"),
+    binder: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }),
+    set: Type.Optional(
+      Type.Array(Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }), {
+        description: "Additional binder slugs that are staged with this one and commit together in a single commit.",
+      }),
+    ),
+  }),
 ]);
 
 export type KartaDispatchParameters = Static<typeof dispatchParameters>;
@@ -75,6 +87,7 @@ interface DispatchDetails {
   attempts?: number;
   worktree?: string;
   waves?: number;
+  commit?: string;
 }
 
 function roleSummary(role: KartaRoleDefinition): Record<string, unknown> {
@@ -113,6 +126,15 @@ interface VerificationRunner {
   ): Promise<{ evidenceHash: string; status: string }>;
 }
 
+interface PlanRunner {
+  survey(ctx: ExtensionContext): Promise<{ schema: string; root: string; runs: unknown[] }>;
+  commit(
+    ctx: ExtensionContext,
+    binder: string,
+    set?: string[],
+  ): Promise<{ status: string; paths: string[]; card: string; commit?: string; message: string }>;
+}
+
 function textResult(text: string, details: DispatchDetails, isError = false) {
   return {
     content: [{ type: "text" as const, text }],
@@ -127,12 +149,13 @@ export function createKartaDispatchTool(
   verification?: VerificationRunner,
   buildItems?: BuildItemRunner,
   deliveries?: DeliveryRunner,
+  plans?: PlanRunner,
 ): ToolDefinition<typeof dispatchParameters, DispatchDetails> {
   return {
     name: "karta_dispatch",
     label: "Karta dispatch",
     description:
-      "Package-owned Karta role entrypoint. Describes a fixed role, preflights a read-only gate, runs hash-bound verification, or builds one binder-bound item. Callers cannot supply prompts, paths, tools, commands, models, or provider hooks.",
+      "Package-owned Karta role entrypoint. Surveys a repository for planning, commits a validated binder on the human's own `commit` verb, describes a fixed role, preflights a read-only gate, runs hash-bound verification, or builds one binder-bound item. Callers cannot supply prompts, paths, tools, commands, models, or provider hooks.",
     parameters: dispatchParameters,
     async execute(_toolCallId, params: KartaDispatchParameters, _signal, _onUpdate, ctx) {
       if (!ctx?.isProjectTrusted()) {
@@ -155,6 +178,24 @@ export function createKartaDispatchTool(
             binder: params.binder,
             item: params.item,
             status: state.state,
+          });
+        }
+        if (params.action === "planSurvey") {
+          if (!plans) throw new Error("Karta plan runner is unavailable");
+          const result = await plans.survey(ctx);
+          return textResult(JSON.stringify(result, null, 2), {
+            action: params.action,
+            status: result.schema,
+          });
+        }
+        if (params.action === "commitBinder") {
+          if (!plans) throw new Error("Karta plan runner is unavailable");
+          const result = await plans.commit(ctx, params.binder, params.set ?? []);
+          return textResult(JSON.stringify(result, null, 2), {
+            action: params.action,
+            binder: params.binder,
+            status: result.status,
+            commit: result.commit,
           });
         }
         if (params.action === "deliverBinder") {
