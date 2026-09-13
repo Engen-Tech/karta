@@ -326,6 +326,56 @@ export class KartaDeliveryRunner {
     return expected;
   }
 
+  async #tryClear(cwd: string, args: string[]): Promise<void> {
+    try {
+      await git(cwd, args);
+    } catch {
+      // A ref or a worktree that is already gone is not a failure to clear; the
+      // re-read after the sweep is what decides whether clearing actually worked.
+    }
+  }
+
+  /**
+   * Doctrine: leftovers from an earlier run are never resumed or cleared silently —
+   * the human chooses. Clearing removes the wave tags, the item state refs, the item
+   * branches, and the integration branch with its worktree, so the run below starts
+   * from wave 1 with nothing remembered.
+   */
+  async #clearDelivery(repoRoot: string, binder: string): Promise<string[]> {
+    const removed: string[] = [];
+    const owned = (ref: string): boolean =>
+      ref === `refs/heads/karta/${binder}/integration` ||
+      ref.startsWith(`refs/heads/karta/${binder}/item-`);
+    // A branch cannot be deleted while a worktree still has it checked out.
+    for (const [ref, path] of worktreeMap(await git(repoRoot, ["worktree", "list", "--porcelain"]))) {
+      if (!owned(ref)) continue;
+      await this.#tryClear(repoRoot, ["worktree", "remove", "--force", path]);
+      removed.push(ref);
+    }
+    await this.#tryClear(repoRoot, ["worktree", "prune"]);
+    const patterns = [
+      `refs/tags/karta/${binder}/`,
+      `refs/karta/${binder}/`,
+      `refs/heads/karta/${binder}/`,
+    ];
+    const refs = (await git(repoRoot, ["for-each-ref", "--format=%(refname)", ...patterns]))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const ref of refs) {
+      await this.#tryClear(repoRoot, ["update-ref", "-d", ref]);
+      removed.push(ref);
+    }
+    const survivors = (await git(repoRoot, ["for-each-ref", "--format=%(refname)", ...patterns]))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (survivors.length > 0) {
+      throw new Error(`Karta could not clear the earlier run's state: ${survivors.join(", ")}`);
+    }
+    return removed;
+  }
+
   async #ensureItemWorktree(repoRoot: string, binder: string, item: string): Promise<string> {
     const branchRef = `refs/heads/karta/${binder}/item-${item}`;
     const registered = worktreeMap(await git(repoRoot, ["worktree", "list", "--porcelain"])).get(branchRef);
@@ -441,6 +491,47 @@ export class KartaDeliveryRunner {
     try {
       const repoRoot = await git(ctx.cwd, ["rev-parse", "--show-toplevel"]);
       const integrationRef = `refs/heads/karta/${binder}/integration`;
+      // Doctrine: leftovers from an earlier run — wave tags and item refs — are neither
+      // resumed nor cleared silently. The integration branch alone is not a leftover: a
+      // first run creates it a few lines below, and it carries no wave state on its own.
+      const leftoverPatterns = [
+        `refs/tags/karta/${binder}/`,
+        `refs/karta/${binder}/`,
+        `refs/heads/karta/${binder}/`,
+      ];
+      const leftovers = (
+        await git(repoRoot, ["for-each-ref", "--format=%(refname)", ...leftoverPatterns])
+      )
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((ref) => ref !== "" && ref !== integrationRef);
+      if (leftovers.length > 0) {
+        if (!ctx.hasUI) {
+          return {
+            schema: "karta-delivery-v1",
+            binder,
+            status: "blocked",
+            integrationWorktree: "",
+            waves: [],
+            message: `Binder '${binder}' carries state from an earlier run (${leftovers.length} refs); rerun interactively to choose resume or clear.`,
+          };
+        }
+        const choice = await ctx.ui.select(
+          `Binder '${binder}' carries state from an earlier run`,
+          ["Resume", "Clear"],
+        );
+        if (choice !== "Resume" && choice !== "Clear") {
+          return {
+            schema: "karta-delivery-v1",
+            binder,
+            status: "blocked",
+            integrationWorktree: "",
+            waves: [],
+            message: `Binder '${binder}' was neither resumed nor cleared; choose Resume or Clear to continue.`,
+          };
+        }
+        if (choice === "Clear") await this.#clearDelivery(repoRoot, binder);
+      }
       const integrationWorktree = await this.#ensureIntegrationWorktree(
         repoRoot,
         binder,
