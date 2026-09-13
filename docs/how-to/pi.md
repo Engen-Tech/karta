@@ -1,6 +1,6 @@
 # Use karta with Pi
 
-Karta ships as one Pi package. Pi loads the package-owned extension, then exposes Karta's ten skills only in a trusted project. Build, verification, and delivery enter through the fixed `karta_dispatch` tool; project files cannot replace its prompts, roles, tools, or scripts.
+Karta ships as one Pi package. Pi loads the package-owned extension, then exposes Karta's ten skills only in a trusted project. Planning, build, verification, and delivery enter through the fixed `karta_dispatch` tool; project files cannot replace its prompts, roles, tools, or scripts.
 
 The Pi package is not published to npm. Install an approved Git tag or a local checkout until publication is separately approved.
 
@@ -96,6 +96,8 @@ When Pi has `karta_dispatch`, the build, verify, and deliver skills call it inst
 |`inspectItemState`|Reports the item frontier derived from Git|
 |`describeRole`|Reports role hashes and capabilities without exposing prompt text or paths|
 |`preflightGate`|Proves the selected provider and model can answer in an isolated gate runtime|
+|`planSurvey`|Runs the package's own stack-detection and pack-provenance scripts so a plan rests on repository facts|
+|`commitBinder`|Validates a binder — schema plus the cross-item shared-term check — and commits it, with any binders staged alongside it, in one commit on the human's own `commit` verb at a host prompt|
 
 Callers provide identity, not authority. They cannot choose a prompt, model, provider hook, command, tool set, evidence path, ref, or timeout through these actions.
 
@@ -314,6 +316,25 @@ watch for that message rather than relying on the session to refuse.
 - **Guards are a guardrail, not a boundary.** They inspect tool calls, so a shell command that
   writes a binder through a redirection is outside what they see. For a hard boundary, use OS-level
   file permissions on `.karta/binders`.
+
+### Roundtable reviews need the roundtable Pi package
+
+karta's review edict assumes the panel is reachable. On Pi it is reachable only through the
+roundtable Pi package, because Pi registers no tool that an uninstalled package did not declare:
+
+```sh
+pi install git:github.com/TejGandham/roundtable
+```
+
+Then restart Pi and confirm with `pi list`. Two things that do **not** provide the tools: a
+`roundtable` binary on `PATH`, and the roundtable skill. A Pi session with the skill but no package
+has no panel and no error, which is the failure mode to watch for — the skill says so, and
+`roundtable-pi` covers install and recovery.
+
+When a repository enables the plan-commit or deliver-merge point in `.karta/roundtable.json`, a
+missing panel makes that gate **blocked**, never satisfied. `KARTA_SKIP_ROUNDTABLE=1` is the
+documented hatch when the review environment is genuinely down; reach for it deliberately and say
+why in the commit.
 
 ## Current support matrix
 
