@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -466,6 +466,74 @@ test("a wave's builds are capped so a wide binder cannot start every item at onc
   assert.ok(peak <= MAX_PARALLEL_BUILDS, `peak in-flight was ${peak}`);
   assert.ok(peak > 1, "the cap must still allow real parallelism");
   assert.deepEqual(results, items.map((item) => item * 2));
+});
+
+test("a dirty worktree is disclosed before Clear, then removed with consent", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    // A leftover item worktree at the exact path the runner uses, holding uncommitted work.
+    const worktreesRoot = join(state.root, "repo-worktrees");
+    await mkdir(worktreesRoot, { recursive: true });
+    const worktree = join(worktreesRoot, "karta-demo-item-item-a");
+    await git(state.repo, ["worktree", "add", worktree, "karta/demo/item-item-a"]);
+    await writeFile(join(worktree, "uncommitted.txt"), "work in progress\n");
+
+    const delivery = createRunner(state.repo);
+    const messages: string[] = [];
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select(message: string) {
+          messages.push(message);
+          return message.includes("carries state from an earlier run") ? "Clear" : "Fix and rerun";
+        },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "complete");
+    // The human was told which worktree would go and that its work would be lost.
+    const disclosure = messages.find((message) => message.includes("carries state from an earlier run"));
+    assert.ok(disclosure);
+    assert.match(disclosure, /will also delete these worktrees/);
+    assert.match(disclosure, /karta-demo-item-item-a/);
+    // The worktree was really removed and rebuilt, so the next run cannot wedge on a half-sweep.
+    await assert.rejects(() => access(join(worktree, "uncommitted.txt")));
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("a worktree that turns dirty between the prompt and the sweep stops the clear", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    const worktreesRoot = join(state.root, "repo-worktrees");
+    await mkdir(worktreesRoot, { recursive: true });
+    const worktree = join(worktreesRoot, "karta-demo-item-item-a");
+    await git(state.repo, ["worktree", "add", worktree, "karta/demo/item-item-a"]);
+
+    const delivery = createRunner(state.repo);
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select(message: string) {
+          if (!message.includes("carries state from an earlier run")) return "Fix and rerun";
+          // Clean when the prompt inspected it, dirty by the time the sweep runs — the case the
+          // consent flag cannot cover, because consent was given about a clean worktree.
+          await writeFile(join(worktree, "snuck-in.txt"), "written during the prompt\n");
+          return "Clear";
+        },
+      },
+    } as unknown as ExtensionContext;
+    await assert.rejects(() => delivery.runner.run(ctx, "demo"), /holds uncommitted work/);
+    // The work survived, which is the whole point of failing here instead of sweeping.
+    await access(join(worktree, "snuck-in.txt"));
+  } finally {
+    await state.cleanup();
+  }
 });
 
 test("declared collision surfaces serialize otherwise-ready items", async () => {
