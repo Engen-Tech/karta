@@ -791,8 +791,14 @@ def _run_self_test() -> int:
         led = json.loads(raw_text)
         check("migrated ledger no longer contains the string staged_blob_sha256", "staged_blob_sha256" not in raw_text)
         check("migrated ledger header uses target_ref/target_kind", led.get("target_ref") == "context-economy" and led.get("target_kind") == "binder")
-        check("migrated ledger has thirteen rounds numbered 1..13",
-              len(led.get("rounds", [])) == 13 and all(r.get("round") == i + 1 for i, r in enumerate(led["rounds"])))
+        rounds = led.get("rounds", [])
+        check("migrated ledger rounds are numbered contiguously from 1",
+              bool(rounds) and all(r.get("round") == i + 1 for i, r in enumerate(rounds)))
+        # The migration's real guarantee is that its thirteen rounds survive, not that the ledger
+        # stops there — it only ever appends. Asserting an exact count made this fixture fail the
+        # moment round fourteen was added, and it sat failing until now.
+        check("the thirteen migrated rounds survive — the ledger only appends after them",
+              len(rounds) >= 13 and [r.get("round") for r in rounds[:13]] == list(range(1, 14)))
         check("every migrated round carries reviewed_hash and below_floor is False",
               all("reviewed_hash" in r and r.get("below_floor") is False for r in led.get("rounds", [])))
 
