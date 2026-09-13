@@ -20,7 +20,17 @@ test("Pi manifest loads one explicit extension and no static skills", async () =
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   assert.deepEqual(manifest.pi.extensions, ["./extensions/pi/index.ts"]);
   assert.equal(manifest.pi.skills, undefined);
-  assert.equal(manifest.version, "2.36.0");
+  // Version is asserted as agreement across manifests, not as a pinned constant:
+  // a hardcoded string breaks on every release bump (v2.37.0 hit exactly this).
+  for (const other of [
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    ".codex-plugin/plugin.json",
+  ]) {
+    const m = JSON.parse(await readFile(join(ROOT, other), "utf8"));
+    const version = m.version ?? m.metadata?.version; // marketplace nests it
+    assert.equal(version, manifest.version, `${other} out of step`);
+  }
 });
 
 test("isolated child loader ignores ambient resources and context", async () => {
