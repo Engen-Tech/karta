@@ -319,8 +319,9 @@ test("interactive human acceptance records reason and resumes delivery", async (
       cwd: state.repo,
       hasUI: true,
       ui: {
-        async select() {
-          prompts.push("select");
+        async select(message: string) {
+          prompts.push(message);
+          if (message.includes("carries state from an earlier run")) return "Resume";
           return "Accept exact current findings";
         },
         async confirm(_title: string, message: string) {
@@ -357,7 +358,9 @@ test("fix-and-rerun clears only the expected failed ref and rebuilds", async () 
       cwd: state.repo,
       hasUI: true,
       ui: {
-        async select() { return "Fix and rerun"; },
+        async select(message: string) {
+          return message.includes("carries state from an earlier run") ? "Resume" : "Fix and rerun";
+        },
       },
     } as unknown as ExtensionContext;
     const result = await delivery.runner.run(ctx, "demo");
@@ -381,7 +384,11 @@ test("defer leaves the failed ref intact and stops without model authority", asy
       cwd: state.repo,
       hasUI: true,
       ui: {
-        async select() { return "Defer and stop delivery"; },
+        async select(message: string) {
+          return message.includes("carries state from an earlier run")
+            ? "Resume"
+            : "Defer and stop delivery";
+        },
       },
     } as unknown as ExtensionContext;
     const result = await delivery.runner.run(ctx, "demo");
@@ -390,6 +397,55 @@ test("defer leaves the failed ref intact and stops without model authority", asy
     assert.equal(
       await git(state.repo, ["rev-parse", "refs/karta/demo/item-item-a/failed"]),
       itemTip,
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("leftover state is never resumed or cleared silently without a host prompt", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    const leftovers = (await git(state.repo, ["for-each-ref", "--format=%(refname)", "refs/karta/demo/"])).trim();
+    assert.notEqual(leftovers, "");
+    const delivery = createRunner(state.repo);
+    const result = await delivery.runner.run({ cwd: state.repo } as ExtensionContext, "demo");
+    assert.equal(result.status, "blocked");
+    assert.match(result.message, /rerun interactively to choose resume or clear/);
+    // Nothing was resumed and nothing was cleared: the state is exactly as it was.
+    assert.equal(
+      (await git(state.repo, ["for-each-ref", "--format=%(refname)", "refs/karta/demo/"])).trim(),
+      leftovers,
+    );
+  } finally {
+    await state.cleanup();
+  }
+});
+
+test("choosing Clear removes the earlier run's state and starts over", async () => {
+  const state = await fixture();
+  try {
+    await seedFailedItem(state.repo);
+    assert.notEqual(
+      (await git(state.repo, ["for-each-ref", "--format=%(refname)", "refs/karta/demo/"])).trim(),
+      "",
+    );
+    const delivery = createRunner(state.repo);
+    const ctx = {
+      cwd: state.repo,
+      hasUI: true,
+      ui: {
+        async select(message: string) {
+          return message.includes("carries state from an earlier run") ? "Clear" : "Fix and rerun";
+        },
+      },
+    } as unknown as ExtensionContext;
+    const result = await delivery.runner.run(ctx, "demo");
+    assert.equal(result.status, "complete");
+    // The seeded failed ref is gone, because the run started from wave 1.
+    await assert.rejects(() =>
+      git(state.repo, ["rev-parse", "--verify", "refs/karta/demo/item-item-a/failed"]),
     );
   } finally {
     await state.cleanup();

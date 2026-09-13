@@ -14,7 +14,7 @@ karta-deliver takes a **validated binder** and builds all its work items onto th
 
 When Pi provides `karta_dispatch`, call it once with `action: deliverBinder` and the binder slug. The package host owns preflight, dependency waves, workers, checks, gates, serial integration, retries, waivers, rollback, enabled companion writers, archival, and Git-only recovery. Use its `karta-delivery-v1` result; do not run the legacy phases below yourself or fall back after a tool error. A blocked result keeps its durable Git frontier for the next run.
 
-The integration branch is also the resume record. karta tracks every item's outcome through commit markers, wave tags, and the `refs/karta/` ref namespace (see [references/integration-branch.md](references/integration-branch.md)). A later run detects leftovers from a prior partial run and offers to continue or clear.
+The integration branch is also the resume record. karta tracks every item's outcome through commit markers, wave tags, and the `refs/karta/` ref namespace (see [references/integration-branch.md](references/integration-branch.md)). A later run detects leftovers from a prior partial run and offers to continue or clear. On Pi the host asks that question at a prompt, and with no host to ask, the run blocks rather than choosing for you.
 
 The binder (`.karta/binders/<slug>.json`) is the cross-skill contract and is **immutable while a wave runs**. karta-deliver reads it; it never writes to it. For its full field reference, see [references/binder-reference.md](references/binder-reference.md). The build primitive for each item is `karta-build`. The parallelism rules live in [references/parallelism-gates.md](references/parallelism-gates.md).
 
