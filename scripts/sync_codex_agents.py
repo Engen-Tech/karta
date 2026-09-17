@@ -5,16 +5,20 @@
 """Generate the Codex projections of karta's gate agents from the canonical `agents/*.md`.
 
 Each `agents/<name>.md` (frontmatter + body) is the single source of truth. This
-script emits two drift-guarded projections:
+script emits these drift-guarded projections:
 
   1. `.codex/agents/<name>.toml`            — the registered Codex subagent, carrying
      its pinned `model` (from frontmatter `codex_model`) and `model_reasoning_effort`
      (from frontmatter `effort`)
   2. `skills/karta-verify/references/<name>.agent.md` — the body, bundled in the
      karta-verify skill so the gate runs automatically on a Codex plugin install
+  3. `skills/karta-verify/references/codex-gate-models.json` — model and effort
+     for the acceptance and safety fallback dispatches, from the same frontmatter
+  4. `.github/agents/<name>.agent.md` and `.github/plugin/plugin.json` — Copilot
+     CLI acceptance/safety profiles and their plugin entrypoint
 
 Usage:
-  uv run scripts/sync_codex_agents.py            # write both projections
+  uv run scripts/sync_codex_agents.py            # write all projections
   uv run scripts/sync_codex_agents.py --check    # report drift, exit 0/1 (no writes)
 """
 from __future__ import annotations
@@ -85,9 +89,33 @@ def render_bundle(body: str) -> str:
     return body + "\n"
 
 
+def render_copilot(name: str, description: str, body: str,
+                   effort: str, tools: str) -> str:
+    """Let Copilot choose Claude or GPT through its own model configuration."""
+    aliases = {"Read": "read", "Glob": "search", "Grep": "search", "Bash": "execute"}
+    declared = [tool.strip() for tool in tools.split(",") if tool.strip()]
+    unknown = set(declared) - aliases.keys()
+    if unknown:
+        raise SystemExit(f"{name}: unsupported Copilot reviewer tools: {sorted(unknown)}")
+    fields = {
+        "name": name,
+        "description": description,
+        "target": "github-copilot",
+        "reasoningEffort": effort,
+        "tools": list(dict.fromkeys(aliases[tool] for tool in declared)),
+    }
+    # JSON scalar/array spellings are valid YAML; quote descriptions and model ids.
+    header = "\n".join(f"{key}: {json.dumps(value)}" for key, value in fields.items())
+    return (
+        f"---\n{header}\n---\n\n"
+        f"<!-- Generated from agents/{name}.md by scripts/sync_codex_agents.py. -->\n\n"
+        f"{body}\n")
+
+
 def projections() -> dict[Path, str]:
     """Map each projection path to its expected content."""
     out: dict[Path, str] = {}
+    gate_models: dict[str, dict[str, str]] = {}
     sources = sorted(AGENTS.glob("*.md"))
     if not sources:
         raise SystemExit("no agents found under agents/*.md")
@@ -108,9 +136,28 @@ def projections() -> dict[Path, str]:
             raise SystemExit(
                 f"{src.name}: frontmatter 'effort' must be one of {sorted(ALLOWED_EFFORT)} "
                 f"(shared Claude+Codex vocabulary; not Claude-only 'max' or Codex-only 'minimal'), got {effort!r}")
+        if name in {"karta-acceptance-reviewer", "karta-safety-auditor"}:
+            if sandbox_mode_for(fm) != "read-only":
+                raise SystemExit(f"{src.name}: reviewer tools must stay read-only")
+            gate_models[name] = {"model": codex_model, "reasoning_effort": effort}
+            out[ROOT / ".github/agents" / f"{name}.agent.md"] = render_copilot(
+                name, description, body, effort, fm.get("tools", ""))
         out[CODEX_AGENTS / f"{name}.toml"] = render_toml(
             name, description, body, sandbox_mode_for(fm), codex_model, effort)
         out[ROOT / "skills" / site / "references" / f"{name}.agent.md"] = render_bundle(body)
+    out[ROOT / "skills/karta-verify/references/codex-gate-models.json"] = (
+        json.dumps(gate_models, indent=2, sort_keys=True) + "\n")
+    source_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+    # Explicit empty hooks prevent auto-loading the incompatible Claude hooks.
+    copilot_manifest = {
+        "name": source_manifest["name"],
+        "version": source_manifest["version"],
+        "description": "Karta skills with acceptance and safety reviewers for Claude or GPT in Copilot CLI.",
+        "agents": "./.github/agents/",
+        "skills": "./skills/",
+        "hooks": {},
+    }
+    out[ROOT / ".github/plugin/plugin.json"] = json.dumps(copilot_manifest, indent=2) + "\n"
     return out
 
 

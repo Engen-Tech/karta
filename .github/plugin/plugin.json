@@ -1,0 +1,8 @@
+{
+  "name": "karta",
+  "version": "2.37.1",
+  "description": "Karta skills with acceptance and safety reviewers for Claude or GPT in Copilot CLI.",
+  "agents": "./.github/agents/",
+  "skills": "./skills/",
+  "hooks": {}
+}
