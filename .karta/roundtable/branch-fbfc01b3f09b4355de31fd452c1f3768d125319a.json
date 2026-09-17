@@ -1,0 +1,63 @@
+{
+  "reviewed_hash": "fbfc01b3f09b4355de31fd452c1f3768d125319a",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "fix/windows-compatibility",
+  "run_at": "2026-09-17T23:22:48.753311+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "codex",
+      "verdict": null,
+      "summary": ""
+    },
+    {
+      "provider": "copilot",
+      "verdict": "ok",
+      "summary": "**Changes are sound.** The three fixes are correct and the new tests adequately cover them. No new exploitable defects introduced.\n\nOne docstring clarification needed: Lines 154-157 should note that ALLOWED_PREFIXES controls ONLY the grammar denial, not the skip/landing gate logic (which re-parses independently).\n\nOne known-open item is defensible but underdocumented: KARTA_SKIP_ROUNDTABLE=1 GIT_INDEX_FILE=/x bypasses TOCTOU protection because the skip hatch short-circuits before environment checks. This is intentional (\"evaluated before every other rule\") and operationally necessary (environment-down survival), but the docstring should clarify that the landing gate is NOT skipped. Update line 114.\n\nSafe to land after those two docstring edits."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "ok",
+      "summary": "The final diff correctly widens the allowlist to tolerate the sibling hook's `KARTA_SKIP_GATE=1` prefix without weakening this hook's own gates. The three previously raised test defects are genuinely fixed, and the positive end-to-end test does traverse the grammar. No bypass or correctness issue found; one low-severity maintainability nit (docstring omission). The deliberate skip-before-grammar behavior is defensible and should not block landing."
+    },
+    {
+      "provider": "fireworks-glm",
+      "verdict": "ok",
+      "summary": "The change adds `KARTA_SKIP_GATE=1` to `ALLOWED_PREFIXES` so the sibling hook's escape hatch is tolerated by this hook's grammar. The three test fixes are all correct: quoted-value spellings (`=\"1\"`, `='1'`, `=1''`) dequote to the admitted text while the quoted-name case (`'VAR'=1`) fails at the regex stage because `.unquoted` loses the name. The positive end-to-end test genuinely traverses `parse_invocation` \u2014 `has_skip_prefix` returns False for `KARTA_SKIP_GATE` (it checks `KARTA_SKIP_ROUNDTABLE`), so the grammar is reached. No bypass exists: the variable is never read by any enforcement decision, and all relocating prefixes (`GIT_INDEX_FILE`, `GIT_DIR`, etc.) are still denied alongside it. The known-open item (skip hatch pre-empts `_check_environment`, allowing `GIT_INDEX_FILE` under skip) is defensible \u2014 when skip is active the gate is fully off, so there's no review check to TOCTOU. No new defects found. Approve."
+    },
+    {
+      "provider": "fireworks-kimi",
+      "verdict": "ok",
+      "summary": "The change is sound; no critical/high/medium findings. Three lows: (1) `KARTA_SKIP_GATE` string duplicated from precommit_gate.py with no cross-reference \u2014 a sibling rename silently re-wedges the platform; (2) module docstring still says `[KARTA_*=1 ...]`, implying a generic allowance the code doesn't grant; (3) the \"not denied as an illegal prefix\" check is substring-only and vacuous without its neighbors \u2014 add `code == 2`.\n\nQ1: fixes are genuine; the positive end-to-end test provably traverses `parse_invocation` (skip prefix absent, env empty, so only allowlist membership yields exit 0). Q2: no new defects in tests, docstring, or comment. Q3: skip-before-grammar is defensible \u2014 the hatch waives validation entirely, so a relocating prefix has no validated result to subvert; the load-bearing invariant is landing-gate -> skip -> grammar ordering, which is test-pinned. Q4: no pass-through found after attempting value variants, relocating-prefix composition, env route, env-wrapper route, and quote-spelling edges; the variable is inert for git, this hook, and the helper subprocess. Recommend landing."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "Sound. The three first-round test defects are properly fixed: the quoted-value tests genuinely pin tokenizer behavior; the renamed \"compose\" test honestly labels itself as a short-circuit pinning test, not a grammar test; the env-PSV test confirms `KARTA_SKIP_GATE` is never consulted as a hatch. The new positive end-to-end case actually traverses `parse_invocation` \u2014 removing `f\"{PRECOMMIT_SKIP_VAR}=1\"` from `ALLOWED_PREFIXES` flips its result from 0 to 2 with the exact expected denial, which is the correct discriminating behavior. Full-file grep confirms `PRECOMMIT_SKIP_VAR` is referenced only in its constant and `ALLOWED_PREFIXES`, so the wider allowlist cannot grant any approval through any code path. No reproducible new defect; only a minor cosmetic risk in the broadened deny message string, already mitigated by the in-code ALLOWED_PREFIXES comment. The one acknowledged wart \u2014 SKIP_VAR returning before the safety grammar \u2014 is pre-existing, deliberate by doctrine (hatch is total bypass), and defensible to land."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "The final diff is sound. Adding KARTA_SKIP_GATE=1 to ALLOWED_PREFIXES does not introduce a reproducible bypass: it only allows the prefix to appear in the grammar and is never read by this gate's skip or landing logic. The first-round fixes are correct: quoted values are admitted via dequoted text, quoted names are denied, environment KARTA_SKIP_GATE does not bypass, and the positive test reaches the grammar in current code. Main pre-existing issue: KARTA_SKIP_ROUNDTABLE=1 short-circuits before parse_invocation/_check_environment, so commands like KARTA_SKIP_ROUNDTABLE=1 GIT_INDEX_FILE=/tmp/x git commit -m x are allowed. This is defensible only as an explicit unconditional escape hatch; it should be documented/tracked, but does not need to block this branch. Minor improvements: make the positive end-to-end test assert the helper actually ran, tighten docstring/comment wording, and keep ALLOWED_PREFIXES strictly exact literals."
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/branch-fbfc01b3f09b4355de31fd452c1f3768d125319a.rounds.json",
+  "final_round": 1
+}

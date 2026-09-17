@@ -133,7 +133,52 @@ def _rev(repo: Path, ref: str) -> str | None:
 
 
 def _porcelain(repo: Path) -> str:
-    return _git(repo, "status", "--porcelain").stdout.strip()
+    # Bytes and -z preserve literal names, including newlines and rename sources.
+    status = subprocess.run(
+        ["git", "-C", str(repo), "status", "--porcelain=v1", "-z"],
+        capture_output=True,
+    )
+    if status.returncode:
+        raise RuntimeError(f"git status failed: {os.fsdecode(status.stderr)}")
+    if not status.stdout:
+        return ""
+    parts = status.stdout.split(b"\0")
+    if parts.pop() != b"":
+        raise RuntimeError("git status returned an unterminated record")
+    dirty: list[bytes] = []
+    i = 0
+    while i < len(parts):
+        entry = parts[i]
+        i += 1
+        if len(entry) < 4 or entry[2:3] != b" ":
+            raise RuntimeError("git status returned an invalid record")
+        xy = entry[:2]
+        records = [entry]
+        if b"R" in xy or b"C" in xy:
+            if i == len(parts) or not parts[i]:
+                raise RuntimeError("git status omitted a rename/copy source")
+            records.append(parts[i])
+            i += 1
+        if xy == b" M":
+            # autocrlf can report a size-only change after a generator writes LF.
+            # Refresh stat data, not staged content. Only exit 0 proves no diff.
+            diff = _git(
+                repo, "--literal-pathspecs", "-c", "diff.autoRefreshIndex=true",
+                "diff", "--quiet", "--no-ext-diff", "--no-textconv",
+                "--ignore-submodules=none", "--", os.fsdecode(entry[3:]),
+            )
+            if diff.returncode == 0:
+                continue
+            if diff.returncode != 1:
+                raise RuntimeError(f"git diff failed ({diff.returncode}): {diff.stderr}")
+        dirty.extend(records)
+    return os.fsdecode(b"".join(record + b"\0" for record in dirty))
+
+
+def _shell_quote_path(path: str) -> str:
+    # These operands are file paths, not arbitrary shell code. Windows paths
+    # cannot contain a double quote; quote even when only '&' requires it.
+    return f'"{path}"' if os.name == "nt" else shlex.quote(path)
 
 
 def _symref(repo: Path) -> str | None:
@@ -451,8 +496,8 @@ def cmd_close_wave(args: argparse.Namespace) -> int:
         if step is not None:
             return halt(step)
 
-    st_cmd = (f"{shlex.quote(sys.executable)} {shlex.quote(str(SHARED_TERMS))} "
-              f"--binder {shlex.quote(str(args.binder.resolve()))}")
+    st_cmd = (f"{_shell_quote_path(sys.executable)} {_shell_quote_path(str(SHARED_TERMS))} "
+              f"--binder {_shell_quote_path(str(args.binder.resolve()))}")
     st_record = _run_oracle_record(st_cmd, repo, None)
     res["shared_terms"] = st_record
     step = settle(st_record, "shared-terms")
@@ -484,6 +529,193 @@ def cmd_tag_wave(args: argparse.Namespace) -> int:
 
 
 # --- self-test ------------------------------------------------------------
+
+
+def _run_guard_self_test() -> int:
+    """Focused real-Git controls; never run merge/unwind against a user repo."""
+    os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+    os.environ["GIT_CONFIG_SYSTEM"] = os.devnull
+    os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+    os.environ.pop("GIT_CONFIG_COUNT", None)
+    os.environ.pop("GIT_CONFIG_PARAMETERS", None)
+    passed = total = 0
+
+    def check(name: str, ok: bool) -> None:
+        nonlocal passed, total
+        total += 1
+        passed += int(ok)
+        print(f"[{'PASS' if ok else 'FAIL'}] {name}")
+
+    def g(repo: Path, *args: str) -> str:
+        p = _git(repo, *args)
+        if p.returncode:
+            raise RuntimeError(p.stderr)
+        return p.stdout
+
+    with tempfile.TemporaryDirectory(prefix="merge_guards_") as directory:
+        root = Path(directory)
+        serial = 0
+
+        def fixture(path: str = "f.txt") -> tuple[Path, Path]:
+            nonlocal serial
+            serial += 1
+            repo = root / str(serial)
+            repo.mkdir()
+            g(repo, "init", "-q", "-b", "karta/s/integration")
+            g(repo, "config", "user.name", "Test")
+            g(repo, "config", "user.email", "test@example.invalid")
+            g(repo, "config", "core.autocrlf", "true")
+            g(repo, "config", "diff.autoRefreshIndex", "false")
+            file = repo / path
+            file.write_bytes(b"one\ntwo\n")
+            g(repo, "--literal-pathspecs", "add", "--", path)
+            g(repo, "commit", "-qm", "base")
+            file.unlink()
+            g(repo, "--literal-pathspecs", "checkout", "--", path)
+            assert file.read_bytes() == b"one\r\ntwo\r\n"
+            return repo, file
+
+        names = ["f.txt", "space & name.txt", "-option.txt", "[literal].txt",
+                 " leading.txt", "quote'name.txt", "semi;colon.txt"]
+        if os.name != "nt":
+            names += ["line\nbreak.txt", "carriage\rreturn.txt", ":(glob)*"]
+        for name in names:
+            repo, file = fixture(name)
+            file.write_bytes(b"one\ntwo\n")
+            raw = g(repo, "status", "--porcelain=v1", "-z")
+            check(f"reproduces EOL-only status {name!r}", raw.startswith(" M "))
+            index = g(repo, "ls-files", "--stage", "-z")
+            check(f"normalized EOL-only clean {name!r}", not _porcelain(repo))
+            check(f"guard preserves staged entries {name!r}",
+                  g(repo, "ls-files", "--stage", "-z") == index)
+
+        repo, file = fixture()
+        check("clean checkout stays clean", not _porcelain(repo))
+        for kind in ("content", "whitespace", "staged", "cancel", "add",
+                     "delete", "staged-delete", "rename", "untracked", "intent", "mode"):
+            repo, file = fixture()
+            if kind in ("content", "whitespace", "staged", "cancel"):
+                file.write_bytes(b"one \ntwo\n" if kind == "whitespace" else b"changed\n")
+                if kind in ("staged", "cancel"):
+                    g(repo, "add", "f.txt")
+                if kind == "cancel":
+                    file.write_bytes(b"one\ntwo\n")
+            elif kind in ("add", "untracked", "intent"):
+                (repo / "new.txt").write_bytes(b"new\n")
+                if kind == "add":
+                    g(repo, "add", "new.txt")
+                if kind == "intent":
+                    g(repo, "add", "-N", "new.txt")
+            elif kind == "delete":
+                file.unlink()
+            elif kind == "staged-delete":
+                g(repo, "rm", "-q", "f.txt")
+            elif kind == "rename":
+                g(repo, "mv", "f.txt", "renamed & file.txt")
+            elif kind == "mode":
+                g(repo, "update-index", "--chmod=+x", "f.txt")
+            index = g(repo, "ls-files", "--stage", "-z")
+            dirty = _porcelain(repo)
+            check(f"{kind} stays dirty without staging",
+                  bool(dirty) and g(repo, "ls-files", "--stage", "-z") == index)
+            if kind == "rename":
+                check("rename source retained", "f.txt\0" in dirty
+                      and "renamed & file.txt\0" in dirty)
+
+        # A glob must not select a second, truly dirty path.
+        repo, file = fixture("[ab].txt")
+        (repo / "a.txt").write_bytes(b"base\n")
+        g(repo, "add", "a.txt")
+        g(repo, "commit", "-qm", "literal control")
+        file.write_bytes(b"one\ntwo\n")
+        (repo / "a.txt").write_bytes(b"changed\n")
+        dirty = _porcelain(repo)
+        check("literal path comparison ignores glob meaning",
+              "[ab].txt" not in dirty and "a.txt" in dirty)
+
+        repo, file = fixture()
+        g(repo, "checkout", "-qb", "other")
+        file.write_bytes(b"other\n")
+        g(repo, "add", "f.txt")
+        g(repo, "commit", "-qm", "other")
+        g(repo, "checkout", "-q", "karta/s/integration")
+        file.write_bytes(b"integration\n")
+        g(repo, "add", "f.txt")
+        g(repo, "commit", "-qm", "integration")
+        conflict = _git(repo, "merge", "--no-edit", "other")
+        check("unmerged conflict stays dirty",
+              conflict.returncode == 1 and "UU f.txt\0" in _porcelain(repo))
+
+        for kind in ("content", "untracked", "tip"):
+            repo, _ = fixture()
+            source, _ = fixture()
+            g(repo, "-c", "protocol.file.allow=always",
+              "submodule", "add", "-q", str(source), "sub")
+            g(repo, "commit", "-qam", "submodule")
+            sub = repo / "sub"
+            if kind == "untracked":
+                (sub / "new.txt").write_bytes(b"new\n")
+            else:
+                (sub / "f.txt").write_bytes(b"submodule change\n")
+                if kind == "tip":
+                    g(sub, "add", "f.txt")
+                    g(sub, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                      "commit", "-qm", "next")
+            check(f"submodule {kind} stays dirty", bool(_porcelain(repo)))
+
+        if os.name != "nt":
+            repo, file = fixture()
+            g(repo, "config", "core.filemode", "true")
+            file.chmod(0o755)
+            check("unstaged executable mode stays dirty", bool(_porcelain(repo)))
+        else:
+            print("[SKIP] unstaged POSIX executable-bit control on Windows")
+
+        # Real Git failures must raise, never silently return clean.
+        try:
+            _porcelain(root)
+        except RuntimeError:
+            check("status failure halts loudly", True)
+        else:
+            check("status failure halts loudly", False)
+        repo, file = fixture()
+        file.write_bytes(b"changed\n")
+        sha = g(repo, "rev-parse", "HEAD:f.txt").strip()
+        blob = repo / ".git" / "objects" / sha[:2] / sha[2:]
+        blob.chmod(0o600)
+        blob.unlink()  # Corrupt only this disposable fixture, not a user repo.
+        check("diff-error fixture has valid status",
+              _git(repo, "status", "--porcelain=v1", "-z").returncode == 0)
+        try:
+            _porcelain(repo)
+        except RuntimeError:
+            check("diff failure halts loudly", True)
+        else:
+            check("diff failure halts loudly", False)
+
+        # Exercise the actual close-wave command builder and runner.
+        for path in (r"C:\Program Files\Python\python.exe", r"C:\a&b\script name.py"):
+            check(f"shell quotes path {path!r}",
+                  _shell_quote_path(path) == (f'"{path}"' if os.name == "nt" else shlex.quote(path)))
+        repo, _ = fixture()
+        binder = root / "binder space & name.json"
+        binder.write_text('{"slug":"s","work_items":[],"shared_terms":[]}', encoding="utf-8")
+        for exists in (True, False):
+            if not exists:
+                binder.unlink()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = cmd_close_wave(argparse.Namespace(
+                    repo=repo, slug="s", binder=binder, check=["echo CHECK-OK"]))
+            result = json.loads(buf.getvalue())
+            record = result.get("shared_terms") or {}
+            check(f"shared terms {'success' if exists else 'missing binder fails'} through runner",
+                  (code == 0 if exists else code == 1)
+                  and record.get("success") is exists
+                  and (record.get("exit_status") == 0 if exists else
+                       record.get("exit_status", 0) != 0))
+    print(f"\n{passed}/{total} checks passed")
+    return int(passed != total)
 
 
 def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named cases
@@ -673,7 +905,9 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
               and not (f.repo / "junk.txt").exists())
 
         # 10. reset oracle
-        f = fixture("resetoracle", "git reset --hard HEAD^ -q")
+        # HEAD~1, not HEAD^: cmd.exe eats a bare caret, which would silently
+        # turn this reset into a no-op and stop the fixture moving the tip.
+        f = fixture("resetoracle", "git reset --hard HEAD~1 -q")
         code, res = run_cli(merge_args(f))
         check("an oracle that exits 0 after a hard reset halts as tip-moved with the "
               "pre-merge tip restored and no done ref",
@@ -892,6 +1126,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--self-test", action="store_true",
                     help="run embedded hermetic fixtures and exit 0/1")
+    ap.add_argument("--self-test-guards", action="store_true",
+                    help="run focused status and quoting fixtures")
     sub = ap.add_subparsers(dest="subcommand")
 
     p_merge = sub.add_parser("merge", help="merge one built item into the integration branch")
@@ -918,6 +1154,8 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
 
+    if args.self_test_guards:
+        return _run_guard_self_test()
     if args.self_test:
         return _run_self_test()
     if args.subcommand == "merge":
