@@ -140,11 +140,19 @@ BRANCH_PREFIX = "branch-"
 LEDGER_SUFFIX = ".rounds.json"
 SKIP_VAR = "KARTA_SKIP_ROUNDTABLE"
 LAND_VAR = "KARTA_LANDING_APPROVED"  # gate (c); NOT covered by SKIP_VAR
+# The sibling commit gate's hatch, and inert here: this hook never reads it and
+# it bypasses nothing. It is tolerated by the grammar only so the two gates'
+# hatches are not mutually exclusive — precommit_gate.py tells the caller to
+# prefix KARTA_SKIP_GATE=1, and denying that prefix left no way to commit at
+# all on a platform where the commit gate's own suite cannot pass.
+# Safe to allow because, unlike GIT_DIR or GIT_INDEX_FILE, it cannot change
+# what git does between this validation and the command actually running.
+PRECOMMIT_SKIP_VAR = "KARTA_SKIP_GATE"
 INTEGRATION_GLOB = "karta/*/integration"  # the shape the merge gate matches
 GIT_TIMEOUT = 30
 FILE_MODES = ("100644", "100755")
 # the only assignment prefixes the grammar lets through
-ALLOWED_PREFIXES = (f"{SKIP_VAR}=1", f"{LAND_VAR}=1")
+ALLOWED_PREFIXES = (f"{SKIP_VAR}=1", f"{LAND_VAR}=1", f"{PRECOMMIT_SKIP_VAR}=1")
 # the only GIT_* environment values the hook accepts: inert exact values, never
 # a program git would run after the hook (an editor, a pager, an ssh command)
 INERT_GIT_ENV = {"GIT_EDITOR": ("true", ":"), "GIT_PAGER": ("cat",), "GIT_TERMINAL_PROMPT": ("0",)}
@@ -793,7 +801,7 @@ class CommitSpec:
 
 
 def parse_invocation(command: str) -> tuple[list[str], list[Tok]]:
-    """(assignment prefixes, the git words). Denies every prefix but the two
+    """(assignment prefixes, the git words). Denies every prefix but the
     KARTA_* ones and any invocation that is not a plain `git <subcommand>`."""
     toks = tokenize(command)
     prefixes: list[str] = []
@@ -801,8 +809,8 @@ def parse_invocation(command: str) -> tuple[list[str], list[Tok]]:
         prefixes.append(toks.pop(0).text)
     for p in prefixes:
         if p not in ALLOWED_PREFIXES:
-            raise Denial(f"assignment prefix {p!r} is not allowed — only {SKIP_VAR}=1 and "
-                         f"{LAND_VAR}=1 may prefix a gated git command")
+            raise Denial(f"assignment prefix {p!r} is not allowed — only "
+                         f"{', '.join(ALLOWED_PREFIXES)} may prefix a gated git command")
     if not toks or os.path.basename(toks[0].text) != "git" or toks[0].quoted:
         raise Denial("the command must begin with a plain `git` invocation")
     if len(toks) < 2 or toks[1].text not in ("commit", "merge") or toks[1].quoted:
@@ -1943,6 +1951,27 @@ def _run_self_test() -> int:
     check("the skip hatch still applies ahead of a quoted prefix", code == 0)
     code, _, _ = run("KARTA_SKIP_ROUNDTABLE=1 git commit .karta", PLAIN, ON)
     check("the skip hatch is evaluated before every other rule", code == 0)
+
+    # The sibling commit gate's hatch: the grammar must tolerate it, so the two
+    # gates are not jointly unsatisfiable — but it must buy nothing here.
+    PSV = f"{PRECOMMIT_SKIP_VAR}=1"
+    code, msg, _ = run(f"{PSV} git commit -m x", PLAIN, ON, helper_=stale)
+    check(f"{PSV} is not denied as an illegal prefix",
+          "assignment prefix" not in msg, msg)
+    code, _, _ = run(f"{PSV} git commit -m x", PLAIN, ON, helper_=stale)
+    check(f"{PSV} does NOT bypass a stale binder review", code == 2)
+    code, _, _ = run(f"{PSV} {MI}", MRECQ, ON, tip=TIP)
+    check(f"{PSV} does NOT bypass the landing gate", code == 2)
+    code, _, _ = run(f"{PSV} {MI}", {}, CFG, env={LAND_VAR: "1"}, tip=TIP, helper_=stale)
+    check(f"{PSV} does NOT bypass the merge review gate", code == 2)
+    code, msg, _ = run(f"{PSV} GIT_INDEX_FILE=/tmp/i git commit -m x", PLAIN, ON, helper_=stale)
+    check("a relocating prefix is still denied alongside the tolerated one",
+          code == 2 and "assignment prefix" in msg, msg)
+    code, msg, _ = run(f"{PRECOMMIT_SKIP_VAR}=0 git commit -m x", PLAIN, ON, helper_=stale)
+    check("only the exact =1 spelling is tolerated",
+          code == 2 and "assignment prefix" in msg, msg)
+    code, _, _ = run(f"{SKIP_VAR}=1 {PSV} git commit -m x", PLAIN, ON, helper_=stale)
+    check("the roundtable hatch still works alongside the tolerated prefix", code == 0)
     nocwd = _payload("git commit . -m x"); del nocwd["cwd"]
     git, rf, isl, _ = make(PLAIN)
     code, msg = decide(nocwd, {}, git, helper, ON, read_file=rf, is_symlink=isl)
