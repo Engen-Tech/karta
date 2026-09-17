@@ -151,7 +151,10 @@ PRECOMMIT_SKIP_VAR = "KARTA_SKIP_GATE"
 INTEGRATION_GLOB = "karta/*/integration"  # the shape the merge gate matches
 GIT_TIMEOUT = 30
 FILE_MODES = ("100644", "100755")
-# the only assignment prefixes the grammar lets through
+# The only assignment prefixes the grammar lets through. Membership is
+# permission to APPEAR, never approval: the skip and landing decisions read
+# their own variables through _exact_flag, so never treat presence in this
+# tuple as a grant of anything.
 ALLOWED_PREFIXES = (f"{SKIP_VAR}=1", f"{LAND_VAR}=1", f"{PRECOMMIT_SKIP_VAR}=1")
 # the only GIT_* environment values the hook accepts: inert exact values, never
 # a program git would run after the hook (an editor, a pager, an ssh command)
@@ -801,8 +804,11 @@ class CommitSpec:
 
 
 def parse_invocation(command: str) -> tuple[list[str], list[Tok]]:
-    """(assignment prefixes, the git words). Denies every prefix but the
-    KARTA_* ones and any invocation that is not a plain `git <subcommand>`."""
+    """(assignment prefixes, the git words). Denies every prefix but the exact
+    spellings in ALLOWED_PREFIXES — this is not a generic KARTA_* allowlist,
+    and `KARTA_ANYTHING_ELSE=1` is denied like any other — and any invocation
+    that is not a plain `git <subcommand>`. Comparison is on the dequoted text,
+    so a quoted value (`=\"1\"`) is admitted and a quoted name (`'VAR'=1`) is not."""
     toks = tokenize(command)
     prefixes: list[str] = []
     while toks and _ASSIGN_TOKEN_RE.match(toks[0].unquoted):
@@ -1967,11 +1973,40 @@ def _run_self_test() -> int:
     code, msg, _ = run(f"{PSV} GIT_INDEX_FILE=/tmp/i git commit -m x", PLAIN, ON, helper_=stale)
     check("a relocating prefix is still denied alongside the tolerated one",
           code == 2 and "assignment prefix" in msg, msg)
-    code, msg, _ = run(f"{PRECOMMIT_SKIP_VAR}=0 git commit -m x", PLAIN, ON, helper_=stale)
-    check("only the exact =1 spelling is tolerated",
-          code == 2 and "assignment prefix" in msg, msg)
+    for spelling in (f"{PRECOMMIT_SKIP_VAR}=0", f"{PRECOMMIT_SKIP_VAR}=11",
+                     f"{PRECOMMIT_SKIP_VAR}=1x", f"{PRECOMMIT_SKIP_VAR}="):
+        code, msg, _ = run(f"{spelling} git commit -m x", PLAIN, ON, helper_=stale)
+        check(f"only the value 1 is tolerated, not {spelling!r}",
+              code == 2 and "assignment prefix" in msg, msg)
+    # Quoted VALUE spellings dequote to exactly PSV and are admitted — the safe
+    # direction, since each sets the variable to exactly 1. Pinned because a
+    # tokenizer regression that stopped folding them would silently re-wedge
+    # Windows commits, which is the bug this whole change exists to fix.
+    for spelling in (f'{PRECOMMIT_SKIP_VAR}="1"', f"{PRECOMMIT_SKIP_VAR}='1'",
+                     f"{PRECOMMIT_SKIP_VAR}=1''"):
+        prefixes, _ = parse_invocation(f"{spelling} git commit -m x")
+        check(f"quoted value spelling {spelling!r} dequotes to the tolerated prefix",
+              prefixes == [PSV])
+        code, _, _ = run(f"{spelling} git commit -m x", PLAIN, ON, helper_=stale)
+        check(f"quoted value spelling {spelling!r} still does not bypass review", code == 2)
+    # A quoted NAME is not an assignment to this grammar. The shell would honour
+    # it; the hook denies. Fail-closed is the right direction, and pinned so a
+    # future loosening of the tokenizer has to be deliberate.
+    code, msg, _ = run(f"'{PRECOMMIT_SKIP_VAR}'=1 git commit -m x", PLAIN, ON, helper_=stale)
+    check("a quoted assignment NAME is denied rather than read as the prefix", code == 2, msg)
+    # NOT a grammar test: has_skip_prefix short-circuits decide() ahead of
+    # parse_invocation, so this passes whether or not PSV is in the allowlist.
+    # It pins only that the two hatches compose. The grammar itself is covered
+    # by the "not denied as an illegal prefix" and positive cases.
     code, _, _ = run(f"{SKIP_VAR}=1 {PSV} git commit -m x", PLAIN, ON, helper_=stale)
-    check("the roundtable hatch still works alongside the tolerated prefix", code == 0)
+    check("the two hatches compose (skip short-circuit, not a grammar check)", code == 0)
+    # The positive end-to-end case: a fresh record, so the prefix must travel
+    # all the way through the grammar to a pass. Without this, a regression that
+    # stopped recognising PSV as an assignment word would go green above.
+    code, msg, _ = run(f"{PSV} git commit -m x", PLAIN, ON)
+    check("the tolerated prefix reaches exit 0 with a fresh record", code == 0, msg)
+    code, _, _ = run("git commit -m x", PLAIN, ON, env={PRECOMMIT_SKIP_VAR: "1"}, helper_=stale)
+    check(f"{PRECOMMIT_SKIP_VAR} in the environment does NOT bypass review", code == 2)
     nocwd = _payload("git commit . -m x"); del nocwd["cwd"]
     git, rf, isl, _ = make(PLAIN)
     code, msg = decide(nocwd, {}, git, helper, ON, read_file=rf, is_symlink=isl)
