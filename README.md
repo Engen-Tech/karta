@@ -47,6 +47,10 @@ Two ways in:
 
 The gate runs automatically — no setup. On a plugin install (Codex can't register subagents) `karta-verify` spawns a read-only subagent from the gate instructions bundled in the skill; in a checkout, the same agents run as registered, sandbox-enforced read-only subagents. Full guide: [docs/how-to/codex.md](docs/how-to/codex.md).
 
+### Copilot CLI reviewer models
+
+The deliverable also provides native acceptance and safety reviewer profiles in Copilot CLI that work with Claude or GPT. See [the Copilot CLI guide](docs/how-to/copilot-cli.md) for installation, model selection, and the limits of this integration.
+
 ### Pi
 
 Install a reviewed Git tag while the npm package remains private.

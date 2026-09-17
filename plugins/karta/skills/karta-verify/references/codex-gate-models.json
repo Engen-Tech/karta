@@ -1,0 +1,10 @@
+{
+  "karta-acceptance-reviewer": {
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "xhigh"
+  },
+  "karta-safety-auditor": {
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "xhigh"
+  }
+}

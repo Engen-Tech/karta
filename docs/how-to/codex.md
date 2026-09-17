@@ -36,6 +36,31 @@ karta's behavioral gate (`karta-verify`) dispatches two read-only agents — `ka
 
 You never copy a fallback instruction file. On a bare plugin install, the bundled agent says not to write; a read-only Codex sandbox makes that boundary enforceable. When registered `.codex/agents/*.toml` files are present, their read-only sandbox supplies that enforcement automatically. If you want the registered form in your own project, copy `.codex/agents/karta-acceptance-reviewer.toml` and `.codex/agents/karta-safety-auditor.toml` from this repo into your project's `.codex/agents/`.
 
+## Model selection
+
+The deliverable shares its skill files across runtimes. Their `model: opus`, `model: sonnet`, `model: haiku`, and `effort` frontmatter configure Claude Code; they are not Codex model requirements. A GPT session can run these skills without switching providers.
+
+- **Delivery and build workers:** use the Codex host's configured model and effort unless you explicitly choose an override. `karta-build` is a skill supplied to a worker, not a registered agent type.
+- **Registered gate and writer agents:** use the model and effort in their Codex agent configuration. This repo generates those settings from each canonical agent's `codex_model` and `effort` fields.
+- **Plugin fallback acceptance and safety reviewers:** `karta-verify` reads the bundled `codex-gate-models.json` and requests the same model and effort as the registered form: currently `gpt-5.6-sol` with `xhigh` for both. The generator derives the file from the canonical agent configuration. Fallbacks start with fresh context; full-history forks can force the parent model. Other fallback agents continue to use the host's configured defaults. Installing the plugin does not install this repo's `.codex/agents/` settings.
+
+These are the deliverable's dispatch instructions; the Codex host controls the actual selection. See [OpenAI's subagent configuration](https://learn.chatgpt.com/docs/agent-configuration/subagents) for model and effort overrides. If the host cannot select the required reviewer model and effort, verification reports the specific GPT configuration it needs; it does not silently substitute the parent model. A missing Opus model is not a Codex preflight failure. A visual review still requires image input, regardless of the model's name.
+
+### Suggested equivalents for the Claude roles
+
+Research checked on 2026-09-16. This is a workload-based recommendation, not benchmark equivalence or an automatic model-selection rule. Claude Code describes Haiku as its simple-task option, Sonnet as its daily coding option, and Opus as its complex-reasoning option ([Claude model configuration](https://code.claude.com/docs/en/model-config)).
+
+| Claude role | Suggested Codex model | Starting effort for the deliverable |
+|-|-|-|
+| Haiku: lightweight routing and simple tasks | `gpt-5.6-luna` | `low` |
+| Sonnet: implementation and delivery orchestration | `gpt-5.6-terra` | `high`; `medium` for prose work |
+| Opus: planning and demanding acceptance or visual review | `gpt-5.6-sol` | `xhigh` |
+| Highest-capability option for difficult planning and review | `gpt-6-astra` | `high`; evaluate `xhigh` for harder items |
+
+OpenAI describes [Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) as suited to high-volume, cost-sensitive work, [Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra) as balancing intelligence and cost, [Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol) as a flagship, and [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) as its most capable model for difficult end-to-end work. The effort settings above are starting points for these Karta roles, not an official cross-provider conversion. Test representative binder items before adopting them as defaults.
+
+Apply the role of the agent doing the work: the Haiku metadata on the thin `karta-verify` dispatcher does not make its acceptance and safety reviewers lightweight tasks. Likewise, doc-gardner and kaizen dispatchers hand the writing to separate agents. A GPT-6 parent can still delegate routine implementation to Terra and lightweight work to Luna when the host supports explicit model selection.
+
 ## Feature compatibility on Codex
 
 The installed plugin passed live, feature-by-feature Codex tests for fallback gates, Kaizen, and Plannotator. Read the [compatibility result](../showcase/codex-1.19-compatibility/README.md) before relying on a security or write-confinement boundary.

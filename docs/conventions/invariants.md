@@ -169,7 +169,7 @@ The landing gate blocks a `git merge` naming a `karta/*/integration` ref on the 
 ## The tree
 
 ### INV-19 · Canonical is hand-edited; projections are generated, byte-equal, and never touched
-Edit `skills/`, `agents/`, `skills/_shared/`; the Codex mirrors and the marketplace projection are regenerated, and a drifted copy fails the floor.
+Edit `skills/`, `agents/`, `skills/_shared/`; the Codex mirrors, Copilot reviewer profiles and plugin entrypoint, and the marketplace projection are regenerated, and a drifted copy fails the floor.
 - founding · **enforced** — `check_shared_copies.py`, `sync_codex_skills.py --check`, `sync_codex_agents.py --check`, `validate_plugin.py`, all run by the commit hook.
 - Carriers: AGENTS.md "Layout — canonical vs generated".
 
