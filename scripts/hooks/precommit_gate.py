@@ -125,9 +125,16 @@ _SHELL_OPERATORS = ("&&", "||", "|&", ";", "|", "\n")
 _Word = tuple[str, "int | None"]
 
 
-def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
+_Segment = tuple[list[_Word], list[str], int, str, list[str]]
+
+
+def _shell_segments(command: str) -> list[_Segment] | None:
     """The command's segments, split only at UNQUOTED operators. Each segment is
-    (words, substitutions). A word is (text, quoted_at): the dequoted text, and
+    (words, substitutions, process_substitution_count, operator_after,
+    heredoc_bodies). operator_after is the operator that ended it ("" for the
+    final segment), which says whether its output flows into the next; the
+    heredoc bodies are text fed to the command on its stdin. A word is
+    (text, quoted_at): the dequoted text, and
     how long that text was when the first quoting character was met (None if
     never quoted) — which is what tells `KARTA_SKIP_GATE="1"` (quoted value, an
     assignment) apart from `'KARTA_SKIP_GATE'=1` (quoted name, a plain word).
@@ -138,9 +145,12 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
     `\\$(` are literals. A substitution is consumed whole, so an operator inside
     one does not split the segment. None when quoting or a substitution is
     unbalanced: the shell would refuse to run it."""
-    segments: list[tuple[list[_Word], list[str]]] = []
+    segments: list[_Segment] = []
     words: list[_Word] = []
     subs: list[str] = []
+    docs: list[str] = []                      # heredoc bodies fed to this segment
+    pending: list[tuple[str, bool, bool]] = []  # heredocs awaiting their body
+    procs = 0
     buf: list[str] = []
     quoted_at: int | None = None
     in_word = False
@@ -152,9 +162,55 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
             words.append(("".join(buf), quoted_at))
         buf, quoted_at, in_word = [], None, False
 
-    def close_paren(j: int) -> int:
-        """Index just past the `)` closing the `$(` whose `(` is at j, or -1."""
+    def read_delim(k: int) -> tuple[str, bool, bool, int] | None:
+        """Parse the heredoc operator at k (`<<EOF`, `<<-EOF`, `<<'EOF'`):
+        (delimiter, strip_tabs, quoted, index_after), or None if malformed."""
+        j = k + 2
+        strip_tabs = command.startswith("-", j)
+        j += strip_tabs
+        while j < n and command[j] in " \t":
+            j += 1
+        delim: list[str] = []
+        quoted = False
+        while j < n and command[j] not in " \t\n;&|<>()":
+            if command[j] in "'\"\\":
+                quoted = True
+            else:
+                delim.append(command[j])
+            j += 1
+        return ("".join(delim), strip_tabs, quoted, j) if delim else None
+
+    def read_bodies(k: int, waiting: list[tuple[str, bool, bool]]
+                    ) -> tuple[int, list[tuple[str, bool]]] | None:
+        """k is just past a newline: read each waiting heredoc's body up to its
+        delimiter line. (index_after, [(body, quoted)]), or None if one never ends."""
+        bodies: list[tuple[str, bool]] = []
+        for delim, strip_tabs, quoted in waiting:
+            lines: list[str] = []
+            while True:
+                nl = command.find("\n", k)
+                line = command[k:] if nl < 0 else command[k:nl]
+                if (line.lstrip("\t") if strip_tabs else line) == delim:
+                    k = n if nl < 0 else nl + 1
+                    break
+                if nl < 0:
+                    return None
+                lines.append(line)
+                k = nl + 1
+            bodies.append(("\n".join(lines), quoted))
+        return k, bodies
+
+    def close_paren(j: int) -> tuple[int, str]:
+        """(index just past the `)` closing the `$(` whose `(` is at j, the text
+        of the substitution that can RUN), or (-1, "") if it never closes. A
+        heredoc body inside it is data, so it is left out of the returned text —
+        except, under an unquoted delimiter, the substitutions in that body. This
+        is what lets `git commit -m "$(cat <<'EOF' … EOF)"`, the usual way an
+        agent writes a commit message, carry a message that mentions a commit."""
         depth, k = 1, j + 1
+        runnable: list[str] = []
+        start = k
+        waiting: list[tuple[str, bool, bool]] = []
         while k < n:
             ch = command[k]
             if ch == "\\":
@@ -165,17 +221,45 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
                 while e < n and command[e] != ch:
                     e += 2 if (ch == '"' and command[e] == "\\") else 1
                 if e >= n:
-                    return -1
+                    return -1, ""
                 k = e + 1
+                continue
+            # A `#` that starts a word opens a comment running to the newline; a
+            # `)` inside it closes nothing, so `$(echo a #)` does not end there.
+            if ch == "#" and command[k - 1] in " \t\n(;&|":
+                nl = command.find("\n", k)
+                if nl < 0:
+                    return -1, ""
+                k = nl
+                continue
+            if command.startswith("<<", k) and not command.startswith("<<<", k):
+                d = read_delim(k)
+                if d is None:
+                    return -1, ""
+                waiting.append(d[:3])
+                k = d[3]
+                continue
+            if ch == "\n" and waiting:
+                runnable.append(command[start:k])
+                r = read_bodies(k + 1, waiting)
+                if r is None:
+                    return -1, ""
+                k, bodies = r
+                for body, quoted in bodies:
+                    if not quoted:
+                        runnable.extend(_body_substitutions(body))
+                waiting = []
+                start = k
                 continue
             if ch == "(":
                 depth += 1
             elif ch == ")":
                 depth -= 1
                 if depth == 0:
-                    return k + 1
+                    runnable.append(command[start:k])
+                    return k + 1, "\n".join(runnable)
             k += 1
-        return -1
+        return -1, ""
 
     def close_tick(j: int) -> int:
         """Index just past the backtick closing the one at j, or -1."""
@@ -189,14 +273,19 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
             k += 1
         return -1
 
-    def substitution_at(j: int) -> int | None:
+    def substitution_at(j: int, in_dq: bool = False) -> int | None:
         """If a substitution opens at j, record it and return the index past it;
-        -1 when it never closes; None when none opens here."""
-        if command.startswith("$(", j):
-            e = close_paren(j + 1)
+        -1 when it never closes; None when none opens here. Process substitution
+        (`<(…)`, `>(…)`) exists only outside double quotes, and is also flagged
+        in `procs`: text that flows into one can be run by it, as in
+        `echo "git commit" | tee >(bash)`, whatever its interior says."""
+        nonlocal procs
+        if command.startswith("$(", j) or (not in_dq and command[j:j + 2] in ("<(", ">(")):
+            e, runnable = close_paren(j + 1)
             if e >= 0:
-                subs.append(command[j + 2:e - 1])
+                subs.append(runnable)
                 buf.append(command[j:e])
+                procs += command[j] != "$"
             return e
         if command[j] == "`":
             e = close_tick(j)
@@ -212,6 +301,18 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
             end_word()
             i += 1
             continue
+        # A heredoc (`<<EOF`, `<<-EOF`, `<<'EOF'`; not the `<<<` here-string) is
+        # data for this command, not more commands: its body is read at the next
+        # newline and kept apart. Bash expands substitutions in the body only when
+        # the delimiter is unquoted, so only then can the body run a commit itself.
+        if command.startswith("<<", i) and not command.startswith("<<<", i):
+            end_word()
+            d = read_delim(i)
+            if d is None:
+                return None
+            pending.append(d[:3])
+            i = d[3]
+            continue
         op = next((o for o in _SHELL_OPERATORS if command.startswith(o, i)), None)
         # A bare `&` ends a command too: `KARTA_SKIP_GATE=1 true & git commit`
         # backgrounds `true` and runs the commit unprefixed. It is only a
@@ -221,9 +322,19 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
             op = "&"
         if op:
             end_word()
-            segments.append((words, subs))
-            words, subs = [], []
             i += len(op)
+            if op == "\n" and pending:
+                r = read_bodies(i, pending)
+                if r is None:
+                    return None  # a heredoc that never ends
+                i, bodies = r
+                for body, quoted in bodies:
+                    docs.append(body)
+                    if not quoted:
+                        subs.extend(_body_substitutions(body))  # these will run
+                pending = []
+            segments.append((words, subs, procs, op, docs))
+            words, subs, docs, procs = [], [], [], 0
             continue
         in_word = True
         e = substitution_at(i)
@@ -249,7 +360,7 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
                     buf.append(command[j + 1])   # escaped: a literal, never a substitution
                     j += 2
                     continue
-                e = substitution_at(j)           # "$(...)" still executes inside double quotes
+                e = substitution_at(j, in_dq=True)   # "$(...)" still executes in double quotes
                 if e is not None:
                     if e < 0:
                         return None
@@ -271,8 +382,38 @@ def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
             buf.append(c)
             i += 1
     end_word()
-    segments.append((words, subs))
+    if pending:
+        return None  # a heredoc whose body never arrived
+    segments.append((words, subs, procs, "", docs))
     return segments
+
+
+def _body_substitutions(text: str) -> list[str]:
+    """The interiors of the `$(…)` and backtick substitutions in an unquoted
+    heredoc body — the only parts of it bash runs. A backslash escapes the next
+    character; quotes in a heredoc body are literal, so they are not tracked.
+    An unclosed substitution returns its whole remainder, so it is still checked."""
+    found: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text.startswith("$(", i):
+            depth, k = 1, i + 2
+            while k < n and depth:
+                depth += {"(": 1, ")": -1}.get(text[k], 0)
+                k += 1
+            found.append(text[i + 2:k - 1] if depth == 0 else text[i + 2:])
+            i = k
+            continue
+        if text[i] == "`":
+            k = text.find("`", i + 1)
+            found.append(text[i + 1:k] if k >= 0 else text[i + 1:])
+            i = n if k < 0 else k + 1
+            continue
+        i += 1
+    return found
 
 
 def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, list[str]]:
@@ -301,7 +442,7 @@ def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, lis
         # so they fall through to a deny — the gates run, never a false skip.
         if ws and ws[0][1] is None and ws[0][0].replace("\\", "/").rsplit("/", 1)[-1] in ("env", "env.exe"):
             ws.pop(0)
-            if ws and ws[0] == ("--", None):   # end of env's options; changes nothing
+            if ws and ws[0][0] == "--":   # end of env's options (quoted or not); changes nothing
                 ws.pop(0)
             continue
         break
@@ -330,25 +471,59 @@ def hatch_prefixed(command: str) -> bool:
     # runs the inner commit with no hatch in its environment. No prefix anywhere
     # can cover it, so the whole command runs the gates. A substitution that runs
     # something else (`-m "$(cat msg.txt)"`) is fine.
-    if any(_COMMIT_RE.search(sub) for _, subs in segments for sub in subs):
+    if any(_COMMIT_RE.search(sub) for _, subs, _, _, _ in segments for sub in subs):
         return False
-    parsed = [(_split_leading(ws), ws) for ws, _ in segments if ws]
-    guarded = [value for (value, rest), _ in parsed if _is_git_commit(rest)]
-    if guarded:
-        return all(value == "1" for value in guarded)
-    # No command is credibly a commit, so the detector fired on text or on
-    # deferred execution. Text only becomes a commit if something LATER in the
-    # line reads and runs it — `KARTA_SKIP_GATE=1 echo "git commit" | bash`, or
-    # `... > go.sh && bash go.sh` — so the prefix must sit on the first command
-    # the detector matched and on every command after it. Anything earlier in the
-    # line cannot have consumed that text, and needs no prefix.
-    first = next((k for k, (_, ws) in enumerate(parsed)
-                  if _COMMIT_RE.search(" ".join(text for text, _ in ws))), None)
+    parsed = [(_split_leading(ws), ws, procs, op, docs)
+              for ws, _, procs, op, docs in segments if ws]
+
+    def mentions(ws: list[_Word], docs: list[str] = ()) -> bool:
+        return bool(_COMMIT_RE.search(" ".join([*(text for text, _ in ws), *docs])))
+
+    # Nothing before the first command that mentions a commit can run one the
+    # detector sees, so the walk starts there. From there on, one rule for every
+    # command, checked against real bash (see the negative controls): it needs
+    # the prefix if it is a commit, if its own text mentions one and it could
+    # run that text, or if such text flows into it — through a pipe, or through
+    # a file an earlier command wrote it to — and it could run what it reads.
+    # A command that could not run text is an inert filter; see _INERT_FILTERS.
+    # Unrelated later commands (`&& git log`, `&& git push`) are left alone.
+    first = next((k for k, (_, ws, _, _, docs) in enumerate(parsed) if mentions(ws, docs)), None)
     if first is None:
         return False
-    (value, _), _ = parsed[first]
-    return value == "1" and all(value == "1" or _is_inert_filter(rest)
-                                for (value, rest), _ in parsed[first + 1:])
+    tail = parsed[first:]
+    if any(procs for _, _, procs, _, _ in tail):
+        return False  # a process substitution is somewhere text can be run
+    carried = downstream = written = False
+    for (value, rest), ws, _, op, docs in tail:
+        # A heredoc body is text flowing INTO the command, like a pipe, so it is
+        # judged by whether the command could run it — `bash <<EOF` could,
+        # `git commit -F - <<EOF` is a commit and needs the prefix anyway.
+        matched = mentions(ws)
+        carries_text = matched or downstream or mentions([], docs)
+        inert = _is_inert_filter(rest)
+        if value == "1":
+            carried = True
+        elif _is_git_commit(rest):
+            return False
+        elif not inert and (carries_text or written):
+            return False
+        if inert and carries_text and _writes_to_file(ws, rest):
+            written = True  # `echo "git commit" > go.sh` — a later `bash go.sh` may run it
+        downstream = carries_text and op in ("|", "|&")
+    return carried
+
+
+_STDOUT_REDIRECT_RE = re.compile(r"(1|&)?>>?(?!&)")
+
+
+def _writes_to_file(words: list[_Word], rest: list[str]) -> bool:
+    """Whether this command sends what it prints to a file: a stdout redirect
+    (`>f`, `> f`, `>>f`, `1>f`, `&>f` — not `2>` and not `>&2`), or tee with a
+    file argument."""
+    if any(q is None and _STDOUT_REDIRECT_RE.match(text) for text, q in words):
+        return True
+    program = rest[0].replace("\\", "/").rsplit("/", 1)[-1].lower() if rest else ""
+    return program.removesuffix(".exe") == "tee" and any(not a.startswith("-") for a in rest[1:])
 
 
 # Programs that can read text but never run it — so a later `| tail -2` needs
@@ -356,10 +531,11 @@ def hatch_prefixed(command: str) -> bool:
 # it costs a false deny (the gates run), never a false grant. A blocklist of
 # executors was tried for detection and could not close; this one fails safe.
 # Deliberately absent: sed and awk (GNU sed's `e` and awk's system() execute),
-# xargs, and every shell or interpreter.
+# xargs, the pagers less and more (LESSOPEN and `!` run commands, and nothing
+# pages in a non-interactive shell), and every shell or interpreter.
 _INERT_FILTERS = frozenset({
     "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut",
-    "cat", "less", "more", "tee", "tr", "nl", "column", "jq", "findstr",
+    "cat", "tee", "tr", "nl", "column", "jq", "findstr",
     "echo", "printf", "true", "false",
 })
 
@@ -801,8 +977,42 @@ def _run_self_test() -> int:
         # ...but anything not on that allowlist does, since it might.
         ('KARTA_SKIP_GATE=1 echo "git commit -m x" | sed -e p', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m x" | python3', False),
-        # KNOWN, pinned so they are decisions rather than surprises. False denies
-        # (the gates run; recover by prefixing every command, or by the env route):
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" | less', False),
+        # Process substitution runs whatever flows into it, and its own interior.
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" | tee >(bash)', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" > >(bash)', False),
+        ('KARTA_SKIP_GATE=1 diff <(git commit -m x) f', False),
+        ('KARTA_SKIP_GATE=1 git commit -m "see <(x)"', True),
+        # A heredoc is data for its command. Its body runs substitutions only
+        # when the delimiter is unquoted — exactly as bash does.
+        ('KARTA_SKIP_GATE=1 git commit -F - <<EOF\nmsg that mentions git commit\nEOF', True),
+        ("KARTA_SKIP_GATE=1 git commit -F - <<'EOF'\nmsg $(git commit -m y)\nEOF", True),
+        ('KARTA_SKIP_GATE=1 git commit -F - <<EOF\nmsg $(git commit -m y)\nEOF', False),
+        ('KARTA_SKIP_GATE=1 bash <<EOF\ngit commit -m y\nEOF', True),
+        ('bash <<EOF\ngit commit -m y\nEOF', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x <<EOF', False),   # body never arrives
+        # The usual agent idiom: a heredoc message inside $(…). Its body is data,
+        # so a message that mentions a commit is fine — and a `)` in the body
+        # must not end the substitution early (it once did, found in real bash).
+        ("KARTA_SKIP_GATE=1 git commit -m \"$(cat <<'EOF'\nfix: the git commit hatch (again)\nEOF\n)\"", True),
+        ('KARTA_SKIP_GATE=1 git commit -m x && echo "$(cat <<X\n)\nX\ngit commit -m y)"', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x && echo "$(echo a #)\ngit commit -m y)"', False),
+        ('env "--" KARTA_SKIP_GATE=1 git commit -m x', True),
+        # Every commit the line can run must carry it — including one handed to a
+        # shell beside a properly prefixed commit (found by running real bash).
+        ("sh -c 'git commit -m y' && KARTA_SKIP_GATE=1 git commit -m x", False),
+        ('KARTA_SKIP_GATE=10 bash -c "git commit -m y" && KARTA_SKIP_GATE=1 git commit -m x', False),
+        ('KARTA_SKIP_GATE=1 git commit -m a && echo "git commit -m b" | bash', False),
+        ('KARTA_SKIP_GATE=1 git commit -m a && echo "git commit -m b" | tee go.sh && bash go.sh', False),
+        ('echo "git commit -m y" | KARTA_SKIP_GATE=1 bash', True),
+        # ...while unrelated later commands stay free.
+        ('KARTA_SKIP_GATE=1 git commit -m x && git log --oneline -1', True),
+        ('KARTA_SKIP_GATE=1 git commit -m x && git push', True),
+        ('KARTA_SKIP_GATE=1 git commit -m x > log && git push', True),
+        # KNOWN false denies, pinned so they are decisions rather than surprises;
+        # real bash confirms each one runs its commit WITH the hatch set. The
+        # gates run; recover with the plain prefix form, or the env route.
+        # (KARTA_SKIP_GATE+=1 and bash -c "KARTA_SKIP_GATE=1 …" above are two more.)
         ('time KARTA_SKIP_GATE=1 git commit -m x', False),
         ("KARTA_SKIP_GATE=$'1' git commit -m x", False),
         ('env -i KARTA_SKIP_GATE=1 git commit -m x', False),   # env options: not modelled, gates run
@@ -818,13 +1028,6 @@ def _run_self_test() -> int:
     for cmd, want in hatch:
         check(f"hatch {'granted' if want else 'NOT granted'}: {cmd!r}",
               hatch_prefixed(cmd) is want)
-    # KNOWN GAP (a grant): a hand-typed hatch on one real commit also covers a
-    # line that pipes commit text into a shell. Closing it would deny the
-    # realistic `grep "git commit" f && KARTA_SKIP_GATE=1 git commit`, and it
-    # takes a deliberately written hatch — outside the accidental-grant threat
-    # model this parser exists for. Pinned so a change to it is a decision.
-    check("KNOWN GAP: a prefixed commit also covers a later pipe into a shell",
-          hatch_prefixed('KARTA_SKIP_GATE=1 git commit -m a && echo "git commit -m b" | bash') is True)
 
     # End to end, with a gate that fails: a mention must reach that gate and be
     # denied. These are the negative controls — every one returned 0 (allowed)
