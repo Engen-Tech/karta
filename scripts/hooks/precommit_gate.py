@@ -61,6 +61,23 @@ RUN_GATE_CMD = "python3 benchmarks/gate/run_gate.py"
 # non-dash argument (so `git -C repo commit` and `git -c k=v commit` count but
 # `git log --grep commit` does not). Any segment containing a match counts;
 # false positives just run the gates, and the escape hatch covers the rest.
+#
+# The scan is deliberately QUOTE-BLIND, and the cost is real: where the gate
+# suite cannot pass (Windows today), an over-detection stops being "harmlessly
+# runs the gates" and becomes a hard block on a command that never touched git —
+# even `grep -n "git commit" <file>`. That is annoying, and the fix for it is to
+# repair the gates, NOT to teach this scan about quotes.
+#
+# Quote-awareness was tried and reverted. Masking quoted content rests on the
+# claim that a quoted word is a string rather than an invocation, and that claim
+# is false whenever the string is handed to something that runs it: `bash -c
+# "..."`, `eval "..."`, `MSG="$(git commit -m x)"`, backticks, `echo "..." |
+# bash`, and — on the platform this hook actually runs on — `cmd /c "..."`,
+# `powershell -c "..."`, plus `ssh host "..."`, `python -c`, `node -e`, `perl
+# -e`. Guarding with a blocklist of executors cannot work: the set of programs
+# that accept a command string is unbounded. Detection also feeds the release
+# block below, so anything that evades this regex ships a version bump un-gated.
+# Over-detect instead. The deferred-execution fixtures in --self-test pin it.
 _COMMIT_RE = re.compile(r"\bgit(?:\s+--?\S+(?:\s+[^-\s]\S*)?)*\s+commit\b")
 _SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 
@@ -364,9 +381,41 @@ def _run_self_test() -> int:
         ('git log | grep "commit"', False),      # split on | isolates the words
         ("git log --grep commit", False),        # non-option token between the words
         ("ls -la", False),
+        # DEFERRED EXECUTION — each of these really commits, because something
+        # is handed the text and runs it. The quote-blind scan catches them all
+        # precisely BECAUSE it does not respect quoting. Pinned so that a future
+        # attempt to make detection quote-aware fails here instead of in the
+        # field: an earlier attempt silently lost every one of these, which also
+        # disarms the release block, since it only arms behind detection.
+        ('MSG="$(git commit -m bump)"', True),
+        ('echo "$(git commit -m x)"', True),
+        ('bash -c "git commit -m x"', True),
+        ("sh -c 'git commit -m x'", True),
+        ('eval "git commit -m x"', True),
+        ('X="`git commit -m bump`"', True),
+        ('echo "git commit -m x" | bash', True),
+        ('cmd /c "git commit -m x"', True),
+        ('powershell -c "git commit -m x"', True),
+        ('ssh host "git commit -m x"', True),
+        ('python -c "run(\'git commit -m x\')"', True),
     ]
     for cmd, want in detect:
         check(f"detect {cmd!r} -> {want}", is_commit_command(cmd) == want)
+
+    # KNOWN GAPS, pinned so they cannot regress silently and cannot be mistaken
+    # for a guarantee. The regex wants `git` and `commit` as adjacent unquoted
+    # words, so quoting or splitting either one evades detection entirely. Every
+    # line below really commits and the hook does not fire. This is the same
+    # class as the bypasses AGENTS.md already names (cherry-pick, rebase,
+    # reset): a hook that can only read command text cannot stop someone
+    # deliberately spelling around it. Closing it means a real tokenizer — and
+    # note a tokenizer would NOT close the deferred-execution cases above.
+    known_gap = ['"git" commit -m x', 'git "commit" -m x', 'gi"t" commit -m x',
+                 'git com"mit" -m x', "git 'commit' -m x", "git $'commit' -m x",
+                 "make release", ". ./release.sh"]
+    for cmd in known_gap:
+        check(f"KNOWN GAP (evades detection): {cmd!r}",
+              is_commit_command(cmd) is False)
 
     green = lambda name, argv: (0, f"{name}: OK")
     # a git stub reporting no version change, so gate-suite cases stay hermetic
