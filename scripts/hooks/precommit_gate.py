@@ -263,6 +263,37 @@ def _shell_segments(command: str) -> list[_Segment] | None:
             k += 1
         return -1, ""
 
+    def close_brace(j: int) -> int:
+        """Index just past the `}` closing the `${` whose `{` is at j, or -1."""
+        depth, k = 1, j + 1
+        while k < n:
+            ch = command[k]
+            if ch == "\\":
+                k += 2
+                continue
+            if ch in "'\"":
+                e = k + 1
+                while e < n and command[e] != ch:
+                    e += 2 if (ch == '"' and command[e] == "\\") else 1
+                if e >= n:
+                    return -1
+                k = e + 1
+                continue
+            if command.startswith("$(", k):
+                e, _ = close_paren(k + 1)
+                if e < 0:
+                    return -1
+                k = e
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return k + 1
+            k += 1
+        return -1
+
     def close_tick(j: int) -> int:
         """Index just past the backtick closing the one at j, or -1."""
         k = j + 1
@@ -282,6 +313,16 @@ def _shell_segments(command: str) -> list[_Segment] | None:
         in `procs`: text that flows into one can be run by it, as in
         `echo "git commit" | tee >(bash)`, whatever its interior says."""
         nonlocal procs
+        if not in_dq and command.startswith("${", j):
+            # An unquoted `${…}` is one word, and after expansion bash splits it
+            # into words and may run them: `${X:-git<newline>commit -m y}` is a
+            # commit. So its interior gets the same check, and nothing inside it
+            # — not even a newline — splits the segment.
+            e = close_brace(j + 1)
+            if e >= 0:
+                subs.append(command[j + 2:e - 1])
+                buf.append(command[j:e])
+            return e
         if command.startswith("$(", j) or (not in_dq and command[j:j + 2] in ("<(", ">(")):
             e, runnable = close_paren(j + 1)
             if e >= 0:
@@ -344,6 +385,23 @@ def _shell_segments(command: str) -> list[_Segment] | None:
                 pending = []
             segments.append((words, subs, procs, op, docs))
             words, subs, docs, procs = [], [], [], 0
+            continue
+        if c in "<>" and command[i + 1:i + 2] != "(":
+            # A redirect is its own token even glued to a word — `"…">go.sh`,
+            # `>&go.sh`, `>"go.sh"` — keeping a leading fd (`2>`) or `&` (`&>`).
+            held = "".join(buf)
+            fd = held if quoted_at is None and (held.isdigit() or held == "&") else ""
+            if fd:
+                buf, in_word = [], False
+            else:
+                end_word()
+            j = i + 1
+            if j < n and command[j] == c:
+                j += 1
+            if j < n and command[j] in "&|":
+                j += 1
+            words.append((fd + command[i:j], None))
+            i = j
             continue
         in_word = True
         e = substitution_at(i)
@@ -457,20 +515,40 @@ def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, lis
             ws.pop(0)
             if ws and ws[0][0] == "--":   # end of env's options (quoted or not); changes nothing
                 ws.pop(0)
+            elif ws and ws[0][0].startswith("-"):
+                # `-i`, `-u NAME`, `-S`: env rewrites the environment before git
+                # sees it, so a hatch set BEFORE env proves nothing either —
+                # `KARTA_SKIP_GATE=1 env -u KARTA_SKIP_GATE git commit` runs bare.
+                return None, [text for text, _ in ws]
             continue
         break
     return value, [text for text, _ in ws]
 
 
+_GIT_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace",
+                             "--config-env", "--super-prefix"})
+
+
 def _is_git_commit(words: list[str]) -> bool:
     """Whether these command words are credibly a commit: the program is git by
-    basename, and what follows reads as `git [options] commit`."""
+    basename, and its subcommand — found word by word, past git's global options
+    and their values — is `commit`. Word by word, not by joining the words and
+    matching a regex: `git -c user.name="foo bar" commit` has a value with a
+    space in it, which a joined string mistakes for two words."""
     if not words:
         return False
     program = words[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     if program not in ("git", "git.exe"):
         return False
-    return bool(_COMMIT_RE.match(" ".join(["git", *words[1:]])))
+    k = 1
+    while k < len(words):
+        if words[k] in _GIT_VALUE_OPTS:
+            k += 2
+        elif words[k].startswith("-"):
+            k += 1
+        else:
+            return words[k] == "commit"
+    return False
 
 
 def hatch_prefixed(command: str) -> bool:
@@ -500,50 +578,77 @@ def hatch_prefixed(command: str) -> bool:
     # a file an earlier command wrote it to — and it could run what it reads.
     # A command that could not run text is an inert filter; see _INERT_FILTERS.
     # Unrelated later commands (`&& git log`, `&& git push`) are left alone.
-    first = next((k for k, (_, ws, _, _, docs) in enumerate(parsed) if mentions(ws, docs)), None)
+    first = next((k for k, ((_, rest), ws, _, _, docs) in enumerate(parsed)
+                  if mentions(ws, docs) or _is_git_commit(rest)), None)
     if first is None:
         return False
     tail = parsed[first:]
     if any(procs for _, _, procs, _, _ in tail):
         return False  # a process substitution is somewhere text can be run
-    carried = downstream = written = False
+    carried = downstream = written = seen = False
     tainted: set[str] = set()   # variables holding text that mentions a commit
+
+    def reads(text: str) -> bool:
+        return bool(tainted) and bool(re.search(
+            r"\$\{?(?:" + "|".join(map(re.escape, tainted)) + r")\b", text))
+
     for (value, rest), ws, _, op, docs in tail:
         # A heredoc body is text flowing INTO the command, like a pipe, so it is
         # judged by whether the command could run it — `bash <<EOF` could,
         # `git commit -F - <<EOF` is a commit and needs the prefix anyway. A
         # variable carries text the same way: `x='git commit …'; eval "$x"`.
-        matched = mentions(ws)
-        reads_tainted = bool(tainted) and any(
-            re.search(r"\$\{?(?:" + "|".join(map(re.escape, tainted)) + r")\b", text)
-            for text, _ in ws)
-        carries_text = matched or downstream or mentions([], docs) or reads_tainted
+        credible = _is_git_commit(rest)
+        carries_text = (mentions(ws) or credible or downstream or mentions([], docs)
+                        or any(reads(text) for text, _ in ws))
         if not rest:  # assignments only: remember which names now hold commit text
             for text, _ in ws:
                 m = _ASSIGN_WORD_RE.fullmatch(text)
-                if m and _COMMIT_RE.search(m.group(3)):
-                    tainted.add(m.group(1))
+                if m and (_COMMIT_RE.search(m.group(3)) or reads(m.group(3))):
+                    tainted.add(m.group(1))   # `y=$x` copies the taint along
         inert = _is_inert_filter(rest)
         if value == "1":
             carried = True
-        elif _is_git_commit(rest):
+        elif credible:
             return False
         elif not inert and (carries_text or written):
             return False
-        if inert and carries_text and _writes_to_file(ws, rest):
-            written = True  # `echo "git commit" > go.sh` — a later `bash go.sh` may run it
+        # Side effects are tracked whether or not the command carries the prefix:
+        # a prefix grants THIS command, never whatever it leaves behind.
+        #  - Commit text sent to a file: `echo "git commit" > go.sh` — and a
+        #    compound's closing word carrying the redirect for its whole body:
+        #    `{ echo "git commit"; } > go.sh`, `…; fi > go.sh`.
+        #  - A prefixed command that could run the text may have written it
+        #    anywhere: `KARTA_SKIP_GATE=1 bash -c 'echo "git commit" > go.sh'`.
+        # Either way, a later command that could run a file is then held to it.
+        closer = bool(rest) and rest[0] in _COMPOUND_CLOSERS
+        if not credible and (carries_text or (closer and seen)) and _writes_to_file(ws, rest):
+            written = True
+        if value == "1" and carries_text and not credible and not inert:
+            written = True
+        seen = seen or carries_text
         downstream = carries_text and op in ("|", "|&")
     return carried
 
 
-_STDOUT_REDIRECT_RE = re.compile(r"(1|&)?>>?(?!&)")
+_COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac", ")"})
+
+
+_STDOUT_REDIRECT_RE = re.compile(r"(1|&)?>>?([&|])?")
 
 
 def _writes_to_file(words: list[_Word], rest: list[str]) -> bool:
     """Whether this command sends what it prints to a file: a stdout redirect
-    (`>f`, `> f`, `>>f`, `1>f`, `&>f` — not `2>` and not `>&2`), or tee with a
-    file argument."""
-    if any(q is None and _STDOUT_REDIRECT_RE.match(text) for text, q in words):
+    token (`>`, `>>`, `1>`, `&>`, `>|`, and `>&` when a filename follows it
+    rather than a descriptor — `>&go.sh` writes, `>&2` does not), or tee with a
+    file argument. Redirects are their own tokens (see _shell_segments), so a
+    glued `"…">go.sh` or a quoted `>"go.sh"` is seen too."""
+    for k, (text, q) in enumerate(words):
+        m = _STDOUT_REDIRECT_RE.fullmatch(text) if q is None else None
+        if not m:
+            continue
+        target = words[k + 1][0] if k + 1 < len(words) else ""
+        if m.group(2) == "&" and re.fullmatch(r"\d+|-", target):
+            continue  # `>&2`, `>&-`: a descriptor, not a file
         return True
     program = rest[0].replace("\\", "/").rsplit("/", 1)[-1].lower() if rest else ""
     return program.removesuffix(".exe") == "tee" and any(not a.startswith("-") for a in rest[1:])
@@ -560,6 +665,7 @@ _INERT_FILTERS = frozenset({
     "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut",
     "cat", "tee", "tr", "nl", "column", "jq", "findstr",
     "echo", "printf", "true", "false",
+    "}", "fi", "done", "esac", ")",   # a compound's closing word runs nothing itself
 })
 
 
@@ -1033,6 +1139,23 @@ def _run_self_test() -> int:
         ('MSG="mentions git commit"; KARTA_SKIP_GATE=1 git commit -m "$MSG" && git push', True),
         ("trap 'git commit -m y' EXIT; KARTA_SKIP_GATE=1 git commit -m a", False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && source go.sh', False),
+        # Review round 4, each confirmed as a false grant in real bash first.
+        ('KARTA_SKIP_GATE=1 git commit -m a && git -c user.name="foo bar" commit -m b', False),
+        ('KARTA_SKIP_GATE=1 git commit -m a && git -C "./sub dir" commit -m b', False),
+        ('KARTA_SKIP_GATE=1 git -c user.name="foo bar" commit -m b', True),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y">go.sh && bash go.sh', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" >"go.sh" && bash go.sh', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" >& go.sh && bash go.sh', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" >&go.sh && bash go.sh', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x 2>&1 >&2 && git push', True),
+        ('KARTA_SKIP_GATE=1 env -u KARTA_SKIP_GATE git commit -m x', False),
+        ('KARTA_SKIP_GATE=1 env -i PATH="$PATH" git commit -m x', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x && ${X_UNSET:-git\ncommit -m y}', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x; { echo "git commit -m y"; } > go.sh; bash go.sh', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x; if true; then echo "git commit -m y"; fi > go.sh; bash go.sh', False),
+        ("KARTA_SKIP_GATE=1 bash -c 'echo \"git commit -m y\" > go.sh'; bash go.sh", False),
+        ("KARTA_SKIP_GATE=1 git commit -m a; x='git commit -m y'; y=$x; eval \"$y\"", False),
+        ('KARTA_SKIP_GATE=1 git commit -m "${MSG:-default}"', True),
         # Every commit the line can run must carry it — including one handed to a
         # shell beside a properly prefixed commit (found by running real bash).
         ("sh -c 'git commit -m y' && KARTA_SKIP_GATE=1 git commit -m x", False),
@@ -1068,7 +1191,8 @@ def _run_self_test() -> int:
     # Nobody types these by accident, which is the threat model; closing them
     # means modelling prompt expansion and brace expansion.
     for cmd in ("KARTA_SKIP_GATE=1 git commit -m a; x='$(git commit -m y)'; echo ${x@P}",
-                "KARTA_SKIP_GATE=1 git commit -m a; git {commit,} -m y"):
+                "KARTA_SKIP_GATE=1 git commit -m a; git {commit,} -m y",
+                "KARTA_SKIP_GATE=1 git commit -m a; $'\\x67it' commit -m y"):
         check(f"KNOWN GAP (deliberate spelling, still granted): {cmd!r}", hatch_prefixed(cmd) is True)
 
     # End to end, with a gate that fails: a mention must reach that gate and be
