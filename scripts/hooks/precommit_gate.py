@@ -640,7 +640,9 @@ def hatch_prefixed(command: str) -> bool:
             else:
                 unknowable.add(name)   # appended to an unknown, or with an expansion
         if len(r) >= 3 and r[0] == "for" and r[2] == "in":
-            assigned.setdefault(r[1], set()).add(" ".join(r[3:]))
+            # One value per iteration, not the joined list: `for x in a b; do
+            # x+=.sh; …` must compose a.sh and b.sh, never "a b.sh".
+            assigned.setdefault(r[1], set()).update(r[3:])
         if r and r[0] in ("read", "mapfile", "readarray"):
             unknowable |= {a for a in r[1:] if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", a)}
 
@@ -753,17 +755,21 @@ def hatch_prefixed(command: str) -> bool:
                     named = any(ex is not None and any(re.search(pattern, e) for e in ex)
                                 for ex in (expansions(t) for t, _ in other_ws))
                     # An operand whose expansion cannot be known might name this
-                    # file (`L=$(pwd)/link; ln -s go.sh "$L"`) — but only in the
-                    # shape of an alias, a source and a destination. A lone
-                    # unknowable word (`git diff "${BASE:-HEAD}"`) aliases nothing.
+                    # file (`L=$(pwd)/link; ln -s go.sh "$L"`) — but only when the
+                    # program can MAKE an alias. `git diff "${BASE:-main}" HEAD`
+                    # or `echo "${A:-x}" "${B:-y}"` alias nothing.
+                    aliaser = _is_aliaser(other_rest)
                     unknown = any(expansions(a) is None for a in operands)
-                    if not (named or (unknown and len(operands) >= 2)):
+                    if not (named or (aliaser and unknown)):
                         continue
+                    # An alias whose DESTINATION is unknowable lands where this
+                    # parse cannot follow it. A known destination is just one more
+                    # name for the file: `cp "${SRC:-in}" out.txt` adds out.txt.
+                    if aliaser and operands and expansions(operands[-1]) is None:
+                        written_anywhere = True
                     for a in operands:
                         ex = expansions(a)
-                        if ex is None:
-                            written_anywhere = True   # an alias this parse cannot name
-                        else:
+                        if ex is not None:
                             written |= {base(e) for e in ex} - {""}
         if value == "1" and carries_text and not credible and not inert:
             written_anywhere = True
@@ -773,6 +779,26 @@ def hatch_prefixed(command: str) -> bool:
 
 
 _COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac", ")"})
+
+
+_ALIASERS = frozenset({"ln", "cp", "mv", "install", "rsync", "link"})
+
+
+def _is_aliaser(rest: list[str]) -> bool:
+    """Whether the command can give an existing file a second name. Consulted
+    only when a name cannot be resolved, so a program missing here matters only
+    to a deliberately constructed alias through an unknowable name."""
+    if not rest:
+        return False
+    program = rest[0].replace("\\", "/").rsplit("/", 1)[-1].lower().removesuffix(".exe")
+    if program in _ALIASERS:
+        return True
+    if program == "git":
+        k, args = 0, rest[1:]
+        while k < len(args) and args[k].startswith("-"):
+            k += 2 if args[k] in _GIT_VALUE_OPTS else 1
+        return k < len(args) and args[k] == "mv"
+    return False
 
 
 def _operands(rest: list[str]) -> list[str]:
@@ -1376,6 +1402,14 @@ def _run_self_test() -> int:
         ('x=link; x+=; ln -s go.sh "$x"; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash link', False),
         ('x=link; read -r x < lst; ln -s go.sh "$x"; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash link', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > notify.sh; PREFIX=/opt; PREFIX+=/myapp; cat "$PREFIX/data"', True),
+        # Review round 11.
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > a.sh; for x in a b; do x+=.sh; bash "$x"; done', False),
+        ('git diff "${BASE:-main}" HEAD; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git diff --stat', True),
+        ('echo "${A:-x}" "${B:-y}"; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git push', True),
+        ('cp "${SRC:-./in.txt}" out.txt; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git push', True),
+        ('BASE=$(git merge-base HEAD main); git diff "$BASE" HEAD; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git diff --stat', True),
+        ('cp "${SRC:-go.sh}" out.sh; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash out.sh', False),
+        ('read -r x < lst; ln -s go.sh "$x"; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; git push', False),
         # KNOWN LIMIT: a variable the line never sets is read as naming nothing
         # (so `--out "$OUT"` stays free). If one inherited from outside happens to
         # name the file this line just wrote, `bash "$SCRIPT"` is granted. Claude
