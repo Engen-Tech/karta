@@ -114,6 +114,8 @@ def is_commit_command(command: str) -> bool:
 # strict. The parser has no raising path, so INV-21's fail-open stance still
 # governs the hook as a whole.
 _ASSIGN_WORD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)", re.S)
+_LEADING_KEYWORDS = frozenset({"(", "{", "!", "do", "then", "else", "elif", "if",
+                               "while", "until", "time"})
 # The set _SPLIT_RE cuts on, plus `|&` (a pipe that also carries stderr). It
 # must be one token: split as `|` it leaves a stray `&` word at the head of the
 # next command, which then no longer reads as a commit — so in
@@ -305,7 +307,14 @@ def _shell_segments(command: str) -> list[_Segment] | None:
         # data for this command, not more commands: its body is read at the next
         # newline and kept apart. Bash expands substitutions in the body only when
         # the delimiter is unquoted, so only then can the body run a commit itself.
-        if command.startswith("<<", i) and not command.startswith("<<<", i):
+        if command.startswith("<<<", i):
+            # A here-string is one token: taken `<` by `<`, the scan would reach
+            # `<<` one character in and misread the rest as a heredoc delimiter.
+            end_word()
+            words.append(("<<<", None))
+            i += 3
+            continue
+        if command.startswith("<<", i):
             end_word()
             d = read_delim(i)
             if d is None:
@@ -421,8 +430,12 @@ def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, lis
     words after them). The hatch value is None when the segment never assigns
     it; the last assignment wins, as it does in a shell."""
     ws = list(words)
-    while ws and ws[0][0] in ("(", "{", "!"):
-        ws.pop(0)
+    # Grouping and reserved words that can precede a command's assignments:
+    # `do KARTA_SKIP_GATE=1 git commit` in a loop, `then …`, `time -p …`, `! …`.
+    while ws and ws[0][1] is None and ws[0][0] in _LEADING_KEYWORDS:
+        was_time = ws.pop(0)[0] == "time"
+        if was_time and ws and ws[0] == ("-p", None):
+            ws.pop(0)
     if ws and ws[0][0].startswith("(") and ws[0][1] != 0:
         text, q = ws[0]
         ws[0] = (text[1:], None if q is None else q - 1)
@@ -494,12 +507,22 @@ def hatch_prefixed(command: str) -> bool:
     if any(procs for _, _, procs, _, _ in tail):
         return False  # a process substitution is somewhere text can be run
     carried = downstream = written = False
+    tainted: set[str] = set()   # variables holding text that mentions a commit
     for (value, rest), ws, _, op, docs in tail:
         # A heredoc body is text flowing INTO the command, like a pipe, so it is
         # judged by whether the command could run it — `bash <<EOF` could,
-        # `git commit -F - <<EOF` is a commit and needs the prefix anyway.
+        # `git commit -F - <<EOF` is a commit and needs the prefix anyway. A
+        # variable carries text the same way: `x='git commit …'; eval "$x"`.
         matched = mentions(ws)
-        carries_text = matched or downstream or mentions([], docs)
+        reads_tainted = bool(tainted) and any(
+            re.search(r"\$\{?(?:" + "|".join(map(re.escape, tainted)) + r")\b", text)
+            for text, _ in ws)
+        carries_text = matched or downstream or mentions([], docs) or reads_tainted
+        if not rest:  # assignments only: remember which names now hold commit text
+            for text, _ in ws:
+                m = _ASSIGN_WORD_RE.fullmatch(text)
+                if m and _COMMIT_RE.search(m.group(3)):
+                    tainted.add(m.group(1))
         inert = _is_inert_filter(rest)
         if value == "1":
             carried = True
@@ -998,6 +1021,18 @@ def _run_self_test() -> int:
         ('KARTA_SKIP_GATE=1 git commit -m x && echo "$(cat <<X\n)\nX\ngit commit -m y)"', False),
         ('KARTA_SKIP_GATE=1 git commit -m x && echo "$(echo a #)\ngit commit -m y)"', False),
         ('env "--" KARTA_SKIP_GATE=1 git commit -m x', True),
+        # Shell constructs, each checked against real bash.
+        ('for i in 1; do KARTA_SKIP_GATE=1 git commit -m y; done', True),
+        ('for i in 1; do git commit -m y; done', False),
+        ('if true; then KARTA_SKIP_GATE=1 git commit -m y; fi', True),
+        ('time -p KARTA_SKIP_GATE=1 git commit -m x', True),
+        ('KARTA_SKIP_GATE=1 bash <<< "git commit -m y"', True),
+        ('bash <<< "git commit -m y"', False),
+        ("KARTA_SKIP_GATE=1 git commit -m a; x='git commit -m y'; eval \"$x\"", False),
+        ("KARTA_SKIP_GATE=1 git commit -m a; x='git commit -m y'; $x", False),
+        ('MSG="mentions git commit"; KARTA_SKIP_GATE=1 git commit -m "$MSG" && git push', True),
+        ("trap 'git commit -m y' EXIT; KARTA_SKIP_GATE=1 git commit -m a", False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && source go.sh', False),
         # Every commit the line can run must carry it — including one handed to a
         # shell beside a properly prefixed commit (found by running real bash).
         ("sh -c 'git commit -m y' && KARTA_SKIP_GATE=1 git commit -m x", False),
@@ -1013,8 +1048,8 @@ def _run_self_test() -> int:
         # real bash confirms each one runs its commit WITH the hatch set. The
         # gates run; recover with the plain prefix form, or the env route.
         # (KARTA_SKIP_GATE+=1 and bash -c "KARTA_SKIP_GATE=1 …" above are two more.)
-        ('time KARTA_SKIP_GATE=1 git commit -m x', False),
         ("KARTA_SKIP_GATE=$'1' git commit -m x", False),
+        ('f(){ git commit -m y; }; KARTA_SKIP_GATE=1 f', False),   # prefix on a function call
         ('env -i KARTA_SKIP_GATE=1 git commit -m x', False),   # env options: not modelled, gates run
         ("'KARTA_SKIP_GATE'=1 git commit -m x", False),
         ('KARTA_SKIP_GATE+=1 git commit -m x', False),
@@ -1028,6 +1063,13 @@ def _run_self_test() -> int:
     for cmd, want in hatch:
         check(f"hatch {'granted' if want else 'NOT granted'}: {cmd!r}",
               hatch_prefixed(cmd) is want)
+    # KNOWN GAPS (grants), pinned: deliberate spellings in the same class as the
+    # detector's quoted-word gap. Real bash runs the second commit unprefixed.
+    # Nobody types these by accident, which is the threat model; closing them
+    # means modelling prompt expansion and brace expansion.
+    for cmd in ("KARTA_SKIP_GATE=1 git commit -m a; x='$(git commit -m y)'; echo ${x@P}",
+                "KARTA_SKIP_GATE=1 git commit -m a; git {commit,} -m y"):
+        check(f"KNOWN GAP (deliberate spelling, still granted): {cmd!r}", hatch_prefixed(cmd) is True)
 
     # End to end, with a gate that fails: a mention must reach that gate and be
     # denied. These are the negative controls — every one returned 0 (allowed)
