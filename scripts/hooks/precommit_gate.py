@@ -151,7 +151,11 @@ def _shell_segments(command: str) -> list[_Segment] | None:
     words: list[_Word] = []
     subs: list[str] = []
     docs: list[str] = []                      # heredoc bodies fed to this segment
-    pending: list[tuple[str, bool, bool]] = []  # heredocs awaiting their body
+    # Heredocs awaiting their body, each with the docs and subs lists of the
+    # command that OWNS its `<<` — not of whichever command the next newline
+    # ends. In `git commit -F- <<'EOF' && git push`, the body is the commit's
+    # message; handed to `git push` it made the push look like it ran text.
+    pending: list[tuple[str, bool, bool, list[str], list[str]]] = []
     procs = 0
     buf: list[str] = []
     quoted_at: int | None = None
@@ -360,7 +364,7 @@ def _shell_segments(command: str) -> list[_Segment] | None:
             d = read_delim(i)
             if d is None:
                 return None
-            pending.append(d[:3])
+            pending.append((d[0], d[1], d[2], docs, subs))
             i = d[3]
             continue
         op = next((o for o in _SHELL_OPERATORS if command.startswith(o, i)), None)
@@ -374,14 +378,14 @@ def _shell_segments(command: str) -> list[_Segment] | None:
             end_word()
             i += len(op)
             if op == "\n" and pending:
-                r = read_bodies(i, pending)
+                r = read_bodies(i, [p[:3] for p in pending])
                 if r is None:
                     return None  # a heredoc that never ends
                 i, bodies = r
-                for body, quoted in bodies:
-                    docs.append(body)
+                for (body, quoted), (_, _, _, owner_docs, owner_subs) in zip(bodies, pending):
+                    owner_docs.append(body)
                     if not quoted:
-                        subs.extend(_body_substitutions(body))  # these will run
+                        owner_subs.extend(_body_substitutions(body))  # these will run
                 pending = []
             segments.append((words, subs, procs, op, docs))
             words, subs, docs, procs = [], [], [], 0
@@ -467,9 +471,19 @@ def _body_substitutions(text: str) -> list[str]:
             i += 2
             continue
         if text.startswith("$(", i):
+            # Quotes are literal in the body itself but NOT inside a substitution
+            # in it: `$(printf ')' ; git commit)` does not end at the quoted `)`.
             depth, k = 1, i + 2
             while k < n and depth:
-                depth += {"(": 1, ")": -1}.get(text[k], 0)
+                ch = text[k]
+                if ch == "\\":
+                    k += 2
+                    continue
+                if ch in "'\"":
+                    close = text.find(ch, k + 1)
+                    k = n if close < 0 else close + 1
+                    continue
+                depth += {"(": 1, ")": -1}.get(ch, 0)
                 k += 1
             found.append(text[i + 2:k - 1] if depth == 0 else text[i + 2:])
             i = k
@@ -585,12 +599,19 @@ def hatch_prefixed(command: str) -> bool:
     tail = parsed[first:]
     if any(procs for _, _, procs, _, _ in tail):
         return False  # a process substitution is somewhere text can be run
-    carried = downstream = written = seen = False
+    carried = downstream = written_anywhere = seen = False
     tainted: set[str] = set()   # variables holding text that mentions a commit
+    written: set[str] = set()   # basenames of files that commit text was sent to
 
     def reads(text: str) -> bool:
         return bool(tainted) and bool(re.search(
             r"\$\{?(?:" + "|".join(map(re.escape, tainted)) + r")\b", text))
+
+    def names_written(ws: list[_Word]) -> bool:
+        # A later command is held to a written file only if it names it —
+        # `bash go.sh`, `source ./go.sh`, `sh < go.sh` — never `&& git push`.
+        return any(re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", text)
+                   for name in written for text, _ in ws)
 
     for (value, rest), ws, _, op, docs in tail:
         # A heredoc body is text flowing INTO the command, like a pipe, so it is
@@ -610,21 +631,23 @@ def hatch_prefixed(command: str) -> bool:
             carried = True
         elif credible:
             return False
-        elif not inert and (carries_text or written):
+        elif not inert and (carries_text or written_anywhere or names_written(ws)):
             return False
         # Side effects are tracked whether or not the command carries the prefix:
         # a prefix grants THIS command, never whatever it leaves behind.
-        #  - Commit text sent to a file: `echo "git commit" > go.sh` — and a
-        #    compound's closing word carrying the redirect for its whole body:
-        #    `{ echo "git commit"; } > go.sh`, `…; fi > go.sh`.
-        #  - A prefixed command that could run the text may have written it
-        #    anywhere: `KARTA_SKIP_GATE=1 bash -c 'echo "git commit" > go.sh'`.
-        # Either way, a later command that could run a file is then held to it.
+        #  - Commit text sent to a named file: `echo "git commit" > go.sh` — and
+        #    a compound's closing word carrying the redirect for its whole body:
+        #    `{ echo "git commit"; } > go.sh`, `…; fi > go.sh`. A later command
+        #    that names the file is then held to it.
+        #  - A prefixed command that could run the text may have written it to
+        #    a file this parse cannot name: `KARTA_SKIP_GATE=1 bash -c 'echo … >
+        #    go.sh'`. Then every later command that could run text is held.
         closer = bool(rest) and rest[0] in _COMPOUND_CLOSERS
-        if not credible and (carries_text or (closer and seen)) and _writes_to_file(ws, rest):
-            written = True
+        if not credible and (carries_text or (closer and seen)):
+            written |= {name.replace("\\", "/").rsplit("/", 1)[-1]
+                        for name in _written_files(ws, rest)} - {""}
         if value == "1" and carries_text and not credible and not inert:
-            written = True
+            written_anywhere = True
         seen = seen or carries_text
         downstream = carries_text and op in ("|", "|&")
     return carried
@@ -636,12 +659,13 @@ _COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac", ")"})
 _STDOUT_REDIRECT_RE = re.compile(r"(1|&)?>>?([&|])?")
 
 
-def _writes_to_file(words: list[_Word], rest: list[str]) -> bool:
-    """Whether this command sends what it prints to a file: a stdout redirect
-    token (`>`, `>>`, `1>`, `&>`, `>|`, and `>&` when a filename follows it
-    rather than a descriptor — `>&go.sh` writes, `>&2` does not), or tee with a
-    file argument. Redirects are their own tokens (see _shell_segments), so a
+def _written_files(words: list[_Word], rest: list[str]) -> set[str]:
+    """The files this command sends what it prints to: the target of a stdout
+    redirect token (`>`, `>>`, `1>`, `&>`, `>|`, and `>&` when a filename rather
+    than a descriptor follows — `>&go.sh` writes, `>&2` does not), and tee's
+    file arguments. Redirects are their own tokens (see _shell_segments), so a
     glued `"…">go.sh` or a quoted `>"go.sh"` is seen too."""
+    names: set[str] = set()
     for k, (text, q) in enumerate(words):
         m = _STDOUT_REDIRECT_RE.fullmatch(text) if q is None else None
         if not m:
@@ -649,9 +673,11 @@ def _writes_to_file(words: list[_Word], rest: list[str]) -> bool:
         target = words[k + 1][0] if k + 1 < len(words) else ""
         if m.group(2) == "&" and re.fullmatch(r"\d+|-", target):
             continue  # `>&2`, `>&-`: a descriptor, not a file
-        return True
+        names.add(target)
     program = rest[0].replace("\\", "/").rsplit("/", 1)[-1].lower() if rest else ""
-    return program.removesuffix(".exe") == "tee" and any(not a.startswith("-") for a in rest[1:])
+    if program.removesuffix(".exe") == "tee":
+        names.update(a for a in rest[1:] if not a.startswith("-"))
+    return names
 
 
 # Programs that can read text but never run it — so a later `| tail -2` needs
@@ -1156,6 +1182,16 @@ def _run_self_test() -> int:
         ("KARTA_SKIP_GATE=1 bash -c 'echo \"git commit -m y\" > go.sh'; bash go.sh", False),
         ("KARTA_SKIP_GATE=1 git commit -m a; x='git commit -m y'; y=$x; eval \"$y\"", False),
         ('KARTA_SKIP_GATE=1 git commit -m "${MSG:-default}"', True),
+        # Review round 5, each confirmed in real bash first.
+        ("KARTA_SKIP_GATE=1 git commit -F - <<EOF\n$(printf ')' ; git commit -m y)\nEOF", False),
+        ('KARTA_SKIP_GATE=1 git commit -F - <<EOF\n$(echo "a)b" ; git commit -m y)\nEOF', False),
+        ('KARTA_SKIP_GATE=1 grep -n "git commit" f.py > grep.log && git push', True),
+        ('KARTA_SKIP_GATE=1 grep -n "git commit" f.py | tee grep.log && git push', True),
+        ("KARTA_SKIP_GATE=1 git commit -F- <<'EOF' && git push\nfix: the git commit hatch\nEOF", True),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && bash ./go.sh', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && sh < go.sh', False),
+        ('cat <<EOF | bash\ngit commit -m y\nEOF', False),
+        ('cat <<EOF | KARTA_SKIP_GATE=1 bash\ngit commit -m y\nEOF', True),
         # Every commit the line can run must carry it — including one handed to a
         # shell beside a properly prefixed commit (found by running real bash).
         ("sh -c 'git commit -m y' && KARTA_SKIP_GATE=1 git commit -m x", False),
