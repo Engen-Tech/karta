@@ -627,10 +627,18 @@ def hatch_prefixed(command: str) -> bool:
     for (_, r), ws2, _, _, _ in parsed:
         for t, _ in ws2:
             m = _ASSIGN_WORD_RE.fullmatch(t.lstrip("("))   # `(x=go.sh; …)` too
-            if m:
-                assigned.setdefault(m.group(1), set()).add(m.group(3))
-                if m.group(2):
-                    unknowable.add(m.group(1))
+            if not m:
+                continue
+            name, plus, val = m.group(1), m.group(2), m.group(3)
+            if not plus:
+                assigned.setdefault(name, set()).add(val)
+            elif name in assigned and not any(c in val for c in "$`"):
+                # `x=go; x+=.sh` is go.sh — composed from what the line already
+                # gave x, so an ordinary `PREFIX+=/app` is not suspect. The
+                # earlier values stay too: a command before the append saw them.
+                assigned[name] |= {v + val for v in assigned[name]}
+            else:
+                unknowable.add(name)   # appended to an unknown, or with an expansion
         if len(r) >= 3 and r[0] == "for" and r[2] == "in":
             assigned.setdefault(r[1], set()).add(" ".join(r[3:]))
         if r and r[0] in ("read", "mapfile", "readarray"):
@@ -741,12 +749,22 @@ def hatch_prefixed(command: str) -> bool:
                 for (_, other_rest), other_ws, _, _, _ in parsed:
                     if other_ws is ws:
                         continue
-                    # A word whose expansion cannot be known might name this file
-                    # (`L=$(pwd)/link; ln -s go.sh "$L"`), so it counts as naming it.
-                    if any(ex is None or any(re.search(pattern, e) for e in ex)
-                           for ex in (expansions(t) for t, _ in other_ws)):
-                        written |= {base(e) for a in other_rest[1:] if a and not a.startswith("-")
-                                    for e in (expansions(a) or [a])} - {""}
+                    operands = _operands(other_rest)
+                    named = any(ex is not None and any(re.search(pattern, e) for e in ex)
+                                for ex in (expansions(t) for t, _ in other_ws))
+                    # An operand whose expansion cannot be known might name this
+                    # file (`L=$(pwd)/link; ln -s go.sh "$L"`) — but only in the
+                    # shape of an alias, a source and a destination. A lone
+                    # unknowable word (`git diff "${BASE:-HEAD}"`) aliases nothing.
+                    unknown = any(expansions(a) is None for a in operands)
+                    if not (named or (unknown and len(operands) >= 2)):
+                        continue
+                    for a in operands:
+                        ex = expansions(a)
+                        if ex is None:
+                            written_anywhere = True   # an alias this parse cannot name
+                        else:
+                            written |= {base(e) for e in ex} - {""}
         if value == "1" and carries_text and not credible and not inert:
             written_anywhere = True
         seen = seen or carries_text
@@ -755,6 +773,27 @@ def hatch_prefixed(command: str) -> bool:
 
 
 _COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac", ")"})
+
+
+def _operands(rest: list[str]) -> list[str]:
+    """A command's file-like arguments: past the program and its options, and
+    for git past its global options and subcommand too — `diff` in `git diff`
+    names a subcommand, never a file that could alias another."""
+    if not rest:
+        return []
+    args = rest[1:]
+    if rest[0].replace("\\", "/").rsplit("/", 1)[-1].lower() in ("git", "git.exe"):
+        k = 0
+        while k < len(args):
+            if args[k] in _GIT_VALUE_OPTS:
+                k += 2
+            elif args[k].startswith("-"):
+                k += 1
+            else:
+                k += 1   # the subcommand itself
+                break
+        args = args[k:]
+    return [a for a in args if a and not a.startswith("-")]
 
 
 _STDOUT_REDIRECT_RE = re.compile(r"(1|&)?>>?([&|])?")
@@ -1332,6 +1371,11 @@ def _run_self_test() -> int:
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; X=go.sh; for x in $X; do bash "$x"; done', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; x=go; x+=.sh; bash "$x"', False),
         ('read -r s < list.txt; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash "$s"', False),
+        # Review round 10.
+        ('git diff "${BASE:-HEAD}"; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git diff --stat', True),
+        ('x=link; x+=; ln -s go.sh "$x"; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash link', False),
+        ('x=link; read -r x < lst; ln -s go.sh "$x"; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash link', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > notify.sh; PREFIX=/opt; PREFIX+=/myapp; cat "$PREFIX/data"', True),
         # KNOWN LIMIT: a variable the line never sets is read as naming nothing
         # (so `--out "$OUT"` stays free). If one inherited from outside happens to
         # name the file this line just wrote, `bash "$SCRIPT"` is granted. Claude
