@@ -58,7 +58,7 @@ It skips the gate for that command and nothing else. It has no effect on the plu
 
 The hatch counts only as a leading assignment on the commit command itself — `KARTA_SKIP_GATE=1 git commit …`, optionally after other `NAME=value` prefixes or an earlier `&&` step. Mentioning it anywhere else does nothing: in the commit message, in a path, as another variable's value, or on a different command in the chain (`echo KARTA_SKIP_GATE=1 && git commit`). Only the value `1` counts; `KARTA_SKIP_GATE=10` does not. Setting it in the hook's environment still works too.
 
-The gate deliberately errs toward firing, so it also trips on commands that merely mention a commit, such as `grep -n "git commit" notes.md`. The same prefix on that command escapes it: `KARTA_SKIP_GATE=1 grep -n "git commit" notes.md`. It does not escape a command that runs a commit through `$(…)` or backticks. There the commit runs before, and outside, the command you prefixed.
+The gate deliberately errs toward firing, so it also trips on commands that merely mention a commit, such as `grep -n "git commit" notes.md`. The same prefix on that command escapes it: `KARTA_SKIP_GATE=1 grep -n "git commit" notes.md`. In a pipeline or chain, every later command needs the prefix too, because it could read the text and run it. Plain filters are the exception, since they can't run what they read: `head`, `tail`, `grep`, `wc`, `sort` and similar need no prefix. So `KARTA_SKIP_GATE=1 grep -n "git commit" notes.md | tail -5` escapes, but `KARTA_SKIP_GATE=1 echo "git commit …" | bash` does not. Nothing escapes a command that runs a commit through `$(…)` or backticks. That commit runs before, and outside, whatever command carries the prefix.
 
 ## Where Claude Code and Codex still differ
 

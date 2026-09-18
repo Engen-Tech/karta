@@ -114,18 +114,33 @@ def is_commit_command(command: str) -> bool:
 # strict. The parser has no raising path, so INV-21's fail-open stance still
 # governs the hook as a whole.
 _ASSIGN_WORD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)", re.S)
-_SHELL_OPERATORS = ("&&", "||", ";", "|", "\n")   # the same set _SPLIT_RE cuts on
+# The set _SPLIT_RE cuts on, plus `|&` (a pipe that also carries stderr). It
+# must be one token: split as `|` it leaves a stray `&` word at the head of the
+# next command, which then no longer reads as a commit — so in
+# `KARTA_SKIP_GATE=1 git commit -m x |& git commit -m y` only the prefixed
+# commit was checked, and the unprefixed one rode through.
+_SHELL_OPERATORS = ("&&", "||", "|&", ";", "|", "\n")
 
 
-def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
-    """The command's segments, split only at UNQUOTED operators, each a list of
-    words. A word is (text, quoted_at): the dequoted text, and how long that text
-    was when the first quoting character was met (None if never quoted) — which
-    is what tells `KARTA_SKIP_GATE="1"` (quoted value, an assignment) apart from
-    `'KARTA_SKIP_GATE'=1` (quoted name, a plain word). None when quoting is
-    unbalanced."""
-    segments: list[list[tuple[str, int | None]]] = []
-    words: list[tuple[str, int | None]] = []
+_Word = tuple[str, "int | None"]
+
+
+def _shell_segments(command: str) -> list[tuple[list[_Word], list[str]]] | None:
+    """The command's segments, split only at UNQUOTED operators. Each segment is
+    (words, substitutions). A word is (text, quoted_at): the dequoted text, and
+    how long that text was when the first quoting character was met (None if
+    never quoted) — which is what tells `KARTA_SKIP_GATE="1"` (quoted value, an
+    assignment) apart from `'KARTA_SKIP_GATE'=1` (quoted name, a plain word).
+
+    `substitutions` holds the interior of every command substitution the shell
+    would actually run in that segment — `$(...)` or backticks, bare or inside
+    double quotes — and nothing that is inert: single-quoted text and an escaped
+    `\\$(` are literals. A substitution is consumed whole, so an operator inside
+    one does not split the segment. None when quoting or a substitution is
+    unbalanced: the shell would refuse to run it."""
+    segments: list[tuple[list[_Word], list[str]]] = []
+    words: list[_Word] = []
+    subs: list[str] = []
     buf: list[str] = []
     quoted_at: int | None = None
     in_word = False
@@ -136,6 +151,60 @@ def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
         if in_word:
             words.append(("".join(buf), quoted_at))
         buf, quoted_at, in_word = [], None, False
+
+    def close_paren(j: int) -> int:
+        """Index just past the `)` closing the `$(` whose `(` is at j, or -1."""
+        depth, k = 1, j + 1
+        while k < n:
+            ch = command[k]
+            if ch == "\\":
+                k += 2
+                continue
+            if ch in "'\"":
+                e = k + 1
+                while e < n and command[e] != ch:
+                    e += 2 if (ch == '"' and command[e] == "\\") else 1
+                if e >= n:
+                    return -1
+                k = e + 1
+                continue
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return k + 1
+            k += 1
+        return -1
+
+    def close_tick(j: int) -> int:
+        """Index just past the backtick closing the one at j, or -1."""
+        k = j + 1
+        while k < n:
+            if command[k] == "\\":
+                k += 2
+                continue
+            if command[k] == "`":
+                return k + 1
+            k += 1
+        return -1
+
+    def substitution_at(j: int) -> int | None:
+        """If a substitution opens at j, record it and return the index past it;
+        -1 when it never closes; None when none opens here."""
+        if command.startswith("$(", j):
+            e = close_paren(j + 1)
+            if e >= 0:
+                subs.append(command[j + 2:e - 1])
+                buf.append(command[j:e])
+            return e
+        if command[j] == "`":
+            e = close_tick(j)
+            if e >= 0:
+                subs.append(command[j + 1:e - 1])
+                buf.append(command[j:e])
+            return e
+        return None
 
     while i < n:
         c = command[i]
@@ -152,11 +221,17 @@ def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
             op = "&"
         if op:
             end_word()
-            segments.append(words)
-            words = []
+            segments.append((words, subs))
+            words, subs = [], []
             i += len(op)
             continue
         in_word = True
+        e = substitution_at(i)
+        if e is not None:
+            if e < 0:
+                return None
+            i = e
+            continue
         if c == "'":
             j = command.find("'", i + 1)
             if j < 0:
@@ -171,11 +246,17 @@ def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
             j = i + 1
             while j < n and command[j] != '"':
                 if command[j] == "\\" and j + 1 < n and command[j + 1] in '"\\$`':
-                    buf.append(command[j + 1])
+                    buf.append(command[j + 1])   # escaped: a literal, never a substitution
                     j += 2
-                else:
-                    buf.append(command[j])
-                    j += 1
+                    continue
+                e = substitution_at(j)           # "$(...)" still executes inside double quotes
+                if e is not None:
+                    if e < 0:
+                        return None
+                    j = e
+                    continue
+                buf.append(command[j])
+                j += 1
             if j >= n:
                 return None
             i = j + 1
@@ -190,7 +271,7 @@ def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
             buf.append(c)
             i += 1
     end_word()
-    segments.append(words)
+    segments.append((words, subs))
     return segments
 
 
@@ -220,6 +301,8 @@ def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, lis
         # so they fall through to a deny — the gates run, never a false skip.
         if ws and ws[0][1] is None and ws[0][0].replace("\\", "/").rsplit("/", 1)[-1] in ("env", "env.exe"):
             ws.pop(0)
+            if ws and ws[0] == ("--", None):   # end of env's options; changes nothing
+                ws.pop(0)
             continue
         break
     return value, [text for text, _ in ws]
@@ -242,26 +325,50 @@ def hatch_prefixed(command: str) -> bool:
     segments = _shell_segments(command)
     if segments is None:
         return False
-    parsed = [(_split_leading(ws), ws) for ws in segments if ws]
+    # A commit inside a substitution runs before, and outside, whatever command
+    # the prefix sits on — `KARTA_SKIP_GATE=1 git commit -m x $(git commit -m y)`
+    # runs the inner commit with no hatch in its environment. No prefix anywhere
+    # can cover it, so the whole command runs the gates. A substitution that runs
+    # something else (`-m "$(cat msg.txt)"`) is fine.
+    if any(_COMMIT_RE.search(sub) for _, subs in segments for sub in subs):
+        return False
+    parsed = [(_split_leading(ws), ws) for ws, _ in segments if ws]
     guarded = [value for (value, rest), _ in parsed if _is_git_commit(rest)]
-    if not guarded:
-        # The fallback trusts a prefix on the matched command. It must not trust
-        # one on a command whose unquoted command substitution runs the commit
-        # itself: in `KARTA_SKIP_GATE=1 echo $(git commit -m x)` the prefix
-        # belongs to `echo`, and the commit runs first, unprefixed.
-        guarded = [None if _unquoted_substitution(ws) else value
-                   for (value, _), ws in parsed
-                   if _COMMIT_RE.search(" ".join(text for text, _ in ws))]
-    return bool(guarded) and all(value == "1" for value in guarded)
+    if guarded:
+        return all(value == "1" for value in guarded)
+    # No command is credibly a commit, so the detector fired on text or on
+    # deferred execution. Text only becomes a commit if something LATER in the
+    # line reads and runs it — `KARTA_SKIP_GATE=1 echo "git commit" | bash`, or
+    # `... > go.sh && bash go.sh` — so the prefix must sit on the first command
+    # the detector matched and on every command after it. Anything earlier in the
+    # line cannot have consumed that text, and needs no prefix.
+    first = next((k for k, (_, ws) in enumerate(parsed)
+                  if _COMMIT_RE.search(" ".join(text for text, _ in ws))), None)
+    if first is None:
+        return False
+    (value, _), _ = parsed[first]
+    return value == "1" and all(value == "1" or _is_inert_filter(rest)
+                                for (value, rest), _ in parsed[first + 1:])
 
 
-def _unquoted_substitution(words: list[tuple[str, int | None]]) -> bool:
-    """Whether any word carries `$(` or a backtick. Deliberately not refined by
-    quoting: a substitution inside DOUBLE quotes still executes, and text after
-    a closing quote is unquoted again. Only single-quoted text is truly inert,
-    so the one cost is a false deny on the fallback path for a command like
-    `KARTA_SKIP_GATE=1 grep '$(git commit' f` — the safe direction."""
-    return any("$(" in text or "`" in text for text, _ in words)
+# Programs that can read text but never run it — so a later `| tail -2` needs
+# no prefix of its own. This is an ALLOWLIST on purpose: a program missing from
+# it costs a false deny (the gates run), never a false grant. A blocklist of
+# executors was tried for detection and could not close; this one fails safe.
+# Deliberately absent: sed and awk (GNU sed's `e` and awk's system() execute),
+# xargs, and every shell or interpreter.
+_INERT_FILTERS = frozenset({
+    "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut",
+    "cat", "less", "more", "tee", "tr", "nl", "column", "jq", "findstr",
+    "echo", "printf", "true", "false",
+})
+
+
+def _is_inert_filter(words: list[str]) -> bool:
+    if not words:
+        return True
+    program = words[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return program.removesuffix(".exe") in _INERT_FILTERS
 
 
 def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
@@ -666,13 +773,38 @@ def _run_self_test() -> int:
         ('KARTA_SKIP_GATE=1 true && git commit -m x', False),
         # A bare `&` separates commands exactly as `&&` does.
         ('KARTA_SKIP_GATE=1 true & git commit -m x', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x |& git commit -m y', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x 2>&1 & git commit -m y', False),
         # A substitution runs the commit before, and outside, the prefixed command.
         ('KARTA_SKIP_GATE=1 echo $(git commit -m x)', False),
         ('KARTA_SKIP_GATE=1 echo "$(git commit -m x)"', False),
         ('KARTA_SKIP_GATE=1 echo ""$(git commit -m x)', False),
         ('KARTA_SKIP_GATE=1 echo `git commit -m x`', False),
-        # ...but a substitution inside a real prefixed commit is fine.
+        # ...on the credible path too: the inner commit runs first, unprefixed.
+        ('KARTA_SKIP_GATE=1 git commit -m x $(git commit -m y)', False),
+        ('KARTA_SKIP_GATE=1 git commit -m "$(git commit -m y)"', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x `git commit -m y`', False),
+        ('KARTA_SKIP_GATE=1 git commit -m a && echo $(git commit -m b)', False),
+        # ...but a substitution that runs something else is fine, and an escaped
+        # `\$(` inside double quotes is a literal, not a substitution.
         ('KARTA_SKIP_GATE=1 git commit -m "$(cat msg.txt)"', True),
+        ('KARTA_SKIP_GATE=1 git commit -m "$(printf "a; b")"', True),
+        ('KARTA_SKIP_GATE=1 grep -n "\\$(git commit" f.py', True),
+        # Text becomes a commit only when something later reads and runs it.
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" | bash', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" > go.sh && bash go.sh', False),
+        ('git log -1; cat f | KARTA_SKIP_GATE=1 run.py --note "a git commit"', True),
+        ('env -- KARTA_SKIP_GATE=1 git commit -m x', True),
+        # A later filter that cannot run its input needs no prefix of its own.
+        ('KARTA_SKIP_GATE=1 grep -n "git commit" f.py | head', True),
+        ('cat f | KARTA_SKIP_GATE=1 run.py --note "a git commit" 2>&1 | tail -2', True),
+        # ...but anything not on that allowlist does, since it might.
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" | sed -e p', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m x" | python3', False),
+        # KNOWN, pinned so they are decisions rather than surprises. False denies
+        # (the gates run; recover by prefixing every command, or by the env route):
+        ('time KARTA_SKIP_GATE=1 git commit -m x', False),
+        ("KARTA_SKIP_GATE=$'1' git commit -m x", False),
         ('env -i KARTA_SKIP_GATE=1 git commit -m x', False),   # env options: not modelled, gates run
         ("'KARTA_SKIP_GATE'=1 git commit -m x", False),
         ('KARTA_SKIP_GATE+=1 git commit -m x', False),
@@ -686,6 +818,13 @@ def _run_self_test() -> int:
     for cmd, want in hatch:
         check(f"hatch {'granted' if want else 'NOT granted'}: {cmd!r}",
               hatch_prefixed(cmd) is want)
+    # KNOWN GAP (a grant): a hand-typed hatch on one real commit also covers a
+    # line that pipes commit text into a shell. Closing it would deny the
+    # realistic `grep "git commit" f && KARTA_SKIP_GATE=1 git commit`, and it
+    # takes a deliberately written hatch — outside the accidental-grant threat
+    # model this parser exists for. Pinned so a change to it is a decision.
+    check("KNOWN GAP: a prefixed commit also covers a later pipe into a shell",
+          hatch_prefixed('KARTA_SKIP_GATE=1 git commit -m a && echo "git commit -m b" | bash') is True)
 
     # End to end, with a gate that fails: a mention must reach that gate and be
     # denied. These are the negative controls — every one returned 0 (allowed)
