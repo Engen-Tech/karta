@@ -1,0 +1,79 @@
+{
+  "target_ref": "fix/precommit-hatch-exact",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4p1-flash"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "e7af96f32fb9aab86dadb8b0e492e50a94053c4f",
+      "run_at": "2026-09-18T08:32:15.263200+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "Pending real-bash confirmation, then fixed: git global options whose values contain spaces now read word by word instead of by a joined regex (antigravity); redirects are their own tokens, so a redirect glued to a quote or a quoted filename is seen (antigravity, codex); a greater-than-ampersand redirect to a file counts as a write (antigravity); any env option other than a double dash voids a hatch set before env (antigravity, glm, qwen); side effects are tracked whether or not the command carries the prefix, including a prefixed command that could write commit text anywhere (glm); a compound command closer carrying a redirect marks the text written (glm); dollar-brace expansions are lexed as one word and their interiors checked (deepseek); taint propagates through variable-to-variable copies (codex lead)."
+      ],
+      "findings_refuted_or_deferred": [
+        "none"
+      ],
+      "notes": "6 of 8 returned output: antigravity (first time in the reviewer role), codex (partial), deepseek, glm, minimax (SOUND), qwen. Copilot absent. Every proposed command string is to be run through the real-bash oracle before and after the fix; ANSI-C dollar-quote spellings are to be pinned as deliberate if they grant.",
+      "below_floor": false
+    }
+  ]
+}

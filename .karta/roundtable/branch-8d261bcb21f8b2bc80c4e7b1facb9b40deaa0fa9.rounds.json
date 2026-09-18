@@ -1,0 +1,79 @@
+{
+  "target_ref": "fix/precommit-hatch-exact",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4p1-flash"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "8d261bcb21f8b2bc80c4e7b1facb9b40deaa0fa9",
+      "run_at": "2026-09-18T10:59:46.297088+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "timeout"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "Everyday false deny from the alias trigger (antigravity, glm, qwen, deepseek): an unknowable operand now triggers the alias scan only for a program that can make an alias (ln, cp, mv, install, rsync, link, git mv), and only an unknowable DESTINATION marks the write as landing somewhere unknown; a known destination is added as one more name. The merge-base diff shape (glm) is free as a result. For-loop list stored joined (glm, a false grant through plus-equals): each item is now its own value."
+      ],
+      "findings_refuted_or_deferred": [
+        "none"
+      ],
+      "notes": "5 of 6 returned verdicts (codex timed out): 2 SOUND (deepseek, minimax), 3 NOT SOUND. Every false-deny shape raised is now in the oracle's everyday list.",
+      "below_floor": false
+    }
+  ]
+}

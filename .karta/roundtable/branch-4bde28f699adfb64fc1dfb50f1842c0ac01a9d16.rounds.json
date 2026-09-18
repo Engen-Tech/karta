@@ -1,0 +1,79 @@
+{
+  "target_ref": "fix/precommit-hatch-exact",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4p1-flash"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "4bde28f699adfb64fc1dfb50f1842c0ac01a9d16",
+      "run_at": "2026-09-18T09:56:21.601737+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "Parameter expansion with an operator, dollar-brace with colon-dash and similar (antigravity, deepseek, glm, qwen; ACCIDENTAL): only plain dollar-name and dollar-brace-name are resolved; any other dollar-brace in a reader word is held, and in a writer target counts as written somewhere unknown. Filenames with spaces (antigravity; ACCIDENTAL): the whole expanded word is checked as well as its pieces. Assignment order (codex; ACCIDENTAL): a variable now resolves to every value the line gives it, so a later reassignment cannot hide an earlier one. A substitution arriving through a variable (deepseek): expanded values are checked for dollar-paren and backticks. A glued paren before an assignment (deepseek): stripped before the assignment scan. The written_anywhere comment now says what the code does (deepseek)."
+      ],
+      "findings_refuted_or_deferred": [
+        "codex: an environment variable inherited from outside the line naming the file the same line just wrote \u2014 classed DELIBERATE with glm: Claude Code's Bash tool does not persist environment variables between calls, so the value would have to come from the user's profile and coincide with this line's own write; closing it reopens the round-7 false deny on an unrelated --out dollar-OUT. Pinned as a known limit, not chased."
+      ],
+      "notes": "6 of 6 responding reviewers returned verdicts: 5 NOT SOUND, minimax SOUND. This was declared the landing round; its ACCIDENTAL findings block landing and are fixed, its DELIBERATE finding is pinned.",
+      "below_floor": false
+    }
+  ]
+}

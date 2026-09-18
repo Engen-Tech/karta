@@ -1,0 +1,79 @@
+{
+  "target_ref": "fix/precommit-hatch-exact",
+  "target_kind": "branch",
+  "tool": "roundtable-critique",
+  "agents": [
+    {
+      "provider": "antigravity",
+      "model": "cli-default"
+    },
+    {
+      "provider": "codex",
+      "model": "cli-default"
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "model": "accounts/fireworks/models/deepseek-v4p1-flash"
+    },
+    {
+      "provider": "fireworks-minimax",
+      "model": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "model": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks-qwen",
+      "model": "Qwen 3.8 Max"
+    }
+  ],
+  "note": "Per-round ledger of this target's review history. The commit/merge gate keys freshness on the sibling record (<key>.json) \u2014 a fresh review of the exact reviewed bytes \u2014 but --record now refuses to file a record unless this ledger's last round reviewed those same bytes, so a record can never be filed for content the ledger never saw. This file is the history the record itself cannot carry: what each round found, what was fixed, what was refuted by execution. Rounds are appended in order; a header key already present is never rewritten or dropped by a later append.",
+  "rounds": [
+    {
+      "round": 1,
+      "reviewed_hash": "e72fc80c2ff6cc975535d36c816d2c8f012c8fdf",
+      "run_at": "2026-09-18T08:57:41.273802+00:00",
+      "providers": {
+        "antigravity": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "ok"
+        },
+        "codex": {
+          "model": "cli-default",
+          "verdict": null,
+          "status": "timeout"
+        },
+        "fireworks-deepseek": {
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "verdict": null,
+          "status": "ok"
+        },
+        "fireworks-minimax": {
+          "model": "accounts/fireworks/models/minimax-m3",
+          "verdict": null,
+          "status": "ok"
+        },
+        "fireworks-glm5p3": {
+          "model": "accounts/fireworks/models/glm-5p3",
+          "verdict": "ok",
+          "status": "ok"
+        },
+        "fireworks-qwen": {
+          "model": "Qwen 3.8 Max",
+          "verdict": "ok",
+          "status": "ok"
+        }
+      },
+      "findings_fixed": [
+        "To be confirmed in real bash and then fixed: heredoc-body substitutions scanned quote-aware, reusing the command scanner (qwen); a file written with commit text now binds only later commands that name that file, instead of every later command (qwen false deny); a heredoc body is attached to the command that owns its operator rather than to whichever command the newline ends (glm heading)."
+      ],
+      "findings_refuted_or_deferred": [
+        "none"
+      ],
+      "notes": "Output-limited round: 2 of 7 returned content \u2014 qwen in full, glm truncated after its first finding's heading. deepseek and minimax hit the 65536-token output cap with no text, antigravity and codex timed out. The glm heading is followed up by testing its most realistic reading against real bash.",
+      "below_floor": false
+    }
+  ]
+}

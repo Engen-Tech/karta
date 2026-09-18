@@ -1,0 +1,53 @@
+{
+  "reviewed_hash": "ef26ae295bbf22e6dd64fdca6f09a52e0526b7f0",
+  "tool": "roundtable-critique",
+  "target_kind": "branch",
+  "target_ref": "fix/precommit-hatch-exact",
+  "run_at": "2026-09-18T11:09:41.159785+00:00",
+  "config_snapshot": {
+    "enabled": true,
+    "ledger": true,
+    "tool": "roundtable-critique",
+    "providers": [],
+    "min_providers": 2,
+    "focus": "",
+    "points": {
+      "plan_commit": true,
+      "deliver_merge": true
+    }
+  },
+  "panel": [
+    {
+      "provider": "antigravity",
+      "verdict": "ok",
+      "summary": "SOUND. The round-12 delta resolves the round-11 false-deny regressions without opening accidental false grants: restricting the unknowable trigger to aliasing programs frees `git diff \"${BASE:-main}\" HEAD` and `echo \"${A:-x}\" \"${B:-y}\"`; the destination-only rule keeps `cp \"${SRC:-in}\" out.txt` then git push free while tracking out.txt; per-item for-loop values fix `for x in a b; do x+=.sh`. Low, non-blocking: operands[-1] assumes a positional destination, so `-t`/`--target-directory` forms are an adversarial edge case."
+    },
+    {
+      "provider": "codex",
+      "verdict": "ok",
+      "summary": "NOT SOUND. High \u2014 unknown symlink sources can produce a new false grant: `ln -s \"${SRC:-go.sh}\" link; KARTA_SKIP_GATE=1 echo \"git commit -m y\" > link; bash go.sh`. ln creates link -> go.sh; the redirect writes through the symlink into go.sh; bash go.sh runs the commit without the hatch. The delta treats only the last operand as a possible unknown destination, so go.sh never enters written. Fix: for symlink creation, conservatively set written_anywhere when a triggered ln -s has an unknown source."
+    },
+    {
+      "provider": "fireworks-deepseek",
+      "verdict": "ok",
+      "summary": "SOUND. Low, not blocking: non-aliaser wrappers (`sudo cp`, `xargs cp`, `env -i cp`) lose the unknown-destination arm \u2014 a deliberate construction the delta's comment already scopes; only one alias hop is followed (pre-existing); single-operand aliasers newly arm (rare). New triggers are a strict subset of the old for two or more operands; the last operand governs where bytes land; per-item for values are strictly more accurate. No accidental grant, no realistic false deny."
+    },
+    {
+      "provider": "fireworks-glm5p3",
+      "verdict": "ok",
+      "summary": "SOUND. Medium, below the blocking bar: _ALIASERS is incomplete \u2014 `dd if=\"${SRC:-go.sh}\" of=out.sh; bash out.sh` after a commit-text write is granted; a two-hop alias through an unknowable name, which the docstring scopes out as deliberate. Low: operands[-1] misreads the destination for -t DIR forms; per-item for-loop values can exceed the 64-expansion cap (conservative deny). No everyday false deny."
+    },
+    {
+      "provider": "fireworks-minimax",
+      "verdict": "ok",
+      "summary": "SOUND. The delta is correct; no false grants and no everyday false denies. Lower severity: _is_aliaser covers only git mv among git subcommands; dd and tar are absent from _ALIASERS, exploitable only through deliberate construction. The for-loop per-item change matches bash; the destination-only check mirrors how the aliasers place the new file."
+    },
+    {
+      "provider": "fireworks-qwen",
+      "verdict": "ok",
+      "summary": "NOT SOUND. High \u2014 false-deny regression: `cp --target-directory=build \"${SRC:-README.md}\"; KARTA_SKIP_GATE=1 grep -n \"git commit\" f.py > hits.txt; git push` \u2014 _operands drops the option, leaving only the unknowable source as the last operand, so written_anywhere is set and git push is denied. Fix: recognise destination-carrying options before applying the last-operand rule."
+    }
+  ],
+  "rounds_ledger": ".karta/roundtable/branch-ef26ae295bbf22e6dd64fdca6f09a52e0526b7f0.rounds.json",
+  "final_round": 1
+}
