@@ -620,13 +620,21 @@ def hatch_prefixed(command: str) -> bool:
     # since `script=go.sh; …; bash "$script"; script=other.sh` runs go.sh — plus
     # a `for` loop's list. A variable the line never sets comes from outside it.
     assigned: dict[str, set[str]] = {}
+    # Variables whose value this parse cannot know: appended to (`x=go; x+=.sh`
+    # is go.sh, not go or .sh) or filled by `read`/`mapfile` from outside the
+    # line's text. Any word referring to one expands to "unknowable".
+    unknowable: set[str] = set()
     for (_, r), ws2, _, _, _ in parsed:
         for t, _ in ws2:
             m = _ASSIGN_WORD_RE.fullmatch(t.lstrip("("))   # `(x=go.sh; …)` too
             if m:
                 assigned.setdefault(m.group(1), set()).add(m.group(3))
+                if m.group(2):
+                    unknowable.add(m.group(1))
         if len(r) >= 3 and r[0] == "for" and r[2] == "in":
             assigned.setdefault(r[1], set()).add(" ".join(r[3:]))
+        if r and r[0] in ("read", "mapfile", "readarray"):
+            unknowable |= {a for a in r[1:] if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", a)}
 
     def expansions(text: str) -> list[str] | None:
         """Every text `text` could expand to, or None when that cannot be known.
@@ -638,6 +646,8 @@ def hatch_prefixed(command: str) -> bool:
         texts = [text]
         for name in dict.fromkeys(a or b for a, b in re.findall(
                 r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", text)):
+            if name in unknowable:
+                return None
             # Unset in the line: it comes from outside, and names nothing the
             # line wrote — `uv run tool.py --out "$OUT"` stays free.
             values = assigned.get(name, {""})
@@ -689,7 +699,7 @@ def hatch_prefixed(command: str) -> bool:
                         or any(reads(text) for text, _ in ws) or names_written(ws))
         if not rest:  # assignments only: remember which names now hold commit text
             for text, _ in ws:
-                m = _ASSIGN_WORD_RE.fullmatch(text)
+                m = _ASSIGN_WORD_RE.fullmatch(text.lstrip("("))   # `(x='git commit'; …)` too
                 if m and (_COMMIT_RE.search(m.group(3)) or reads(m.group(3))):
                     tainted.add(m.group(1))   # `y=$x` copies the taint along
         inert = _is_inert_filter(rest)
@@ -729,8 +739,12 @@ def hatch_prefixed(command: str) -> bool:
                 # link; bash go.sh`. Its other file-like arguments are held too.
                 pattern = r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])"
                 for (_, other_rest), other_ws, _, _, _ in parsed:
-                    if other_ws is not ws and any(re.search(pattern, e)
-                                                  for t, _ in other_ws for e in (expansions(t) or [t])):
+                    if other_ws is ws:
+                        continue
+                    # A word whose expansion cannot be known might name this file
+                    # (`L=$(pwd)/link; ln -s go.sh "$L"`), so it counts as naming it.
+                    if any(ex is None or any(re.search(pattern, e) for e in ex)
+                           for ex in (expansions(t) for t, _ in other_ws)):
                         written |= {base(e) for a in other_rest[1:] if a and not a.startswith("-")
                                     for e in (expansions(a) or [a])} - {""}
         if value == "1" and carries_text and not credible and not inert:
@@ -1312,6 +1326,12 @@ def _run_self_test() -> int:
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; x=$(ls *.sh); bash "$x"', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; (x=go.sh; bash "$x")', False),
         ('KARTA_SKIP_GATE=1 grep -n "git commit" f > hits.txt && uv run tool.py --out "${OUT}"', True),
+        # Review round 9.
+        ('L=$(pwd)/link; ln -s go.sh "$L"; KARTA_SKIP_GATE=1 echo "git commit -m y" > link; bash go.sh', False),
+        ("KARTA_SKIP_GATE=1 git commit -m a; (x='git commit -m y'; eval \"$x\")", False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; X=go.sh; for x in $X; do bash "$x"; done', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; x=go; x+=.sh; bash "$x"', False),
+        ('read -r s < list.txt; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash "$s"', False),
         # KNOWN LIMIT: a variable the line never sets is read as naming nothing
         # (so `--out "$OUT"` stays free). If one inherited from outside happens to
         # name the file this line just wrote, `bash "$SCRIPT"` is granted. Claude
