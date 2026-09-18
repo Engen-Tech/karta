@@ -93,6 +93,8 @@ MUST_GRANT = [
     f'echo "${{A:-x}}" "${{B:-y}}"; {H} grep -n "{V}" f.py > hits.txt; git push',
     f'cp "${{SRC:-./in.txt}}" out.txt; {H} grep -n "{V}" f.py > hits.txt; git push',
     f'BASE=$(git merge-base HEAD main); git diff "$BASE" HEAD; {H} grep -n "{V}" f.py > hits.txt; git diff --stat',
+    # review round 12
+    f'mkdir -p build; cp --target-directory=build "${{SRC:-README.md}}"; {H} grep -n "{V}" f.py > hits.txt; git push',
 ]
 
 # Constructs a generator would not produce: every shape raised in review, plus
@@ -199,6 +201,8 @@ CONSTRUCTS = [
     # review round 11
     f'{H} echo "{V} -m y" > a.sh; for x in a b; do x+=.sh; bash "$x"; done',
     f'cp "${{SRC:-go.sh}}" out.sh; {H} echo "{V} -m y" > go.sh; bash out.sh',
+    # review round 12
+    f'ln -s "${{SRC:-go.sh}}" link; {H} echo "{V} -m y" > link; bash go.sh',
 ]
 
 PREFIXES = ["", H + " ", "KARTA_SKIP_GATE='1' ", "X=KARTA_SKIP_GATE=1 ", "KARTA_SKIP_GATE=10 ",

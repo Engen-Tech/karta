@@ -759,13 +759,26 @@ def hatch_prefixed(command: str) -> bool:
                     # program can MAKE an alias. `git diff "${BASE:-main}" HEAD`
                     # or `echo "${A:-x}" "${B:-y}"` alias nothing.
                     aliaser = _is_aliaser(other_rest)
+                    program = base(other_rest[0]).lower().removesuffix(".exe") if other_rest else ""
+                    # `cp -t build src`, `cp --target-directory=build src`: the
+                    # destination is named by an option, not by the last operand.
+                    target = (_target_option(other_rest)
+                              if program in ("cp", "mv", "ln", "install", "link") else None)
+                    if target is not None:
+                        operands = [a for a in operands if a != target] + [target]
                     unknown = any(expansions(a) is None for a in operands)
                     if not (named or (aliaser and unknown)):
                         continue
-                    # An alias whose DESTINATION is unknowable lands where this
-                    # parse cannot follow it. A known destination is just one more
-                    # name for the file: `cp "${SRC:-in}" out.txt` adds out.txt.
-                    if aliaser and operands and expansions(operands[-1]) is None:
+                    if aliaser and program in ("ln", "link") and unknown:
+                        # A link is one file with two names, so a write through
+                        # either end reaches the other: `ln -s "${SRC:-go.sh}"
+                        # link; … > link` writes go.sh. An unknowable end at
+                        # EITHER side is a file this parse cannot name.
+                        written_anywhere = True
+                    elif aliaser and operands and expansions(operands[-1]) is None:
+                        # A copy whose DESTINATION is unknowable lands where this
+                        # parse cannot follow it. A known destination is one more
+                        # name for the file: `cp "${SRC:-in}" out.txt` adds out.txt.
                         written_anywhere = True
                     for a in operands:
                         ex = expansions(a)
@@ -799,6 +812,20 @@ def _is_aliaser(rest: list[str]) -> bool:
             k += 2 if args[k] in _GIT_VALUE_OPTS else 1
         return k < len(args) and args[k] == "mv"
     return False
+
+
+def _target_option(rest: list[str]) -> str | None:
+    """The directory named by `-t DIR`, `-tDIR`, `--target-directory DIR` or
+    `--target-directory=DIR` — the GNU form of cp, mv, ln and install that puts
+    the destination in an option rather than in the last operand."""
+    for k, word in enumerate(rest):
+        if word in ("-t", "--target-directory"):
+            return rest[k + 1] if k + 1 < len(rest) else None
+        if word.startswith("--target-directory="):
+            return word.split("=", 1)[1]
+        if word.startswith("-t") and not word.startswith("--") and len(word) > 2:
+            return word[2:]
+    return None
 
 
 def _operands(rest: list[str]) -> list[str]:
@@ -1410,6 +1437,11 @@ def _run_self_test() -> int:
         ('BASE=$(git merge-base HEAD main); git diff "$BASE" HEAD; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git diff --stat', True),
         ('cp "${SRC:-go.sh}" out.sh; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; bash out.sh', False),
         ('read -r x < lst; ln -s go.sh "$x"; KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; git push', False),
+        # Review round 12: a link's unknowable SOURCE matters too; an option can
+        # name a copy's destination.
+        ('ln -s "${SRC:-go.sh}" link; KARTA_SKIP_GATE=1 echo "git commit -m y" > link; bash go.sh', False),
+        ('cp --target-directory=build "${SRC:-README.md}"; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git push', True),
+        ('cp -t build "${SRC:-README.md}"; KARTA_SKIP_GATE=1 grep -n "git commit" f.py > hits.txt; git push', True),
         # KNOWN LIMIT: a variable the line never sets is read as naming nothing
         # (so `--out "$OUT"` stays free). If one inherited from outside happens to
         # name the file this line just wrote, `bash "$SCRIPT"` is granted. Claude
