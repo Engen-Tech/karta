@@ -144,6 +144,12 @@ def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
             i += 1
             continue
         op = next((o for o in _SHELL_OPERATORS if command.startswith(o, i)), None)
+        # A bare `&` ends a command too: `KARTA_SKIP_GATE=1 true & git commit`
+        # backgrounds `true` and runs the commit unprefixed. It is only a
+        # separator when it is not part of a redirection (`2>&1`, `&>log`).
+        if (op is None and c == "&" and command[i + 1:i + 2] != ">"
+                and not (i > 0 and command[i - 1] in "<>|")):
+            op = "&"
         if op:
             end_word()
             segments.append(words)
@@ -199,14 +205,23 @@ def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, lis
         text, q = ws[0]
         ws[0] = (text[1:], None if q is None else q - 1)
     value: str | None = None
-    while ws:
-        text, q = ws[0]
-        m = _ASSIGN_WORD_RE.fullmatch(text)
-        if not m or (q is not None and q <= m.end(2)):
-            break  # not an assignment, or its NAME (or the `=`) was quoted
-        if m.group(1) == SKIP_VAR:
-            value = None if m.group(2) else m.group(3)
-        ws.pop(0)
+    for _ in range(2):  # the leading assignments, then any after a bare `env`
+        while ws:
+            text, q = ws[0]
+            m = _ASSIGN_WORD_RE.fullmatch(text)
+            if not m or (q is not None and q <= m.end(2)):
+                break  # not an assignment, or its NAME (or the `=`) was quoted
+            if m.group(1) == SKIP_VAR:
+                value = None if m.group(2) else m.group(3)
+            ws.pop(0)
+        # `env KARTA_SKIP_GATE=1 git commit` hands git the variable just as the
+        # bare prefix does. Only a bare `env` is read: its options (`-i`, `-u
+        # NAME`, `-S`) change the environment in ways this parse does not model,
+        # so they fall through to a deny — the gates run, never a false skip.
+        if ws and ws[0][1] is None and ws[0][0].replace("\\", "/").rsplit("/", 1)[-1] in ("env", "env.exe"):
+            ws.pop(0)
+            continue
+        break
     return value, [text for text, _ in ws]
 
 
@@ -230,9 +245,23 @@ def hatch_prefixed(command: str) -> bool:
     parsed = [(_split_leading(ws), ws) for ws in segments if ws]
     guarded = [value for (value, rest), _ in parsed if _is_git_commit(rest)]
     if not guarded:
-        guarded = [value for (value, _), ws in parsed
+        # The fallback trusts a prefix on the matched command. It must not trust
+        # one on a command whose unquoted command substitution runs the commit
+        # itself: in `KARTA_SKIP_GATE=1 echo $(git commit -m x)` the prefix
+        # belongs to `echo`, and the commit runs first, unprefixed.
+        guarded = [None if _unquoted_substitution(ws) else value
+                   for (value, _), ws in parsed
                    if _COMMIT_RE.search(" ".join(text for text, _ in ws))]
     return bool(guarded) and all(value == "1" for value in guarded)
+
+
+def _unquoted_substitution(words: list[tuple[str, int | None]]) -> bool:
+    """Whether any word carries `$(` or a backtick. Deliberately not refined by
+    quoting: a substitution inside DOUBLE quotes still executes, and text after
+    a closing quote is unquoted again. Only single-quoted text is truly inert,
+    so the one cost is a false deny on the fallback path for a command like
+    `KARTA_SKIP_GATE=1 grep '$(git commit' f` — the safe direction."""
+    return any("$(" in text or "`" in text for text, _ in words)
 
 
 def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
@@ -611,6 +640,11 @@ def _run_self_test() -> int:
         ("KARTA_SKIP_GATE=1'' git commit -m x", True),
         ('(KARTA_SKIP_GATE=1 git commit -m x)', True),
         ('KARTA_SKIP_GATE=1 /usr/bin/git commit -m x', True),
+        ('KARTA_SKIP_GATE=1 git commit -m x 2>&1', True),
+        ('KARTA_SKIP_GATE=1 git commit -m x &> log', True),
+        ('KARTA_SKIP_GATE=1 git commit -m x &', True),
+        ('env KARTA_SKIP_GATE=1 git commit -m x', True),
+        ('KARTA_SKIP_GATE=1 env git commit -m x', True),
         # The detector over-fires on text; the prefix must still escape that,
         # or on Windows, where the gates are red, a grep would be unescapable.
         ('grep -n "git commit" f.py && KARTA_SKIP_GATE=1 git commit -F m.txt', True),
@@ -630,6 +664,16 @@ def _run_self_test() -> int:
         ('echo KARTA_SKIP_GATE=1 && git commit -m x', False),
         ('KARTA_SKIP_GATE=1; git commit -m x', False),
         ('KARTA_SKIP_GATE=1 true && git commit -m x', False),
+        # A bare `&` separates commands exactly as `&&` does.
+        ('KARTA_SKIP_GATE=1 true & git commit -m x', False),
+        # A substitution runs the commit before, and outside, the prefixed command.
+        ('KARTA_SKIP_GATE=1 echo $(git commit -m x)', False),
+        ('KARTA_SKIP_GATE=1 echo "$(git commit -m x)"', False),
+        ('KARTA_SKIP_GATE=1 echo ""$(git commit -m x)', False),
+        ('KARTA_SKIP_GATE=1 echo `git commit -m x`', False),
+        # ...but a substitution inside a real prefixed commit is fine.
+        ('KARTA_SKIP_GATE=1 git commit -m "$(cat msg.txt)"', True),
+        ('env -i KARTA_SKIP_GATE=1 git commit -m x', False),   # env options: not modelled, gates run
         ("'KARTA_SKIP_GATE'=1 git commit -m x", False),
         ('KARTA_SKIP_GATE+=1 git commit -m x', False),
         ('KARTA_SKIP_GATE=1 KARTA_SKIP_GATE=0 git commit -m x', False),
