@@ -12,7 +12,9 @@ validate_plugin, and validate_packs over skills/_shared/sme/ — and exits 2
 with the failing gate's name plus an output tail (last ~40 lines) so the
 commit is blocked with actionable feedback. All gates green, or any command
 that is not a git commit, exits 0. Escape hatch for intentional partial
-commits: KARTA_SKIP_GATE=1 in the command text or the environment.
+commits: KARTA_SKIP_GATE=1 as a leading assignment on the commit command itself
+(`KARTA_SKIP_GATE=1 git commit ...`), or in the environment. A mention anywhere
+else — a commit message, a path, another command in the chain — is not the hatch.
 
 Internal errors (unreadable stdin, malformed payload, unexpected exceptions)
 fail OPEN — exit 0 — so a broken hook never wedges the repo. A gate that runs
@@ -84,6 +86,153 @@ _SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 
 def is_commit_command(command: str) -> bool:
     return any(_COMMIT_RE.search(seg) for seg in _SPLIT_RE.split(command))
+
+
+# --- escape hatch: an exact leading assignment, never a mention -------------------
+#
+# Detection above and the hatch below answer different questions, so they get
+# different strictness. Detection asks "might this commit?" and over-answers on
+# purpose. The hatch asks "did someone deliberately switch the gates off for this
+# commit?" — and a yes skips every gate AND the release block, so it must not be
+# granted by accident.
+#
+# It used to be `f"{SKIP_VAR}=1" in command`, a substring test over the whole
+# text, which was wrong on ten of eleven shapes: a commit message mentioning the
+# hatch, `KARTA_SKIP_GATE=10`, `=1x`, the token in a pathspec, trailer or
+# filename, `X=KARTA_SKIP_GATE=1`, and a prefix sitting on some other command
+# (`echo KARTA_SKIP_GATE=1 && git commit`) all skipped every gate, silently.
+#
+# Now the hatch is read the way a shell reads it: `KARTA_SKIP_GATE=1` (value
+# bare, `'1'` or `"1"`, name unquoted, last assignment wins) among the leading
+# assignment words of the commit command itself. Every commit invocation in the
+# command must carry it. When no segment is credibly a commit — the detector
+# fired on text, as in `grep "git commit" f`, or on deferred execution such as
+# `bash -c "..."` — the segments the detector matched must carry it instead, so
+# the prefix still escapes an over-detection. Unbalanced quoting grants nothing:
+# a shell would refuse to run the command anyway. The environment route in
+# decide() is unchanged, and remains the way out if this parse ever proves too
+# strict. The parser has no raising path, so INV-21's fail-open stance still
+# governs the hook as a whole.
+_ASSIGN_WORD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)", re.S)
+_SHELL_OPERATORS = ("&&", "||", ";", "|", "\n")   # the same set _SPLIT_RE cuts on
+
+
+def _shell_segments(command: str) -> list[list[tuple[str, int | None]]] | None:
+    """The command's segments, split only at UNQUOTED operators, each a list of
+    words. A word is (text, quoted_at): the dequoted text, and how long that text
+    was when the first quoting character was met (None if never quoted) — which
+    is what tells `KARTA_SKIP_GATE="1"` (quoted value, an assignment) apart from
+    `'KARTA_SKIP_GATE'=1` (quoted name, a plain word). None when quoting is
+    unbalanced."""
+    segments: list[list[tuple[str, int | None]]] = []
+    words: list[tuple[str, int | None]] = []
+    buf: list[str] = []
+    quoted_at: int | None = None
+    in_word = False
+    i, n = 0, len(command)
+
+    def end_word() -> None:
+        nonlocal buf, quoted_at, in_word
+        if in_word:
+            words.append(("".join(buf), quoted_at))
+        buf, quoted_at, in_word = [], None, False
+
+    while i < n:
+        c = command[i]
+        if c in " \t":
+            end_word()
+            i += 1
+            continue
+        op = next((o for o in _SHELL_OPERATORS if command.startswith(o, i)), None)
+        if op:
+            end_word()
+            segments.append(words)
+            words = []
+            i += len(op)
+            continue
+        in_word = True
+        if c == "'":
+            j = command.find("'", i + 1)
+            if j < 0:
+                return None
+            if quoted_at is None:
+                quoted_at = len("".join(buf))
+            buf.append(command[i + 1:j])
+            i = j + 1
+        elif c == '"':
+            if quoted_at is None:
+                quoted_at = len("".join(buf))
+            j = i + 1
+            while j < n and command[j] != '"':
+                if command[j] == "\\" and j + 1 < n and command[j + 1] in '"\\$`':
+                    buf.append(command[j + 1])
+                    j += 2
+                else:
+                    buf.append(command[j])
+                    j += 1
+            if j >= n:
+                return None
+            i = j + 1
+        elif c == "\\":
+            if i + 1 >= n:
+                return None
+            if quoted_at is None:
+                quoted_at = len("".join(buf))
+            buf.append(command[i + 1])
+            i += 2
+        else:
+            buf.append(c)
+            i += 1
+    end_word()
+    segments.append(words)
+    return segments
+
+
+def _split_leading(words: list[tuple[str, int | None]]) -> tuple[str | None, list[str]]:
+    """(the hatch value set by this segment's leading assignments, the command
+    words after them). The hatch value is None when the segment never assigns
+    it; the last assignment wins, as it does in a shell."""
+    ws = list(words)
+    while ws and ws[0][0] in ("(", "{", "!"):
+        ws.pop(0)
+    if ws and ws[0][0].startswith("(") and ws[0][1] != 0:
+        text, q = ws[0]
+        ws[0] = (text[1:], None if q is None else q - 1)
+    value: str | None = None
+    while ws:
+        text, q = ws[0]
+        m = _ASSIGN_WORD_RE.fullmatch(text)
+        if not m or (q is not None and q <= m.end(2)):
+            break  # not an assignment, or its NAME (or the `=`) was quoted
+        if m.group(1) == SKIP_VAR:
+            value = None if m.group(2) else m.group(3)
+        ws.pop(0)
+    return value, [text for text, _ in ws]
+
+
+def _is_git_commit(words: list[str]) -> bool:
+    """Whether these command words are credibly a commit: the program is git by
+    basename, and what follows reads as `git [options] commit`."""
+    if not words:
+        return False
+    program = words[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if program not in ("git", "git.exe"):
+        return False
+    return bool(_COMMIT_RE.match(" ".join(["git", *words[1:]])))
+
+
+def hatch_prefixed(command: str) -> bool:
+    """True only when the escape hatch is set as an exact leading assignment on
+    every commit invocation in `command` — never on the strength of a mention."""
+    segments = _shell_segments(command)
+    if segments is None:
+        return False
+    parsed = [(_split_leading(ws), ws) for ws in segments if ws]
+    guarded = [value for (value, rest), _ in parsed if _is_git_commit(rest)]
+    if not guarded:
+        guarded = [value for (value, _), ws in parsed
+                   if _COMMIT_RE.search(" ".join(text for text, _ in ws))]
+    return bool(guarded) and all(value == "1" for value in guarded)
 
 
 def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
@@ -316,7 +465,7 @@ def decide(payload, env, runner, gates=None, git=None, root=None) -> tuple[int, 
     command = tool_input.get("command")
     if not isinstance(command, str) or not is_commit_command(command):
         return 0, ""
-    if f"{SKIP_VAR}=1" in command or env.get(SKIP_VAR) == "1":
+    if env.get(SKIP_VAR) == "1" or hatch_prefixed(command):
         return 0, ""
     root = ROOT if root is None else root
     if git is None:
@@ -446,6 +595,69 @@ def _run_self_test() -> int:
     check("KARTA_SKIP_GATE=1 in command text skips the gates", code == 0)
     code, _ = decide(_payload('git commit -m "x"'), {"KARTA_SKIP_GATE": "1"}, must_not_run, stub_gates)
     check("KARTA_SKIP_GATE=1 in the environment skips the gates", code == 0)
+
+    # The hatch is an exact leading assignment on the commit, never a mention.
+    # The first block is every shape the prefix is legitimately used in.
+    hatch = [
+        ('KARTA_SKIP_GATE=1 git commit -F msg.txt', True),
+        ('KARTA_SKIP_GATE=1 git commit -q -m "x"', True),
+        ('FOO=bar KARTA_SKIP_GATE=1 git commit -m x', True),
+        ('KARTA_SKIP_GATE=1 FOO=bar git commit -m x', True),
+        ('make lint && KARTA_SKIP_GATE=1 git commit -m x', True),
+        ('KARTA_SKIP_GATE=1 git commit -m "a && b; c | d"', True),
+        ('KARTA_SKIP_GATE=1 git -C repo commit -m x', True),
+        ('KARTA_SKIP_GATE="1" git commit -m x', True),
+        ("KARTA_SKIP_GATE='1' git commit -m x", True),
+        ("KARTA_SKIP_GATE=1'' git commit -m x", True),
+        ('(KARTA_SKIP_GATE=1 git commit -m x)', True),
+        ('KARTA_SKIP_GATE=1 /usr/bin/git commit -m x', True),
+        # The detector over-fires on text; the prefix must still escape that,
+        # or on Windows, where the gates are red, a grep would be unescapable.
+        ('grep -n "git commit" f.py && KARTA_SKIP_GATE=1 git commit -F m.txt', True),
+        ('KARTA_SKIP_GATE=1 grep -n "git commit" f.py', True),
+        ('KARTA_SKIP_GATE=1 bash -c "git commit -m x"', True),
+        # Every one of these skipped every gate under the old substring test.
+        ('git commit -m "bump KARTA_SKIP_GATE=1 later"', False),
+        ('git commit -m "KARTA_SKIP_GATE=1"', False),
+        ('KARTA_SKIP_GATE=10 git commit -m x', False),
+        ('KARTA_SKIP_GATE=1x git commit -m x', False),
+        ('KARTA_SKIP_GATE=1.5 git commit -m x', False),
+        ('KARTA_SKIP_GATE= git commit -m x', False),
+        ('git commit KARTA_SKIP_GATE=1 -m x', False),
+        ('git commit --trailer "Note: KARTA_SKIP_GATE=1" -m x', False),
+        ('git commit -F KARTA_SKIP_GATE=1.txt', False),
+        ('X=KARTA_SKIP_GATE=1 git commit -m x', False),
+        ('echo KARTA_SKIP_GATE=1 && git commit -m x', False),
+        ('KARTA_SKIP_GATE=1; git commit -m x', False),
+        ('KARTA_SKIP_GATE=1 true && git commit -m x', False),
+        ("'KARTA_SKIP_GATE'=1 git commit -m x", False),
+        ('KARTA_SKIP_GATE+=1 git commit -m x', False),
+        ('KARTA_SKIP_GATE=1 KARTA_SKIP_GATE=0 git commit -m x', False),
+        ('bash -c "KARTA_SKIP_GATE=1 git commit -m x"', False),
+        # Two commits, one prefixed: the other one is still gated.
+        ('KARTA_SKIP_GATE=1 git commit -m a && git commit -m b', False),
+        # Unbalanced quoting grants nothing — the shell would not run it.
+        ('KARTA_SKIP_GATE=1 git commit -m "unterminated', False),
+    ]
+    for cmd, want in hatch:
+        check(f"hatch {'granted' if want else 'NOT granted'}: {cmd!r}",
+              hatch_prefixed(cmd) is want)
+
+    # End to end, with a gate that fails: a mention must reach that gate and be
+    # denied. These are the negative controls — every one returned 0 (allowed)
+    # under the old `f"{SKIP_VAR}=1" in command` line.
+    for cmd in ('git commit -m "bump KARTA_SKIP_GATE=1 later"',
+                'KARTA_SKIP_GATE=10 git commit -m x',
+                'echo KARTA_SKIP_GATE=1 && git commit -m x',
+                'X=KARTA_SKIP_GATE=1 git commit -m x'):
+        code, _ = decide(_payload(cmd), {}, failing, stub_gates)
+        check(f"a mention of the hatch does not skip a failing gate: {cmd!r}", code == 2)
+    # ...while the real prefix, in the shapes it is actually used, never reaches it.
+    for cmd in ('KARTA_SKIP_GATE=1 git commit -F msg.txt',
+                'make lint && KARTA_SKIP_GATE=1 git commit -m "a; b"',
+                'grep -n "git commit" f.py && KARTA_SKIP_GATE=1 git commit -F m.txt'):
+        code, _ = decide(_payload(cmd), {}, must_not_run, stub_gates)
+        check(f"the real prefix skips without running a gate: {cmd!r}", code == 0)
 
     # deny path: failing gate blocks, names itself, caps output, fails fast
     calls.clear()

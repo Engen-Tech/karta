@@ -56,6 +56,8 @@ KARTA_SKIP_GATE=1 git commit -m "wip: canonical edit, mirrors follow"
 
 It skips the gate for that command and nothing else. It has no effect on the plugin hooks or the Codex rules.
 
+The hatch counts only as a leading assignment on the commit command itself — `KARTA_SKIP_GATE=1 git commit …`, optionally after other `NAME=value` prefixes or an earlier `&&` step. Mentioning it anywhere else does nothing: in the commit message, in a path, as another variable's value, or on a different command in the chain (`echo KARTA_SKIP_GATE=1 && git commit`). Only the value `1` counts; `KARTA_SKIP_GATE=10` does not. Setting it in the hook's environment still works too.
+
 ## Where Claude Code and Codex still differ
 
 Codex now gets bundled hook enforcement for most of the list: the plugin ships a Codex hooks manifest with payload-native twins of seven guards — binder immutability and pack-write validation (parsing raw `apply_patch` bodies), the delivery Stop-gate, the SubagentStop whiff advisory, the SessionStart status injection, and the fail-closed auditor-dispatch and gate-dispatch inspectors (on the `spawn_agent|Agent` matcher, scoped to dispatches that identify their target in a payload identity field — a bare plugin install's generic fallback dispatch is outside that scope). The one remaining gap states its real reason in [the Codex parity table](codex.md): writer confinement stays doctrine there because karta registers no kaizen or doc-gardner agent on Codex for a hook to recognize. Every guard is written runtime-agnostic (JSON on stdin, exit 2 blocks, reason on stderr), so closing that last gap is wiring, not a rewrite — and Codex behavior never regresses either way: everything the hooks enforce is still stated in the skills.
