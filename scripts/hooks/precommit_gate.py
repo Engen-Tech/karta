@@ -40,7 +40,7 @@ Zero dependencies (pure stdlib), so every invocation form behaves identically:
   uv run --script precommit_gate.py --self-test   # also fine — no deps
 """
 from __future__ import annotations
-import argparse, json, re, shlex, subprocess, sys
+import argparse, fnmatch, json, re, shlex, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/hooks/ -> repo root
@@ -612,18 +612,45 @@ def hatch_prefixed(command: str) -> bool:
         return bool(tainted) and bool(re.search(
             r"\$\{?(?:" + "|".join(map(re.escape, tainted)) + r")\b", text))
 
+    # The line's own variable assignments — `x=go.sh`, `f=out.txt`, and a `for`
+    # loop's list — so a `$x` can be resolved to what it names rather than
+    # suspected of naming anything. A variable the line never sets comes from the
+    # environment; no one typing this line put a file name in it on purpose.
+    assigned: dict[str, str] = {}
+    for (_, r), ws2, _, _, _ in parsed:
+        for t, _ in ws2:
+            m = _ASSIGN_WORD_RE.fullmatch(t)
+            if m:
+                assigned[m.group(1)] = m.group(3)
+        if len(r) >= 3 and r[0] == "for" and r[2] == "in":
+            assigned[r[1]] = " ".join(r[3:])
+
+    def expand(text: str) -> str:
+        return re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", lambda m: assigned.get(m.group(1), ""), text)
+
+    def base(name: str) -> str:
+        return name.replace("\\", "/").rsplit("/", 1)[-1]
+
     def names_written(ws: list[_Word]) -> bool:
         # A later command is held to a written file only if it could name it —
         # `bash go.sh`, `source ./go.sh`, `sh < go.sh` — never `&& git push`.
-        # "Could name" includes any word that expands to names at run time: a
-        # glob (`bash *.sh`), a variable or substitution (`bash $(ls)`), or a
-        # backtick. Those fail safe: the cost is a rare false deny.
+        # It could name it literally; through a glob that matches it (`bash
+        # *.sh`); through a variable the line set to it (`x=go.sh; bash "$x"`);
+        # or through a substitution, whose output cannot be known (`bash $(ls)`).
+        # An environment variable (`--out "$OUT"`) names nothing written here.
         if not written:
             return False
-        return any(any(ch in text for ch in "*?[$`") or
-                   any(re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", text)
-                       for name in written)
-                   for text, _ in ws)
+        for text, _ in ws:
+            if "$(" in text or "`" in text:
+                return True
+            for piece in expand(text).split():
+                b = base(piece)
+                for name in written:
+                    if re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", piece):
+                        return True
+                    if any(ch in b for ch in "*?[") and fnmatch.fnmatchcase(name, b):
+                        return True
+        return False
 
     for (value, rest), ws, _, op, docs in tail:
         # A heredoc body is text flowing INTO the command, like a pipe, so it is
@@ -658,8 +685,27 @@ def hatch_prefixed(command: str) -> bool:
         #    go.sh'`. Then every later command that could run text is held.
         closer = bool(rest) and rest[0] in _COMPOUND_CLOSERS
         if not credible and (carries_text or (closer and seen)):
-            written |= {name.replace("\\", "/").rsplit("/", 1)[-1]
-                        for name in _written_files(ws, rest)} - {""}
+            files: set[str] = set()
+            for target in _written_files(ws, rest):
+                resolved = expand(target)
+                # A target this line cannot resolve — an unset `$OUT`, a
+                # substitution, a glob, a descriptor — is a real file this parse
+                # cannot name: `… > "$OUT" && bash out.txt`.
+                if (not resolved or "$(" in target or "`" in target
+                        or any(ch in resolved for ch in "$*?[")):
+                    written_anywhere = True
+                else:
+                    files.add(base(resolved))
+            for name in files:
+                written.add(name)
+                # Any OTHER command in the line that names this file may have made
+                # it an alias, before the write or after: `ln -s go.sh link; … >
+                # link; bash go.sh`. Its other file-like arguments are held too.
+                pattern = r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])"
+                for (_, other_rest), other_ws, _, _, _ in parsed:
+                    if other_ws is not ws and any(re.search(pattern, expand(t)) for t, _ in other_ws):
+                        written |= {base(expand(a)) for a in other_rest[1:]
+                                    if a and not a.startswith("-")} - {""}
         if value == "1" and carries_text and not credible and not inert:
             written_anywhere = True
         seen = seen or carries_text
@@ -685,8 +731,13 @@ def _written_files(words: list[_Word], rest: list[str]) -> set[str]:
         if not m:
             continue
         target = words[k + 1][0] if k + 1 < len(words) else ""
-        if m.group(2) == "&" and re.fullmatch(r"\d+|-", target):
-            continue  # `>&2`, `>&-`: a descriptor, not a file
+        if m.group(2) == "&" and re.fullmatch(r"[12]|-", target):
+            continue  # `>&2`, `>&1`, `>&-`: stdout, stderr, or closed — not a file
+        if (m.group(2) == "&" and target.isdigit()) or re.match(r"/(dev/fd|proc/[^/]+/fd)/", target):
+            # A user descriptor (`exec 3>go.sh; … >&3`) or `/dev/fd/3`: a real
+            # file, but not one this parse can name. "" means "somewhere unknown".
+            names.add("")
+            continue
         names.add(target)
     program = rest[0].replace("\\", "/").rsplit("/", 1)[-1].lower() if rest else ""
     if program.removesuffix(".exe") == "tee":
@@ -1213,6 +1264,20 @@ def _run_self_test() -> int:
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && for s in *.sh; do bash "$s"; done', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; x=go.sh; bash "$x"', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && cp go.sh go.sh.bak && bash go.sh.bak', False),
+        # Writes to a file the parse cannot name, and aliases made before the write.
+        ('exec 3>go.sh; KARTA_SKIP_GATE=1 echo "git commit -m y" >&3; bash go.sh', False),
+        ('exec 3>go.sh; KARTA_SKIP_GATE=1 echo "git commit -m y" > /dev/fd/3; bash go.sh', False),
+        ('ln -s go.sh link; KARTA_SKIP_GATE=1 echo "git commit -m y" > link; bash go.sh', False),
+        ('KARTA_SKIP_GATE=1 git commit -m x > /dev/null 2>&1 && git push', True),
+        # Review round 7: names are resolved through the line's own assignments,
+        # not suspected. An unset environment variable names nothing written here...
+        ('KARTA_SKIP_GATE=1 grep -n "git commit" f > hits.txt && uv run tool.py --out "$OUT"', True),
+        # ...but a variable the line set does, and so does a matching glob...
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; x=go.sh; bash "$x"', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && bash *.sh', False),
+        # ...and a write whose target cannot be resolved binds every later runner.
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && f=out.txt; cat go.sh > $f; bash out.txt', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > "$UNSET_OUT" && bash out.txt', False),
         # An escaped quote inside a heredoc-body substitution (review round 6).
         ('KARTA_SKIP_GATE=1 git commit -F- <<EOF\n$(echo "\\" )" ; git commit -m y)\nEOF', False),
         ('KARTA_SKIP_GATE=1 git commit -F - <<EOF\n$(echo "a\\"b)"; git commit -m y)\nEOF', False),
