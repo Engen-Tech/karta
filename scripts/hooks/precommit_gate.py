@@ -480,8 +480,13 @@ def _body_substitutions(text: str) -> list[str]:
                     k += 2
                     continue
                 if ch in "'\"":
-                    close = text.find(ch, k + 1)
-                    k = n if close < 0 else close + 1
+                    # Inside double quotes a backslash escapes the next char, so
+                    # `"a\"b)"` does not end at the escaped quote; single quotes
+                    # take everything literally.
+                    e = k + 1
+                    while e < n and text[e] != ch:
+                        e += 2 if (ch == '"' and text[e] == "\\") else 1
+                    k = n if e >= n else e + 1
                     continue
                 depth += {"(": 1, ")": -1}.get(ch, 0)
                 k += 1
@@ -608,10 +613,17 @@ def hatch_prefixed(command: str) -> bool:
             r"\$\{?(?:" + "|".join(map(re.escape, tainted)) + r")\b", text))
 
     def names_written(ws: list[_Word]) -> bool:
-        # A later command is held to a written file only if it names it —
+        # A later command is held to a written file only if it could name it —
         # `bash go.sh`, `source ./go.sh`, `sh < go.sh` — never `&& git push`.
-        return any(re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", text)
-                   for name in written for text, _ in ws)
+        # "Could name" includes any word that expands to names at run time: a
+        # glob (`bash *.sh`), a variable or substitution (`bash $(ls)`), or a
+        # backtick. Those fail safe: the cost is a rare false deny.
+        if not written:
+            return False
+        return any(any(ch in text for ch in "*?[$`") or
+                   any(re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", text)
+                       for name in written)
+                   for text, _ in ws)
 
     for (value, rest), ws, _, op, docs in tail:
         # A heredoc body is text flowing INTO the command, like a pipe, so it is
@@ -619,8 +631,10 @@ def hatch_prefixed(command: str) -> bool:
         # `git commit -F - <<EOF` is a commit and needs the prefix anyway. A
         # variable carries text the same way: `x='git commit …'; eval "$x"`.
         credible = _is_git_commit(rest)
+        # A command that names a written file reads its text too, and passes it
+        # on: `cat go.sh > run.sh` taints run.sh, `cat go.sh | bash` feeds bash.
         carries_text = (mentions(ws) or credible or downstream or mentions([], docs)
-                        or any(reads(text) for text, _ in ws))
+                        or any(reads(text) for text, _ in ws) or names_written(ws))
         if not rest:  # assignments only: remember which names now hold commit text
             for text, _ in ws:
                 m = _ASSIGN_WORD_RE.fullmatch(text)
@@ -631,7 +645,7 @@ def hatch_prefixed(command: str) -> bool:
             carried = True
         elif credible:
             return False
-        elif not inert and (carries_text or written_anywhere or names_written(ws)):
+        elif not inert and (carries_text or written_anywhere):
             return False
         # Side effects are tracked whether or not the command carries the prefix:
         # a prefix grants THIS command, never whatever it leaves behind.
@@ -1191,6 +1205,17 @@ def _run_self_test() -> int:
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && bash ./go.sh', False),
         ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && sh < go.sh', False),
         ('cat <<EOF | bash\ngit commit -m y\nEOF', False),
+        # A written file reached under another name (each a real false grant once).
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && bash *.sh', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && bash $(ls *.sh)', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && cat go.sh > run.sh && bash run.sh', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && cat go.sh | bash', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && for s in *.sh; do bash "$s"; done', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh; x=go.sh; bash "$x"', False),
+        ('KARTA_SKIP_GATE=1 echo "git commit -m y" > go.sh && cp go.sh go.sh.bak && bash go.sh.bak', False),
+        # An escaped quote inside a heredoc-body substitution (review round 6).
+        ('KARTA_SKIP_GATE=1 git commit -F- <<EOF\n$(echo "\\" )" ; git commit -m y)\nEOF', False),
+        ('KARTA_SKIP_GATE=1 git commit -F - <<EOF\n$(echo "a\\"b)"; git commit -m y)\nEOF', False),
         ('cat <<EOF | KARTA_SKIP_GATE=1 bash\ngit commit -m y\nEOF', True),
         # Every commit the line can run must carry it — including one handed to a
         # shell beside a properly prefixed commit (found by running real bash).
