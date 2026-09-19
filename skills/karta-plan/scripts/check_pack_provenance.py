@@ -46,6 +46,16 @@ from __future__ import annotations
 import argparse, hashlib, json, os, sys, unicodedata
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 # The canonical local-fork substring — quoted byte-identically here, in the plan
 # skill's stack-pack step, and the docs (held together by the binder's shared_terms
 # gate). Downstream call sites match on exactly this text.
@@ -162,7 +172,7 @@ def load_ledger() -> dict[str, list[str]]:
     if p is None or not p.is_file():
         return {}
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_bytes())
     except (OSError, ValueError):
         return {}
     if not isinstance(data, dict):
@@ -437,7 +447,7 @@ def main() -> int:
         if not args.file:
             print("error: --stdin needs --file <path> to supply the basename", file=sys.stderr)
             return 2
-        content = sys.stdin.read()
+        content = _read_stdin_text()
         result = classify_single(content, Path(args.file).name, args.file)
     elif args.file:
         path = Path(args.file)

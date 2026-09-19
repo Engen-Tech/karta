@@ -61,6 +61,16 @@ from __future__ import annotations
 import argparse, json, os, re, sys
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 # The original's identity key set, plus task_name (the fallback-agent task label).
 IDENTITY_KEYS = ("subagent_type", "agent_type", "agent", "agent_name", "name",
                  "task_name")
@@ -97,7 +107,7 @@ def _load_binder(path_str: str, cwd: str) -> dict | None:
     if not p.is_absolute():
         p = Path(cwd) / p
     try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc = json.loads(p.read_text(encoding="utf-8", errors="replace"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     return doc if isinstance(doc, dict) else None
@@ -182,10 +192,10 @@ def _run_self_test() -> int:
         binders = Path(td) / ".karta" / "binders"
         binders.mkdir(parents=True)
         (binders / "pinned.json").write_text(json.dumps(
-            {"slug": "pinned", "sme": ["minimalism", "python"], "work_items": []}))
+            {"slug": "pinned", "sme": ["minimalism", "python"], "work_items": []}), encoding="utf-8")
         (binders / "bare.json").write_text(json.dumps(
-            {"slug": "bare", "work_items": []}))
-        (binders / "mangled.json").write_text("{ not json")
+            {"slug": "bare", "work_items": []}), encoding="utf-8")
+        (binders / "mangled.json").write_text("{ not json", encoding="utf-8")
 
         def dispatch(prompt: str, subagent: str = AUDITOR_NAMES[0],
                      key: str = "subagent_type", text_key: str = "prompt") -> dict:
@@ -282,7 +292,7 @@ def _run_self_test() -> int:
         denied = subprocess.run(
             [sys.executable, __file__],
             input=json.dumps(dispatch("scan the diff")),
-            capture_output=True, text=True, env=child_env)
+            capture_output=True, text=True, env=child_env, encoding="utf-8")
         try:
             out = json.loads(denied.stdout)
         except json.JSONDecodeError:
@@ -298,12 +308,12 @@ def _run_self_test() -> int:
         allowed = subprocess.run(
             [sys.executable, __file__],
             input=json.dumps(dispatch("build item a", subagent="karta-build")),
-            capture_output=True, text=True, env=child_env)
+            capture_output=True, text=True, env=child_env, encoding="utf-8")
         flag("hook-mode pass emits nothing on stdout",
              allowed.returncode == 0 and not allowed.stdout.strip())
         mangled = subprocess.run(
             [sys.executable, __file__], input="{ not json",
-            capture_output=True, text=True, env=child_env)
+            capture_output=True, text=True, env=child_env, encoding="utf-8")
         flag("hook-mode unreadable payload passes silently (unrecognized shape)",
              mangled.returncode == 0 and not mangled.stdout.strip())
 
@@ -321,7 +331,7 @@ def main() -> int:
         return _run_self_test()
     payload: dict = {}
     try:
-        raw = json.load(sys.stdin)
+        raw = json.loads(_read_stdin_text())
         if isinstance(raw, dict):
             payload = raw
     except Exception:  # noqa: BLE001

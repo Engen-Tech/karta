@@ -1,0 +1,89 @@
+{
+  "$comment": "Data the two PORTABILITY rules in scripts/validate_plugin.py read: command portability (_check_command_portability) and encoding (_check_encoding). The file was named command-portability.json when only the first rule existed; it is portability.json now because both rules read ONE `exclusions` array through ONE predicate (_excluded). Two rules that both ask \"is this path karta-owned?\" must never be able to give two answers -- a second, parallel exclusion list is how this binder's earlier items produced the same defect twice. Rule-specific data stays in its own key; scope is shared.\n\nCOMMAND PORTABILITY: karta launched every Codex guard through `sh -c`, which a stock Windows install does not have, so every guard failed at the launcher while the guards themselves were fine. `env`, `xargs`, `grep` and `test` were measured absent from PowerShell 7 on the Windows host this rule was written for; they exist there only inside Git Bash. The rest are their common companions, listed so they cannot pass by omission. `git` is deliberately absent -- it is a real executable on every platform karta supports.\n\nENCODING: the same class one layer down. A text boundary with no encoding= decodes with the LOCALE codec -- cp1252 on a stock Windows checkout -- and karta's scripts read Markdown and JSON full of em dashes. These lists are committed as data rather than written into the rules so that widening either one is a reviewable diff to this file, and so a fixture can prove the rules read them.",
+  "shell_launchers": [
+    "sh",
+    "bash",
+    "dash",
+    "ksh",
+    "zsh"
+  ],
+  "interpreter_names": [
+    "python",
+    "python3"
+  ],
+  "script_suffixes": [
+    ".py",
+    ".sh",
+    ".bash"
+  ],
+  "posix_only_utilities": [
+    "awk",
+    "cat",
+    "cut",
+    "env",
+    "grep",
+    "mktemp",
+    "readlink",
+    "realpath",
+    "sed",
+    "test",
+    "tr",
+    "xargs"
+  ],
+  "exclusions": [
+    {
+      "path": ".karta/binders/",
+      "reason": "Tracked binders are immutable: hooks/scripts/guard_binder_immutability.py denies every write to one, archived binders included. Several archived binders record `sh -c` and `python3` inside their oracle `command` strings as historical fact. A rule reaching them could never be satisfied and would wedge every future commit."
+    },
+    {
+      "path": "benchmarks/",
+      "reason": "The benchmark harness measures karta from outside and ships in neither plugin projection, so a POSIX assumption there cannot reach an install — the defect class this rule exists for. Its shell dependency is also its subject: benchmarks/fixtures/shellenv.py exists to locate and drive bash portably, and benchmarks/flow fixtures are .sh scripts by design."
+    },
+    {
+      "path": ".agents/skills/",
+      "reason": "Generated projection of skills/, kept byte-identical by scripts/sync_codex_skills.py and guarded by its --check. Scanning it would report every finding a second time under a mirrored path. It also carries externally managed skills locked in skills-lock.json, which karta does not own."
+    },
+    {
+      "path": "plugins/karta/",
+      "reason": "Generated marketplace-install projection of skills/ and .codex-plugin/, kept in sync by scripts/sync_codex_skills.py and guarded by its --check. Scanning it would report every finding a second time under a mirrored path."
+    },
+    {
+      "path": ".claude/skills/",
+      "reason": "Externally managed skills, not karta's. Every directory under it has a complete skills-lock.json entry (AGENTS.md, 'Externally managed cross-runtime skills'), so karta neither authors nor may rewrite the code there; a finding against it names a defect no karta commit can fix. The same reasoning already excludes the .agents/skills/ copy of the same skills -- listing that mirror while scanning this one would have been the two-answers bug this file exists to prevent."
+    },
+    {
+      "path": ".pi/skills/",
+      "reason": "The third committed copy of the same externally managed, skills-lock.json governed skills, for the pi runtime. Excluded for the identical reason as .claude/skills/ and .agents/skills/: karta does not own the code, so it cannot repair a finding raised against it."
+    }
+  ],
+  "stdlib_text_loaders": [
+    {
+      "module": "configparser",
+      "call": "read"
+    },
+    {
+      "module": "configparser",
+      "call": "read_file"
+    },
+    {
+      "module": "xml.etree.ElementTree",
+      "call": "parse"
+    },
+    {
+      "module": "xml.etree.ElementTree",
+      "call": "iterparse"
+    },
+    {
+      "module": "email",
+      "call": "message_from_file"
+    },
+    {
+      "module": "argparse",
+      "call": "FileType"
+    }
+  ],
+  "stdlib_loader_call_sites": {
+    "$comment": "The NAMED LIMITATION, bounded and made visible rather than pretended away. The encoding rule inspects CALL SITES, so a stdlib loader that opens text internally without an encoding does not fire it. This is the committed inventory of every karta-owned call site into such a loader; scripts/validate_plugin.py fails when the tree and this inventory disagree in either direction, so a new one cannot enter unnoticed and a repaired one cannot linger. `sites` entries are \"<path>:<call>\".",
+    "sites": []
+  }
+}

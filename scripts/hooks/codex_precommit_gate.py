@@ -27,6 +27,17 @@ from __future__ import annotations
 import argparse, json, shlex, subprocess, sys
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
+
 SHELL_TOOLS = ("shell", "Bash", "bash", "unified_exec", "local_shell")
 DELEGATE = Path(__file__).resolve().with_name("precommit_gate.py")
 
@@ -64,7 +75,7 @@ def delegate(normalized: dict, delegate_path: Path = DELEGATE) -> int:
     try:
         proc = subprocess.run(
             [sys.executable, str(delegate_path)],
-            input=json.dumps(normalized), text=True, timeout=590)
+            input=json.dumps(normalized), text=True, timeout=590, encoding="utf-8")
     except (OSError, subprocess.TimeoutExpired):
         return 0  # fail open: adapter trouble must never wedge the repo
     return 2 if proc.returncode == 2 else 0
@@ -111,7 +122,7 @@ def _run_self_test() -> int:
             "p = json.load(sys.stdin)\n"
             "assert p['tool_name'] == 'Bash'\n"
             "assert isinstance(p['tool_input']['command'], str)\n"
-            "sys.exit(2 if 'git commit' in p['tool_input']['command'] else 0)\n")
+            "sys.exit(2 if 'git commit' in p['tool_input']['command'] else 0)\n", encoding="utf-8")
         n = normalize(shell(["git", "commit", "-m", "x"]))
         checks.append(("stub delegate sees Bash shape and its exit 2 propagates",
                        delegate(n, stub) == 2))
@@ -120,7 +131,7 @@ def _run_self_test() -> int:
         checks.append(("missing delegate fails open",
                        delegate(n, Path(td) / "ghost.py") == 0))
         crash = Path(td) / "crash_gate.py"
-        crash.write_text("import sys\nsys.exit(7)\n")
+        crash.write_text("import sys\nsys.exit(7)\n", encoding="utf-8")
         checks.append(("delegate exit codes other than 2 map to allow",
                        delegate(n, crash) == 0))
 
@@ -139,7 +150,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(_read_stdin_text())
     except Exception:  # noqa: BLE001
         return 0  # fail open: a broken adapter must never wedge the repo
     normalized = normalize(payload)

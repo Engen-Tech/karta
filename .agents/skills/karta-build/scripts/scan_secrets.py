@@ -92,7 +92,7 @@ def added_lines(base: str | None = None, target: str | None = None) -> list[tupl
         out = subprocess.run(
             command,
             text=True, capture_output=True, check=True,
-        ).stdout
+         encoding="utf-8").stdout
     except FileNotFoundError as exc:
         raise RuntimeError("git is unavailable during secret scan") from exc
     except subprocess.CalledProcessError as exc:
@@ -120,7 +120,7 @@ def load_allowlist(path: Path) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     if not path.exists():
         return entries
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or ":" not in line:
             continue

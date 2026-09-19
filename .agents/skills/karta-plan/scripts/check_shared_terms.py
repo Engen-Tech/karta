@@ -136,7 +136,7 @@ def _run_self_test() -> int:
                    GIT_AUTHOR_NAME="karta-self-test", GIT_AUTHOR_EMAIL="self-test@karta",
                    GIT_COMMITTER_NAME="karta-self-test", GIT_COMMITTER_EMAIL="self-test@karta")
         res = subprocess.run(["git", *args], cwd=root, env=env,
-                             capture_output=True, text=True, input=stdin)
+                             capture_output=True, text=True, input=stdin, encoding="utf-8")
         if res.returncode != 0:
             raise RuntimeError(f"git {' '.join(args)} failed: {res.stderr.strip()}")
         return res.stdout.strip()
@@ -297,7 +297,7 @@ def main() -> int:
         print(f"INVALID: binder file not found: {args.binder}")
         return 1
 
-    binder = json.loads(args.binder.read_text())
+    binder = json.loads(args.binder.read_text(encoding="utf-8"))
     code, lines = check(binder, args.root)
     for ln in lines:
         print(ln)

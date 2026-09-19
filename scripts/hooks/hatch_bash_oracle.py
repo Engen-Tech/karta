@@ -249,7 +249,7 @@ def run_in_bash(cases: list[str]) -> dict[int, list[str]]:
             (work / "cases" / f"{i:05d}.sh").write_bytes((cmd + "\nwait\n").encode("utf-8"))
         proc = subprocess.run(
             ["docker", "run", "--rm", "-v", f"{work.as_posix()}:/work", IMAGE, "bash", "/work/runner.sh"],
-            capture_output=True, text=True, timeout=7200,
+            capture_output=True, text=True, encoding="utf-8", timeout=7200,
             env=dict(os.environ, MSYS_NO_PATHCONV="1"),  # keep Git Bash off the -v path
         )
         if proc.returncode:

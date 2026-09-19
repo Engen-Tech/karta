@@ -26,7 +26,7 @@ class GateModelsTest(unittest.TestCase):
         agents.mkdir()
         (self.root / ".claude-plugin").mkdir()
         (self.root / ".claude-plugin/plugin.json").write_text(
-            '{"name": "karta", "version": "9.8.7"}\n')
+            '{"name": "karta", "version": "9.8.7"}\n', encoding="utf-8")
         for name, model, effort in (
             ("karta-acceptance-reviewer", "gpt-6-astra", "high"),
             ("karta-safety-auditor", "gpt-5.6-sol", "xhigh"),
@@ -34,7 +34,7 @@ class GateModelsTest(unittest.TestCase):
             (agents / f"{name}.md").write_text(
                 f"---\nname: {name}\ndescription: Review\ntools: Read, Glob, Grep, Bash\n"
                 f"model: opus\ncodex_model: {model}\neffort: {effort}\n"
-                "---\nRead the diff.\n")
+                "---\nRead the diff.\n", encoding="utf-8")
         for name, value in (
             ("ROOT", self.root), ("AGENTS", agents),
             ("CODEX_AGENTS", self.root / ".codex/agents"),
@@ -62,11 +62,11 @@ class GateModelsTest(unittest.TestCase):
     def test_check_rejects_missing_or_changed_plugin_models(self):
         for path, content in sync.projections().items():
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8")
         with patch("sys.argv", ["sync_codex_agents.py", "--check"]):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(sync.main(), 0)
-            self.manifest.write_text('{}\n')
+            self.manifest.write_text('{}\n', encoding="utf-8")
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(sync.main(), 1)
             self.assertIn("codex-gate-models.json", output.getvalue())
@@ -77,7 +77,7 @@ class GateModelsTest(unittest.TestCase):
 
     def test_missing_codex_model_never_falls_back_to_opus(self):
         path = self.root / "agents/karta-safety-auditor.md"
-        path.write_text(path.read_text().replace("codex_model: gpt-5.6-sol\n", ""))
+        path.write_text(path.read_text(encoding="utf-8").replace("codex_model: gpt-5.6-sol\n", ""), encoding="utf-8")
         with self.assertRaisesRegex(SystemExit, "missing frontmatter 'codex_model'"):
             sync.projections()
 
@@ -94,7 +94,7 @@ class GateModelsTest(unittest.TestCase):
             self.assertNotIn("codex_model", header)
             self.assertNotIn("effort", header)
             self.assertTrue(body.endswith("Read the diff."))
-            canonical, _ = sync.parse_agent((self.root / f"agents/{name}.md").read_text())
+            canonical, _ = sync.parse_agent((self.root / f"agents/{name}.md").read_text(encoding="utf-8"))
             self.assertEqual(canonical["model"], "opus")
 
     def test_copilot_plugin_selects_native_profiles_and_no_claude_hooks(self):
@@ -109,9 +109,9 @@ class GateModelsTest(unittest.TestCase):
     def test_copilot_profile_drift_is_reported(self):
         for path, content in sync.projections().items():
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8")
         profile = self.root / ".github/agents/karta-safety-auditor.agent.md"
-        profile.write_text(profile.read_text().replace('---\n', '---\nmodel: "gpt-5.6-sol"\n', 1))
+        profile.write_text(profile.read_text(encoding="utf-8").replace('---\n', '---\nmodel: "gpt-5.6-sol"\n', 1), encoding="utf-8")
         with patch("sys.argv", ["sync_codex_agents.py", "--check"]):
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(sync.main(), 1)
@@ -119,7 +119,7 @@ class GateModelsTest(unittest.TestCase):
 
     def test_copilot_reviewers_cannot_acquire_edit_tools(self):
         path = self.root / "agents/karta-safety-auditor.md"
-        path.write_text(path.read_text().replace("tools: Read", "tools: Read, Edit"))
+        path.write_text(path.read_text(encoding="utf-8").replace("tools: Read", "tools: Read, Edit"), encoding="utf-8")
         with self.assertRaisesRegex(SystemExit, "reviewer tools must stay read-only"):
             sync.projections()
 

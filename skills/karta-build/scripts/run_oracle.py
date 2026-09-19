@@ -60,15 +60,10 @@ def _truncate_utf8(s: str, max_bytes: int) -> str:
     b = s.encode("utf-8")
     if len(b) <= max_bytes:
         return s
-    # Binary-search-free: decode a shrinking prefix until it fits and is valid.
-    end = max_bytes
-    while end > 0:
-        chunk = b[:end]
-        try:
-            return chunk.decode("utf-8")
-        except UnicodeDecodeError:
-            end -= 1
-    return ""
+    # `b` is the UTF-8 encoding of `s`, so the only invalid bytes a cut can
+    # produce are the truncated tail of one codepoint — exactly what "ignore"
+    # drops. Equivalent to shrinking until the prefix decodes, without the loop.
+    return b[:max_bytes].decode("utf-8", "ignore")
 
 
 def _split_head_tail(combined: str, max_bytes: int) -> dict:
@@ -110,7 +105,7 @@ def _head_sha(cwd: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=10,
-        )
+         encoding="utf-8")
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
@@ -131,7 +126,7 @@ def _tree_sha(cwd: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=10,
-        )
+         encoding="utf-8")
     except (OSError, subprocess.SubprocessError):
         return None
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -161,7 +156,7 @@ def _tree_sha(cwd: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=30,
-        )
+         encoding="utf-8")
         if wt_proc.returncode != 0:
             return None
         return wt_proc.stdout.strip() or None
@@ -279,7 +274,7 @@ def _run_windows(command: str, cwd: Path, timeout: float) -> tuple[str, int, boo
             [sys.executable, "-I", "-S", "-c", _WINDOWS_GATE, shell_command],
             cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True,
-        )
+         encoding="utf-8")
         try:
             job.assign(proc)
         except BaseException:
@@ -356,7 +351,7 @@ def run_oracle(
                 stderr=subprocess.STDOUT,
                 text=True,
                 preexec_fn=os.setsid,
-            )
+             encoding="utf-8")
         except OSError as e:
             combined = f"failed to start command: {e}"
             exit_status = 2
@@ -558,7 +553,7 @@ def _run_self_test() -> int:
               not bad_cwd["success"] and bad_cwd["exit_status"] == 2)
         cli = subprocess.run(
             [sys.executable, str(Path(__file__).resolve()), "--cwd", str(tmp_root), "exit 7"],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, encoding="utf-8")
         check("CLI maps command nonzero to runner exit 1",
               cli.returncode == 1 and json.loads(cli.stdout)["exit_status"] == 7)
         if os.name == "nt":
@@ -581,7 +576,7 @@ def _run_self_test() -> int:
                      f'"{shell}" /d /s /c "{gate_command}"'],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT, text=True,
-                ) as gated:
+                 encoding="utf-8") as gated:
                     job = _WindowsJob()
                     try:
                         if released:
@@ -663,7 +658,7 @@ def _run_self_test() -> int:
                         time.sleep(0.02)
                     try:
                         for depth in range(3):
-                            pid = int((tmp_root / f"pid-{depth}").read_text())
+                            pid = int((tmp_root / f"pid-{depth}").read_text(encoding="utf-8"))
                             handle = api.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
                             if not handle:
                                 raise ctypes.WinError(ctypes.get_last_error())
@@ -710,7 +705,7 @@ def _run_self_test() -> int:
             cwd=str(repo_dir),
             capture_output=True,
             text=True,
-        )
+         encoding="utf-8")
         roundtrip_ok = False
         if show.returncode == 0:
             try:
@@ -729,20 +724,20 @@ def _run_self_test() -> int:
         subprocess.run(["git", "init", "-q"], cwd=str(tree_repo), check=True)
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(tree_repo), check=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tree_repo), check=True)
-        (tree_repo / "a").write_text("1")
+        (tree_repo / "a").write_text("1", encoding="utf-8")
         # Stage a real index entry BEFORE calling run_oracle, so the before/after
         # `git ls-files --stage` comparison below can catch the temp index leaking into
         # the real one — a bug that would otherwise pass silently.
         subprocess.run(["git", "add", "a"], cwd=str(tree_repo), check=True)
         stage_before = subprocess.run(
             ["git", "ls-files", "--stage"], cwd=str(tree_repo), capture_output=True, text=True, check=True
-        ).stdout
+        , encoding="utf-8").stdout
 
         rec_tree = run_oracle("echo tree-test", tree_repo, None, None, 30)
 
         stage_after = subprocess.run(
             ["git", "ls-files", "--stage"], cwd=str(tree_repo), capture_output=True, text=True, check=True
-        ).stdout
+        , encoding="utf-8").stdout
         check(
             "the temporary index never leaks into the real index",
             stage_before == stage_after,
@@ -757,16 +752,16 @@ def _run_self_test() -> int:
         subprocess.run(["git", "init", "-q"], cwd=str(leak_repo), check=True)
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(leak_repo), check=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=str(leak_repo), check=True)
-        (leak_repo / "tracked").write_text("1")
+        (leak_repo / "tracked").write_text("1", encoding="utf-8")
         subprocess.run(["git", "add", "tracked"], cwd=str(leak_repo), check=True)
         leak_before = subprocess.run(
             ["git", "ls-files", "--stage"], cwd=str(leak_repo), capture_output=True, text=True, check=True
-        ).stdout
-        (leak_repo / "untracked").write_text("2")
+        , encoding="utf-8").stdout
+        (leak_repo / "untracked").write_text("2", encoding="utf-8")
         subprocess.run(["git", "add", "-A"], cwd=str(leak_repo), check=True)  # deliberately unisolated
         leak_after = subprocess.run(
             ["git", "ls-files", "--stage"], cwd=str(leak_repo), capture_output=True, text=True, check=True
-        ).stdout
+        , encoding="utf-8").stdout
         check(
             "negative control: an unisolated git add -A DOES change the real index, so "
             "the no-leak check above is a genuine invariant and not one that would pass "
@@ -778,19 +773,19 @@ def _run_self_test() -> int:
         subprocess.run(["git", "commit", "-q", "-m", "one"], cwd=str(tree_repo), check=True)
         t1 = subprocess.run(
             ["git", "rev-parse", "HEAD^{tree}"], cwd=str(tree_repo), capture_output=True, text=True, check=True
-        ).stdout.strip()
+        , encoding="utf-8").stdout.strip()
         check(
             "tree_sha equals git rev-parse HEAD^{tree} for a working tree committed unchanged",
             bool(rec_tree["tree_sha"]) and rec_tree["tree_sha"] == t1,
             f"tree_sha={rec_tree['tree_sha']} t1={t1}",
         )
 
-        (tree_repo / "a").write_text("2")
+        (tree_repo / "a").write_text("2", encoding="utf-8")
         subprocess.run(["git", "add", "-A"], cwd=str(tree_repo), check=True)
         subprocess.run(["git", "commit", "-q", "-m", "two"], cwd=str(tree_repo), check=True)
         t2 = subprocess.run(
             ["git", "rev-parse", "HEAD^{tree}"], cwd=str(tree_repo), capture_output=True, text=True, check=True
-        ).stdout.strip()
+        , encoding="utf-8").stdout.strip()
         check(
             "tree_sha differs from a later commit's tree after a further edit (negative control)",
             rec_tree["tree_sha"] != t2,

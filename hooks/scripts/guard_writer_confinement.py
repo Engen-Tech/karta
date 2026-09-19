@@ -52,6 +52,16 @@ defense against tool-grant drift, like the NotebookEdit matcher).
 from __future__ import annotations
 import argparse, json, os, re, shlex, sys
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 WRITERS: dict[str, dict] = {
     "karta-kaizen": {
         "label": "kaizen",
@@ -669,7 +679,7 @@ def main() -> int:
         return _run_self_test()
     payload: dict = {}
     try:
-        raw = json.load(sys.stdin)
+        raw = json.loads(_read_stdin_text())
         if isinstance(raw, dict):
             payload = raw
     except Exception:  # noqa: BLE001

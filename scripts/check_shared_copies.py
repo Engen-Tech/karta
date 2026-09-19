@@ -16,7 +16,7 @@ SHARED = ROOT / "skills" / "_shared"
 
 def check() -> list[str]:
     errors: list[str] = []
-    shared = {p.relative_to(SHARED).as_posix(): p.read_text()
+    shared = {p.relative_to(SHARED).as_posix(): p.read_text(encoding="utf-8")
               for p in SHARED.rglob("*.md")}
     for skill_dir in sorted(p for p in (ROOT / "skills").iterdir() if p.is_dir()):
         if skill_dir.name == "_shared":
@@ -26,7 +26,7 @@ def check() -> list[str]:
             continue
         for ref in refs.rglob("*.md"):
             rel = ref.relative_to(refs).as_posix()
-            if rel in shared and ref.read_text() != shared[rel]:
+            if rel in shared and ref.read_text(encoding="utf-8") != shared[rel]:
                 errors.append(f"{ref.relative_to(ROOT)} drifted from skills/_shared/{rel}")
         # A references dir that mirrors a shared subdir (e.g. sme/) must carry
         # every file in it — a new shared file must land in all mirrors.

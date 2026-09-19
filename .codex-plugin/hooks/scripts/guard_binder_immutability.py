@@ -35,6 +35,16 @@ from __future__ import annotations
 import argparse, json, os, re, subprocess, sys
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 BINDER_RE = re.compile(r"(?:^|/)\.karta/binders/(?:archive/)?[^/]+\.json$")
 DIRECTIVE_RE = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$")
 
@@ -92,7 +102,7 @@ def _tracked_in_head(path: str, cwd: str) -> bool:
     abs_path = (Path(path) if os.path.isabs(path) else Path(cwd) / path).resolve()
     base = str(abs_path.parent) if abs_path.parent.is_dir() else cwd
     top = subprocess.run(["git", "-C", base, "rev-parse", "--show-toplevel"],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8")
     if top.returncode != 0:
         return False  # not a repo (or no git): nothing is committed here
     toplevel = Path(top.stdout.strip()).resolve()
@@ -100,7 +110,7 @@ def _tracked_in_head(path: str, cwd: str) -> bool:
     if rel.startswith(".."):
         return False  # outside the repo the tool call runs in
     out = subprocess.run(["git", "-C", str(toplevel), "ls-tree", "HEAD", "--", rel],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8")
     return out.returncode == 0 and bool(out.stdout.strip())
 
 
@@ -279,14 +289,14 @@ def _run_self_test() -> int:
         repo = Path(td)
 
         def git(*a: str) -> None:
-            subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+            subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8")
 
         git("init", "-q")
         (repo / ".karta" / "binders").mkdir(parents=True)
-        (repo / ".karta" / "binders" / "committed.json").write_text("{}\n")
+        (repo / ".karta" / "binders" / "committed.json").write_text("{}\n", encoding="utf-8")
         git("add", ".")
         git("-c", "user.email=karta@test", "-c", "user.name=karta", "commit", "-q", "-m", "seed")
-        (repo / ".karta" / "binders" / "draft.json").write_text("{}\n")
+        (repo / ".karta" / "binders" / "draft.json").write_text("{}\n", encoding="utf-8")
 
         git_cases = [
             ("git: committed binder update denied",
@@ -314,7 +324,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(_read_stdin_text())
         code, reason = decide(payload if isinstance(payload, dict) else {})
     except Exception:  # noqa: BLE001
         return 0  # fail open: a guard-internal error must never break the tool call

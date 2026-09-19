@@ -55,7 +55,7 @@ def _git_toplevel(start: Path) -> Path | None:
             text=True,
             capture_output=True,
             timeout=10,
-        )
+         encoding="utf-8")
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
@@ -162,7 +162,7 @@ def _git_init(path: Path) -> None:
         ["git", "config", "user.email", "karta@example.com"],
         ["git", "config", "user.name", "karta"],
     ):
-        subprocess.run(args, cwd=str(path), check=True, capture_output=True, text=True)
+        subprocess.run(args, cwd=str(path), check=True, capture_output=True, text=True, encoding="utf-8")
 
 
 def _refuses(document_root: Path) -> bool:

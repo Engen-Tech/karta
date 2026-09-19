@@ -43,6 +43,16 @@ from __future__ import annotations
 import argparse, fnmatch, json, re, shlex, subprocess, sys
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/hooks/ -> repo root
 GATE_TIMEOUT = 100   # default seconds per gate; a hung gate is a failed gate, not a
                      # stall. The budget exists to catch a hang, never to rank
@@ -950,7 +960,7 @@ def _subprocess_runner(name: str, argv: list[str]) -> tuple[int, str]:
     """Run one gate from the repo root; stdout+stderr interleaved."""
     try:
         proc = subprocess.run(argv, cwd=ROOT, text=True, timeout=_gate_timeout(name),
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8")
         return proc.returncode, proc.stdout or ""
     except subprocess.TimeoutExpired as e:
         out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
@@ -977,7 +987,7 @@ def _real_git(root: Path, args: list[str]) -> tuple[int, str]:
     """Run one read-only git plumbing command from `root`; never raises."""
     try:
         proc = subprocess.run(["git", "-C", str(root), *args], text=True,
-                              capture_output=True, timeout=GATE_TIMEOUT)
+                              capture_output=True, timeout=GATE_TIMEOUT, encoding="utf-8")
         return proc.returncode, (proc.stdout or "")
     except (OSError, subprocess.TimeoutExpired):
         return 1, ""
@@ -1038,7 +1048,7 @@ def _new_version(command: str, git, root: Path, worktree_mode: bool) -> str | No
     else the staged blob. None when it cannot be read (block stays disarmed)."""
     if worktree_mode:
         try:
-            return _json_version((root / PLUGIN_JSON).read_text())
+            return _json_version((root / PLUGIN_JSON).read_text(encoding="utf-8"))
         except OSError:
             return None
     code, out = git(["show", f":{PLUGIN_JSON}"])
@@ -1075,7 +1085,7 @@ def _release_block(command: str, git, root: Path) -> str | None:
         # gate file would read as unstaged.
         rel = p.relative_to(root).as_posix()
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8", errors="replace"))
         except (OSError, ValueError):
             seen.setdefault("malformed", rel)
             continue
@@ -1569,7 +1579,7 @@ def _run_self_test() -> int:
     for cfg, needle in ((ROOT / ".claude/settings.json", "precommit_gate.py"),
                         (ROOT / ".codex/hooks.json", "codex_precommit_gate.py")):
         try:
-            hooks_conf = json.loads(cfg.read_text(encoding="utf-8"))
+            hooks_conf = json.loads(cfg.read_text(encoding="utf-8", errors="replace"))
             outer = min(h["timeout"] for grp in hooks_conf["hooks"].values()
                         for m in grp for h in m["hooks"]
                         if needle in h.get("command", ""))
@@ -1598,13 +1608,13 @@ def _run_self_test() -> int:
         (root / ".claude-plugin").mkdir(parents=True)
         wt = worktree_ver if worktree_ver is not None else (
             staged_ver if staged_ver is not None else head_ver)
-        (root / PLUGIN_JSON).write_text(json.dumps({"version": wt}))
+        (root / PLUGIN_JSON).write_text(json.dumps({"version": wt}), encoding="utf-8")
         gdir = root / GATE_RESULTS_REL
         gdir.mkdir(parents=True)
         for name, content in gate_files:
-            (gdir / name).write_text(content if isinstance(content, str) else json.dumps(content))
+            (gdir / name).write_text(content if isinstance(content, str) else json.dumps(content), encoding="utf-8")
         for name in partials:
-            (gdir / name).write_text(json.dumps(gate_doc(head_ver, head_sha, only=["one-vector"])))
+            (gdir / name).write_text(json.dumps(gate_doc(head_ver, head_sha, only=["one-vector"])), encoding="utf-8")
         sver = staged_ver if staged_ver is not None else head_ver
 
         def git(args):
@@ -1724,7 +1734,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     import os
-    code, message = hook_main(sys.stdin.read(), os.environ, _subprocess_runner)
+    code, message = hook_main(_read_stdin_text(), os.environ, _subprocess_runner)
     if message:
         print(message, file=sys.stderr)
     return code

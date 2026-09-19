@@ -66,6 +66,16 @@ other.
 from __future__ import annotations
 import argparse, json, os, re, subprocess, sys
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 # The original's identity key set, plus task_name (the fallback-agent task label).
 IDENTITY_KEYS = ("subagent_type", "agent_type", "agent", "agent_name", "name",
                  "task_name")
@@ -367,12 +377,12 @@ def _run_self_test() -> int:
         run("git", "init", "-q", cwd=repo)
         run("git", "config", "user.email", "t@example.com", cwd=repo)
         run("git", "config", "user.name", "t", cwd=repo)
-        (Path(repo) / "a.txt").write_text("one\n")
+        (Path(repo) / "a.txt").write_text("one\n", encoding="utf-8")
         run("git", "add", "-A", cwd=repo)
         run("git", "commit", "-q", "-m", "base", cwd=repo)
         run("git", "branch", "base", cwd=repo)
-        (Path(repo) / "a.txt").write_text("one\ntwo\n")
-        (Path(repo) / "b.txt").write_text("new file\n")
+        (Path(repo) / "a.txt").write_text("one\ntwo\n", encoding="utf-8")
+        (Path(repo) / "b.txt").write_text("new file\n", encoding="utf-8")
         run("git", "add", "-A", cwd=repo)
         run("git", "commit", "-q", "-m", "feature", cwd=repo)
         run("git", "branch", "feature", cwd=repo)
@@ -398,7 +408,7 @@ def _run_self_test() -> int:
         trio = str(Path(td) / "trio")
         shutil.copytree(repo, trio)
         trio_file_punct = trio + ";"
-        Path(trio_file_punct).write_text("not a tree\n")
+        Path(trio_file_punct).write_text("not a tree\n", encoding="utf-8")
 
         real_files, real_bytes = _diff_stat(repo, "base..feature")
         good_size_line = f"Diff-size: {real_files} files, {real_bytes} bytes"
@@ -600,7 +610,7 @@ def _run_self_test() -> int:
             [sys.executable, __file__],
             input=json.dumps(dispatch("review the item",
                                       subagent="karta-acceptance-reviewer")),
-            capture_output=True, text=True, env=child_env)
+            capture_output=True, text=True, env=child_env, encoding="utf-8")
         try:
             out = json.loads(denied.stdout)
         except json.JSONDecodeError:
@@ -616,12 +626,12 @@ def _run_self_test() -> int:
         allowed = subprocess.run(
             [sys.executable, __file__],
             input=json.dumps(dispatch("build item a", subagent="karta-build")),
-            capture_output=True, text=True, env=child_env)
+            capture_output=True, text=True, env=child_env, encoding="utf-8")
         flag("hook-mode pass emits nothing on stdout",
              allowed.returncode == 0 and not allowed.stdout.strip())
         mangled = subprocess.run(
             [sys.executable, __file__], input="{ not json",
-            capture_output=True, text=True, env=child_env)
+            capture_output=True, text=True, env=child_env, encoding="utf-8")
         flag("hook-mode unreadable payload passes silently (unrecognized shape)",
              mangled.returncode == 0 and not mangled.stdout.strip())
 
@@ -639,7 +649,7 @@ def main() -> int:
         return _run_self_test()
     payload: dict = {}
     try:
-        raw = json.load(sys.stdin)
+        raw = json.loads(_read_stdin_text())
         if isinstance(raw, dict):
             payload = raw
     except Exception:  # noqa: BLE001
