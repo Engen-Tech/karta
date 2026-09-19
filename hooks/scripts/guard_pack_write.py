@@ -33,6 +33,29 @@ PACK_RE = re.compile(r"(?:^|/)\.karta/sme/.+\.md$")
 VALIDATOR_REL = Path("skills") / "karta-kaizen" / "scripts" / "validate_packs.py"
 
 
+def _os_spelling(path: str, cwd: str) -> str:
+    """The spelling the OS will actually open, in git's forward-slash form.
+
+    A literal match on the typed path is the fact on POSIX, where open() opens
+    exactly what was typed — only separators are normalised. On Windows it is
+    not: a write resolves case-insensitively (`.Karta`), strips trailing dots
+    and spaces from the last component (`x.md.`), and accepts 8.3 short names
+    (`KARTA~1`) — spellings that reach a real pack while sailing past the
+    pattern, which here means a pack written with no validation at all.
+    abspath() applies the dot/space cleanup the OS will apply, realpath()
+    returns existing components in their true long-name casing, and the
+    lowercase fold covers components that do not exist yet — matched against
+    an all-lowercase pattern, that is NTFS's own equivalence."""
+    if os.name != "nt":
+        return path.replace("\\", "/")
+    p = path if os.path.isabs(path) else os.path.join(cwd or ".", path)
+    try:
+        p = os.path.realpath(os.path.abspath(p))
+    except (OSError, ValueError):
+        pass
+    return p.replace(os.sep, "/").lower()
+
+
 def _resolve_rel(rel: Path) -> Path | None:
     """Resolve a plugin-relative path via CLAUDE_PLUGIN_ROOT, else this script's own
     plugin root — the idiom the validator lookup uses."""
@@ -62,14 +85,19 @@ def decide(payload: dict) -> tuple[int, str]:
     """Return (exit_code, stderr_message)."""
     tool_input = payload.get("tool_input")
     target = tool_input.get("file_path") if isinstance(tool_input, dict) else None
-    if not isinstance(target, str) or not PACK_RE.search(target.replace("\\", "/")):
+    if not isinstance(target, str):
+        return 0, ""
+    cwd = payload.get("cwd") or os.getcwd()
+    spelled = _os_spelling(target, cwd)
+    if not PACK_RE.search(spelled):
         return 0, ""
     validator = _validator_path()
     if validator is None:
         return 0, ""  # fail open: no validator to consult
-    cwd = payload.get("cwd") or os.getcwd()
 
-    basename = Path(target.replace("\\", "/")).name
+    # The canonical basename, so a `terraform.md.` write is validated as the
+    # `terraform.md` the OS will create, not as a name no stack could match.
+    basename = Path(spelled).name
 
     if payload.get("hook_event_name") == "PreToolUse":
         if payload.get("tool_name") != "Write":
@@ -92,7 +120,7 @@ def decide(payload: dict) -> tuple[int, str]:
 
     # PostToolUse (Edit|Write): the pack is already on disk — validate it and, on
     # failure, feed the findings back so the model must repair it before moving on.
-    abs_target = Path(target) if os.path.isabs(target) else Path(cwd) / target
+    abs_target = Path(spelled) if os.path.isabs(spelled) else Path(cwd) / spelled
     if not abs_target.is_file():
         return 0, ""
     rc, findings = _run_validator(validator, abs_target)
@@ -174,6 +202,18 @@ def _run_self_test() -> int:
              {"hook_event_name": "PostToolUse", "tool_name": "Write", "cwd": cwd,
               "tool_input": "junk"}, 0, None),
         ]
+        if os.name == "nt":
+            # Spellings Windows resolves to a real pack while a literal match
+            # would skip validation entirely — the unvalidated-write bypass.
+            cases += [
+                ("Windows: case-variant pack spelling is still validated",
+                 pre_write(".Karta/SME/terraform.md", _INVALID_PACK), 2, "frontmatter"),
+                ("Windows: a trailing dot is stripped by the OS, not by the pattern",
+                 pre_write(".karta/sme/terraform.md.", _INVALID_PACK), 2, "frontmatter"),
+                ("Windows: the canonical basename is what gets validated, so a "
+                 "trailing-dot spelling of a valid pack still passes",
+                 pre_write(".karta/sme/terraform.md.", _VALID_PACK), 0, None),
+            ]
         failures = 0
         for name, payload, want, needle in cases:
             code, msg = decide(payload)

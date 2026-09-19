@@ -110,17 +110,27 @@ def decide(payload: dict) -> tuple[int, str]:
     cwd = payload.get("cwd") or os.getcwd()
     target_path = Path(target.replace("\\", "/"))
     abs_target = target_path if target_path.is_absolute() else Path(cwd) / target_path
+    # On Windows both forms are matched in the OS's own equivalence: abspath()
+    # already strips the trailing dots and spaces a write would strip, resolve()
+    # returns existing components in their true long-name casing (and expands
+    # 8.3 short names like KARTA~1), and the lowercase fold covers what does
+    # not exist yet. Without this, `.Karta/sme/x.md` or `x.md.` reaches a real
+    # pack with no validation at all. POSIX matches the typed spelling — there
+    # it IS what open() opens.
+    fold = (lambda s: s.lower()) if os.name == "nt" else (lambda s: s)
     logical_target = Path(os.path.abspath(abs_target))
-    if not PACK_RE.search(logical_target.as_posix()):
+    if not PACK_RE.search(fold(logical_target.as_posix())):
         # An alias into packs is a pack write too. Preserve logical pack paths
         # otherwise: .karta/sme may itself be a symlink to shared pack storage.
         abs_target = abs_target.resolve()
-        if not PACK_RE.search(abs_target.as_posix()):
+        if not PACK_RE.search(fold(abs_target.as_posix())):
             return 0, ""
     validator = _validator_path()
     if validator is None:
         return 0, ""  # fail open: no validator to consult
-    basename = abs_target.name
+    # The canonical basename (dot/space cleanup via abspath, NTFS case fold), so
+    # a `terraform.md.` write is validated as the `terraform.md` the OS creates.
+    basename = fold(logical_target.name)
 
     if payload.get("hook_event_name") == "PreToolUse":
         if payload.get("tool_name") != "Write":
@@ -143,9 +153,12 @@ def decide(payload: dict) -> tuple[int, str]:
 
     # PostToolUse (Edit|Write): the pack is already on disk — validate it and, on
     # failure, feed the findings back so the model must repair it before moving on.
-    if not abs_target.is_file():
+    # The logical (dot/space-cleaned) path names the file the write actually made;
+    # handing the validator a dotted spelling would fail its basename check.
+    disk_target = logical_target if logical_target.is_file() else abs_target
+    if not disk_target.is_file():
         return 0, ""
-    rc, findings = _run_validator(validator, abs_target)
+    rc, findings = _run_validator(validator, disk_target)
     if rc != 0:
         return 2, (
             f"karta: '{target}' is a stack pack and the content now on disk fails "
@@ -319,6 +332,18 @@ def _run_self_test() -> int:
                  pre_write("alias/broken.md", _INVALID_PACK), 2, "frontmatter"),
                 ("pack file symlink retains logical basename check",
                  post("Write", ".karta/sme/alias.md"), 2, "basename"),
+            ])
+        if os.name == "nt":
+            # Spellings Windows resolves to a real pack while a literal match
+            # would skip validation entirely — the unvalidated-write bypass.
+            cases.extend([
+                ("Windows: case-variant pack spelling is still validated",
+                 pre_write(".Karta/SME/terraform.md", _INVALID_PACK), 2, "frontmatter"),
+                ("Windows: a trailing dot is stripped by the OS, not by the pattern",
+                 pre_write(".karta/sme/terraform.md.", _INVALID_PACK), 2, "frontmatter"),
+                ("Windows: the canonical basename is what gets validated, so a "
+                 "trailing-dot spelling of a valid pack still passes",
+                 pre_write(".karta/sme/terraform.md.", _VALID_PACK), 0, None),
             ])
         failures = 0
         for name, payload, want, needle in cases:

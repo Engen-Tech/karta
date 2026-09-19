@@ -39,6 +39,29 @@ BINDER_RE = re.compile(r"(?:^|/)\.karta/binders/(?:archive/)?[^/]+\.json$")
 DIRECTIVE_RE = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$")
 
 
+def _os_spelling(path: str, cwd: str) -> str:
+    """The spelling the OS will actually open, in git's forward-slash form.
+
+    A literal match on the typed path is the fact on POSIX, where open() opens
+    exactly what was typed — only separators are normalised. On Windows it is
+    not: a write resolves case-insensitively (`.Karta`), strips trailing dots
+    and spaces from the last component (`x.json.`), and accepts 8.3 short
+    names (`KARTA~1`), so all of those reach the file this guard protects
+    while sailing past the pattern. abspath() applies the dot/space cleanup
+    the OS will apply, realpath() returns existing components in their true
+    long-name casing, and the lowercase fold covers components that do not
+    exist yet — matched against an all-lowercase pattern, that is NTFS's own
+    equivalence."""
+    if os.name != "nt":
+        return path.replace("\\", "/")
+    p = path if os.path.isabs(path) else os.path.join(cwd or ".", path)
+    try:
+        p = os.path.realpath(os.path.abspath(p))
+    except (OSError, ValueError):
+        pass
+    return p.replace(os.sep, "/").lower()
+
+
 def parse_patch_ops(text: str) -> list[dict]:
     """apply_patch body -> [{op, path, move_to, changed}]. `changed` is True when
     the op carries content hunks (+/- lines); a pure rename has none. Content
@@ -113,7 +136,7 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     for key in ("file_path", "notebook_path"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
-            if BINDER_RE.search(val.replace("\\", "/")) and tracked(val, cwd):
+            if BINDER_RE.search(_os_spelling(val, cwd)) and tracked(val, cwd):
                 return _deny(val, "overwrite")
             return 0, ""
 
@@ -123,8 +146,11 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     if not isinstance(raw, str) or "*** " not in raw:
         return 0, ""
     for op in parse_patch_ops(raw):
-        src = op["path"].replace("\\", "/")
-        dst = op["move_to"].replace("\\", "/") if isinstance(op["move_to"], str) else None
+        # The canonical spellings do all the matching and comparing below; the
+        # deny reasons keep op["path"] so the message names what was typed.
+        src = _os_spelling(op["path"], cwd)
+        dst = (_os_spelling(op["move_to"], cwd)
+               if isinstance(op["move_to"], str) else None)
         src_is_binder = bool(BINDER_RE.search(src))
         if op["op"] == "Add File":
             if src_is_binder and tracked(op["path"], cwd):
@@ -223,6 +249,23 @@ def _run_self_test() -> int:
          {"hook_event_name": "PreToolUse", "tool_name": "apply_patch",
           "tool_input": "junk"}, tracked, 0),
     ]
+    if os.name == "nt":
+        # The spellings Windows resolves to the protected file while a literal
+        # match waves them through. 8.3 short names (KARTA~1) are covered by the
+        # same realpath call but need the component to exist, so they have no
+        # portable fixture here.
+        cases += [
+            ("Windows: case-variant patch spelling reaches the same binder — denied",
+             patch("*** Update File: .Karta/Binders/checkout.json", "@@", "-a", "+b"),
+             tracked, 2),
+            ("Windows: a trailing dot is stripped by the OS, not by the pattern — denied",
+             patch("*** Update File: .karta/binders/checkout.json.", "@@", "-a", "+b"),
+             tracked, 2),
+            ("Windows: case-variant file_path spelling — denied",
+             {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
+              "tool_input": {"file_path": ".Karta/binders/checkout.json ",
+                             "content": "{}"}}, tracked, 2),
+        ]
     failures = 0
     for name, payload, probe, want in cases:
         code, reason = decide(payload, tracked=probe)
