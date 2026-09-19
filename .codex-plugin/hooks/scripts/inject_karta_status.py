@@ -374,7 +374,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
     @contextlib.contextmanager
     def temp_store():
         saved = os.environ.get("KARTA_WATCH_STATE_DIR")
-        with tempfile.TemporaryDirectory() as sd:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as sd:
             os.environ["KARTA_WATCH_STATE_DIR"] = sd
             try:
                 yield Path(sd)
@@ -508,7 +508,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
                            and recorded.get("retries") == 2))
 
         # -- e2e: not opted in — output byte-identical to the pure pipeline --
-        with temp_store(), tempfile.TemporaryDirectory() as td:
+        with temp_store(), tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             bd = Path(td) / ".karta" / "binders"
             bd.mkdir(parents=True)
             (bd / "s-a.json").write_text(
@@ -594,8 +594,10 @@ def _run_self_test() -> int:
     sys.dont_write_bytecode = True
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     # Keep every subprocess this test spawns — and the ensure children those
-    # fire — off the real per-user watch store.
-    _watch_sd = tempfile.TemporaryDirectory()
+    # fire — off the real per-user watch store. Every temp dir here tolerates a
+    # failed cleanup: on Windows a child this test spawned can still hold a handle
+    # in it when the block exits (WinError 32), which is not a test failure.
+    _watch_sd = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
     _saved_sd = os.environ.get("KARTA_WATCH_STATE_DIR")
     os.environ["KARTA_WATCH_STATE_DIR"] = _watch_sd.name
     checks: list[tuple[str, bool]] = []
@@ -668,7 +670,7 @@ def _run_self_test() -> int:
                    len(wrapped.splitlines()) <= MAX_LINES
                    and len(big.splitlines()) <= MAX_LINES))
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         binders_dir = Path(td) / ".karta" / "binders"
         binders_dir.mkdir(parents=True)
         (binders_dir / "s-a.json").write_text(json.dumps(_binder_fixture("s-a", ["minimalism"])))
@@ -682,7 +684,7 @@ def _run_self_test() -> int:
         static_e2e = summarize(loaded, derive_state(td))
         checks.append(("degraded summary still emits", any("s-a" in ln for ln in static_e2e)))
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         binders_dir = Path(td) / ".karta" / "binders"
         binders_dir.mkdir(parents=True)
         (binders_dir / "s-a.json").write_text(json.dumps(_binder_fixture("s-a", ["minimalism"])))
@@ -706,7 +708,7 @@ def _run_self_test() -> int:
     checks.append(("the copied fixed parent depth would NOT resolve (walk required)",
                    not (fixed_depth / "skills" / "karta-status" / "scripts").is_dir()))
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         binders_dir = Path(td) / ".karta" / "binders"
         binders_dir.mkdir(parents=True)
         (binders_dir / "good.json").write_text(json.dumps(_binder_fixture("good-slug", [])))

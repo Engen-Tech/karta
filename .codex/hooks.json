@@ -38,7 +38,7 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/codex_precommit_gate.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 600
+            "timeout": 900
           }
         ]
       }

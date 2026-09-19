@@ -76,6 +76,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -5611,6 +5612,17 @@ class _HubServer(ThreadingHTTPServer):
     """The hub's server: loopback-bound, carrying the context the handler
     reads (token, state dir, startup identity, rotating logger, engines)."""
     daemon_threads = True
+    # On Windows SO_REUSEADDR is a hijack, not a TIME_WAIT courtesy: a second
+    # process may bind an actively-listening port, so bind would stop being the
+    # revival mutex _run_hub relies on. SO_EXCLUSIVEADDRUSE restores the refusal
+    # (WSAEADDRINUSE, which Python maps to errno.EADDRINUSE) POSIX gives anyway.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET,
+                                   socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def __init__(self, addr, handler, *, token: str, state_dir: Path,
                  identity: dict, logger: logging.Logger):
@@ -5810,6 +5822,17 @@ def _probe_hub(port: int, token: str,
     """
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
+        # Connect first, on its own, so a connect-phase failure is never read as
+        # a stalling responder. Refusal is dead everywhere; a connect TIMEOUT is
+        # dead too, because this is loopback — a firewall in stealth mode (the
+        # Windows default) DROPS the SYN to a closed port instead of resetting
+        # it, so on such hosts a dead port never refuses, it only times out.
+        # Nothing accepted, so nothing is listening; a stall after the connect
+        # succeeded still classifies foreign below.
+        try:
+            conn.connect()
+        except (ConnectionRefusedError, TimeoutError):
+            return ("dead", None)
         conn.request("GET", "/identity?key=" + token,
                      headers={"Host": f"127.0.0.1:{port}"})
         resp = conn.getresponse()
@@ -17464,7 +17487,7 @@ def _coverage_context() -> dict:
             }
     font_manifest = (json.loads(FONT_MANIFEST.read_text(encoding="utf-8"))
                      if FONT_MANIFEST.is_file() else {"faces": [], "families": {}})
-    asset_scripts = sorted(str(p.relative_to(ASSETS_DIR))
+    asset_scripts = sorted(p.relative_to(ASSETS_DIR).as_posix()
                            for p in ASSETS_DIR.rglob("*.js"))
 
     poll_ms = int(re.search(r"const REFRESH_MS = (\d+);", _build_app_js(state)).group(1))
@@ -17682,7 +17705,8 @@ def _coverage_self_test_checks() -> list[tuple[str, bool]]:
             if survived:
                 never_failed.append(name + "#" + str(i))
     checks += [
-        ("coverage: every registered check passes against the true render",
+        ("coverage: every registered check passes against the true render"
+         + ("" if not never_passed else f" — failing: {never_passed}"),
          not never_passed),
         ("coverage: every registered check FAILS against a deliberately broken "
          "render of the behaviour it guards", not never_failed),

@@ -212,6 +212,29 @@ def _self_test() -> int:
         total += 1
         failures += 0 if ok else 1
 
+    import contextlib, os
+
+    @contextlib.contextmanager
+    def homeless_user():
+        """Make `~nosuchuser0987` raise on expanduser, as it does on POSIX. Windows never
+        raises there — it guesses a sibling of the current home — so without this cases
+        14 and 15 would test a path that resolves, not one that cannot."""
+        if os.name != "nt":
+            yield
+            return
+        real = Path.expanduser
+
+        def expanduser(self: Path) -> Path:
+            if str(self).startswith("~nosuchuser0987"):
+                raise RuntimeError("Could not determine home directory.")
+            return real(self)
+
+        Path.expanduser = expanduser  # type: ignore[method-assign]
+        try:
+            yield
+        finally:
+            Path.expanduser = real  # type: ignore[method-assign]
+
     with tempfile.TemporaryDirectory() as td:
         root = Path(td).resolve()
         good_bytes = b"<!doctype html><title>ok</title>"
@@ -435,7 +458,8 @@ def _self_test() -> int:
         #     raises RuntimeError for a ~user with no home. The check promises a return, so
         #     that is an ordinary error; the compliant twin is the same call on a real root.
         try:
-            code, lines = evaluate(exp, pin_file, Path("~nosuchuser0987/x"))
+            with homeless_user():
+                code, lines = evaluate(exp, pin_file, Path("~nosuchuser0987/x"))
         except Exception as e:  # the traceback this guard exists to stop
             code, lines = -1, [f"raised {e!r}"]
         bad_root_ok = code == 1 and "could not be resolved" in "\n".join(lines)
@@ -451,7 +475,8 @@ def _self_test() -> int:
         #     the same failure — resolve_design_file expanduser()s, so a ~user with no home
         #     raises RuntimeError — so it gets the same paired fixture.
         try:
-            code, lines = evaluate(Path("~nosuchuser0987/x.html"), pin_file, root)
+            with homeless_user():
+                code, lines = evaluate(Path("~nosuchuser0987/x.html"), pin_file, root)
         except Exception as e:  # the traceback this guard exists to stop
             code, lines = -1, [f"raised {e!r}"]
         bad_design_ok = code == 1 and "could not be resolved" in "\n".join(lines)

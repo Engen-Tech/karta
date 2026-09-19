@@ -91,7 +91,9 @@ RANGE_TOKEN_RE = re.compile(rf"(?<![A-Za-z0-9_/.~^-])({_REV}\.\.\.?{_REV})")
 # bare dot — and anything else falls back to the payload cwd rather than denying on a
 # worktree the brief never named.
 WORKTREE_RE = re.compile(r"\bworktree\b\s*([:=])?\s*(\S+)", re.I)
-_PATHLIKE = re.compile(r"^(\.\.?/|\.\.?$|~|/)")
+# Windows forms count too — `C:\wt`, `C:/wt`, `\\host\share`, `.\wt` — or a Windows
+# brief naming its worktree reads as prose and is judged against the payload cwd.
+_PATHLIKE = re.compile(r"^(\.\.?[/\\]|\.\.?$|~|[/\\]|[A-Za-z]:[/\\])")
 # The exact string "Diff-size:" is a shared term — case-sensitive, verbatim.
 DIFF_SIZE_RE = re.compile(r"Diff-size:\s*(\d+)\s*files?,\s*(\d+)\s*bytes?")
 
@@ -131,6 +133,18 @@ def _unquote(tok: str) -> str:
     return tok
 
 
+def _exists_as_written(path: str) -> bool:
+    """lexists, except that on Windows a name ending in a dot is never found: Win32
+    strips trailing dots, so `C:/wt.` opens `C:/wt` — a name the brief did not write.
+    Treating it as absent keeps the rule the same on every platform: a path ending in a
+    full stop is denied, not guessed at. `.` and `..` are path syntax and unaffected."""
+    if os.name == "nt":
+        last = os.path.basename(path.rstrip("/\\"))
+        if last.endswith(".") and last not in (".", ".."):
+            return False
+    return os.path.lexists(path)
+
+
 def _extract_worktree(text: str, cwd: str) -> str | None:
     for m in WORKTREE_RE.finditer(text):
         # Every character scrubbed here — quotes, `;,:)]` — is legal in a POSIX name, so
@@ -168,14 +182,15 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
         # separator itself over as the token — an explicit separator that names nothing
         # readable, which is malformed, not prose.
         names_something = (sep is not None or raw in (":", "=") or raw[0] in "\"'([{<"
-                           or "/" in raw or bool(_PATHLIKE.search(raw.strip(_WRAP_PUNCT))))
+                           or "/" in raw or "\\" in raw
+                           or bool(_PATHLIKE.search(raw.strip(_WRAP_PUNCT))))
         tok = raw
         first_pathlike = None
         while tok:
             cand = _unquote(tok)
             if cand and _PATHLIKE.search(cand):
                 full = os.path.join(cwd, cand)
-                if os.path.lexists(full):
+                if _exists_as_written(full):
                     return full
                 if first_pathlike is None:
                     first_pathlike = full
@@ -194,6 +209,8 @@ def _extract_worktree(text: str, cwd: str) -> str | None:
 
 def _diff_has_changes(worktree: str, diff_range: str) -> bool | None:
     """True = changes present, False = empty diff, None = unresolvable (deny)."""
+    if not _exists_as_written(worktree):
+        return None  # git -C on Windows would open a trailing-dot name as its sibling
     try:
         proc = subprocess.run(["git", "-C", worktree, "diff", "--quiet", diff_range],
                                capture_output=True, timeout=GIT_TIMEOUT)
@@ -208,6 +225,8 @@ def _diff_has_changes(worktree: str, diff_range: str) -> bool | None:
 
 def _diff_stat(worktree: str, diff_range: str) -> tuple[int, int] | None:
     """Recompute (files, bytes) the way the brief's Diff-size line is supposed to."""
+    if not _exists_as_written(worktree):
+        return None
     try:
         names = subprocess.run(["git", "-C", worktree, "diff", "--name-only", diff_range],
                                 capture_output=True, timeout=GIT_TIMEOUT)
@@ -362,7 +381,8 @@ def _run_self_test() -> int:
         # "v2.31.0..HEAD" was read as "0..HEAD" and a legitimate dispatch was denied.
         run("git", "branch", "release/2.31.0", "feature", cwd=repo)
         # A real directory whose name genuinely ends in dots, so the case below tests what
-        # its name says rather than passing for the traversal case's reason.
+        # its name says rather than passing for the traversal case's reason. Windows cannot
+        # hold such a name (the mkdir makes `release`), so there the mention is denied.
         (Path(repo) / "release..").mkdir()
         # A real directory named with trailing clause punctuation, carrying repo's
         # branches, beside a sibling WITHOUT them. If the guard strips the `;` it lands
@@ -424,7 +444,8 @@ def _run_self_test() -> int:
                        f"{good_size_line}", worktree=missing_dir), 0, None)
         check("an ordinary directory whose name ends in dots is left alone",
               dispatch(f"worktree {repo}/release.. diff range base..feature. "
-                       f"{good_size_line}", worktree=missing_dir), 0, None)
+                       f"{good_size_line}", worktree=missing_dir),
+              2 if os.name == "nt" else 0, None)
         check("a directory whose name ends in clause punctuation is used as written, not "
               "stripped to its sibling",
               dispatch(f"worktree {twin_punct} diff range base..feature. {good_size_line}",
