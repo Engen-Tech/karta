@@ -45,6 +45,16 @@ from __future__ import annotations
 import argparse, hashlib, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 SENTINEL_NAME = "karta-stop-gate.json"
 SENTINEL_MAX_SESSIONS = 20
 REF_STATES = ("built", "done", "failed")
@@ -63,7 +73,7 @@ COMPLETE_UNARCHIVED_MSG = (
 
 def _git(repo: str | Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(repo), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8")
 
 
 def _repo_root(cwd: str) -> str | None:
@@ -96,7 +106,7 @@ def _binder_item_ids(root: str, slug: str) -> list[str] | None:
     live = Path(root) / ".karta" / "binders" / f"{slug}.json"
     if live.is_file():
         try:
-            raw = live.read_text()
+            raw = live.read_text(encoding="utf-8")
         except OSError:
             return None
     else:
@@ -167,7 +177,7 @@ def _sentinel_path(root: str) -> Path | None:
 
 def _load_sentinel(path: Path) -> dict[str, str]:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     if not isinstance(data, dict):
@@ -241,7 +251,7 @@ def decide(payload: object) -> tuple[int, str]:
     if not findings:
         return 0, ""
     fingerprint = hashlib.sha256(
-        json.dumps(sorted(findings)).encode()).hexdigest()
+        json.dumps(sorted(findings)).encode("utf-8")).hexdigest()
     sentinel = _sentinel_path(root)
     if sentinel is None:
         return 0, ""  # cannot do block-once safely — fail open
@@ -275,13 +285,13 @@ def _run_self_test() -> int:
         return subprocess.run(
             ["git", "-C", str(repo), "-c", "user.email=karta@test",
              "-c", "user.name=karta", "-c", "commit.gpgsign=false", *a],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8")
 
     def init_repo(td: str, name: str) -> Path:
         repo = Path(td) / name
         repo.mkdir()
         git(repo, "init", "-q", "-b", "main")
-        (repo / "README.md").write_text("seed\n")
+        (repo / "README.md").write_text("seed\n", encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "seed")
         return repo
@@ -292,7 +302,7 @@ def _run_self_test() -> int:
         d.mkdir(parents=True, exist_ok=True)
         body = "{not json" if malformed else json.dumps(
             {"slug": slug, "work_items": [{"id": i} for i in ids]})
-        (d / f"{slug}.json").write_text(body)
+        (d / f"{slug}.json").write_text(body, encoding="utf-8")
         if commit:
             git(repo, "add", ".")
             git(repo, "commit", "-q", "-m", f"binder {slug}")
@@ -334,7 +344,7 @@ def _run_self_test() -> int:
         d = repo / ".karta" / "binders" / "archive"
         d.mkdir(parents=True)
         (d / "old.json").write_text(json.dumps(
-            {"slug": "old", "work_items": [{"id": "a"}]}))
+            {"slug": "old", "work_items": [{"id": "a"}]}), encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "archive old")
         set_ref(repo, "old", "a", "built")
@@ -401,7 +411,7 @@ def _run_self_test() -> int:
         d = repo / ".karta" / "binders" / "archive"
         d.mkdir()
         (d / "comp.json").write_text(
-            (repo / ".karta" / "binders" / "comp.json").read_text())
+            (repo / ".karta" / "binders" / "comp.json").read_text(encoding="utf-8"), encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "archive comp (copy in HEAD)")
         check("archive present in HEAD allows", stop(repo), 0)
@@ -495,7 +505,7 @@ def _run_self_test() -> int:
         allowed = subprocess.run(
             [sys.executable, __file__],
             input=json.dumps({"hook_event_name": "Stop"}),
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8")
         try:
             allowed_output = json.loads(allowed.stdout)
         except json.JSONDecodeError:
@@ -505,7 +515,7 @@ def _run_self_test() -> int:
 
         malformed = subprocess.run(
             [sys.executable, __file__], input="{not json",
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8")
         try:
             malformed_output = json.loads(malformed.stdout)
         except json.JSONDecodeError:
@@ -526,7 +536,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(_read_stdin_text())
         code, reason = decide(payload)
     except Exception:  # noqa: BLE001
         print("{}")

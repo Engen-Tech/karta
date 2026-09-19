@@ -72,7 +72,7 @@ def _lock_skills(lockfile: Path = SKILLS_LOCK) -> dict[str, dict]:
     if not lockfile.is_file():
         return {}
     try:
-        data = json.loads(lockfile.read_text())
+        data = json.loads(lockfile.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     skills = data.get("skills")
@@ -152,7 +152,7 @@ def _rebaseline_lock() -> list[tuple[str, str | None, str]]:
     if not SKILLS_LOCK.is_file():
         return []
     try:
-        data = json.loads(SKILLS_LOCK.read_text())
+        data = json.loads(SKILLS_LOCK.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
     skills = data.get("skills")
@@ -171,7 +171,7 @@ def _rebaseline_lock() -> list[tuple[str, str | None, str]]:
             meta["computedHash"] = local
             updated.append((name, old if isinstance(old, str) and old else None, local))
     if updated:
-        SKILLS_LOCK.write_text(json.dumps(data, indent=2) + "\n")
+        SKILLS_LOCK.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return updated
 
 
@@ -277,24 +277,24 @@ def _selftest_tree(root: Path) -> None:
     for name in ("demo-a", "demo-b"):
         d = root / "skills" / name
         (d / "scripts").mkdir(parents=True)
-        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: fixture\n---\nfixture\n")
-        (d / "scripts" / "tool.py").write_text("print('fixture')\n")
+        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: fixture\n---\nfixture\n", encoding="utf-8")
+        (d / "scripts" / "tool.py").write_text("print('fixture')\n", encoding="utf-8")
     (root / "scripts").mkdir()
     shutil.copy(Path(__file__).resolve(), root / "scripts" / "sync_codex_skills.py")
     (root / ".codex-plugin").mkdir()
-    (root / ".codex-plugin" / "plugin.json").write_text("{}\n")
+    (root / ".codex-plugin" / "plugin.json").write_text("{}\n", encoding="utf-8")
     ext = root / ".agents" / "skills" / "ext-demo"
     ext.mkdir(parents=True)
-    (ext / "SKILL.md").write_text("# external fixture\n")
+    (ext / "SKILL.md").write_text("# external fixture\n", encoding="utf-8")
     (root / "skills-lock.json").write_text(json.dumps({"version": 1, "skills": {
         "ext-demo": {"source": "bench/fixture", "sourceType": "github",
-                     "skillPath": "e/SKILL.md", "computedHash": "0" * 64}}}, indent=2) + "\n")
+                     "skillPath": "e/SKILL.md", "computedHash": "0" * 64}}}, indent=2) + "\n", encoding="utf-8")
 
 
 def _sync(root: Path, *args: str) -> tuple[int, str]:
     proc = subprocess.run(
         [sys.executable, str(root / "scripts" / "sync_codex_skills.py"), *args],
-        capture_output=True, text=True, timeout=60)
+        capture_output=True, text=True, timeout=60, encoding="utf-8")
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -307,13 +307,13 @@ def self_test() -> int:
         checks.append(("absent lockfile resolves no external skills",
                        locked_external_skill_names(base / "missing.json") == set()))
         malformed = base / "malformed.json"
-        malformed.write_text("{")
+        malformed.write_text("{", encoding="utf-8")
         checks.append(("malformed lockfile resolves no external skills",
                        locked_external_skill_names(malformed) == set()))
         valid = base / "skills-lock.json"
         valid.write_text(json.dumps({"skills": {
             "external": {field: "value" for field in LOCK_FIELDS},
-            "incomplete": {"source": "value"}}}))
+            "incomplete": {"source": "value"}}}), encoding="utf-8")
         checks.append(("only complete lock entries resolve as external skills",
                        locked_external_skill_names(valid) == {"external"}))
         checks.append(("external mirror path recognized",
@@ -328,7 +328,7 @@ def self_test() -> int:
         skill_md = root / ".agents" / "skills" / "ext-demo" / "SKILL.md"
 
         code, out = _sync(root)
-        lock = json.loads((root / "skills-lock.json").read_text())
+        lock = json.loads((root / "skills-lock.json").read_text(encoding="utf-8"))
         checks.append(("write mode re-baselines computedHash to the local content sha256",
                        code == 0 and lock["skills"]["ext-demo"]["computedHash"] == ext_hash))
         checks.append(("re-baseline keeps the prior hash in previousHash and prints old -> new",
@@ -338,7 +338,7 @@ def self_test() -> int:
         checks.append(("recompute over the re-baselined lock passes on the untouched tree",
                        code == 0 and "IN SYNC" in out))
         checks.append(("entry carrying previousHash is audit-only, not flagged by --check",
-                       "previousHash" in (root / "skills-lock.json").read_text()
+                       "previousHash" in (root / "skills-lock.json").read_text(encoding="utf-8")
                        and code == 0 and "ext-demo" not in out))
 
         tool = root / "skills" / "demo-a" / "scripts" / "tool.py"
@@ -356,22 +356,22 @@ def self_test() -> int:
         code, out = _sync(root, "--check")
         checks.append(("tampered external SKILL.md fails --check naming the skill",
                        code != 0 and "ext-demo" in out))
-        skill_md.write_text("# external fixture\n")
+        skill_md.write_text("# external fixture\n", encoding="utf-8")
 
-        lock = json.loads((root / "skills-lock.json").read_text())
+        lock = json.loads((root / "skills-lock.json").read_text(encoding="utf-8"))
         lock["skills"]["ext-demo"].pop("computedHash")
-        (root / "skills-lock.json").write_text(json.dumps(lock, indent=2) + "\n")
+        (root / "skills-lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
         code, out = _sync(root, "--check")
         checks.append(("degraded lock entry fails --check with a recompute instruction",
                        code != 0 and "ext-demo" in out and "recompute" in out))
         code, _out = _sync(root)
-        lock = json.loads((root / "skills-lock.json").read_text())
+        lock = json.loads((root / "skills-lock.json").read_text(encoding="utf-8"))
         checks.append(("degraded lock entry survives write mode and is repaired",
                        code == 0 and skill_md.is_file()
                        and lock["skills"]["ext-demo"].get("computedHash") == ext_hash))
 
         (root / "skills-lock.json").write_text(
-            json.dumps({"version": 1, "skills": {}}, indent=2) + "\n")
+            json.dumps({"version": 1, "skills": {}}, indent=2) + "\n", encoding="utf-8")
         code, _out = _sync(root)
         checks.append(("missing lock entry keeps the external skill's files",
                        code == 0 and skill_md.is_file()))

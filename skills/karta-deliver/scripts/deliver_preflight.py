@@ -86,7 +86,7 @@ ENV_ORACLE_TYPES = {"integration", "e2e", "visual"}
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True)
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8")
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -221,7 +221,7 @@ def build_packet(binder_path: Path, repo: Path) -> dict:
 
     binder: dict | None = None
     try:
-        binder = json.loads(binder_path.read_text())
+        binder = json.loads(binder_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         binder = None
 
@@ -307,7 +307,7 @@ def _run_self_test() -> int:
         return ref_target(root, "HEAD") or ""
 
     def write_binder(path: Path, doc: dict) -> None:
-        path.write_text(json.dumps(doc))
+        path.write_text(json.dumps(doc), encoding="utf-8")
 
     def minimal_item(item_id: str, **extra) -> dict:
         base = {"id": item_id, "title": item_id, "summary": "s",

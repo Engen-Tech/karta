@@ -25,6 +25,16 @@ from __future__ import annotations
 import argparse, json, os, re, sys
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 AGENT_KEYS = ("subagent_type", "agent_type", "agent", "agent_name", "name")
 AUDITOR = "karta-safety-auditor"
 BINDER_PATH_RE = re.compile(r"[^\s'\"`]*\.karta[\\/]binders[\\/][A-Za-z0-9][A-Za-z0-9._-]*\.json")
@@ -50,7 +60,7 @@ def _load_binder(path_str: str, cwd: str) -> dict | None:
     if not p.is_absolute():
         p = Path(cwd) / p
     try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc = json.loads(p.read_text(encoding="utf-8", errors="replace"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     return doc if isinstance(doc, dict) else None
@@ -96,10 +106,10 @@ def _run_self_test() -> int:
         binders = Path(td) / ".karta" / "binders"
         binders.mkdir(parents=True)
         (binders / "pinned.json").write_text(json.dumps(
-            {"slug": "pinned", "sme": ["minimalism", "python"], "work_items": []}))
+            {"slug": "pinned", "sme": ["minimalism", "python"], "work_items": []}), encoding="utf-8")
         (binders / "bare.json").write_text(json.dumps(
-            {"slug": "bare", "work_items": []}))
-        (binders / "mangled.json").write_text("{ not json")
+            {"slug": "bare", "work_items": []}), encoding="utf-8")
+        (binders / "mangled.json").write_text("{ not json", encoding="utf-8")
 
         def dispatch(prompt: str, subagent: str = AUDITOR) -> dict:
             return {"hook_event_name": "PreToolUse", "tool_name": "Task", "cwd": cwd,
@@ -160,7 +170,7 @@ def main() -> int:
         return _run_self_test()
     payload: dict = {}
     try:
-        raw = json.load(sys.stdin)
+        raw = json.loads(_read_stdin_text())
         if isinstance(raw, dict):
             payload = raw
     except Exception:  # noqa: BLE001

@@ -284,7 +284,7 @@ def validate_pack(text: str, filename: str,
     registry = registry or {}
     errors: list[str] = []
     warnings: list[str] = []
-    size = len(text.encode())
+    size = len(text.encode("utf-8"))
     if size > SIZE_WARN_BYTES:
         warnings.append(f"pack is {size} bytes (> {SIZE_WARN_BYTES}) — packs are prompt text; trim it")
     if not filename.endswith(".md"):
@@ -560,7 +560,7 @@ def main() -> int:
     failed = False
     for path in args.packs:
         try:
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
         except OSError as e:
             print(f"{path}: unreadable ({e})")
             failed = True

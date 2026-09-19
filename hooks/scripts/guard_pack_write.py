@@ -29,6 +29,16 @@ from __future__ import annotations
 import argparse, json, os, re, subprocess, sys, tempfile
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 PACK_RE = re.compile(r"(?:^|/)\.karta/sme/.+\.md$")
 VALIDATOR_REL = Path("skills") / "karta-kaizen" / "scripts" / "validate_packs.py"
 
@@ -77,7 +87,7 @@ def _validator_path() -> Path | None:
 
 def _run_validator(validator: Path, pack_file: Path) -> tuple[int, str]:
     proc = subprocess.run([sys.executable, str(validator), str(pack_file)],
-                          capture_output=True, text=True, timeout=30)
+                          capture_output=True, text=True, timeout=30, encoding="utf-8")
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
@@ -108,7 +118,7 @@ def decide(payload: dict) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as td:
             # keep the target's basename: the validator checks `name` == file basename
             probe = Path(td) / basename
-            probe.write_text(content)
+            probe.write_text(content, encoding="utf-8")
             rc, findings = _run_validator(validator, probe)
         if rc != 0:
             return 2, (
@@ -161,8 +171,8 @@ def _run_self_test() -> int:
         cwd = str(td)
         sme = Path(td) / ".karta" / "sme"
         sme.mkdir(parents=True)
-        (sme / "terraform.md").write_text(_VALID_PACK)
-        (sme / "broken.md").write_text(_INVALID_PACK)
+        (sme / "terraform.md").write_text(_VALID_PACK, encoding="utf-8")
+        (sme / "broken.md").write_text(_INVALID_PACK, encoding="utf-8")
 
         def pre_write(path: str, content: str | None) -> dict:
             ti: dict = {"file_path": path}
@@ -233,7 +243,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(_read_stdin_text())
         code, reason = decide(payload if isinstance(payload, dict) else {})
     except Exception:  # noqa: BLE001
         return 0  # fail open: a guard-internal error must never break the tool call

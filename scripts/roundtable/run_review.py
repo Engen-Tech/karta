@@ -38,6 +38,16 @@ import argparse, hashlib, json, os, re, subprocess, sys, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 CONFIG_PATH = ".karta/roundtable.json"     # the house switch + panel settings
 RECORD_DIR = ".karta/roundtable/"          # committed audit trail of reviews
 BRANCH_PREFIX = "branch-"                   # branch record key prefix (hook contract)
@@ -60,7 +70,7 @@ def load_config(root: Path) -> dict:
     Shape is validated separately by scripts/validate_plugin.py; the helper only
     needs min_providers (the floor) and a snapshot for the record."""
     try:
-        data = json.loads((root / CONFIG_PATH).read_text())
+        data = json.loads((root / CONFIG_PATH).read_bytes())
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -200,7 +210,7 @@ def _git(root: Path, *args: str) -> tuple[int, str]:
     """Run a git plumbing command from root; stdout+stderr interleaved."""
     try:
         proc = subprocess.run(["git", *args], cwd=str(root), text=True,
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8")
         return proc.returncode, proc.stdout or ""
     except (OSError, subprocess.SubprocessError):
         return 1, ""
@@ -301,7 +311,7 @@ def read_existing_ledger(path: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise TargetRefused(f"existing ledger {path} is not valid JSON — refusing rather than overwriting a torn file")
     if not isinstance(data, dict) or not isinstance(data.get("rounds"), list) or not data["rounds"]:
@@ -400,7 +410,7 @@ def record_review(root: Path, target: str, kind: str, panel_raw) -> tuple[bool, 
     relpath = f"{RECORD_DIR}{key}"
     path = root / relpath
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2) + "\n")
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     staged = git_add(root, relpath)
     warn = "" if staged else " (warning: git add failed — stage it manually so it lands with the commit)"
     return True, f"recorded {relpath}{warn}{notice}", path
@@ -506,7 +516,7 @@ def check_fresh(root: Path, target: str, kind: str,
     if not path.is_file():
         return False
     try:
-        record = json.loads(path.read_text())
+        record = json.loads(path.read_bytes())
     except (OSError, ValueError):
         return False
     return isinstance(record, dict) and record.get("reviewed_hash") == current_hash
@@ -592,7 +602,7 @@ def _run_self_test() -> int:
     with tempfile.TemporaryDirectory() as gtd:
         groot = Path(gtd)
         (groot / ".karta" / "binders").mkdir(parents=True)
-        (groot / ".karta" / "binders" / "demo.json").write_text('{"slug": "demo"}')
+        (groot / ".karta" / "binders" / "demo.json").write_text('{"slug": "demo"}', encoding="utf-8")
         check("a plain lowercase-hyphen slug is accepted", validate_binder_target(groot, "demo-two")[0])
         check("a slug starting with a digit is accepted", validate_binder_target(groot, "2cool")[0])
         check("a valid .karta/binders path is accepted", validate_binder_target(groot, ".karta/binders/demo.json")[0])
@@ -614,18 +624,18 @@ def _run_self_test() -> int:
         def write_cfg(min_providers: int) -> None:
             cfg.write_text(json.dumps({"enabled": True, "tool": "roundtable-critique", "providers": [],
                                        "min_providers": min_providers, "focus": "",
-                                       "points": {"plan_commit": True, "deliver_merge": True}}))
+                                       "points": {"plan_commit": True, "deliver_merge": True}}), encoding="utf-8")
 
         write_cfg(2)
         slug = "demo"
         binder = root / ".karta" / "binders" / f"{slug}.json"
-        binder.write_text('{"slug": "demo", "v": 1}')
+        binder.write_text('{"slug": "demo", "v": 1}', encoding="utf-8")
         _git(root, "add", "-A")
         _git(root, "commit", "-q", "-m", "init")
 
         ok, _, path = record_review(root, slug, "binder", raw)
         check("record_review writes the binder record file", ok and path is not None and path.is_file())
-        record = json.loads(path.read_text())
+        record = json.loads(path.read_text(encoding="utf-8"))
         check("binder record key is <slug>.json", path.name == "demo.json")
         check("binder reviewed_hash is sha256 of the binder bytes",
               record.get("reviewed_hash") == sha256_hex(binder.read_bytes()))
@@ -643,12 +653,12 @@ def _run_self_test() -> int:
 
         check("plain --check is fresh before the binder is edited",
               check_fresh(root, slug, "binder", None) is True)
-        binder.write_text('{"slug": "demo", "v": 99}')
+        binder.write_text('{"slug": "demo", "v": 99}', encoding="utf-8")
         check("plain --check goes stale after the binder bytes change",
               check_fresh(root, slug, "binder", None) is False)
         check("--check is non-zero for a slug with no record at all",
               check_fresh(root, "never-reviewed", "binder", b"whatever") is False)
-        binder.write_text('{"slug": "demo", "v": 1}')  # restore for the round-ledger section below
+        binder.write_text('{"slug": "demo", "v": 1}', encoding="utf-8")  # restore for the round-ledger section below
 
         record_dir = root / ".karta" / "roundtable"
         check("a single-provider panel is refused and writes no file",
@@ -673,14 +683,14 @@ def _run_self_test() -> int:
         one_provider = {"claude": {"provider": "claude", "status": "ok", "verdict": "merge", "response": "x"}, "meta": {}}
         rslug = "round-demo"
         rbinder = root / ".karta" / "binders" / f"{rslug}.json"
-        rbinder.write_text('{"slug": "round-demo", "v": 1}')
+        rbinder.write_text('{"slug": "round-demo", "v": 1}', encoding="utf-8")
         _git(root, "add", "-A")
         _git(root, "commit", "-q", "-m", "round-demo init")
         ledger_path = record_dir / f"{rslug}.rounds.json"
 
         msg, n = round_review(root, rslug, "binder", two_provider, ["f1"], ["r1"], "note1")
         check("first --round creates the ledger and reports round 1", n == 1 and ledger_path.is_file())
-        led = json.loads(ledger_path.read_text())
+        led = json.loads(ledger_path.read_text(encoding="utf-8"))
         check("ledger header carries target_ref/target_kind", led.get("target_ref") == rslug and led.get("target_kind") == "binder")
         check("round 1 reviewed_hash is sha256 of the worktree binder bytes",
               led["rounds"][0]["reviewed_hash"] == sha256_hex(rbinder.read_bytes()))
@@ -697,42 +707,42 @@ def _run_self_test() -> int:
 
         msg, n = round_review(root, rslug, "binder", one_provider, None, None, None)
         check("a second --round with a single-provider panel is appended as round 2 flagged below_floor",
-              n == 2 and json.loads(ledger_path.read_text())["rounds"][1]["below_floor"] is True)
+              n == 2 and json.loads(ledger_path.read_text(encoding="utf-8"))["rounds"][1]["below_floor"] is True)
         check("a below-floor --round writes no record", not (record_dir / f"{rslug}.json").exists())
         check("--check still fails for a target that has only a ledger, no record",
               check_fresh(root, rslug, "binder") is False)
 
         ok, msg, rpath = record_review(root, rslug, "binder", two_provider)
-        rrec = json.loads(rpath.read_text())
+        rrec = json.loads(rpath.read_text(encoding="utf-8"))
         check("--record on a ledger-backed target writes rounds_ledger and final_round",
               rrec.get("rounds_ledger") == f".karta/roundtable/{rslug}.rounds.json" and rrec.get("final_round") == 2)
 
-        rbinder.write_text('{"slug": "round-demo", "v": 2}')
+        rbinder.write_text('{"slug": "round-demo", "v": 2}', encoding="utf-8")
         check("--record REFUSES (TargetRefused) once the binder changes under a stale ledger",
               isinstance(_exc(lambda: record_review(root, rslug, "binder", two_provider)), TargetRefused))
         check("a refused --record leaves the existing record's reviewed_hash untouched",
-              json.loads(rpath.read_text()).get("reviewed_hash") == rrec.get("reviewed_hash"))
+              json.loads(rpath.read_text(encoding="utf-8")).get("reviewed_hash") == rrec.get("reviewed_hash"))
         round_review(root, rslug, "binder", two_provider, None, None, None)
         ok, msg, rpath2 = record_review(root, rslug, "binder", two_provider)
         check("--record passes again once a fresh --round reviewed the new bytes (final_round 3)",
-              json.loads(rpath2.read_text()).get("final_round") == 3)
+              json.loads(rpath2.read_text(encoding="utf-8")).get("final_round") == 3)
 
-        led_now = json.loads(ledger_path.read_text())
+        led_now = json.loads(ledger_path.read_text(encoding="utf-8"))
         led_now["outcome"] = {"kept": True}
-        ledger_path.write_text(json.dumps(led_now, indent=2) + "\n")
+        ledger_path.write_text(json.dumps(led_now, indent=2) + "\n", encoding="utf-8")
         round_review(root, rslug, "binder", one_provider, None, None, None)
         check("a header key an append did not write survives that append",
-              json.loads(ledger_path.read_text()).get("outcome") == {"kept": True})
+              json.loads(ledger_path.read_text(encoding="utf-8")).get("outcome") == {"kept": True})
 
         # torn ledger — both modes refuse and leave the file byte-identical
         tornslug = "torn-demo"
         tbinder = root / ".karta" / "binders" / f"{tornslug}.json"
-        tbinder.write_text('{"slug": "torn-demo"}')
+        tbinder.write_text('{"slug": "torn-demo"}', encoding="utf-8")
         _git(root, "add", "-A")
         _git(root, "commit", "-q", "-m", "torn-demo init")
         round_review(root, tornslug, "binder", two_provider, None, None, None)
         tpath = record_dir / f"{tornslug}.rounds.json"
-        tpath.write_text("{torn")
+        tpath.write_text("{torn", encoding="utf-8")
         before_bytes = tpath.read_bytes()
         check("--round refuses on a torn ledger and leaves it byte-identical",
               _raises(lambda: round_review(root, tornslug, "binder", two_provider, None, None, None))
@@ -746,7 +756,7 @@ def _run_self_test() -> int:
             sroot = Path(std)
             _git(sroot, "init", "-q")
             (sroot / ".karta" / "binders").mkdir(parents=True)
-            (sroot / ".karta" / "binders" / "demo.json").write_text('{"slug": "demo"}')
+            (sroot / ".karta" / "binders" / "demo.json").write_text('{"slug": "demo"}', encoding="utf-8")
             os.symlink(outside, str(sroot / ".karta" / "roundtable"))
             check("--round refuses through a symlinked roundtable dir resolving outside the repo",
                   isinstance(_exc(lambda: round_review(sroot, "demo", "binder", two_provider, None, None, None)), TargetRefused)
@@ -758,7 +768,7 @@ def _run_self_test() -> int:
             _git(symroot, "init", "-q")
             (symroot / ".karta" / "binders").mkdir(parents=True)
             real = symroot / "real.json"
-            real.write_text('{"slug": "linked"}')
+            real.write_text('{"slug": "linked"}', encoding="utf-8")
             (symroot / ".karta" / "binders" / "linked.json").symlink_to(real)
             check("--round refuses to hash through a symlinked binder file",
                   isinstance(_exc(lambda: round_review(symroot, "linked", "binder", two_provider, None, None, None)), TargetRefused))
@@ -768,11 +778,11 @@ def _run_self_test() -> int:
         tip1 = resolve_branch_tip(root, "karta/demo/integration")
         ok, _, bpath = record_review(root, "karta/demo/integration", "branch", raw)
         check("branch record file is branch-<tip>.json", bpath is not None and bpath.name == f"branch-{tip1}.json")
-        brec = json.loads(bpath.read_text())
+        brec = json.loads(bpath.read_text(encoding="utf-8"))
         check("branch reviewed_hash is the integration tip sha", brec.get("reviewed_hash") == tip1)
         check("branch --check is fresh at the recorded tip",
               check_fresh(root, "karta/demo/integration", "branch") is True)
-        (root / "advance.txt").write_text("x")
+        (root / "advance.txt").write_text("x", encoding="utf-8")
         _git(root, "add", "-A")
         _git(root, "commit", "-q", "-m", "advance the tip")
         tip2 = resolve_branch_tip(root, "karta/demo/integration")
@@ -787,7 +797,7 @@ def _run_self_test() -> int:
     # repo history; this self-test is a portable, repo-independent fixture check)
     ledger_file = Path(__file__).resolve().parents[2] / ".karta" / "roundtable" / "context-economy.rounds.json"
     if ledger_file.is_file():
-        raw_text = ledger_file.read_text()
+        raw_text = ledger_file.read_text(encoding="utf-8")
         led = json.loads(raw_text)
         check("migrated ledger no longer contains the string staged_blob_sha256", "staged_blob_sha256" not in raw_text)
         check("migrated ledger header uses target_ref/target_kind", led.get("target_ref") == "context-economy" and led.get("target_kind") == "binder")
@@ -843,7 +853,7 @@ def main() -> int:
 
     if args.round:
         try:
-            panel_raw = json.load(sys.stdin)
+            panel_raw = json.loads(_read_stdin_text())
         except (ValueError, OSError) as e:
             print(f"run_review: refused to record round — the panel on stdin is not valid JSON ({e})", file=sys.stderr)
             return 2
@@ -857,7 +867,7 @@ def main() -> int:
 
     if args.record:
         try:
-            panel_raw = json.load(sys.stdin)
+            panel_raw = json.loads(_read_stdin_text())
         except (ValueError, OSError) as e:
             print(f"run_review: refused to record — the panel on stdin is not valid JSON ({e})", file=sys.stderr)
             return 1

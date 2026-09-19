@@ -69,6 +69,16 @@ from __future__ import annotations
 import argparse, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 GIT = "git"  # module-level so the self-test can simulate a git-absent host
 
 WHIFF_MSG = (
@@ -88,7 +98,7 @@ WHIFF_MSG = (
 def _git(repo: str | Path, *args: str) -> subprocess.CompletedProcess:
     try:
         return subprocess.run([GIT, "-C", str(repo), *args],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8")
     except OSError:  # git binary absent/broken — fail open upstream
         return subprocess.CompletedProcess(args=(GIT, *args), returncode=127,
                                            stdout="", stderr="git unavailable")
@@ -132,7 +142,7 @@ def _binder_item_ids(root: str, slug: str) -> list[str] | None:
     live = Path(root) / ".karta" / "binders" / f"{slug}.json"
     if live.is_file():
         try:
-            raw = live.read_text()
+            raw = live.read_text(encoding="utf-8")
         except OSError:
             return None
     else:
@@ -263,13 +273,13 @@ def _run_self_test() -> int:
     def git(repo: Path, *a: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["git", "-C", str(repo), "-c", "user.email=karta@test",
-             "-c", "user.name=karta", *a], capture_output=True, text=True)
+             "-c", "user.name=karta", *a], capture_output=True, text=True, encoding="utf-8")
 
     def init_repo(td: str, name: str) -> Path:
         repo = Path(td) / name
         repo.mkdir()
         git(repo, "init", "-q", "-b", "main")
-        (repo / "README.md").write_text("seed\n")
+        (repo / "README.md").write_text("seed\n", encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "seed")
         return repo
@@ -280,7 +290,7 @@ def _run_self_test() -> int:
         d.mkdir(parents=True, exist_ok=True)
         body = "{not json" if malformed else json.dumps(
             {"slug": slug, "work_items": [{"id": i} for i in ids]})
-        (d / f"{slug}.json").write_text(body)
+        (d / f"{slug}.json").write_text(body, encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", f"binder {slug}")
 
@@ -349,7 +359,7 @@ def _run_self_test() -> int:
         git(repo, "branch", "karta/wip/integration")
         git(repo, "checkout", "-q", "-b", "karta/wip/item-a",
             "karta/wip/integration")
-        (repo / "feature.txt").write_text("delivered\n")
+        (repo / "feature.txt").write_text("delivered\n", encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "item a")
         git(repo, "checkout", "-q", "main")
@@ -385,7 +395,7 @@ def _run_self_test() -> int:
         d = repo / ".karta" / "binders" / "archive"
         d.mkdir(parents=True)
         (d / "old.json").write_text(json.dumps(
-            {"slug": "old", "work_items": [{"id": "a"}]}))
+            {"slug": "old", "work_items": [{"id": "a"}]}), encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "archive old")
         git(repo, "branch", "karta/old/integration")
@@ -405,7 +415,7 @@ def _run_self_test() -> int:
         # 16. integration moved past the whiff branch -> still an ancestor, blocks
         repo = whiff_repo(td, "moved")
         git(repo, "checkout", "-q", "karta/wip/integration")
-        (repo / "other.txt").write_text("wave-mate merged\n")
+        (repo / "other.txt").write_text("wave-mate merged\n", encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "integration advanced")
         git(repo, "checkout", "-q", "main")
@@ -416,7 +426,7 @@ def _run_self_test() -> int:
         repo = whiff_repo(td, "worktree")
         wt = Path(td) / "worktree-item-a"
         git(repo, "worktree", "add", str(wt), "karta/wip/item-a")
-        (wt / "in-progress.txt").write_text("half-written\n")
+        (wt / "in-progress.txt").write_text("half-written\n", encoding="utf-8")
         check("branch checked out in a DIRTY worktree allows (mid-build)",
               substop(repo), 0)
         (wt / "in-progress.txt").unlink()
@@ -460,7 +470,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(_read_stdin_text())
         code, reason = decide(payload)
     except Exception:  # noqa: BLE001
         return 0  # fail open: a stray SubagentStop trap is worse than a missed nudge

@@ -347,7 +347,7 @@ def run_cli(args: list[str], timeout: int = 30, check: bool = False) -> subproce
     if args and args[0] == "playwright-cli":
         args = [*resolve_playwright_command(), *args[1:]]
     try:
-        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout, encoding="utf-8")
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""
         stderr = exc.stderr or ""

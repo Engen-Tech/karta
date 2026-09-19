@@ -252,7 +252,7 @@ def _read_state_file(path: Path) -> dict:
     missing or corrupt file degrades to the empty skeleton — the store is
     regenerable state, never config."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_bytes())
     except (OSError, ValueError):
         raw = {}
     if not isinstance(raw, dict):
@@ -4887,7 +4887,7 @@ def _run_child(cmd: list[str], *, cwd: str, timeout: float) -> str:
     kill the child on expiry, so the timeout branch kills and reaps explicitly
     (kill() + wait()) before surfacing the error."""
     proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True)
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8")
     try:
         out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -7334,13 +7334,13 @@ def _lifecycle_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     cli_env["KARTA_WATCH_STATE_DIR"] = str(scratch / "cli-ensure")
     cli = subprocess.run([sys.executable, str(_SCRIPT_PATH), "--ensure"],
                          cwd=str(plain), capture_output=True, text=True,
-                         timeout=60, env=cli_env)
+                         timeout=60, env=cli_env, encoding="utf-8")
     cli_env2 = dict(os.environ)
     cli_env2["KARTA_WATCH_STATE_DIR"] = str(scratch / "cli-opt")
     cli_opt = subprocess.run([sys.executable, str(_SCRIPT_PATH),
                               "--opt-in", str(repo)], cwd=str(plain),
                              capture_output=True, text=True, timeout=60,
-                             env=cli_env2)
+                             env=cli_env2, encoding="utf-8")
     cli_opted = (load_state(scratch / "cli-opt")["repos"]
                  .get(str(repo), {}).get("opted_in"))
     checks += [
@@ -7384,7 +7384,7 @@ def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
 
     def git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
         return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
-                              text=True, check=True)
+                              text=True, check=True, encoding="utf-8")
 
     @contextlib.contextmanager
     def in_dir(path: Path):
@@ -7401,7 +7401,7 @@ def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         git(["init", "-q", "-b", "main", "."], path)
         git(["config", "user.email", "t@example.com"], path)
         git(["config", "user.name", "t"], path)
-        (path / "f").write_text("c1")
+        (path / "f").write_text("c1", encoding="utf-8")
         git(["add", "f"], path)
         git(["commit", "-q", "-m", "c1"], path)
         return path
@@ -7438,7 +7438,7 @@ def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
     arc.mkdir(parents=True)
     at_load = [f"delivered-binder-{i:02d}" for i in range(20)]
     for slug in at_load:
-        (arc / f"{slug}.json").write_text(json.dumps(archive_binder(slug)))
+        (arc / f"{slug}.json").write_text(json.dumps(archive_binder(slug)), encoding="utf-8")
 
     with in_dir(twenty):
         full_state = current_state()
@@ -7489,7 +7489,7 @@ def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         conn = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=20)
         try:
             conn.request("GET", "/state.json")
-            served = conn.getresponse().read().decode()
+            served = conn.getresponse().read().decode("utf-8")
         finally:
             conn.close()
     finally:
@@ -7741,7 +7741,7 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
                  ["config", "user.email", "t@example.com"],
                  ["config", "user.name", "t"]):
         subprocess.run(["git", *args], cwd=str(repo), capture_output=True,
-                       text=True, check=True)
+                       text=True, check=True, encoding="utf-8")
 
     def binder_json(slug: str) -> str:
         return json.dumps(
@@ -7751,11 +7751,11 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
                              "oracle": {"type": "unit", "command": "c",
                                         "assertions": ["a is asserted"]}}]})
 
-    (binders_dir / "first.json").write_text(binder_json("first"))
+    (binders_dir / "first.json").write_text(binder_json("first"), encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=str(repo), capture_output=True,
-                   text=True, check=True)
+                   text=True, check=True, encoding="utf-8")
     subprocess.run(["git", "commit", "-q", "-m", "c1"], cwd=str(repo),
-                   capture_output=True, text=True, check=True)
+                   capture_output=True, text=True, check=True, encoding="utf-8")
 
     prev_key = _Handler.required_key
     old_cwd = os.getcwd()
@@ -7785,7 +7785,7 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         head_wildcard = hit(port, "/state.json", method="HEAD",
                             headers={"If-None-Match": "*"})
         # a binder file lands: the held tag must stop matching
-        (binders_dir / "second.json").write_text(binder_json("second"))
+        (binders_dir / "second.json").write_text(binder_json("second"), encoding="utf-8")
         changed = hit(port, "/state.json", headers={"If-None-Match": tag})
         # the same route, same held tag, behind a key the caller does not have.
         # The wrong keys are the same LENGTH as the real one: a comparison that
@@ -8046,7 +8046,7 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         return subprocess.run([sys.executable, "-c", probe, str(_SCRIPT_PATH)],
                               input=json.dumps(obj), capture_output=True,
                               text=True, timeout=120,
-                              env=dict(os.environ, PYTHONHASHSEED=seed)).stdout.strip()
+                              env=dict(os.environ, PYTHONHASHSEED=seed), encoding="utf-8").stdout.strip()
 
     child_plain = tag_in_child(payload, "0")
     child_shuffled = tag_in_child(shuffled, "12345")
@@ -16717,7 +16717,7 @@ def _permissive_load_review(root, slug):
     way down. The control for the corruption checks."""
     p = os.path.join(root, ROUNDTABLE_DIR, slug + REVIEW_RECORD_SUFFIX)
     try:
-        with open(p, "r", encoding="utf-8") as fh:
+        with open(p, "rb") as fh:
             raw = json.load(fh)
     except (OSError, ValueError):
         return {"record": None, "rounds": None}

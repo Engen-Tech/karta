@@ -67,7 +67,7 @@ class PackResolutionError(Exception):
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
 
 
 def ref_target(repo: Path, ref: str) -> str | None:
@@ -110,7 +110,7 @@ def resolve_sme(repo: Path, pack_ids: list[str]) -> list[dict]:
 
 
 def build_packet(binder_path: Path, item_id: str, repo: Path) -> dict:
-    binder = json.loads(binder_path.read_text())
+    binder = json.loads(binder_path.read_text(encoding="utf-8"))
     slug = binder.get("slug")
     items = binder.get("work_items", [])
     item = next((it for it in items if it.get("id") == item_id), None)
@@ -198,7 +198,7 @@ def _run_self_test() -> int:
             ],
         }
         binder_path = tmp / "basic.json"
-        binder_path.write_text(json.dumps(binder))
+        binder_path.write_text(json.dumps(binder), encoding="utf-8")
 
         packet_a = build_packet(binder_path, "a", repo)
         check("item slice is verbatim and oracle_cwd defaults to the worktree root",
@@ -234,9 +234,9 @@ def _run_self_test() -> int:
         overlay_dir.mkdir(parents=True, exist_ok=True)
         (overlay_dir / "fixture-pack.md").write_text(
             "---\nname: fixture-pack\ndescription: fixture\nalways: true\n---\n"
-            "## Review checklist\n- [ ] fp.1 — overlay wins\n")
+            "## Review checklist\n- [ ] fp.1 — overlay wins\n", encoding="utf-8")
         binder["sme"] = ["fixture-pack"]
-        binder_path.write_text(json.dumps(binder))
+        binder_path.write_text(json.dumps(binder), encoding="utf-8")
         packet_sme = build_packet(binder_path, "a", repo)
         check("a project-overlay pack resolves and carries a non-empty composed checklist",
               len(packet_sme["sme"]) == 1
@@ -248,7 +248,7 @@ def _run_self_test() -> int:
 
         # --- NEGATIVE CONTROL: an unresolvable pinned pack is a loud error ------------
         binder["sme"] = ["fixture-pack", "no-such-pack-anywhere"]
-        binder_path.write_text(json.dumps(binder))
+        binder_path.write_text(json.dumps(binder), encoding="utf-8")
         raised_pack = False
         try:
             build_packet(binder_path, "a", repo)
@@ -260,7 +260,7 @@ def _run_self_test() -> int:
         # a genuinely built-in pack (minimalism, extended by karta's own house pack)
         # resolves through the built-in dir when no overlay shadows it
         binder["sme"] = ["minimalism"]
-        binder_path.write_text(json.dumps(binder))
+        binder_path.write_text(json.dumps(binder), encoding="utf-8")
         if (BUILTIN_SME_DIR / "minimalism.md").is_file():
             packet_builtin = build_packet(binder_path, "a", repo)
             check("a built-in pack with no overlay resolves from references/sme/ and "
@@ -273,7 +273,7 @@ def _run_self_test() -> int:
 
         # --- tools map: absolute, existing paths --------------------------------------
         binder["sme"] = []
-        binder_path.write_text(json.dumps(binder))
+        binder_path.write_text(json.dumps(binder), encoding="utf-8")
         packet_tools = build_packet(binder_path, "a", repo)
         tools_ok = all(Path(p).is_absolute() and Path(p).name == name and Path(p).is_file()
                        for name, p in packet_tools["tools"].items())

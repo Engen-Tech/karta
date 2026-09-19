@@ -63,6 +63,16 @@ from __future__ import annotations
 import argparse, json, os, re, subprocess, sys, unicodedata
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 MAX_LINES = 10                    # total emitted lines, wrapper included
 _BODY_LINES = MAX_LINES - 2       # two lines reserved for the delimiter pair
 _DELIM_OPEN = "<karta-status>"
@@ -217,7 +227,7 @@ def _opted_in(cwd: str) -> bool:
             if parent == d:
                 return False
             d = parent
-        doc = json.loads(state_path.read_text(encoding="utf-8"))
+        doc = json.loads(state_path.read_text(encoding="utf-8", errors="replace"))
         repos = doc.get("repos") if isinstance(doc, dict) else None
         rec = repos.get(d) if isinstance(repos, dict) else None
         return bool(isinstance(rec, dict) and rec.get("opted_in"))
@@ -289,7 +299,7 @@ def load_binders(binders_dir: Path) -> list[dict]:
         return out
     for p in sorted(binders_dir.glob("*.json")):
         try:
-            doc = json.loads(p.read_text())
+            doc = json.loads(p.read_text(encoding="utf-8", errors="replace"))
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             continue
         if isinstance(doc, dict) and isinstance(doc.get("slug"), str):
@@ -304,7 +314,7 @@ def derive_state(cwd: str) -> dict | None:
         return None
     try:
         proc = subprocess.run([sys.executable, str(script), "--json"],
-                              capture_output=True, text=True, cwd=cwd, timeout=15)
+                              capture_output=True, text=True, cwd=cwd, timeout=15, encoding="utf-8", errors="replace")
         if proc.returncode != 0:
             return None
         state = json.loads(proc.stdout)
@@ -475,7 +485,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
                     " 'ss': 'serve_status' in sys.modules}))\n")
             proc = subprocess.run([sys.executable, "-c", code,
                                    str(Path(__file__).resolve()), str(repo)],
-                                  capture_output=True, text=True, timeout=60)
+                                  capture_output=True, text=True, timeout=60, encoding="utf-8")
             try:
                 cold = json.loads(proc.stdout)
             except ValueError:
@@ -512,11 +522,11 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
             bd = Path(td) / ".karta" / "binders"
             bd.mkdir(parents=True)
             (bd / "s-a.json").write_text(
-                json.dumps(_binder_fixture("s-a", ["minimalism"])))
+                json.dumps(_binder_fixture("s-a", ["minimalism"])), encoding="utf-8")
             me = str(Path(__file__).resolve())
             proc = subprocess.run([sys.executable, me],
                                   input=json.dumps({"cwd": td}),
-                                  capture_output=True, text=True, timeout=120)
+                                  capture_output=True, text=True, timeout=120, encoding="utf-8")
             expected = wrap(summarize(load_binders(bd), derive_state(td)))
             checks.append(("hook e2e: not-opted-in output is byte-identical",
                            proc.returncode == 0
@@ -524,7 +534,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
                            and proc.stderr == ""))
             garbage = subprocess.run([sys.executable, me], input="not json",
                                      capture_output=True, text=True,
-                                     timeout=120)
+                                     timeout=120, encoding="utf-8")
             checks.append(("hook e2e: garbage stdin still exits 0, silently",
                            garbage.returncode == 0 and garbage.stdout == ""))
 
@@ -557,7 +567,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
             me = str(Path(__file__).resolve())
             proc = subprocess.run([sys.executable, me],
                                   input=json.dumps({"cwd": str(repo)}),
-                                  capture_output=True, text=True, timeout=120)
+                                  capture_output=True, text=True, timeout=120, encoding="utf-8")
             expect = (f'Karta Watch: http://127.0.0.1:{port}/?key={token} — '
                       f'persistent; say "turn off karta watch" to disable.')
             out = proc.stdout.splitlines()
@@ -673,9 +683,9 @@ def _run_self_test() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         binders_dir = Path(td) / ".karta" / "binders"
         binders_dir.mkdir(parents=True)
-        (binders_dir / "s-a.json").write_text(json.dumps(_binder_fixture("s-a", ["minimalism"])))
-        (binders_dir / "broken.json").write_text("{ not json")
-        (binders_dir / "not-a-binder.json").write_text(json.dumps(["array"]))
+        (binders_dir / "s-a.json").write_text(json.dumps(_binder_fixture("s-a", ["minimalism"])), encoding="utf-8")
+        (binders_dir / "broken.json").write_text("{ not json", encoding="utf-8")
+        (binders_dir / "not-a-binder.json").write_text(json.dumps(["array"]), encoding="utf-8")
         loaded = load_binders(binders_dir)
         checks.append(("loader keeps binders, skips junk",
                        [b["slug"] for b in loaded] == ["s-a"]))
@@ -687,7 +697,7 @@ def _run_self_test() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         binders_dir = Path(td) / ".karta" / "binders"
         binders_dir.mkdir(parents=True)
-        (binders_dir / "s-a.json").write_text(json.dumps(_binder_fixture("s-a", ["minimalism"])))
+        (binders_dir / "s-a.json").write_text(json.dumps(_binder_fixture("s-a", ["minimalism"])), encoding="utf-8")
         # end-to-end: the real karta-status engine runs headless against the fixture dir
         state = derive_state(td)
         checks.append(("karta_next.py runs headless", isinstance(state, dict)))
@@ -711,13 +721,13 @@ def _run_self_test() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         binders_dir = Path(td) / ".karta" / "binders"
         binders_dir.mkdir(parents=True)
-        (binders_dir / "good.json").write_text(json.dumps(_binder_fixture("good-slug", [])))
-        (binders_dir / "zbroken.json").write_text("{ not json")
+        (binders_dir / "good.json").write_text(json.dumps(_binder_fixture("good-slug", [])), encoding="utf-8")
+        (binders_dir / "zbroken.json").write_text("{ not json", encoding="utf-8")
         me = str(Path(__file__).resolve())
         proc = subprocess.run([sys.executable, me],
                               input=json.dumps({"hook_event_name": "SessionStart",
                                                 "cwd": td}),
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, timeout=120, encoding="utf-8")
         checks.append(("hook e2e: malformed binder beside a good one exits 0,"
                        " good one still emitted in one intact fence",
                        proc.returncode == 0 and "good-slug" in proc.stdout
@@ -752,7 +762,7 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(_read_stdin_text())
         cwd = payload.get("cwd") if isinstance(payload, dict) else None
         cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
         _fire_ensure(cwd)  # fire-and-forget hub revival on every session start

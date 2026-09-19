@@ -134,7 +134,7 @@ def evaluate(design_path: Path, pin_file: Path, repo_root: Path,
                            f"(sha256={digest}).", allow_unpinned)
 
     try:
-        raw = json.loads(pin_file.read_text())
+        raw = json.loads(pin_file.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         return 1, [f"malformed pin file {PIN_FILE_NAME}: invalid JSON ({e})"]
 
@@ -247,7 +247,7 @@ def _self_test() -> int:
         design.write_bytes(good_bytes)
         pin_file.write_text(json.dumps({"design.html": {
             "sha256": good_hash, "source": "claude-design://x", "captured_on": "2026-01-01",
-            "recapture_triggers": ["the export changes"]}}))
+            "recapture_triggers": ["the export changes"]}}), encoding="utf-8")
         code, lines = evaluate(design, pin_file, root)
         blob = "\n".join(lines)
         ok = (code == 0 and "PASS" in blob and "2026-01-01" in blob
@@ -257,8 +257,8 @@ def _self_test() -> int:
 
         # 2. bytes disagree with the pin -> fail with the exact drift clause + both hashes.
         drifted = root / "drifted.html"
-        drifted.write_text("<!doctype html><title>different</title>")
-        pin_file.write_text(json.dumps({"drifted.html": {"sha256": good_hash}}))
+        drifted.write_text("<!doctype html><title>different</title>", encoding="utf-8")
+        pin_file.write_text(json.dumps({"drifted.html": {"sha256": good_hash}}), encoding="utf-8")
         code, lines = evaluate(drifted, pin_file, root)
         blob = "\n".join(lines)
         ok = code == 1 and DRIFT_MESSAGE in blob and "pinned sha256=" in blob and "actual sha256=" in blob
@@ -269,7 +269,7 @@ def _self_test() -> int:
         #    path and printing its hash (one of the three hash-printing outcomes).
         unpinned = root / "unpinned.html"
         unpinned.write_bytes(good_bytes)
-        pin_file.write_text(json.dumps({"design.html": {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({"design.html": {"sha256": good_hash}}), encoding="utf-8")
         code, lines = evaluate(unpinned, pin_file, root)
         blob = "\n".join(lines)
         ok = code == 1 and "unpinned.html" in blob and "no pin" in blob and "sha256=" in blob
@@ -281,10 +281,10 @@ def _self_test() -> int:
         expired = root / "expired.html"
         expired.write_bytes(good_bytes)
         pin_file.write_text(json.dumps({"expired.html": {"sha256": good_hash,
-                                                          "recapture_after": "2000-01-01"}}))
+                                                          "recapture_after": "2000-01-01"}}), encoding="utf-8")
         code_a, lines_a = evaluate(expired, pin_file, root)
         ok_a = code_a == 1 and "recapture_after" in "\n".join(lines_a) and "2000-01-01" in "\n".join(lines_a)
-        pin_file.write_text(json.dumps({"expired.html": {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({"expired.html": {"sha256": good_hash}}), encoding="utf-8")
         code_b, lines_b = evaluate(expired, pin_file, root)
         ok_b = code_b == 0
         record("a pin whose recapture_after date has passed fails naming that date, and "
@@ -329,7 +329,7 @@ def _self_test() -> int:
         mal_ok = True
         mal_detail = ""
         for text in ("[1, 2, 3]", json.dumps({"design.html": {"source": "x"}})):
-            pin_file.write_text(text)
+            pin_file.write_text(text, encoding="utf-8")
             code, lines = evaluate(design, pin_file, root)
             blob = "\n".join(lines)
             if not (code == 1 and "malformed pin file" in blob and "PASS" not in blob):
@@ -347,13 +347,13 @@ def _self_test() -> int:
         chosen = subdir / "demo.standalone.html"
         chosen.write_bytes(good_bytes)
         rel_chosen = chosen.relative_to(root).as_posix()
-        pin_file.write_text(json.dumps({rel_chosen: {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({rel_chosen: {"sha256": good_hash}}), encoding="utf-8")
         code, lines = evaluate(subdir, pin_file, root)
         ok = code == 0 and "PASS" in "\n".join(lines)
         record("a directory-valued design path resolves through resolve_design_file "
                "before hashing, and a pinned chosen file passes", ok, f"{code=} {lines=}")
 
-        pin_file.write_text(json.dumps({rel_chosen: {"sha256": "0" * 64}}))
+        pin_file.write_text(json.dumps({rel_chosen: {"sha256": "0" * 64}}), encoding="utf-8")
         code, lines = evaluate(subdir, pin_file, root)
         ok = code == 1 and DRIFT_MESSAGE in "\n".join(lines)
         record("the same directory-valued path fails when the file resolve_design_file "
@@ -389,7 +389,7 @@ def _self_test() -> int:
         mode000.chmod(0o644)
         readable_twin = root / "readable-twin.html"
         readable_twin.write_bytes(good_bytes)
-        pin_file.write_text(json.dumps({"readable-twin.html": {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({"readable-twin.html": {"sha256": good_hash}}), encoding="utf-8")
         code, lines = evaluate(readable_twin, pin_file, root)
         twin_ok = code == 0 and "PASS" in "\n".join(lines)
         record("a capture whose bytes cannot be read returns a clean error rather than a "
@@ -405,7 +405,7 @@ def _self_test() -> int:
         scalar_ok, scalar_detail = True, ""
         for bad in (5, True, "one-string"):
             pin_file.write_text(json.dumps(
-                {"trig.html": {"sha256": good_hash, "recapture_triggers": bad}}))
+                {"trig.html": {"sha256": good_hash, "recapture_triggers": bad}}), encoding="utf-8")
             try:
                 code, lines = evaluate(trig, pin_file, root)
             except Exception as e:  # the traceback this guard exists to stop
@@ -413,7 +413,7 @@ def _self_test() -> int:
             if code != 0:
                 scalar_ok, scalar_detail = False, f"{bad=} {code=} {lines=}"
         pin_file.write_text(json.dumps(
-            {"trig.html": {"sha256": good_hash, "recapture_triggers": ["export changed"]}}))
+            {"trig.html": {"sha256": good_hash, "recapture_triggers": ["export changed"]}}), encoding="utf-8")
         code, lines = evaluate(trig, pin_file, root)
         list_ok = code == 0 and "export changed" in "\n".join(lines)
         record("a scalar recapture_triggers on a matching capture returns instead of raising, "
@@ -428,11 +428,11 @@ def _self_test() -> int:
         falsy_ok, falsy_detail = True, ""
         for bad in (0, "", False):
             pin_file.write_text(json.dumps(
-                {"exp.html": {"sha256": good_hash, "recapture_after": bad}}))
+                {"exp.html": {"sha256": good_hash, "recapture_after": bad}}), encoding="utf-8")
             code, lines = evaluate(exp, pin_file, root)
             if not (code == 1 and "invalid recapture_after" in "\n".join(lines)):
                 falsy_ok, falsy_detail = False, f"{bad=} {code=} {lines=}"
-        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}), encoding="utf-8")
         code, lines = evaluate(exp, pin_file, root)
         absent_ok = code == 0
         record("a falsy-but-present recapture_after fails as malformed, and the same entry "
@@ -443,11 +443,11 @@ def _self_test() -> int:
         #     emits the key still means no deadline — it must pass, unlike the falsy values
         #     above. The violating twin is the same entry with a real expired date.
         pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash,
-                                                     "recapture_after": None}}))
+                                                     "recapture_after": None}}), encoding="utf-8")
         code, lines = evaluate(exp, pin_file, root)
         null_ok = code == 0
         pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash,
-                                                     "recapture_after": "2000-01-01"}}))
+                                                     "recapture_after": "2000-01-01"}}), encoding="utf-8")
         code_x, lines_x = evaluate(exp, pin_file, root)
         expired_ok = code_x == 1 and "expired" in "\n".join(lines_x)
         record("a null recapture_after reads as no deadline and passes, while a real expired "
@@ -463,7 +463,7 @@ def _self_test() -> int:
         except Exception as e:  # the traceback this guard exists to stop
             code, lines = -1, [f"raised {e!r}"]
         bad_root_ok = code == 1 and "could not be resolved" in "\n".join(lines)
-        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}), encoding="utf-8")
         code_g, lines_g = evaluate(exp, pin_file, root)
         good_root_ok = code_g == 0
         record("an unresolvable repo root returns a clean error rather than a traceback, and "
@@ -480,7 +480,7 @@ def _self_test() -> int:
         except Exception as e:  # the traceback this guard exists to stop
             code, lines = -1, [f"raised {e!r}"]
         bad_design_ok = code == 1 and "could not be resolved" in "\n".join(lines)
-        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}))
+        pin_file.write_text(json.dumps({"exp.html": {"sha256": good_hash}}), encoding="utf-8")
         code_d, lines_d = evaluate(exp, pin_file, root)
         good_design_ok = code_d == 0
         record("an unresolvable design path returns a clean error rather than a traceback, and "

@@ -8,7 +8,7 @@ Usage:
   uv run scripts/validate_plugin.py --self-test   # check this repo, exit 0/1
 """
 from __future__ import annotations
-import argparse, json, os, re, shlex, subprocess, sys, tomllib
+import argparse, ast, json, os, re, shlex, subprocess, sys, tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,13 +38,381 @@ def _frontmatter(text: str) -> dict[str, str]:
     return fm
 
 
+# Portability policy: what the encoding rule reads is committed as data
+# (.karta/portability.json) rather than written into the code, so widening it
+# is a reviewable diff and a fixture can prove the rule consults it. The file
+# also carries the command-portability data the windows-support branch wrote;
+# that sibling rule arrives with the Codex-launch work and reads the SAME
+# exclusions array through the SAME predicate, which is the point of one file.
+POLICY_PATH = ROOT / ".karta" / "portability.json"
+
+# The subprocess entry points whose first argument is an argv.
+CP_SUBPROCESS_CALLS = frozenset({"run", "Popen", "call", "check_call", "check_output"})
+
+def _excluded(rel: str, policy: dict) -> bool:
+    """True when a repo-relative posix path falls under a committed exclusion."""
+    return any(rel.startswith(x["path"])
+               for x in policy.get("exclusions", [])
+               if isinstance(x, dict) and isinstance(x.get("path"), str))
+
+def _cp_tracked(errors: list[str], root: Path | None = None) -> list[str] | None:
+    """Every tracked path, from git. The rule's reach is derived, never hand-listed.
+
+    `root` is a parameter so a fixture can point the SAME derivation at a repo of
+    its own making — the only way to prove the reach is computed at check time
+    rather than read off a list."""
+    root = ROOT if root is None else root
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        errors.append(f"command portability: could not enumerate tracked files ({e}) — the "
+                      f"rule's reach comes from git, so this is a broken check, not a clean one")
+        return None
+    if proc.returncode != 0:
+        errors.append(f"command portability: `git ls-files` failed "
+                      f"({proc.stderr.decode('utf-8', 'replace').strip()})")
+        return None
+    return [p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p]
+
+EC_TEXT_FILE_METHODS = frozenset({"read_text", "write_text"})
+EC_LOG_FILE_HANDLERS = frozenset({"FileHandler", "RotatingFileHandler",
+                                  "TimedRotatingFileHandler", "WatchedFileHandler"})
+# UnicodeDecodeError IS a ValueError, so catching the parent hides the identical
+# bug; a bare `except:` hides it too. All four are the swallow shape.
+
+EC_SWALLOWABLE = frozenset({"UnicodeDecodeError", "UnicodeError", "ValueError", "Exception"})
+EC_TEXT_SUBPROCESS_KWARGS = ("text", "universal_newlines")
+
+
+def _ec_kw(node: ast.Call, name: str):
+    return next((k.value for k in node.keywords if k.arg == name), None)
+
+
+def _ec_opener(fn) -> str | None:
+    """'open' / 'io.open' / 'codecs.open' for a call that opens a file, else None."""
+    if isinstance(fn, ast.Name) and fn.id == "open":
+        return "open"
+    if (isinstance(fn, ast.Attribute) and fn.attr == "open"
+            and isinstance(fn.value, ast.Name) and fn.value.id in ("io", "codecs")):
+        return f"{fn.value.id}.open"
+    return None
+
+
+def _ec_mode(node: ast.Call) -> str:
+    """'text' | 'binary' | 'computed' for an opener call.
+
+    A COMPUTED mode is deliberately not a finding. The rule must not guess at a
+    mode string it cannot read: a wrong guess fires on correct code, and a gate
+    every commit passes through wedges the repo on its first false positive."""
+    mode = node.args[1] if len(node.args) > 1 else _ec_kw(node, "mode")
+    if mode is None:
+        return "text"
+    if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
+        return "binary" if "b" in mode.value else "text"
+    return "computed"
+
+
+def _ec_is_subprocess(fn, imported: bool) -> bool:
+    if isinstance(fn, ast.Attribute):
+        return fn.attr in CP_SUBPROCESS_CALLS
+    return isinstance(fn, ast.Name) and imported and fn.id in CP_SUBPROCESS_CALLS
+
+
+def _ec_call_findings(node: ast.Call, imported: bool) -> list[str]:
+    """Every way one call crosses a text boundary without naming its codec."""
+    out: list[str] = []
+    fn = node.func
+    encoded = _ec_kw(node, "encoding") is not None
+    name = fn.attr if isinstance(fn, ast.Attribute) else (
+        fn.id if isinstance(fn, ast.Name) else "")
+    if name in EC_TEXT_FILE_METHODS and not encoded:
+        out.append(f'{name}() names no encoding — it uses the locale codec (cp1252 on a '
+                   f'stock Windows checkout); pass encoding="utf-8"')
+    opener = _ec_opener(fn)
+    if opener:
+        # codecs.open takes encoding third positionally, builtin open fourth.
+        positional = len(node.args) > (2 if opener == "codecs.open" else 3)
+        if _ec_mode(node) == "text" and not (encoded or positional):
+            out.append(f'{opener}() in text mode names no encoding; pass encoding="utf-8" '
+                       f'or open in binary mode')
+    if name in EC_LOG_FILE_HANDLERS and not encoded:
+        out.append(f'{name}() names no encoding — a log record outside the locale codec '
+                   f'raises inside logging; pass encoding="utf-8"')
+    if (isinstance(fn, ast.Attribute) and fn.attr in ("decode", "encode")
+            and not node.args and not node.keywords):
+        out.append(f'bare .{fn.attr}() — same boundary and same locale codec as '
+                   f'subprocess(text=True), different API; name the codec')
+    if _ec_is_subprocess(fn, imported) and not encoded:
+        for kw in EC_TEXT_SUBPROCESS_KWARGS:
+            arg = _ec_kw(node, kw)
+            if isinstance(arg, ast.Constant) and arg.value is True:
+                out.append(f'subprocess capture with {kw}=True names no encoding — the '
+                           f'child\'s bytes are decoded with the locale codec; pass '
+                           f'encoding="utf-8" (and errors=)')
+                break
+    return out
+
+
+# The error handlers that make a codec TOTAL: it substitutes rather than raises,
+# so no decode failure exists at that call for a handler to hide.
+EC_TOTAL_ERROR_HANDLERS = frozenset({
+    "replace", "ignore", "surrogateescape", "backslashreplace", "namereplace",
+    "xmlcharrefreplace", "surrogatepass"})
+
+
+def _ec_total(node: ast.Call) -> bool:
+    """True when the call names an errors= handler that cannot raise on bad bytes.
+
+    `.decode("utf-8", "replace")` is a DECLARED decision to substitute, not a
+    swallow: the caller chose what bad bytes become. The swallowed-error rule is
+    about handlers that hide a failure, so a call with no failure to hide is not
+    the boundary it scopes over."""
+    err = _ec_kw(node, "errors")
+    if (err is None and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("decode", "encode") and len(node.args) > 1):
+        err = node.args[1]                        # bytes.decode(encoding, errors)
+    return isinstance(err, ast.Constant) and err.value in EC_TOTAL_ERROR_HANDLERS
+
+
+def _ec_is_boundary(node: ast.Call, imported: bool) -> bool:
+    """True when a call decodes or encodes text and COULD raise on bad bytes.
+
+    Scopes the swallowed-error rule: a handler is judged for hiding an encoding
+    defect only when the try body could actually raise one."""
+    fn = node.func
+    name = fn.attr if isinstance(fn, ast.Attribute) else ""
+    if _ec_total(node):
+        return False
+    if name in EC_TEXT_FILE_METHODS or name in ("decode", "encode"):
+        return True
+    if _ec_opener(fn):
+        # Binary mode has nothing to decode, so it cannot be the failure the
+        # handler would hide; computed mode stays a boundary — the rule must
+        # not guess a mode it cannot read in the caller's favour.
+        return _ec_mode(node) != "binary"
+    if _ec_is_subprocess(fn, imported):
+        return any(_ec_kw(node, k) is not None
+                   for k in (*EC_TEXT_SUBPROCESS_KWARGS, "encoding"))
+    return False
+
+
+def _ec_caught(handler: ast.ExceptHandler) -> set[str]:
+    if handler.type is None:
+        return {"Exception"}                      # a bare except hides everything
+    nodes = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    out = set()
+    for n in nodes:
+        if isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            out.add(n.attr)
+    return out
+
+
+def _ec_surfaces(handler: ast.ExceptHandler) -> bool:
+    """True when the handler tells someone the failure happened.
+
+    Re-raising, exiting, or naming the bound exception all surface it. A handler
+    that does none of the three returns a DEGRADED result and exits 0 — the
+    encoding defect turned into a wrong answer, which is worse than the crash."""
+    for n in ast.walk(ast.Module(body=handler.body, type_ignores=[])):
+        if isinstance(n, ast.Raise):
+            return True
+        if isinstance(n, ast.Call):
+            fn = n.func
+            if ((isinstance(fn, ast.Name) and fn.id in ("exit", "_exit"))
+                    or (isinstance(fn, ast.Attribute) and fn.attr in ("exit", "_exit"))):
+                return True
+        if (handler.name and isinstance(n, ast.Name) and n.id == handler.name
+                and isinstance(n.ctx, ast.Load)):
+            return True
+    return False
+
+
+def _ec_stdin_findings(tree: ast.AST) -> list[tuple[int, str]]:
+    """The stdin rule is per-ENTRY-POINT, not per-call-site.
+
+    `json.load(sys.stdin)` is the shape this work actually found, and a rule
+    hunting `sys.stdin.read()` misses it entirely. Once a module reconfigures the
+    stream there is no violation left at any read site, so the invariant that can
+    be enforced is: a module that reads sys.stdin as TEXT reconfigures it."""
+    reconfigured = False
+    uses: list[int] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Attribute) and node.attr == "stdin"
+                and isinstance(node.value, ast.Name) and node.value.id == "sys"):
+            continue
+        parent = getattr(node, "_ec_parent", None)
+        if isinstance(parent, ast.Attribute):
+            if parent.attr == "buffer":
+                continue                          # bytes, not text — correct by construction
+            if parent.attr == "reconfigure":
+                reconfigured = True
+                continue
+        # `getattr(sys.stdin, "buffer", sys.stdin)` is this repo's binary-first
+        # idiom: it reads the BYTE stream and decodes explicitly, falling back to
+        # the object itself only when a test double has no .buffer. Both mentions
+        # of sys.stdin belong to that one expression, so neither is a text read —
+        # firing here would reject the very shape the repairs standardised on.
+        if (isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name)
+                and parent.func.id == "getattr" and len(parent.args) >= 2
+                and isinstance(parent.args[1], ast.Constant)
+                and parent.args[1].value == "buffer"):
+            continue
+        uses.append(node.lineno)
+    if reconfigured or not uses:
+        return []
+    return [(min(uses), "reads sys.stdin as text without sys.stdin.reconfigure(encoding=...) "
+                        "at the entry point — the stream decodes with the locale codec, and "
+                        "`json.load(sys.stdin)` is the shape that hides it")]
+
+
+def _ec_python_findings(source: str) -> list[tuple[int, str]]:
+    """(line, reason) for every unnamed text boundary in one module."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            child._ec_parent = node
+    imported = any(isinstance(n, ast.ImportFrom) and n.module == "subprocess"
+                   for n in ast.walk(tree))
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for why in _ec_call_findings(node, imported):
+                found.append((node.lineno, why))
+        elif isinstance(node, ast.Try):
+            if not any(isinstance(n, ast.Call) and _ec_is_boundary(n, imported)
+                       for stmt in node.body for n in ast.walk(stmt)):
+                continue
+            for handler in node.handlers:
+                caught = _ec_caught(handler) & EC_SWALLOWABLE
+                if caught and not _ec_surfaces(handler):
+                    found.append((handler.lineno,
+                                  f"catches {', '.join(sorted(caught))} around a text boundary "
+                                  f"and neither raises, exits, nor names the error — a decode "
+                                  f"failure becomes a degraded result that exits 0"))
+    found.extend(_ec_stdin_findings(tree))
+    return sorted(set(found))
+
+
+def _ec_imported_modules(tree: ast.AST) -> set[str]:
+    mods: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            mods.update(a.name for a in n.names)
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            mods.add(n.module)
+            mods.update(f"{n.module}.{a.name}" for a in n.names)
+    return mods
+
+
+def _ec_loader_sites(tree: ast.AST, rel: str, loaders) -> list[str]:
+    """Karta-owned call sites into a stdlib loader that opens text internally.
+
+    The NAMED LIMITATION, made countable. This rule inspects call sites, so a
+    loader that opens its own file (configparser, xml.etree, email,
+    argparse.FileType) never trips the encoding rule no matter what codec it
+    picks. These sites are therefore INVENTORIED, not judged: the committed list
+    in the policy must match what the tree holds, so the gap stays bounded and a
+    new one cannot enter unnoticed."""
+    mods = _ec_imported_modules(tree)
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        name = (n.func.attr if isinstance(n.func, ast.Attribute)
+                else n.func.id if isinstance(n.func, ast.Name) else "")
+        for spec in loaders:
+            mod, call = spec.get("module"), spec.get("call")
+            if not (isinstance(mod, str) and isinstance(call, str)) or name != call:
+                continue
+            if any(m == mod or m.startswith(f"{mod}.") or mod.startswith(f"{m}.")
+                   for m in mods):
+                out.add(f"{rel}:{call}")
+    return sorted(out)
+
+
+def _check_encoding(errors: list[str], policy: dict | None = None, py_files=None,
+                    root: Path | None = None) -> None:
+    """Reject text boundaries with no explicit codec in karta-owned Python.
+
+    `policy`, `py_files` and `root` exist so the fixtures can drive the rule over
+    fabricated input; left alone, all three come from the committed policy and git."""
+    if policy is None:
+        policy = _load_json(POLICY_PATH, errors)
+        if not policy:
+            return
+    inventory_scope = py_files is None
+    if py_files is None:
+        base = ROOT if root is None else root
+        tracked = _cp_tracked(errors, root=base)
+        if tracked is None:
+            return
+        py_files = [(base / rel, rel) for rel in tracked
+                    if rel.endswith(".py") and not _excluded(rel, policy)]
+    loaders = policy.get("stdlib_text_loaders") or []
+    found_sites: list[str] = []
+    for path, rel in py_files:
+        try:
+            source = Path(path).read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
+            errors.append(f"{rel}: tracked Python that is not decodable as UTF-8 ({e})")
+            continue
+        except OSError as e:
+            errors.append(f"{rel}: unreadable Python source ({e})")
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as e:
+            errors.append(f"{rel}: unparseable Python ({e})")
+            continue
+        for line, why in _ec_python_findings(source):
+            errors.append(f"{rel}:{line}: {why}")
+        found_sites.extend(_ec_loader_sites(tree, rel, loaders))
+    if not inventory_scope:
+        return                                    # a fixture's file list is not the tree
+    committed = (policy.get("stdlib_loader_call_sites") or {}).get("sites")
+    if not isinstance(committed, list):
+        errors.append(f"{POLICY_PATH.name}: stdlib_loader_call_sites.sites must be a list — "
+                      f"it is the committed inventory of the limitation this rule names")
+        return
+    for site in sorted(set(found_sites) - set(committed)):
+        errors.append(f"{site}: calls a stdlib loader that opens text itself, and this call "
+                      f"site is not in stdlib_loader_call_sites.sites — the encoding rule "
+                      f"cannot see inside it, so the gap is inventoried or it is invisible")
+    for site in sorted(set(committed) - set(found_sites)):
+        errors.append(f"{site}: listed in stdlib_loader_call_sites.sites but no longer in the "
+                      f"tree — an inventory nobody prunes stops describing anything")
+
+
+
+def _check_git_output_encoding(errors: list[str], value: str | None = None) -> None:
+    """The other named limitation: decoding git's output as UTF-8 is right only while
+    git EMITS UTF-8. A contributor who sets i18n.logOutputEncoding to a legacy codec
+    defeats a correctly encoding-explicit parent, and no amount of care at the call
+    site fixes it. The rule checks the setting rather than pretending to solve it."""
+    if value is None:
+        try:
+            proc = subprocess.run(["git", "-C", str(ROOT), "config", "--get",
+                                   "i18n.logOutputEncoding"], capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return                                # no git here is another check's problem
+        value = proc.stdout.strip() if proc.returncode == 0 else ""
+    if value and value.lower().replace("-", "") not in ("utf8",):
+        errors.append(f"git config i18n.logOutputEncoding is {value!r} — karta decodes git's "
+                      f"output as UTF-8, so a legacy codec here mojibakes every branch, ref "
+                      f"and path karta reads, with no defect at the call site to find")
+
+
 def check() -> list[str]:
     errors: list[str] = []
     skill_dirs = [p.parent for p in SKILLS.glob("*/SKILL.md")]
     if not skill_dirs:
         errors.append("no skills found under skills/*/SKILL.md")
     for sd in sorted(skill_dirs):
-        text = (sd / "SKILL.md").read_text()
+        text = (sd / "SKILL.md").read_text(encoding="utf-8")
         fm = _frontmatter(text)
         for field in ("name", "description"):
             if not fm.get(field):
@@ -62,7 +430,7 @@ def check() -> list[str]:
                 errors.append(f"{sd.name}: SKILL.md cites missing path '{rel}'")
     # karta-owned agents: frontmatter only (no SKILL-style links)
     for agent in sorted((ROOT / "agents").glob("*.md")):
-        fm = _frontmatter(agent.read_text())
+        fm = _frontmatter(agent.read_text(encoding="utf-8"))
         for field in ("name", "description"):
             if not fm.get(field):
                 errors.append(f"agents/{agent.name}: missing frontmatter '{field}'")
@@ -73,7 +441,7 @@ def check() -> list[str]:
     mp = ROOT / ".claude-plugin" / "marketplace.json"
     if mp.exists():
         try:
-            data = json.loads(mp.read_text())
+            data = json.loads(mp.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             errors.append(f".claude-plugin/marketplace.json: invalid JSON ({e})")
             data = {}
@@ -97,6 +465,8 @@ def check() -> list[str]:
     _check_vendored_fonts(errors)
     _check_design_reference(errors)
     _check_fact_traces(errors)
+    _check_encoding(errors)
+    _check_git_output_encoding(errors)
     return errors
 
 
@@ -105,7 +475,7 @@ def _load_json(path: Path, errors: list[str]) -> dict:
         errors.append(f"{path.relative_to(ROOT)}: missing")
         return {}
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         errors.append(f"{path.relative_to(ROOT)}: invalid JSON ({e})")
         return {}
@@ -160,7 +530,7 @@ def _check_pi(errors: list[str]) -> None:
     consumer_script = re.compile(
         r"(?:python3|uv run(?: --script)?)\s+skills/karta-[a-z-]+/scripts/")
     for skill in sorted((ROOT / "skills").glob("karta-*/SKILL.md")):
-        if consumer_script.search(skill.read_text()):
+        if consumer_script.search(skill.read_text(encoding="utf-8")):
             errors.append(
                 f"{skill.relative_to(ROOT)}: bundled script command resolves from the consumer cwd")
 
@@ -291,17 +661,17 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
     for p, content in sorted(sync_codex_agents.projections().items()):
         if not p.exists():
             errors.append(f"{p.relative_to(ROOT)}: missing (run sync_codex_agents.py)")
-        elif p.read_text() != content:
+        elif p.read_text(encoding="utf-8") != content:
             errors.append(f"{p.relative_to(ROOT)}: differs from agents/*.md (run sync_codex_agents.py)")
     for toml_path in sorted((ROOT / ".codex" / "agents").glob("*.toml")):
         try:
-            data = tomllib.loads(toml_path.read_text())
+            data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as e:
             errors.append(f".codex/agents/{toml_path.name}: invalid TOML ({e})")
             continue
         agent_md = ROOT / "agents" / f"{toml_path.stem}.md"
         if agent_md.exists():
-            expected = sync_codex_agents.sandbox_mode_for(_frontmatter(agent_md.read_text()))
+            expected = sync_codex_agents.sandbox_mode_for(_frontmatter(agent_md.read_text(encoding="utf-8")))
             if data.get("sandbox_mode") != expected:
                 errors.append(
                     f".codex/agents/{toml_path.name}: sandbox_mode "
@@ -315,7 +685,7 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
         yml = SKILLS / name / "agents" / "openai.yaml"
         if not yml.exists():
             errors.append(f"{name}: missing agents/openai.yaml")
-        elif "display_name:" not in yml.read_text():
+        elif "display_name:" not in yml.read_text(encoding="utf-8"):
             errors.append(f"{name}: agents/openai.yaml missing interface.display_name")
 
     # 6. doc-gardner opt-in config — if a repo commits one, it must match the shape
@@ -330,7 +700,7 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
     kz = ROOT / ".karta" / "kaizen.json"
     if kz.exists():
         try:
-            cfg = json.loads(kz.read_text())
+            cfg = json.loads(kz.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             errors.append(f".karta/kaizen.json: invalid JSON ({e})")
             cfg = None
@@ -354,7 +724,7 @@ def _check_codex(errors: list[str], skill_names: set[str]) -> None:
     rt = ROOT / ".karta" / "roundtable.json"
     if rt.exists():
         try:
-            cfg = json.loads(rt.read_text())
+            cfg = json.loads(rt.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             errors.append(f".karta/roundtable.json: invalid JSON ({e})")
             cfg = None
@@ -422,7 +792,7 @@ def _registered_behaviours(script: Path) -> tuple[dict, str | None]:
     """The live coverage registry, read from the page's own script. (registry, error)."""
     try:
         proc = subprocess.run([sys.executable, str(script), "--list-behaviours"],
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, timeout=120, encoding="utf-8")
     except (OSError, subprocess.TimeoutExpired) as e:
         return {}, f"could not read the coverage registry ({e})"
     if proc.returncode != 0:
@@ -799,7 +1169,7 @@ def _check_design_fixture(errors: list[str], fixture_root: Path,
     if ref_prober is None:
         def ref_prober(s: str) -> bool:
             proc = subprocess.run(["git", "for-each-ref", f"refs/karta/{s}/"],
-                                  cwd=str(ROOT), capture_output=True, text=True)
+                                  cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8")
             return bool(proc.stdout.strip())
     if ref_prober(slug):
         errors.append(f"{binder_files[0]}: slug '{slug}' matches a real karta/{slug}/* "
@@ -830,7 +1200,7 @@ def _check_design_serving_rig(errors: list[str], fixture_root: Path, script: Pat
         port = s.getsockname()[1]
     proc = subprocess.Popen(
         [sys.executable, str(script), "--root", str(fixture_root), "--port", str(port)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8")
     try:
         url = f"http://127.0.0.1:{port}/?theme=light"
         body = None
@@ -1107,14 +1477,14 @@ def _check_doc_gardner(errors: list[str], config: Path | None = None,
         return  # opt-in: an absent config is valid
     label = ".karta/doc-gardner.json"
     try:
-        sch = json.loads(schema_path.read_text())
+        sch = json.loads(schema_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         errors.append(
             "skills/karta-doc-gardner/references/doc-gardner-schema.json: "
             f"missing or unreadable ({e}) — cannot gate {label}")
         return
     try:
-        cfg = json.loads(cfg_path.read_text())
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         errors.append(f"{label}: invalid JSON ({e})")
         return
@@ -1150,7 +1520,7 @@ def _check_design_pins(errors: list[str], config: Path | None = None) -> None:
     if not cfg_path.exists():
         return  # opt-in: an absent config is valid
     try:
-        cfg = json.loads(cfg_path.read_text())
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         errors.append(f"{label}: invalid JSON ({e})")
         return
@@ -1180,7 +1550,7 @@ def _check_design_pins(errors: list[str], config: Path | None = None) -> None:
 def _self_test() -> int:
     """Fixture-driven cases for the doc-gardner schema gate (run via --self-test)."""
     import tempfile
-    real_schema = DG_SCHEMA.read_text() if DG_SCHEMA.exists() else "{}"
+    real_schema = DG_SCHEMA.read_text(encoding="utf-8") if DG_SCHEMA.exists() else "{}"
     # (name, config text, schema text or None for a missing schema, expected error substrings)
     cases = [
         ("valid minimal config passes", '{"enabled": true}', real_schema, []),
@@ -1202,10 +1572,10 @@ def _self_test() -> int:
     with tempfile.TemporaryDirectory() as td:
         for i, (name, cfg_text, schema_text, want) in enumerate(cases):
             cfg = Path(td) / f"cfg{i}.json"
-            cfg.write_text(cfg_text)
+            cfg.write_text(cfg_text, encoding="utf-8")
             schema = Path(td) / f"schema{i}.json"
             if schema_text is not None:
-                schema.write_text(schema_text)
+                schema.write_text(schema_text, encoding="utf-8")
             errors: list[str] = []
             _check_doc_gardner(errors, config=cfg, schema=schema)
             ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
@@ -1245,7 +1615,7 @@ def _self_test() -> int:
         ]
         for i, (name, data, want) in enumerate(dp_cases):
             cfg = Path(td) / f"pins{i}.json"
-            cfg.write_text(json.dumps(data))
+            cfg.write_text(json.dumps(data), encoding="utf-8")
             errs: list[str] = []
             _check_design_pins(errs, config=cfg)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
@@ -1260,7 +1630,7 @@ def _self_test() -> int:
         failures += 0 if ok else 1
         errs = []
         bad_json = Path(td) / "bad-pins.json"
-        bad_json.write_text("{not json")
+        bad_json.write_text("{not json", encoding="utf-8")
         _check_design_pins(errs, config=bad_json)
         ok = bool(errs) and any("invalid JSON" in e for e in errs)
         print(f"[{'PASS' if ok else 'FAIL'}] design-pins: invalid JSON fails" + ("" if ok else f" — got {errs!r}"))
@@ -1292,7 +1662,7 @@ def _self_test() -> int:
              ["declares no kind"]),
         ]
         for name, anchor_text, reg, want in anchor_cases:
-            anc.write_text(anchor_text)
+            anc.write_text(anchor_text, encoding="utf-8")
             errs: list[str] = []
             _check_behaviour_anchor(errs, anchor=anc, registry=reg)
             ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
@@ -1316,8 +1686,8 @@ def _self_test() -> int:
                                "token_manifest": {"design_fact_table": [row]}})
         bd = Path(td) / "binders"
         (bd / "archive").mkdir(parents=True)
-        (bd / "ok.json").write_text(_fact_binder(True))
-        (bd / "archive" / "frozen.json").write_text(_fact_binder(False))
+        (bd / "ok.json").write_text(_fact_binder(True), encoding="utf-8")
+        (bd / "archive" / "frozen.json").write_text(_fact_binder(False), encoding="utf-8")
         errs = []
         _check_fact_traces(errs, binders_dir=bd)
         ok = (len(errs) == 1 and "archive" in errs[0] and "frozen.json" in errs[0]
@@ -1326,7 +1696,7 @@ def _self_test() -> int:
               + ("" if ok else f" — got {errs!r}"))
         total += 1
         failures += 0 if ok else 1
-        (bd / "gap.json").write_text(_fact_binder(False))
+        (bd / "gap.json").write_text(_fact_binder(False), encoding="utf-8")
         errs = []
         _check_fact_traces(errs, binders_dir=bd)
         ok = (len(errs) == 2
@@ -1344,15 +1714,15 @@ def _self_test() -> int:
         (rst / "good.py").write_text(
             "import argparse\n"
             "p=argparse.ArgumentParser();p.add_argument('--self-test',action='store_true')\n"
-            "p.parse_args()\n")
+            "p.parse_args()\n", encoding="utf-8")
         (rst / "bad.py").write_text(
             "import argparse,sys\n"
             "p=argparse.ArgumentParser();p.add_argument('--self-test',action='store_true')\n"
             "a=p.parse_args()\n"
-            "sys.exit(1 if a.self_test else 0)\n")
+            "sys.exit(1 if a.self_test else 0)\n", encoding="utf-8")
         (rst / "missing.py").write_text(
             "import argparse\n"
-            "argparse.ArgumentParser().parse_args()\n")
+            "argparse.ArgumentParser().parse_args()\n", encoding="utf-8")
         rst_cases = [
             ("_run_self_test: exposed & passing self-test -> no error", "good.py", False, None),
             ("_run_self_test: exposed & failing self-test -> named failure", "bad.py", True, "--self-test failed"),
@@ -1402,18 +1772,18 @@ def _self_test() -> int:
             canon = base / "skills" / WATCH_FONTS_REL
             (canon / "demo-400.woff2").write_bytes(b"WOFF2")
             if licence:
-                (canon / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE")
+                (canon / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE", encoding="utf-8")
             if manifest:
                 doc = _demo_manifest()
                 if patch:
                     patch(doc)
-                (canon / "manifest.json").write_text(json.dumps(doc))
+                (canon / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
             (base / "skills" / WATCH_SCRIPT_REL).write_bytes(b"# page\n")
             for m in MIRROR_SKILL_ROOTS:
                 mirror = base / m / WATCH_FONTS_REL
                 (mirror / "demo-400.woff2").write_bytes(mirror_bytes)
                 if licence:
-                    (mirror / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE")
+                    (mirror / "demo-OFL.txt").write_text("SIL OPEN FONT LICENSE", encoding="utf-8")
                 if manifest:
                     (mirror / "manifest.json").write_bytes(
                         (canon / "manifest.json").read_bytes())
@@ -1493,7 +1863,7 @@ def _self_test() -> int:
             f = base / "design.html"
             f.write_text(f"<!DOCTYPE html>\n<html>\n<head>\n{header}"
                          f"<style>body{{color:red}}</style>\n</head>\n"
-                         f"<body>\n{asset_tag}\n{extra}\n</body>\n</html>\n")
+                         f"<body>\n{asset_tag}\n{extra}\n</body>\n</html>\n", encoding="utf-8")
             return f
 
         design_cases = [
@@ -1550,11 +1920,11 @@ def _self_test() -> int:
                 d.mkdir(parents=True, exist_ok=True)
             if binders in ("one", "two"):
                 payload = json.dumps({"slug": slug}) if valid_json else "{not json"
-                (d / "a.json").write_text(payload)
+                (d / "a.json").write_text(payload, encoding="utf-8")
             if binders == "two":
-                (d / "b.json").write_text(json.dumps({"slug": slug + "-2"}))
+                (d / "b.json").write_text(json.dumps({"slug": slug + "-2"}), encoding="utf-8")
             if binders == "no-slug":
-                (d / "a.json").write_text(json.dumps({"title": "no slug here"}))
+                (d / "a.json").write_text(json.dumps({"title": "no slug here"}), encoding="utf-8")
             return base
 
         fixture_cases = [
@@ -1608,7 +1978,7 @@ def _self_test() -> int:
                 '<div style="background:var(--band);border-radius:16px"><p>band</p></div>\n'
                 '<div style="background:' + panel_bg + ';border:1px solid var(--line);'
                 'border-radius:16px"><div style="padding:4px"><br>x</div></div>\n'
-                "</section></main>\n</body>\n</html>\n")
+                "</section></main>\n</body>\n</html>\n", encoding="utf-8")
             return f
 
         page_side = {"page_card_roles": {"--surface"}, "page_frame_roles": {"--bg"},
@@ -1680,13 +2050,13 @@ def _self_test() -> int:
                 "        self.end_headers()\n"
                 "        self.wfile.write(b)\n"
                 "    def log_message(self, *a): pass\n"
-                "http.server.HTTPServer(('127.0.0.1', a.port), H).serve_forever()\n")
+                "http.server.HTTPServer(('127.0.0.1', a.port), H).serve_forever()\n", encoding="utf-8")
             return p
 
         serving = _stand_in("serving.py", "'<html>fixture-demo-slug rendered</html>'")
         blank = _stand_in("blank.py", "'<html>no binder here</html>'")
         dead = rig_dir / "dead.py"
-        dead.write_text("import sys\nsys.exit(3)\n")
+        dead.write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
 
         rig_cases = [
             ("rig: a page serving 200 with the fixture's binder in the body -> no error",
@@ -1707,6 +2077,211 @@ def _self_test() -> int:
             print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
             total += 1
             failures += 0 if ok else 1
+    import tempfile as _ec_tf
+    with _ec_tf.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+        # -------------------------------------------------------------------
+        # Encoding. This becomes a gate every commit passes through, so every
+        # shape it REJECTS gets a negative fixture and every shape it must
+        # TOLERATE gets a positive one — an over-blocking encoding rule wedges
+        # the repository just as thoroughly as a missing one lets a defect out.
+        # Fixture sources are written into the temp dir, never tracked as .py:
+        # tracked Python must stay parseable and decodable, since this rule and
+        # the floor both read every one of them.
+        # -------------------------------------------------------------------
+        ec_policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+
+        def ec_run(source: str, policy=None) -> list[str]:
+            errs: list[str] = []
+            sp = Path(td) / "ec_fixture_mod.py"
+            sp.write_text(source, encoding="utf-8")
+            _check_encoding(errs, policy=policy or ec_policy,
+                            py_files=[(sp, "fixture/mod.py")])
+            return errs
+
+        SWALLOW = ('import json\nfrom pathlib import Path\n'
+                   'def load(p):\n'
+                   '    try:\n'
+                   '        return json.loads(Path(p).read_text(encoding="utf-8"))\n'
+                   '    except %s:\n'
+                   '        return {}\n')
+
+        ec_cases = [
+            # --- negative: one per shape the contract names -------------------
+            ("ec: a bare read_text() is caught",
+             'from pathlib import Path\nPath("x").read_text()\n', ["read_text() names no encoding"]),
+            ("ec: a bare write_text() is caught",
+             'from pathlib import Path\nPath("x").write_text("y")\n', ["write_text() names no encoding"]),
+            ("ec: a bare text-mode open() is caught",
+             'f = open("x")\n', ["open() in text mode names no encoding"]),
+            ('ec: an explicit text-mode open("w") is caught',
+             'f = open("x", "w")\n', ["open() in text mode names no encoding"]),
+            ("ec: io.open() in text mode is caught",
+             'import io\nio.open("x")\n', ["io.open() in text mode"]),
+            ("ec: codecs.open() with no encoding is caught",
+             'import codecs\ncodecs.open("x", "r")\n', ["codecs.open() in text mode"]),
+            ("ec: a text=True subprocess capture is caught",
+             'import subprocess\nsubprocess.run(["git", "status"], capture_output=True, text=True)\n',
+             ["text=True names no encoding"]),
+            ("ec: universal_newlines=True is the same boundary and is caught",
+             'import subprocess\nsubprocess.run(["git"], universal_newlines=True)\n',
+             ["universal_newlines=True names no encoding"]),
+            ("ec: a logging file handler with no encoding is caught",
+             'import logging\nlogging.FileHandler("app.log")\n', ["FileHandler() names no encoding"]),
+            ("ec: `json.load(sys.stdin)` in a module that never reconfigures stdin is caught",
+             'import json, sys\npayload = json.load(sys.stdin)\n', ["reads sys.stdin as text"]),
+            ("ec: a bare sys.stdin.read() is caught by the same rule",
+             'import sys\ntext = sys.stdin.read()\n', ["reads sys.stdin as text"]),
+            ("ec: a bare .decode() is caught",
+             'raw = b"x"\ns = raw.decode()\n', ["bare .decode()"]),
+            ("ec: a bare .encode() is caught",
+             's = "x"\nraw = s.encode()\n', ["bare .encode()"]),
+            ("ec: a swallowed UnicodeDecodeError is caught",
+             SWALLOW % "UnicodeDecodeError", ["catches UnicodeDecodeError"]),
+            ("ec: the same shape catching UnicodeError is caught",
+             SWALLOW % "UnicodeError", ["catches UnicodeError"]),
+            ("ec: the same shape catching ValueError is caught "
+             "(UnicodeDecodeError IS a ValueError)",
+             SWALLOW % "ValueError", ["catches ValueError"]),
+            ("ec: the same shape catching Exception is caught",
+             SWALLOW % "Exception", ["catches Exception"]),
+            ("ec: the same shape behind a bare except: is caught",
+             ('import json\nfrom pathlib import Path\n'
+              'def load(p):\n'
+              '    try:\n'
+              '        return json.loads(Path(p).read_text(encoding="utf-8"))\n'
+              '    except:\n'
+              '        return {}\n'), ["catches Exception"]),
+            # --- positive: the over-blocking cases that would wedge the repo ---
+            ("ec: read_bytes() is binary IO and does not fire",
+             'from pathlib import Path\nraw = Path("x").read_bytes()\n', []),
+            ("ec: an 'rb' open() does not fire",
+             'f = open("x", "rb")\n', []),
+            ("ec: a COMPUTED-mode open() does not fire — the rule never guesses "
+             "at a mode it cannot read",
+             'def go(mode):\n    return open("x", mode)\n', []),
+            ('ec: an explicit .decode("utf-8") does not fire',
+             'raw = b"x"\ns = raw.decode("utf-8")\n', []),
+            ('ec: read_text(encoding="utf-8") does not fire',
+             'from pathlib import Path\nPath("x").read_text(encoding="utf-8")\n', []),
+            ("ec: a text=True subprocess that names its codec does not fire",
+             'import subprocess\nsubprocess.run(["git"], text=True, encoding="utf-8")\n', []),
+            ("ec: the repo's binary-first stdin idiom does not fire",
+             ('import json, sys\n'
+              'stream = getattr(sys.stdin, "buffer", sys.stdin)\n'
+              'data = stream.read()\n'
+              'payload = json.loads(data.decode("utf-8", "replace")\n'
+              '                     if isinstance(data, bytes) else data)\n'), []),
+            ("ec: a module that reconfigures stdin may then read it as text",
+             ('import json, sys\n'
+              'sys.stdin.reconfigure(encoding="utf-8", errors="replace")\n'
+              'payload = json.load(sys.stdin)\n'), []),
+            ("ec: a handler that NAMES the error is surfacing it, not swallowing it",
+             ('import json\nfrom pathlib import Path\n'
+              'def load(p, errors):\n'
+              '    try:\n'
+              '        return json.loads(Path(p).read_text(encoding="utf-8"))\n'
+              '    except ValueError as e:\n'
+              '        errors.append(f"bad file: {e}")\n'
+              '        return {}\n'), []),
+            ("ec: a handler that re-raises is not swallowing",
+             ('from pathlib import Path\n'
+              'def load(p):\n'
+              '    try:\n'
+              '        return Path(p).read_text(encoding="utf-8")\n'
+              '    except ValueError:\n'
+              '        raise RuntimeError("unreadable")\n'), []),
+            ("ec: a TOTAL codec has no failure to hide, so the handler is not a swallow",
+             ('import json\nfrom pathlib import Path\n'
+              'def load(p):\n'
+              '    try:\n'
+              '        return json.loads(Path(p).read_bytes().decode("utf-8", "replace"))\n'
+              '    except (OSError, json.JSONDecodeError):\n'
+              '        return {}\n'), []),
+        ]
+        for name, src, want in ec_cases:
+            errs = ec_run(src)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
+            failures += 0 if ok else 1
+
+        # REACH IS COMPUTED FROM GIT AT CHECK TIME. A fixture repo whose violating
+        # module sits in a directory no item in any binder enumerated: if the rule
+        # read a hand-list it would miss this file, and the assertion would fail.
+        ec_repo = Path(td) / "ec-reach-repo"
+        (ec_repo / "a" / "tree" / "nobody" / "listed").mkdir(parents=True)
+        (ec_repo / "a" / "tree" / "nobody" / "listed" / "late.py").write_text(
+            'from pathlib import Path\nPath("x").read_text()\n', encoding="utf-8")
+        for cmd in (["init", "-q"], ["add", "-A"]):
+            subprocess.run(["git", "-C", str(ec_repo), *cmd], capture_output=True, timeout=120)
+        errs = []
+        _check_encoding(errs, policy=ec_policy, root=ec_repo)
+        ok = any("a/tree/nobody/listed/late.py" in e and "read_text" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] ec: the rule reaches a .py added in a tree no "
+              f"item enumerated — reach is git ls-files at check time, not a list"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # An excluded path is excluded for BOTH rules, from ONE list. Widening the
+        # committed exclusions must silence the same finding the rule just made.
+        widened = dict(ec_policy)
+        widened["exclusions"] = list(ec_policy["exclusions"]) + [
+            {"path": "a/tree/", "reason": "fixture: proves the shared exclusion list is read"}]
+        errs_ex = []
+        _check_encoding(errs_ex, policy=widened, root=ec_repo)
+        ok = errs_ex == []
+        print(f"[{'PASS' if ok else 'FAIL'}] ec: adding a path to the committed exclusion "
+              f"list silences the finding — one list, read by both rules"
+              + ("" if ok else f" — got {errs_ex!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # Every exclusion carries a reason, and an entry without one FAILS. The same
+        # assertion the command-portability group makes, over the same array — there
+        # is only one array, which is the point.
+        bad_ex = dict(ec_policy)
+        bad_ex["exclusions"] = list(ec_policy["exclusions"]) + [{"path": "unreasoned/"}]
+        ok = (all(isinstance(x.get("path"), str)
+                  and len(str(x.get("reason", "")).strip()) > 40
+                  for x in ec_policy.get("exclusions", []))
+              and not all(isinstance(x.get("path"), str)
+                          and len(str(x.get("reason", "")).strip()) > 40
+                          for x in bad_ex["exclusions"]))
+        print(f"[{'PASS' if ok else 'FAIL'}] ec: every committed exclusion carries a reason, "
+              f"and an entry without one fails")
+        total += 1
+        failures += 0 if ok else 1
+
+        # The exclusion list is SHARED, not duplicated: the two rules must give the
+        # same answer for every path, which they can only do by reading one array.
+        ok = all(_excluded(p, ec_policy) == _excluded(p, ec_policy)
+                 for p in ("benchmarks/x.py", ".karta/binders/a.json", "scripts/x.py"))
+        ok = ok and _excluded("benchmarks/x.py", ec_policy) \
+            and _excluded(".claude/skills/plannotator-compound/scripts/x.py", ec_policy) \
+            and not _excluded("hooks/scripts/guard_pack_write.py", ec_policy)
+        print(f"[{'PASS' if ok else 'FAIL'}] ec: command portability and encoding resolve "
+              f"scope through the same predicate over the same committed array")
+        total += 1
+        failures += 0 if ok else 1
+
+        # The refinement this port added: binary mode has nothing to decode, so
+        # an except around `open(p, "rb")` + json.load(fh) — the byte-first
+        # shape this sweep standardises on — is not a swallowed decode failure.
+        errs = ec_run('import json\n'
+                      'def load(p):\n'
+                      '    try:\n'
+                      '        with open(p, "rb") as fh:\n'
+                      '            return json.load(fh)\n'
+                      '    except (OSError, ValueError):\n'
+                      '        return {}\n')
+        ok = errs == []
+        print(f"[{'PASS' if ok else 'FAIL'}] ec: a binary-mode open under a degrade "
+              f"handler is not a boundary — bytes have nothing to mis-decode"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
     print(f"self-test: {total - failures}/{total} embedded fixture cases passed")
     return 1 if failures else 0
 
@@ -1726,7 +2301,7 @@ def _run_self_test(script: Path, errors: list[str]) -> None:
             return p.name
     try:
         helpp = subprocess.run([sys.executable, str(script), "--help"],
-                               capture_output=True, text=True, timeout=120)
+                               capture_output=True, text=True, timeout=120, encoding="utf-8")
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: could not probe --help ({e})")
         return
@@ -1736,7 +2311,7 @@ def _run_self_test(script: Path, errors: list[str]) -> None:
         return
     try:
         proc = subprocess.run([sys.executable, str(script), "--self-test"],
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, timeout=120, encoding="utf-8")
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: --self-test did not run ({e})")
         return

@@ -92,7 +92,7 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
 
     def load_json(path: Path) -> dict:
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
             warnings.append(f"{_label(path)}: skipped ({e})")
             return {}
@@ -100,14 +100,14 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
 
     def load_toml(path: Path) -> dict:
         try:
-            return tomllib.loads(path.read_text())
+            return tomllib.loads(path.read_text(encoding="utf-8"))
         except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
             warnings.append(f"{_label(path)}: skipped ({e})")
             return {}
 
     def read_lines(path: Path) -> list[str]:
         try:
-            return path.read_text().splitlines()
+            return path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError) as e:
             warnings.append(f"{_label(path)}: skipped ({e})")
             return []
@@ -214,7 +214,7 @@ def _run_self_test() -> int:
             for rel, content in files.items():
                 p = root / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(content)
+                p.write_text(content, encoding="utf-8")
             result, warnings = detect(root)
             ok = (set(result["dependencies"]) == want_deps
                   and set(result["languages"]) == want_langs

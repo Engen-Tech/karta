@@ -338,7 +338,7 @@ def _opted_in_root(cwd: str | None = None) -> str | None:
             if parent == d:
                 return None
             d = parent
-        doc = json.loads(state_path.read_text(encoding="utf-8"))
+        doc = json.loads(state_path.read_bytes())
         repos = doc.get("repos") if isinstance(doc, dict) else None
         rec = repos.get(d) if isinstance(repos, dict) else None
         return d if isinstance(rec, dict) and rec.get("opted_in") else None
@@ -382,8 +382,7 @@ def watch_line(cwd: str | None = None, *, banner: bool = False, probe=None,
             return WATCH_BANNER.format(port=port, token=token) if banner else None
         reason = ""
         try:
-            doc = json.loads((sd / watch.ENSURE_FAILURE_FILENAME)
-                             .read_text(encoding="utf-8"))
+            doc = json.loads((sd / watch.ENSURE_FAILURE_FILENAME).read_bytes())
             if isinstance(doc, dict) and doc.get("reason"):
                 reason = f" ({doc['reason']})"
         except Exception:
@@ -395,7 +394,7 @@ def watch_line(cwd: str | None = None, *, banner: bool = False, probe=None,
 
 def _git(*args: str) -> str:
     try:
-        return subprocess.run(["git", *args], capture_output=True, text=True).stdout
+        return subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8").stdout
     except OSError:
         return ""
 
@@ -481,7 +480,7 @@ def load_binders(binders_dir: Path = BINDERS_DIR) -> list[dict]:
     if binders_dir.is_dir():
         for p in sorted(binders_dir.glob("*.json")):
             try:
-                out.append(json.loads(p.read_text()))
+                out.append(json.loads(p.read_text(encoding="utf-8")))
             except (OSError, json.JSONDecodeError):
                 continue
     return out
@@ -495,7 +494,7 @@ def load_archived_binders(archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
     if archive_dir.is_dir():
         for p in sorted(archive_dir.glob("*.json")):
             try:
-                doc = json.loads(p.read_text())
+                doc = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
             if isinstance(doc, dict) and isinstance(doc.get("slug"), str):
@@ -660,7 +659,7 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
         _setup(["init", "-q", "-b", "main", "."], path)
         _setup(["config", "user.email", "t@example.com"], path)
         _setup(["config", "user.name", "t"], path)
-        (path / "f").write_text("c1")
+        (path / "f").write_text("c1", encoding="utf-8")
         _setup(["add", "f"], path)
         _setup(["commit", "-q", "-m", "c1"], path)
         return _setup(["rev-parse", "HEAD"], path).stdout.strip()
@@ -740,11 +739,11 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
 
         # -- real, multi-commit history with a done ref NOT merged into default --
         hist = root / "history"; sha1 = _mk_repo(hist)
-        (hist / "f2").write_text("c2")
+        (hist / "f2").write_text("c2", encoding="utf-8")
         _setup(["add", "f2"], hist); _setup(["commit", "-q", "-m", "c2"], hist)
         sha2 = _setup(["rev-parse", "HEAD"], hist).stdout.strip()
         _setup(["checkout", "-q", "-b", "side", sha1], hist)
-        (hist / "f3").write_text("c3")
+        (hist / "f3").write_text("c3", encoding="utf-8")
         _setup(["add", "f3"], hist); _setup(["commit", "-q", "-m", "c3"], hist)
         sha3 = _setup(["rev-parse", "HEAD"], hist).stdout.strip()
         _setup(["checkout", "-q", "main"], hist)
@@ -765,11 +764,11 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
         # Pins git's tag-peeling behaviour, verified directly on git 2.47.3:
         # for-each-ref --merged peels exactly as merge-base --is-ancestor does. --
         tags = root / "tags"; sha1 = _mk_repo(tags)
-        (tags / "f2").write_text("c2")
+        (tags / "f2").write_text("c2", encoding="utf-8")
         _setup(["add", "f2"], tags); _setup(["commit", "-q", "-m", "c2"], tags)
         _setup(["tag", "-a", "-m", "merged", "tm", sha1], tags)
         _setup(["checkout", "-q", "-b", "side", sha1], tags)
-        (tags / "f3").write_text("c3")
+        (tags / "f3").write_text("c3", encoding="utf-8")
         _setup(["add", "f3"], tags); _setup(["commit", "-q", "-m", "c3"], tags)
         sha3 = _setup(["rev-parse", "HEAD"], tags).stdout.strip()
         _setup(["tag", "-a", "-m", "not merged", "tnm", sha3], tags)
@@ -1113,7 +1112,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
         proc = subprocess.run(
             [sys.executable, "-c", code,
              str(Path(__file__).resolve().parent), str(cold_repo)],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, timeout=60, encoding="utf-8")
         try:
             cold = json.loads(proc.stdout)
         except ValueError:
@@ -1132,7 +1131,7 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
         (repo / ".karta" / "binders" / "s.json").write_text(json.dumps(
             {"slug": "s", "motivation": "x", "scope": {"included": ["x"]},
              "work_items": [{"id": "a", "title": "A",
-                             "oracle": {"type": "unit"}}]}))
+                             "oracle": {"type": "unit"}}]}), encoding="utf-8")
         # realpath: the child processes key the store by their resolved cwd
         repo = Path(os.path.realpath(repo))
         watch = _load_watch()
@@ -1174,12 +1173,12 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
 
             foot = subprocess.run([sys.executable, me, "--footer", "--binder", "s"],
                                   capture_output=True, text=True, cwd=repo,
-                                  timeout=120)
+                                  timeout=120, encoding="utf-8")
             ran_footer = wait_crumb()
             crumb.unlink(missing_ok=True)
             jso = subprocess.run([sys.executable, me, "--json"],
                                  capture_output=True, text=True, cwd=repo,
-                                 timeout=120)
+                                 timeout=120, encoding="utf-8")
             ran_json = wait_crumb()
             flines = foot.stdout.splitlines()
             checks.append(("e2e: footer exits 0 and ends on the one nudge line",
@@ -1343,13 +1342,13 @@ def _run_self_test() -> int:
     with _tf.TemporaryDirectory() as _td:
         _r = Path(_td)
         _mk = lambda *a: subprocess.run(["git", *a], cwd=str(_r),
-                                        capture_output=True, text=True, check=True)
+                                        capture_output=True, text=True, check=True, encoding="utf-8")
         _mk("init", "-q", "-b", "main", ".")
         _mk("config", "user.email", "t@example.com")
         _mk("config", "user.name", "t")
         (_r / "app").mkdir()
-        (_r / "app" / "models.py").write_text("x")
-        (_r / "app" / "list.py").write_text("y")
+        (_r / "app" / "models.py").write_text("x", encoding="utf-8")
+        (_r / "app" / "list.py").write_text("y", encoding="utf-8")
         _mk("add", "-A"); _mk("commit", "-q", "-m", "c")
         _old = os.getcwd(); os.chdir(_r)
         try:

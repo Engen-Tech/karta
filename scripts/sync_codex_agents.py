@@ -120,7 +120,7 @@ def projections() -> dict[Path, str]:
     if not sources:
         raise SystemExit("no agents found under agents/*.md")
     for src in sources:
-        fm, body = parse_agent(src.read_text())
+        fm, body = parse_agent(src.read_text(encoding="utf-8"))
         name = fm.get("name") or src.stem
         description = fm.get("description", "")
         if not description:
@@ -147,7 +147,7 @@ def projections() -> dict[Path, str]:
         out[ROOT / "skills" / site / "references" / f"{name}.agent.md"] = render_bundle(body)
     out[ROOT / "skills/karta-verify/references/codex-gate-models.json"] = (
         json.dumps(gate_models, indent=2, sort_keys=True) + "\n")
-    source_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+    source_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
     # Explicit empty hooks prevent auto-loading the incompatible Claude hooks.
     copilot_manifest = {
         "name": source_manifest["name"],
@@ -170,7 +170,7 @@ def main() -> int:
 
     if args.check:
         drift = [p for p, content in expected.items()
-                 if not p.exists() or p.read_text() != content]
+                 if not p.exists() or p.read_text(encoding="utf-8") != content]
         if drift:
             print("CODEX AGENTS: DRIFT")
             for p in sorted(drift):
@@ -182,7 +182,7 @@ def main() -> int:
 
     for p, content in expected.items():
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content)
+        p.write_text(content, encoding="utf-8")
         print(f"wrote {p.relative_to(ROOT)}")
     return 0
 

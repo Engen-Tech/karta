@@ -29,6 +29,16 @@ dispatch shapes always pass.
 from __future__ import annotations
 import argparse, json, os, re, subprocess, sys
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 AGENT_KEYS = ("subagent_type", "agent_type", "agent", "agent_name", "name")
 GATE_AGENTS = ("karta-acceptance-reviewer", "karta-safety-auditor")
 
@@ -282,12 +292,12 @@ def _run_self_test() -> int:
         run("git", "init", "-q", cwd=repo)
         run("git", "config", "user.email", "t@example.com", cwd=repo)
         run("git", "config", "user.name", "t", cwd=repo)
-        (Path(repo) / "a.txt").write_text("one\n")
+        (Path(repo) / "a.txt").write_text("one\n", encoding="utf-8")
         run("git", "add", "-A", cwd=repo)
         run("git", "commit", "-q", "-m", "base", cwd=repo)
         run("git", "branch", "base", cwd=repo)
-        (Path(repo) / "a.txt").write_text("one\ntwo\n")
-        (Path(repo) / "b.txt").write_text("new file\n")
+        (Path(repo) / "a.txt").write_text("one\ntwo\n", encoding="utf-8")
+        (Path(repo) / "b.txt").write_text("new file\n", encoding="utf-8")
         run("git", "add", "-A", cwd=repo)
         run("git", "commit", "-q", "-m", "feature", cwd=repo)
         run("git", "branch", "feature", cwd=repo)
@@ -314,7 +324,7 @@ def _run_self_test() -> int:
         trio = str(Path(td) / "trio")
         shutil.copytree(repo, trio)
         trio_file_punct = trio + ";"
-        Path(trio_file_punct).write_text("not a tree\n")
+        Path(trio_file_punct).write_text("not a tree\n", encoding="utf-8")
 
         real_files, real_bytes = _diff_stat(repo, "base..feature")
         good_size_line = f"Diff-size: {real_files} files, {real_bytes} bytes"
@@ -483,7 +493,7 @@ def main() -> int:
         return _run_self_test()
     payload: dict = {}
     try:
-        raw = json.load(sys.stdin)
+        raw = json.loads(_read_stdin_text())
         if isinstance(raw, dict):
             payload = raw
     except Exception:  # noqa: BLE001

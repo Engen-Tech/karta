@@ -123,7 +123,7 @@ def _sha256_hex(data: bytes) -> str:
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
 
 
 def _rev(repo: Path, ref: str) -> str | None:
@@ -199,7 +199,7 @@ def _run_provenance(repo: Path, item: str, rng: str, slug: str | None = None,
     argv = [sys.executable, str(PROVENANCE), "--repo", str(repo), "--item", item, "--range", rng]
     if check_accepted:
         argv += ["--slug", slug or "", "--check-accepted"]
-    p = subprocess.run(argv, capture_output=True, text=True)
+    p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
     return {
         "range": rng,
         "check_accepted": check_accepted,
@@ -215,7 +215,7 @@ def _run_oracle_record(command: str, cwd: Path, expect: str | None) -> dict:
     if expect:
         argv += ["--expect", expect]
     argv.append(command)
-    p = subprocess.run(argv, capture_output=True, text=True)
+    p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
     try:
         record = json.loads(p.stdout)
     except json.JSONDecodeError:
@@ -770,26 +770,26 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         g(repo, "init", "-q", "-b", "main")
         g(repo, "config", "user.email", "t@example.invalid")
         g(repo, "config", "user.name", "karta self-test")
-        (repo / "f.txt").write_text("line1\nline2\n")
+        (repo / "f.txt").write_text("line1\nline2\n", encoding="utf-8")
         g(repo, "add", "f.txt")
         g(repo, "commit", "-q", "-m", "base")
         if foreign:
             g(repo, "checkout", "-q", "-b", "foreign")
-            (repo / "foreign.txt").write_text("foreign\n")
+            (repo / "foreign.txt").write_text("foreign\n", encoding="utf-8")
             g(repo, "add", "foreign.txt")
             g(repo, "commit", "-q", "-m", "foreign work")
             g(repo, "checkout", "-q", "main")
         g(repo, "checkout", "-q", "-b", "karta/s/integration")
         g(repo, "checkout", "-q", "-b", "karta/s/item-a")
-        (repo / "item.txt").write_text("item\n")
+        (repo / "item.txt").write_text("item\n", encoding="utf-8")
         g(repo, "add", "item.txt")
         if conflict:
-            (repo / "f.txt").write_text("item version\n")
+            (repo / "f.txt").write_text("item version\n", encoding="utf-8")
             g(repo, "add", "f.txt")
         g(repo, "commit", "-q", "-m", "the work [karta:item-a]")
         g(repo, "checkout", "-q", "karta/s/integration")
         if conflict:
-            (repo / "f.txt").write_text("integration version\n")
+            (repo / "f.txt").write_text("integration version\n", encoding="utf-8")
             g(repo, "add", "f.txt")
             g(repo, "commit", "-q", "-m", "integration drift")
         f.repo = repo
@@ -798,7 +798,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         if expect:
             oracle["expect"] = expect
         f.binder.write_text(json.dumps(
-            {"slug": "s", "work_items": [{"id": "a", "oracle": oracle}]}, indent=1))
+            {"slug": "s", "work_items": [{"id": "a", "oracle": oracle}]}, indent=1), encoding="utf-8")
         # Evidence written by run_oracle.py --attach-ref, exactly as a build does.
         # The command runs in a scratch dir (never the fixture repo) — only its
         # command_sha256 matters here, not its outcome.
@@ -807,7 +807,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         subprocess.run(
             [sys.executable, str(RUN_ORACLE), "--cwd", str(scratch),
              "--attach-ref", "refs/karta/s/item-a/evidence", "--repo", str(repo), oracle_cmd],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8")
         f.item_tip = _rev(repo, "refs/heads/karta/s/item-a")
         g(repo, "update-ref", "refs/karta/s/item-a/built", f.item_tip)
         f.pre_tip = _rev(repo, "HEAD")
@@ -867,7 +867,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
 
         # 5-6. worktree preconditions
         f = fixture("dirtywt", "echo OK")
-        (f.repo / "f.txt").write_text("dirtied\n")
+        (f.repo / "f.txt").write_text("dirtied\n", encoding="utf-8")
         code, res = run_cli(merge_args(f))
         check("a dirty integration worktree halts before any merge",
               code == 1 and res["halted_at"] == "dirty-worktree" and no_done(f))
@@ -964,9 +964,9 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
 
         # 16. drift
         f = fixture("drift", "echo OK", expect="OK")
-        drifted = dict(json.loads(f.binder.read_text()))
+        drifted = dict(json.loads(f.binder.read_text(encoding="utf-8")))
         drifted["work_items"][0]["oracle"]["command"] = "echo OK # drifted"
-        f.binder.write_text(json.dumps(drifted, indent=1))
+        f.binder.write_text(json.dumps(drifted, indent=1), encoding="utf-8")
         code, res = run_cli(merge_args(f))
         check("a drifted command_sha256 halts without --allow-drift, before any merge",
               code == 1 and res["halted_at"] == "drift" and res["drift"] is True
@@ -989,7 +989,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         # wave-mate lands first, then item-a — the narrow <done>^1..<done> range
         # must not see the wave-mate's commits.
         g(f.repo, "checkout", "-q", "-b", "karta/s/item-b")
-        (f.repo / "b.txt").write_text("b\n")
+        (f.repo / "b.txt").write_text("b\n", encoding="utf-8")
         g(f.repo, "add", "b.txt")
         g(f.repo, "commit", "-q", "-m", "wave mate [karta:item-b]")
         g(f.repo, "checkout", "-q", "karta/s/integration")
@@ -1016,7 +1016,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         def accept_fixture(name: str, subject: str) -> Fx:
             f = fixture(name, "echo OK", expect="OK")
             g(f.repo, "checkout", "-q", "-b", "karta/s/item-b")
-            (f.repo / "b.txt").write_text("b\n")
+            (f.repo / "b.txt").write_text("b\n", encoding="utf-8")
             g(f.repo, "add", "b.txt")
             g(f.repo, "commit", "-q", "-m", "wave mate [karta:item-b]")
             g(f.repo, "checkout", "-q", "karta/s/integration")

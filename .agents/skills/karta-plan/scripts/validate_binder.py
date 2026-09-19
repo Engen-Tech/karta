@@ -42,7 +42,7 @@ _SHARED_TERMS_SCHEMA = {
 
 
 def _load_schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text())
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 # --- Minimal JSON-Schema checker (pure stdlib) --------------------------------
@@ -611,7 +611,7 @@ def cross_binder_errors(binders: list[dict],
 
 
 def _run_self_test() -> int:
-    valid = json.loads((SCHEMA_PATH.parent / "example-binder.json").read_text())
+    valid = json.loads((SCHEMA_PATH.parent / "example-binder.json").read_text(encoding="utf-8"))
     cyclic = {
         "slug": "c", "title": "T", "summary": "S", "motivation": "x", "scope": {"included": ["x"]},
         "work_items": [
@@ -1222,7 +1222,7 @@ def main() -> int:
         else:
             print(f"INVALID: binder file not found: {args.binder}")
         return 1
-    binder = json.loads(args.binder.read_text())
+    binder = json.loads(args.binder.read_text(encoding="utf-8"))
     errs = validate_binder(binder)
     if errs:
         print("INVALID:")
@@ -1253,7 +1253,7 @@ def main() -> int:
         siblings = []
         for p in sorted(args.binder.resolve().parent.glob("*.json")):
             try:
-                doc = json.loads(p.read_text())
+                doc = json.loads(p.read_text(encoding="utf-8"))
                 if isinstance(doc, dict) and "slug" in doc:
                     siblings.append(doc)
             except (OSError, json.JSONDecodeError):
@@ -1263,7 +1263,7 @@ def main() -> int:
         if archive_dir.is_dir():
             for p in sorted(archive_dir.glob("*.json")):
                 try:
-                    doc = json.loads(p.read_text())
+                    doc = json.loads(p.read_text(encoding="utf-8"))
                     if isinstance(doc, dict) and isinstance(doc.get("slug"), str):
                         archived.add(doc["slug"])
                 except (OSError, json.JSONDecodeError):

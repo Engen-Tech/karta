@@ -58,7 +58,7 @@ class GitError(RuntimeError):
 
 def _git(repo: Path, *args: str) -> str:
     proc = subprocess.run(["git", "-C", str(repo), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8")
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)}: {proc.stderr.strip() or proc.stdout.strip()}")
     return proc.stdout
@@ -138,7 +138,7 @@ def check_markers(repo: Path, item_id: str, rng: str) -> list[str]:
 
 def _ref_sha(repo: Path, ref: str) -> str | None:
     proc = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8")
     out = proc.stdout.strip()
     return out or None
 

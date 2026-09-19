@@ -132,6 +132,16 @@ from __future__ import annotations
 import argparse, hashlib, json, os, re, subprocess, sys
 from pathlib import Path
 
+def _read_stdin_text() -> str:
+    """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
+
+    sys.stdin decodes with the locale codec — cp1252 on a stock Windows
+    session — which mojibakes or raises on a payload it cannot spell. Read
+    the byte stream and decode explicitly; the getattr falls back for test
+    doubles that carry no .buffer."""
+    data = getattr(sys.stdin, "buffer", sys.stdin).read()
+    return data.decode("utf-8") if isinstance(data, bytes) else data
+
 ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/hooks/ -> repo root
 HELPER = "scripts/roundtable/run_review.py"
 CONFIG_PATH = ".karta/roundtable.json"
@@ -1125,7 +1135,9 @@ def commit_source(path: str, command: str, git, read_file=_real_read, is_symlink
 
 def _parse_json(data: bytes):
     try:
-        return json.loads(data.decode("utf-8"))
+        # bytes go straight to json: JSON is UTF-8 by spec, and non-UTF-8 input
+        # raises into this same except — the denial the comment above promises.
+        return json.loads(data)
     except (ValueError, UnicodeDecodeError):
         return Denial  # sentinel: not JSON
 
@@ -1617,11 +1629,11 @@ def _run_self_test() -> int:
 
     def rec(h, n=1, lp=LP):
         return json.dumps({"reviewed_hash": h, "target_ref": "x", "panel": [], "rounds_ledger": lp,
-                           "final_round": n}).encode()
+                           "final_round": n}).encode("utf-8")
 
     def led(*hashes):
         return json.dumps({"target_ref": "x", "target_kind": "binder",
-                           "rounds": [{"round": i + 1, "reviewed_hash": h} for i, h in enumerate(hashes)]}).encode()
+                           "rounds": [{"round": i + 1, "reviewed_hash": h} for i, h in enumerate(hashes)]}).encode("utf-8")
 
     # detection
     check("detect commit", is_commit_command('git commit -m x') and not is_commit_command("git status"))
@@ -1653,10 +1665,10 @@ def _run_self_test() -> int:
         def git(argv, input_bytes=None):
             calls.append(argv)
             if argv[:3] == ["diff", "--cached", "--name-only"]:
-                return 0, "".join(p + "\n" for p, t in tree.items() if t.get("index") is not None and t.get("index") != t.get("head")).encode()
+                return 0, "".join(p + "\n" for p, t in tree.items() if t.get("index") is not None and t.get("index") != t.get("head")).encode("utf-8")
             if argv[:2] == ["diff", "--name-only"]:
                 return 0, "".join(p + "\n" for p, t in tree.items() if (t.get("index") is not None or t.get("head") is not None)
-                                  and t.get("work") != (t.get("index") if t.get("index") is not None else t.get("head"))).encode()
+                                  and t.get("work") != (t.get("index") if t.get("index") is not None else t.get("head"))).encode("utf-8")
             if argv[0] in ("ls-files", "ls-tree"):
                 specs = argv[argv.index("--") + 1:] if "--" in argv else []
                 key = "index" if argv[0] == "ls-files" else "head"
@@ -1667,20 +1679,20 @@ def _run_self_test() -> int:
                     if not long:
                         return p + "\n"
                     return (f"{mode} {'0' * 40} 0\t{p}\n") if argv[0] == "ls-files" else (f"{mode} blob {'0' * 40}\t{p}\n")
-                return 0, "".join(line(p, t) for p, t in tree.items() if t.get(key) is not None and matched(p, specs)).encode()
+                return 0, "".join(line(p, t) for p, t in tree.items() if t.get(key) is not None and matched(p, specs)).encode("utf-8")
             if argv == ["rev-parse", "--git-dir"]:
                 return (128, b"fatal: not a git repository") if gitdirfail else (0, b".git\n")
             if argv == ["worktree", "list", "--porcelain"]:
                 lines = [f"worktree {ROOT}"] + [f"worktree {w}" for w in worktrees]
-                return 0, ("\n".join(lines) + "\n").encode()
+                return 0, ("\n".join(lines) + "\n").encode("utf-8")
             if argv == ["symbolic-ref", "-q", "HEAD"]:
-                return 0, f"refs/heads/{cur}\n".encode()
+                return 0, f"refs/heads/{cur}\n".encode("utf-8")
             if argv[:3] == ["rev-parse", "--verify", "--quiet"]:
                 if argv[3] == "HEAD":
                     return (128, b"") if unborn else (1, b"") if headfail else (0, b"0" * 40 + b"\n")
                 return (1, b"") if unborn else (0, b"0" * 40 + b"\n")
             if argv[0] == "rev-parse":
-                return (0, (tip + "\n").encode()) if tip and _INTEGRATION_REF_FULL_RE.match(argv[-1]) else (1, b"")
+                return (0, (tip + "\n").encode("utf-8")) if tip and _INTEGRATION_REF_FULL_RE.match(argv[-1]) else (1, b"")
             if argv[0] == "show":
                 key, _, p = argv[1].partition(":")
                 key = "head" if key == "HEAD" else "index"
@@ -1692,11 +1704,11 @@ def _run_self_test() -> int:
                 v = ent.get(key)
                 if v is not None:
                     return 0, v
-                return 128, (f"fatal: path '{p}' does not exist in 'HEAD'".encode() if key == "head" else b"")
+                return 128, (f"fatal: path '{p}' does not exist in 'HEAD'".encode("utf-8") if key == "head" else b"")
             if argv == ["symbolic-ref", "refs/remotes/origin/HEAD"]:
-                return 0, f"refs/remotes/origin/{default}\n".encode()
+                return 0, f"refs/remotes/origin/{default}\n".encode("utf-8")
             if argv == ["symbolic-ref", "--short", "HEAD"]:
-                return 0, f"{cur}\n".encode()
+                return 0, f"{cur}\n".encode("utf-8")
             return 1, b""
 
         def read_file(path):
@@ -1782,12 +1794,12 @@ def _run_self_test() -> int:
         return decide(_payload("git commit -m x"), {}, git, helper, ON, read_file=rf, is_symlink=isl)
     code, msg = hm(b"{not json")
     check("malformed ledger JSON denies instead of failing open", code == 2 and "round ledger" in msg, msg)
-    code, msg = hm(json.dumps({"target_ref": "x", "rounds": []}).encode())
+    code, msg = hm(json.dumps({"target_ref": "x", "rounds": []}).encode("utf-8"))
     check("empty rounds list denies instead of failing open", code == 2 and "round ledger" in msg, msg)
-    code, msg = hm(json.dumps({"target_ref": "x", "rounds": [{"round": 1}]}).encode())
+    code, msg = hm(json.dumps({"target_ref": "x", "rounds": [{"round": 1}]}).encode("utf-8"))
     check("last round without reviewed_hash denies instead of failing open", code == 2 and "round ledger" in msg, msg)
-    for junk in (b"[]", b"5", json.dumps({"target_ref": "x"}).encode(), json.dumps({"rounds": {}}).encode(),
-                 json.dumps({"rounds": [None]}).encode(), json.dumps({"rounds": [{"round": 1, "reviewed_hash": ""}]}).encode()):
+    for junk in (b"[]", b"5", json.dumps({"target_ref": "x"}).encode("utf-8"), json.dumps({"rounds": {}}).encode("utf-8"),
+                 json.dumps({"rounds": [None]}).encode("utf-8"), json.dumps({"rounds": [{"round": 1, "reviewed_hash": ""}]}).encode("utf-8")):
         code, msg = hm(junk)
         check(f"malformed ledger shape denies: {junk[:30]!r}", code == 2 and "round ledger" in msg, msg)
     git, rf, isl, _ = make({**PLAIN, LP: {"head": b"{x", "index": b"{x", "work": b"{x"}})
@@ -1843,8 +1855,8 @@ def _run_self_test() -> int:
     MIS = dict(PLAIN); MIS[RP] = {"head": rec(H0), "index": rec(H0), "work": rec(H1)}
     code, msg, _ = run("git commit -m x", MIS, ON)
     check("the record git will commit must be the one on disk (record source mismatch)", code == 2 and "record source mismatch" in msg, msg)
-    PRE = dict(PLAIN); PRE[RP] = {"head": rec(H0), "index": json.dumps({"reviewed_hash": H1, "target_ref": "x"}).encode(),
-                                  "work": json.dumps({"reviewed_hash": H1, "target_ref": "x"}).encode()}
+    PRE = dict(PLAIN); PRE[RP] = {"head": rec(H0), "index": json.dumps({"reviewed_hash": H1, "target_ref": "x"}).encode("utf-8"),
+                                  "work": json.dumps({"reviewed_hash": H1, "target_ref": "x"}).encode("utf-8")}
     code, msg, _ = run("git commit -m x", PRE, ON)
     check("a pre-ledger record without rounds_ledger/final_round is denied once a ledger exists", code == 2 and "final round" in msg, msg)
     TWO = dict(PLAIN); TWO[LP] = {"head": led(H0), "index": led(H0, H1), "work": led(H0, H1)}
@@ -1854,8 +1866,8 @@ def _run_self_test() -> int:
     code, msg, _ = run("git commit -m x", TWO2, ON)
     check("a record whose final_round equals the ledger's round count passes", code == 0, msg)
     for bad in (rec(H1, True), rec(H1, 0), rec(H1, -1), rec(H1, 2), rec(H1, 1, ".karta/roundtable/other.rounds.json"),
-                json.dumps({"reviewed_hash": H1, "target_ref": "x", "rounds_ledger": LP, "final_round": 1.0}).encode(),
-                json.dumps({"reviewed_hash": H1, "target_ref": "x", "rounds_ledger": LP, "final_round": "1"}).encode()):
+                json.dumps({"reviewed_hash": H1, "target_ref": "x", "rounds_ledger": LP, "final_round": 1.0}).encode("utf-8"),
+                json.dumps({"reviewed_hash": H1, "target_ref": "x", "rounds_ledger": LP, "final_round": "1"}).encode("utf-8")):
         t = dict(PLAIN); t[RP] = {"head": rec(H0), "index": bad, "work": bad}
         code, _, _ = run("git commit -m x", t, ON)
         check(f"record binding is exact — denied: {bad[-40:]!r}", code == 2)
@@ -2049,7 +2061,7 @@ def _run_self_test() -> int:
     check("a committed symlink (mode 120000) on the HEAD path is denied", code == 2 and "symlink" in msg, msg)
 
     # config resolved by the gate itself (config=None)
-    ONB = json.dumps(ON).encode(); OFFB = json.dumps({**CFG, "ledger": False}).encode()
+    ONB = json.dumps(ON).encode("utf-8"); OFFB = json.dumps({**CFG, "ledger": False}).encode("utf-8")
     STALE_LP = {"head": led(H0), "index": led(H0), "work": led(H0)}
 
     def cfgtree(head, index, work):
@@ -2086,7 +2098,7 @@ def _run_self_test() -> int:
     check("a HEAD config that does not parse is a denial, never fail-open", code == 2 and "config" in msg, msg)
     code, _, _ = run("git commit -m x", cfgtree(b"[]", ONB, ONB), None)
     check("a HEAD config that is not an object is a denial", code == 2)
-    code, _, _ = run("git commit -m x", cfgtree(json.dumps({**CFG, "ledger": "true"}).encode(), ONB, ONB), None)
+    code, _, _ = run("git commit -m x", cfgtree(json.dumps({**CFG, "ledger": "true"}).encode("utf-8"), ONB, ONB), None)
     check("a non-boolean ledger key is a denial", code == 2)
     gf = cfgtree(ONB, OFFB, OFFB); gf[CONFIG_PATH]["gitfail"] = True
     code, msg, _ = run("git commit -m x", gf, None)
@@ -2193,7 +2205,7 @@ def _run_self_test() -> int:
     check("an ampersand inside the merge message does not split the ref away from the landing gate", code == 2)
     code, _, _ = run('git add -A && git commit -m x', PLAIN, {})
     check("enabled:false turns the grammar off too — the switch is absolute", code == 0)
-    code, _, _ = run('git add -A && git commit -m x', cfgtree(json.dumps({**CFG, "enabled": False}).encode(), None, None), None)
+    code, _, _ = run('git add -A && git commit -m x', cfgtree(json.dumps({**CFG, "enabled": False}).encode("utf-8"), None, None), None)
     check("HEAD config enabled:false: an unusual command shape is not denied", code == 0)
     code, _, _ = run('git add -A && git commit -m x', PLAIN, ON)
     check("enabled:true: the same shape is denied by the grammar", code == 2)
@@ -2781,7 +2793,7 @@ def main() -> int:
     args = ap.parse_args()
     if args.self_test:
         return _run_self_test()
-    code, message = hook_main(sys.stdin.read(), os.environ, _real_git, _real_helper, None)
+    code, message = hook_main(_read_stdin_text(), os.environ, _real_git, _real_helper, None)
     if message:
         print(message, file=sys.stderr)
     return code
