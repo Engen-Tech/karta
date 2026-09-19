@@ -25,6 +25,29 @@ from pathlib import Path
 BINDER_RE = re.compile(r"(?:^|/)\.karta/binders/(?:archive/)?[^/]+\.json$")
 
 
+def _os_spelling(path: str, cwd: str) -> str:
+    """The spelling the OS will actually open, in git's forward-slash form.
+
+    A literal match on the typed path is the fact on POSIX, where open() opens
+    exactly what was typed — only separators are normalised. On Windows it is
+    not: a write resolves case-insensitively (`.Karta`), strips trailing dots
+    and spaces from the last component (`x.json.`), and accepts 8.3 short
+    names (`KARTA~1`), so all of those reach the file this guard protects
+    while sailing past the pattern. abspath() applies the dot/space cleanup
+    the OS will apply, realpath() returns existing components in their true
+    long-name casing, and the lowercase fold covers components that do not
+    exist yet — matched against an all-lowercase pattern, that is NTFS's own
+    equivalence."""
+    if os.name != "nt":
+        return path.replace("\\", "/")
+    p = path if os.path.isabs(path) else os.path.join(cwd or ".", path)
+    try:
+        p = os.path.realpath(os.path.abspath(p))
+    except (OSError, ValueError):
+        pass
+    return p.replace(os.sep, "/").lower()
+
+
 def _target_path(tool_input: dict) -> str | None:
     for key in ("file_path", "notebook_path"):
         val = tool_input.get(key)
@@ -56,9 +79,9 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     if not isinstance(tool_input, dict):
         return 0, ""
     target = _target_path(tool_input)
-    if not target or not BINDER_RE.search(target.replace("\\", "/")):
-        return 0, ""
     cwd = payload.get("cwd") or os.getcwd()
+    if not target or not BINDER_RE.search(_os_spelling(target, cwd)):
+        return 0, ""
     if not tracked(target, cwd):
         return 0, ""  # untracked draft — plan-time binder writing is allowed
     return 2, (
@@ -111,6 +134,22 @@ def _run_self_test() -> int:
          {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": "junk"},
          tracked, 0),
     ]
+    if os.name == "nt":
+        # The spellings Windows resolves to the protected file while a literal
+        # match waves them through. 8.3 short names (KARTA~1) are covered by the
+        # same realpath call but need the component to exist, so they have no
+        # portable fixture here — the probe above is the evidence.
+        cases += [
+            ("Windows: case-variant spelling reaches the same binder — denied",
+             pre("Write", file_path=".Karta/Binders/checkout.json", content="{}"),
+             tracked, 2),
+            ("Windows: a trailing dot is stripped by the OS, not by the pattern — denied",
+             pre("Write", file_path=".karta/binders/checkout.json.", content="{}"),
+             tracked, 2),
+            ("Windows: a trailing space likewise — denied",
+             pre("Write", file_path=".karta/binders/checkout.json ", content="{}"),
+             tracked, 2),
+        ]
     failures = 0
     for name, payload, probe, want in cases:
         code, reason = decide(payload, tracked=probe)
