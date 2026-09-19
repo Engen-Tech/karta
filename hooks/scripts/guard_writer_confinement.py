@@ -105,6 +105,13 @@ def _recognized(agent_type: object) -> str | None:
     return None
 
 
+def _isabs(path: str) -> bool:
+    """Absolute or rooted. Python 3.13 stopped calling `/repo` absolute on Windows
+    (it is drive-relative there), but it is still not relative to cwd — joining
+    cwd to it discards cwd — so for confinement it is anchored all the same."""
+    return os.path.isabs(path) or path.startswith(("/", "\\"))
+
+
 def _allowed(conf: dict, path: str, cwd: object) -> bool:
     p = os.path.normpath(path).replace(os.sep, "/")
     if any(rx.search(p) for rx in conf["regexes"]):
@@ -112,7 +119,7 @@ def _allowed(conf: dict, path: str, cwd: object) -> bool:
     if conf["toplevel_md"] and p.endswith(".md"):
         if "/" not in p:
             return True  # bare relative filename — top level of the working dir
-        if os.path.isabs(p) and isinstance(cwd, str) and cwd:
+        if _isabs(p) and isinstance(cwd, str) and cwd:
             rel = os.path.relpath(p, os.path.normpath(cwd).replace(os.sep, "/"))
             rel = rel.replace(os.sep, "/")
             if not rel.startswith("..") and "/" not in rel:
@@ -171,7 +178,7 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
         if "$" in t or "`" in t:
             ambiguities.append(f"write target '{raw}' contains a shell variable")
             return
-        if not os.path.isabs(t):
+        if not _isabs(t):
             if shifted:
                 ambiguities.append(f"relative write target '{raw}' after `cd` cannot "
                                    "be resolved statically")
@@ -182,7 +189,7 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
                                    "the payload")
                 return
             t = os.path.join(root, t)
-        targets.append(t)
+        targets.append(os.path.normpath(t).replace(os.sep, "/"))
 
     def finalize(words: list[str]) -> None:
         nonlocal shifted
@@ -327,7 +334,7 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
                             ambiguities.append("git -C over a shell variable cannot "
                                                "be resolved statically")
                             return
-                        if not os.path.isabs(d):
+                        if not _isabs(d):
                             if shifted or not isinstance(cwd, str) or not cwd:
                                 ambiguities.append(f"git -C with unresolvable "
                                                    f"relative directory '{args[j]}'")

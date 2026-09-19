@@ -651,8 +651,9 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
             os.chdir(old)
 
     def _setup(args: list[str], cwd: Path, **kw) -> subprocess.CompletedProcess:
+        kw.setdefault("text", True)
         return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
-                              text=True, check=True, **kw)
+                              check=True, **kw)
 
     def _mk_repo(path: Path) -> str:
         path.mkdir(parents=True, exist_ok=True)
@@ -696,7 +697,10 @@ def _git_facts_self_test_checks() -> list[tuple[str, bool]]:
                 updates.append(f"update refs/heads/karta/{slug}/integration {sha}")
             binders.append(_binder(slug, item_ids))
         if updates:
-            _setup(["update-ref", "--stdin"], path, input="\n".join(updates) + "\n")
+            # Bytes, not text: text mode turns each "\n" into "\r\n" on Windows and
+            # `update-ref --stdin` rejects the CR ("expected SP") — git wants LF exactly.
+            _setup(["update-ref", "--stdin"], path, text=False,
+                   input=("\n".join(updates) + "\n").encode("utf-8"))
         return binders
 
     def _equivalence(name: str, path: Path, binders: list[dict],

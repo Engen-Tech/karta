@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/hooks/precommit_gate.py\"",
-            "timeout": 600
+            "timeout": 900
           },
           {
             "type": "command",

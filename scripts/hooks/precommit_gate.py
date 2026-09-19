@@ -44,10 +44,23 @@ import argparse, fnmatch, json, re, shlex, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/hooks/ -> repo root
-GATE_TIMEOUT = 100   # seconds per gate; a hung gate is a failed gate, not a stall.
-                     # 5 gates x 100s stays inside the hook's 600s timeout in
-                     # .claude/settings.json — the harness must never kill this hook
-                     # mid-run, because a timed-out PreToolUse hook does not block.
+GATE_TIMEOUT = 100   # default seconds per gate; a hung gate is a failed gate, not a
+                     # stall. The budget exists to catch a hang, never to rank
+                     # hardware — a gate that legitimately needs longer gets an
+                     # override below rather than a failure that reads as a hang.
+# validate_plugin's floor runs every gated script's own --self-test as a subprocess,
+# so its cost is process spawns: ~200s green on a Windows dev machine whose four
+# other gates finish in seconds. Overrides only ever RAISE the default, and the
+# invariant the old comment stated per-gate is now a sum: every gate's budget
+# together (4x100 + 450 = 850) must stay inside the hook's outer timeout — 900 in
+# .claude/settings.json and .codex/hooks.json — because the harness must never kill
+# this hook mid-run: a timed-out PreToolUse hook does not block.
+GATE_TIMEOUTS = {"validate_plugin": 450}
+
+
+def _gate_timeout(name: str) -> int:
+    """One gate's budget: its override, else the default."""
+    return GATE_TIMEOUTS.get(name, GATE_TIMEOUT)
 TAIL_LINES = 40      # cap on the captured output relayed in a deny reason
 SKIP_VAR = "KARTA_SKIP_GATE"
 
@@ -936,12 +949,12 @@ def _tail(text: str, limit: int = TAIL_LINES) -> str:
 def _subprocess_runner(name: str, argv: list[str]) -> tuple[int, str]:
     """Run one gate from the repo root; stdout+stderr interleaved."""
     try:
-        proc = subprocess.run(argv, cwd=ROOT, text=True, timeout=GATE_TIMEOUT,
+        proc = subprocess.run(argv, cwd=ROOT, text=True, timeout=_gate_timeout(name),
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         return proc.returncode, proc.stdout or ""
     except subprocess.TimeoutExpired as e:
         out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-        return 1, f"{out}\n[gate timed out after {GATE_TIMEOUT}s]"
+        return 1, f"{out}\n[gate timed out after {_gate_timeout(name)}s]"
 
 
 def run_gates(gates, runner) -> tuple[str, int, str] | None:
@@ -1057,7 +1070,10 @@ def _release_block(command: str, git, root: Path) -> str | None:
     # Classify every full gate file; the first full green+match+staged file allows.
     seen: dict[str, str] = {}  # kind -> a relevant path for the reason
     for p in files:
-        rel = str(p.relative_to(root))
+        # git's forward-slash spelling, so `rel in staged` is a path-identity test
+        # on Windows too — str() would yield backslashes there and a staged green
+        # gate file would read as unstaged.
+        rel = p.relative_to(root).as_posix()
         try:
             data = json.loads(p.read_text())
         except (OSError, ValueError):
@@ -1537,6 +1553,32 @@ def _run_self_test() -> int:
     pack_argv = next((argv for n, argv in specs if n.startswith("validate_packs")), [])
     check("pack gate skips platform-native.md (reference data, not a pack)",
           not any(a.endswith("platform-native.md") for a in pack_argv))
+
+    # --- gate budgets: overrides only raise, and the sum fits the outer timeout --
+    check("timeout: the spawn-bound validator keeps its longer budget",
+          _gate_timeout("validate_plugin") == 450)
+    check("timeout: every other gate gets the default",
+          _gate_timeout("check_shared_copies") == GATE_TIMEOUT)
+    check("timeout: overrides only ever raise the default, never lower it",
+          all(v >= GATE_TIMEOUT for v in GATE_TIMEOUTS.values()))
+    # The invariant is a SUM: if every gate hit its budget the hook must still
+    # finish inside the outer timeout both harnesses give it, because a hook the
+    # harness kills mid-run does not block. Read from the committed configs so an
+    # edit to either side re-arms this check rather than silently unbalancing them.
+    budget_sum = sum(_gate_timeout(n) for n, _ in specs)
+    for cfg, needle in ((ROOT / ".claude/settings.json", "precommit_gate.py"),
+                        (ROOT / ".codex/hooks.json", "codex_precommit_gate.py")):
+        try:
+            hooks_conf = json.loads(cfg.read_text(encoding="utf-8"))
+            outer = min(h["timeout"] for grp in hooks_conf["hooks"].values()
+                        for m in grp for h in m["hooks"]
+                        if needle in h.get("command", ""))
+        except (OSError, ValueError, KeyError, TypeError):
+            outer = None
+        check(f"timeout: gate budgets ({budget_sum}s) fit inside {cfg.name}'s "
+              f"outer hook timeout with margin",
+              outer is not None and budget_sum <= outer - 30,
+              f"outer={outer}")
 
     # --- release block: version-bump gate ---------------------------------------
     # Fabricated repos (a working-tree plugin.json + gate result files) and a stubbed

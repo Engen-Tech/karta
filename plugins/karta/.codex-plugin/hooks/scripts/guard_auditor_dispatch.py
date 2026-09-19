@@ -67,7 +67,7 @@ IDENTITY_KEYS = ("subagent_type", "agent_type", "agent", "agent_name", "name",
 # The original's prompt/description, plus the Codex dispatch fields.
 TEXT_KEYS = ("prompt", "description", "message", "task_name")
 AUDITOR_NAMES = ("karta-safety-auditor", "karta_safety_auditor")
-BINDER_PATH_RE = re.compile(r"[^\s'\"`]*\.karta/binders/[A-Za-z0-9][A-Za-z0-9._-]*\.json")
+BINDER_PATH_RE = re.compile(r"[^\s'\"`]*\.karta[\\/]binders[\\/][A-Za-z0-9][A-Za-z0-9._-]*\.json")
 # same id grammar validate_packs.py enforces: <prefix>.<n> item lines / bare tokens
 ITEM_LINE_RE = re.compile(r"^- \[ \] [a-z][a-z0-9-]*\.\d+ — ", re.M)
 ID_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9-]*\.\d+\b")
@@ -97,7 +97,7 @@ def _load_binder(path_str: str, cwd: str) -> dict | None:
     if not p.is_absolute():
         p = Path(cwd) / p
     try:
-        doc = json.loads(p.read_text())
+        doc = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     return doc if isinstance(doc, dict) else None
