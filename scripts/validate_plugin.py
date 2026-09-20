@@ -387,6 +387,145 @@ def _check_encoding(errors: list[str], policy: dict | None = None, py_files=None
 
 
 
+LINE_ENDING_DEFAULT = "* text=auto eol=lf"
+# The format belt's extensions, lowercased. gitattributes patterns are
+# case-sensitive on case-sensitive filesystems, so `LOGO.PNG` slips past
+# `*.png` there — the check below therefore asserts every tracked file OF a
+# belt format resolves -text however its name is spelled, which fails the
+# commit until the belt (or a rename) covers it.
+LINE_ENDING_BELT = frozenset({
+    "png", "jpg", "jpeg", "gif", "ico", "webp", "woff", "woff2", "ttf", "otf",
+    "eot", "pdf", "zip", "gz", "tar"})
+
+
+def _check_line_endings(errors: list[str], root: Path | None = None) -> None:
+    """Line endings are a repo rule, enforced from git's own index state.
+
+    Two facts, both read from git rather than from a hand-kept list:
+
+      * .gitattributes carries the default `* text=auto eol=lf`, so the
+        working-tree guarantee holds whatever a contributor's core.autocrlf
+        says — without it the rest of this check enforces nothing for the
+        NEXT clone;
+      * no tracked file's INDEX bytes carry CRLF unless a `-text` attribute
+        deliberately exempts it (`git ls-files --eol` reports both the stored
+        eol and the resolved attribute per file). Binary content is exempt by
+        git's detection plus the format belt in .gitattributes — formats, not
+        a path inventory: the path list the earlier version of this rule kept
+        rotted from 12 entries to 39 while it sat on a parked branch;
+      * the root .gitattributes is the WHOLE policy: a nested .gitattributes
+        anywhere in the tree is a finding (an override no one reads the root
+        file to discover), and so is any `eol=crlf` in the root file (it
+        would flip checkouts while every index check here stays green);
+      * the .karta byte-store guarantee is asserted POSITIVELY: a live
+        sentinel under .karta/ must resolve text/eol/filter all unset, and
+        working-tree-encoding/ident unset or unspecified — the roundtable
+        gate hashes those bytes verbatim, and any of the five attributes
+        would let git store different bytes than the gate approved.
+
+    Named limits: the check reads the index and the working tree's attribute
+    files, the same tree-state posture every gate in this repo takes; and a
+    NUL-carrying text encoding (UTF-16) classifies as binary to git, so its
+    line endings are stored verbatim rather than policed — this repo's
+    encoding rule keeps tracked text UTF-8, which is what closes that door.
+    """
+    base = ROOT if root is None else root
+    ga = base / ".gitattributes"
+    try:
+        lines = [ln.strip() for ln in ga.read_text(encoding="utf-8").splitlines()]
+    except OSError:
+        lines = []
+    if LINE_ENDING_DEFAULT not in lines:
+        errors.append(
+            f".gitattributes: missing the exact default '{LINE_ENDING_DEFAULT}' — "
+            f"without it line endings are a per-machine setting again, and every "
+            f"CRLF this check would catch can enter on the next differently "
+            f"configured clone")
+    for ln in lines:
+        # git treats '#' as a comment only at line START; an embedded '#' is a
+        # legal pattern character, so truncating at it would let a pattern
+        # like `issue#1.txt text eol=crlf` smuggle the override past this scan.
+        if ln.startswith("#"):
+            continue
+        if "eol=crlf" in ln:
+            errors.append(
+                f".gitattributes: '{ln}' sets eol=crlf — it would flip checkouts "
+                f"to CRLF while every index assertion here stays green; a "
+                f"byte-preserving exemption is -text, never a CRLF conversion")
+    try:
+        nested = subprocess.run(
+            ["git", "-C", str(base), "ls-files", "-z", "--", "*/.gitattributes",
+             "*/.git/info/attributes"],
+            capture_output=True, timeout=120)
+        for rel in nested.stdout.decode("utf-8", "replace").split("\0"):
+            if rel:
+                errors.append(
+                    f"{rel}: a nested attributes file can override the root "
+                    f"line-ending policy where nobody reads for it — the root "
+                    f".gitattributes is the whole policy in this repo")
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # the ls-files call below reports the broken-git case once
+    sentinel = next(iter(sorted((base / ".karta").rglob("*.json"))), None) \
+        if (base / ".karta").is_dir() else None
+    if sentinel is not None:
+        try:
+            rel = sentinel.relative_to(base).as_posix()
+            attr = subprocess.run(
+                ["git", "-C", str(base), "check-attr", "-z", "text", "eol",
+                 "filter", "ident", "working-tree-encoding", "--", rel],
+                capture_output=True, timeout=120)
+            fields = attr.stdout.decode("utf-8", "replace").split("\0")
+            resolved = {fields[i + 1]: fields[i + 2]
+                        for i in range(0, len(fields) - 2, 3)}
+            for name in ("text", "eol", "filter"):
+                if resolved.get(name) != "unset":
+                    errors.append(
+                        f"{rel}: attribute '{name}' resolves to "
+                        f"{resolved.get(name)!r}, not 'unset' — the roundtable "
+                        f"gate hashes .karta bytes verbatim, and this attribute "
+                        f"would let git store different bytes than it approved")
+            for name in ("ident", "working-tree-encoding"):
+                if resolved.get(name) not in ("unset", "unspecified"):
+                    errors.append(
+                        f"{rel}: attribute '{name}' resolves to "
+                        f"{resolved.get(name)!r} — a checkout/check-in transform "
+                        f"on a .karta path breaks the byte-hash gate")
+        except (OSError, subprocess.TimeoutExpired) as e:
+            errors.append(f"line endings: could not resolve .karta sentinel "
+                          f"attributes ({e})")
+    try:
+        proc = subprocess.run(["git", "-C", str(base), "ls-files", "--eol", "-z"],
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        errors.append(f"line endings: could not read index eol state ({e}) — a "
+                      f"broken check, not a clean one")
+        return
+    if proc.returncode != 0:
+        errors.append(f"line endings: `git ls-files --eol` failed "
+                      f"({proc.stderr.decode('utf-8', 'replace').strip()})")
+        return
+    for entry in proc.stdout.decode("utf-8", "replace").split("\0"):
+        if not entry or "\t" not in entry:
+            continue
+        info, rel = entry.split("\t", 1)
+        fields = info.split()
+        index_eol = next((f[2:] for f in fields if f.startswith("i/")), "")
+        attr = next((f[5:] for f in fields if f.startswith("attr/")), "")
+        if index_eol in ("crlf", "mixed") and "-text" not in attr.split():
+            errors.append(
+                f"{rel}: stored with {index_eol.upper()} line endings and no "
+                f"-text exemption — normalize it (git add --renormalize) or, "
+                f"for a deliberate byte-preserving store, give it a -text line "
+                f"in .gitattributes so the decision is visible")
+        ext = rel.rsplit(".", 1)[-1].lower() if "." in rel.rsplit("/", 1)[-1] else ""
+        if ext in LINE_ENDING_BELT and "-text" not in attr.split():
+            errors.append(
+                f"{rel}: a {ext} file whose resolved attributes lack -text — the "
+                f"format belt did not reach it (case-variant spelling, or a "
+                f"belt line removed), so text=auto's content sniff is all that "
+                f"stands between this binary and a silent CR/LF rewrite")
+
+
 def _check_git_output_encoding(errors: list[str], value: str | None = None) -> None:
     """The other named limitation: decoding git's output as UTF-8 is right only while
     git EMITS UTF-8. A contributor who sets i18n.logOutputEncoding to a legacy codec
@@ -861,6 +1000,7 @@ def check() -> list[str]:
     _check_git_output_encoding(errors)
     _check_codex_hook_windows(errors)
     _check_command_portability(errors)
+    _check_line_endings(errors)
     return errors
 
 
@@ -2897,6 +3037,153 @@ def _self_test() -> int:
         ok = errors == []
         print(f"[{'PASS' if ok else 'FAIL'}] cp: this repo's manifests and subprocess calls "
               f"are portable" + ("" if ok else f" — got {errors!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+    # Line endings: the rule reads git's index state, so the fixtures commit
+    # real bytes into a fabricated repo — a hand-built string cannot fake what
+    # `git ls-files --eol` reports.
+    import tempfile as _le_tf
+    with _le_tf.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+        le_repo = Path(td) / "le-repo"
+        le_repo.mkdir()
+        def _le_git(*a: str) -> None:
+            subprocess.run(["git", "-C", str(le_repo), *a], capture_output=True,
+                           timeout=120)
+        _le_git("init", "-q")
+        _le_git("config", "user.email", "t@example.com")
+        _le_git("config", "user.name", "t")
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\n").encode("utf-8"))
+        (le_repo / "clean.py").write_bytes(b"print('x')\n")
+        (le_repo / "keep").mkdir()
+        (le_repo / "keep" / "bytes.json").write_bytes(b'{"a": 1}\r\n')
+        sneak = le_repo / "sneak.txt"
+        # committed as CRLF despite the default: exactly the accident a
+        # differently configured clone produces — forced past normalization
+        # the same way (a later attr change leaves the index as committed)
+        (le_repo / ".gitattributes").write_bytes(b"sneak.txt -text\n")
+        sneak.write_bytes(b"a\r\nb\r\n")
+        _le_git("add", "-A")
+        _le_git("-c", "commit.gpgsign=false", "commit", "-qm", "seed")
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\n").encode("utf-8"))
+        _le_git("add", ".gitattributes")
+        errs: list[str] = []
+        _check_line_endings(errs, root=le_repo)
+        ok = (any("sneak.txt" in e and "CRLF" in e for e in errs)
+              and not any("bytes.json" in e for e in errs)
+              and not any("clean.py" in e for e in errs))
+        print(f"[{'PASS' if ok else 'FAIL'}] le: a CRLF file with no -text exemption is "
+              f"caught, an exempted byte-store and a clean file are not"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        (le_repo / ".gitattributes").write_bytes(b"keep/** -text\nsneak.txt -text\n")
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        ok = any("missing the exact default" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] le: dropping the default line is its own "
+              f"finding — without it the rule guards nothing on the next clone"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\nsneak.txt -text\n"
+             "*.ps1 text eol=crlf\n").encode("utf-8"))
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        ok = any("eol=crlf" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] le: an eol=crlf override is refused — it "
+              f"flips checkouts while every index assertion stays green"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # git treats '#' as a comment at line START only, so an embedded '#'
+        # in a pattern must not truncate the scan (the round-2 smuggle), while
+        # a whole-line comment MENTIONING eol=crlf must not trip it.
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\nsneak.txt -text\n"
+             "# never set eol=crlf here\nissue#1.txt text eol=crlf\n").encode("utf-8"))
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        ok = (sum("eol=crlf" in e for e in errs) == 1
+              and any("issue#1.txt" in e for e in errs))
+        print(f"[{'PASS' if ok else 'FAIL'}] le: an embedded-# pattern cannot smuggle "
+              f"eol=crlf past the scan, and a comment mentioning it does not trip"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # The belt invariant: a tracked file OF a belt format is never left
+        # unprotected. On a case-insensitive filesystem `*.png` reaches
+        # `logo.PNG` and the attr carries -text (nothing to flag); on a
+        # case-sensitive one the pattern misses and the check must flag it.
+        # Assert the invariant, not one platform's expression of it — and
+        # prove the check ARM by removing the belt line, which must flag on
+        # every platform.
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\nsneak.txt -text\n"
+             "*.png -text -eol\n").encode("utf-8"))
+        (le_repo / "logo.PNG").write_bytes(b"NOT-REALLY-PNG\r\ntext header\r\n")
+        _le_git("add", "-A")
+        attr_probe = subprocess.run(
+            ["git", "-C", str(le_repo), "check-attr", "text", "--", "logo.PNG"],
+            capture_output=True, text=True, encoding="utf-8", timeout=120)
+        belt_reached = attr_probe.stdout.strip().endswith("unset")
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        flagged = any("logo.PNG" in e and "format belt" in e for e in errs)
+        ok = flagged != belt_reached
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\nsneak.txt -text\n").encode("utf-8"))
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        ok = ok and any("logo.PNG" in e and "format belt" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] le: a belt-format file is never left "
+              f"unprotected — flagged exactly when the belt misses it, and always "
+              f"once the belt line is gone" + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+        _le_git("rm", "-q", "--cached", "logo.PNG")
+        (le_repo / "logo.PNG").unlink()
+
+        (le_repo / ".gitattributes").write_bytes(
+            (LINE_ENDING_DEFAULT + "\nkeep/** -text\nsneak.txt -text\n").encode("utf-8"))
+        (le_repo / "sub").mkdir()
+        (le_repo / "sub" / ".gitattributes").write_bytes(b"* -text\n")
+        _le_git("add", "-A")
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        ok = any("nested attributes file" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] le: a nested .gitattributes is refused — "
+              f"the root file is the whole policy"
+              + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        _le_git("rm", "-q", "--cached", "sub/.gitattributes")
+        (le_repo / "sub" / ".gitattributes").unlink()
+        (le_repo / ".karta").mkdir()
+        (le_repo / ".karta" / "record.json").write_bytes(b'{"x": 1}\r\n')
+        _le_git("add", "-A")
+        errs = []
+        _check_line_endings(errs, root=le_repo)
+        ok = any("record.json" in e and "'text'" in e for e in errs)
+        print(f"[{'PASS' if ok else 'FAIL'}] le: a .karta sentinel whose text attribute "
+              f"is not unset is refused — the byte-store guarantee is asserted, "
+              f"never assumed" + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        errs = []
+        _check_line_endings(errs)
+        ok = errs == []
+        print(f"[{'PASS' if ok else 'FAIL'}] le: this repo satisfies the rule it arms"
+              + ("" if ok else f" — got {errs!r}"))
         total += 1
         failures += 0 if ok else 1
 
