@@ -8,12 +8,14 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_binder_immutability.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_binder_immutability.py' GitTop; exit $LASTEXITCODE\""
           },
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 60
+            "timeout": 60,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_pack_write.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       },
@@ -23,12 +25,14 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_auditor_dispatch.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_auditor_dispatch.py' GitTop; exit $LASTEXITCODE\""
           },
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_gate_dispatch.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 60
+            "timeout": 60,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_gate_dispatch.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       },
@@ -38,7 +42,8 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/codex_precommit_gate.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 900
+            "timeout": 900,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p 'scripts/hooks/codex_precommit_gate.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       }
@@ -50,7 +55,8 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 60
+            "timeout": 60,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_pack_write.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       }
@@ -62,7 +68,8 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_delivery_stop.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_delivery_stop.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       }
@@ -74,7 +81,8 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/guard_subagent_whiff.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/guard_subagent_whiff.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       }
@@ -86,7 +94,8 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/.codex-plugin/hooks/scripts/inject_karta_status.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p '.codex-plugin/hooks/scripts/inject_karta_status.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
       }

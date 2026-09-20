@@ -928,7 +928,9 @@ def gate_specs(root: Path) -> list[tuple[str, list[str]]]:
     dropped (not failed) when skills/_shared/sme/ has nothing to validate —
     validate_packs errors on an empty file list, and an absent pack dir is a
     repo-shape question for the other gates, not this one."""
-    py = sys.executable or "python3"
+    # sys.executable, never a bare "python3" fallback: on Windows that name is either
+    # absent or the Store stub, so the fallback would turn a gate into a spurious pass.
+    py = sys.executable
     gates = [
         ("check_shared_copies", [py, str(root / "scripts/check_shared_copies.py")]),
         ("sync_codex_skills --check", [py, str(root / "scripts/sync_codex_skills.py"), "--check"]),
