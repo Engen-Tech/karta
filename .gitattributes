@@ -1,4 +1,50 @@
+# Line endings are a repo rule, not a per-machine setting: every text file is
+# stored LF and checked out LF, whatever a contributor's core.autocrlf says.
+# eol=lf (not merely text=auto) is what makes the working-tree guarantee hold.
+# Binary content is exempted by git's own detection, with the format belt below
+# for binary formats whose first bytes can read as text; validate_plugin's
+# line-ending check fails any file whose INDEX bytes carry CRLF without a
+# deliberate -text attribute here — so an accidental CRLF is a blocked commit,
+# and a byte-preserving exemption is a visible decision in this file. That
+# check also refuses a nested .gitattributes and any eol=crlf override: this
+# file is the whole policy.
+* text=auto eol=lf
+
+# Format belt: known binary formats are exempt by NAME, not only by content
+# sniffing — text=auto's NUL-in-the-first-8kB heuristic can misread a binary
+# whose header is printable (and would then rewrite its CR/LF bytes). Formats,
+# not paths: a path inventory of binaries rotted from 12 entries to 39 on the
+# branch that first carried this policy; an extension names every future file
+# of its kind wherever it lands.
+*.png -text -eol
+*.jpg -text -eol
+*.jpeg -text -eol
+*.gif -text -eol
+*.webp -text -eol
+*.ico -text -eol
+*.woff -text -eol
+*.woff2 -text -eol
+*.ttf -text -eol
+*.otf -text -eol
+*.eot -text -eol
+*.pdf -text -eol
+*.zip -text -eol
+*.gz -text -eol
+*.tar -text -eol
+
 # The roundtable gate hashes .karta files as the bytes on disk and compares them
 # with what git will commit; a clean filter or EOL conversion would make git store
-# different bytes than the gate approved. Keep every .karta path free of both.
-.karta/** -text -filter
+# different bytes than the gate approved. Keep every .karta path free of all
+# three: -eol as well, so the `*` line's eol=lf cannot even APPEAR in this
+# path's resolved attributes (it is inert while text is unset on git >= 2.10,
+# but an inert ambiguity is still an ambiguity, and pre-2.10 gits read it).
+# validate_plugin asserts this resolution on a live sentinel at every commit.
+.karta/** -text -filter -eol
+
+# Vendored font assets keep their upstream bytes exactly — the OFL license
+# texts ship with CRLF and renormalizing a vendored file would make our copy
+# diverge from the artifact it vendors. Same rule in each committed projection
+# of the skill (the mirrors are byte-identical copies of the canonical tree).
+skills/karta-status/assets/fonts/** -text -eol
+.agents/skills/karta-status/assets/fonts/** -text -eol
+plugins/karta/skills/karta-status/assets/fonts/** -text -eol
