@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_binder_immutability.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_binder_immutability.py\"",
             "timeout": 30
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_pack_write.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_pack_write.py\"",
             "timeout": 60
           }
         ]
@@ -27,12 +27,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_auditor_dispatch.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_auditor_dispatch.py\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_gate_dispatch.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_gate_dispatch.py\"",
             "timeout": 30
           }
         ]
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_writer_confinement.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_writer_confinement.py\"",
             "timeout": 30
           }
         ]
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_writer_confinement.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_writer_confinement.py\"",
             "timeout": 30
           }
         ]
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_pack_write.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_pack_write.py\"",
             "timeout": 60
           }
         ]
@@ -76,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/inject_karta_status.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/inject_karta_status.py\"",
             "timeout": 30
           }
         ]
@@ -88,7 +88,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_delivery_stop.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_delivery_stop.py\"",
             "timeout": 30
           }
         ]
@@ -100,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_subagent_whiff.py\"",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_subagent_whiff.py\"",
             "timeout": 30
           }
         ]

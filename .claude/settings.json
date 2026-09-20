@@ -6,12 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/hooks/precommit_gate.py\"",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR}/scripts/hooks/precommit_gate.py\"",
             "timeout": 900
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/hooks/roundtable_gate.py\"",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR}/scripts/hooks/roundtable_gate.py\"",
             "timeout": 600
           }
         ]

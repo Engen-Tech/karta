@@ -406,6 +406,398 @@ def _check_git_output_encoding(errors: list[str], value: str | None = None) -> N
                       f"and path karta reads, with no defect at the call site to find")
 
 
+# The Codex manifests whose command hooks must be launchable on both platforms.
+# Both are hand-edited; plugins/karta/ is a generated projection of the first and
+# is covered by sync_codex_skills.py --check, so listing it here would only
+# re-report the same defect under a second path.
+CODEX_HOOK_MANIFESTS = (
+    ROOT / ".codex-plugin" / "hooks" / "hooks.json",
+    ROOT / ".codex" / "hooks.json",
+)
+
+
+def _command_hooks(data: dict):
+    """(event, hook) for every `type: command` hook in a hook manifest.
+
+    Shared by the Codex Windows-twin check and the command-portability check so the
+    two can never disagree about what counts as a command hook — the nested
+    event -> matcher group -> hooks walk is identical for both, and duplicating it
+    is how one of them would quietly stop seeing a hook the other still sees."""
+    for event, groups in (data.get("hooks") or {}).items():
+        if not isinstance(groups, list):
+            continue                      # shape errors belong to the manifest's own schema
+        for group in groups:
+            hook_list = group.get("hooks") if isinstance(group, dict) else None
+            for hook in hook_list if isinstance(hook_list, list) else []:
+                if isinstance(hook, dict) and hook.get("type") == "command":
+                    yield event, hook
+
+
+def _check_codex_hook_windows(errors: list[str], manifests=None) -> None:
+    """Every Codex command hook must carry a `commandWindows` twin naming the same guard.
+
+    Codex runs a hook's POSIX `command` through `sh` (`SHELL` or `/bin/sh`) and its
+    `commandWindows` through `cmd.exe /C`. A stock Windows install has no `sh`, so a
+    hook with only a POSIX command does not merely skip — it FAILS, and the turn
+    reports `hook exited with code 1` while naming neither the shell nor the guard.
+    That is indistinguishable from a guard that deliberately blocked.
+
+    This check exists because the failure is silent in the direction that matters:
+    the guards are fail-closed security hooks, and nothing else in the repo reads
+    these manifests. Adding a hook without a Windows twin would re-break the
+    platform with no signal until someone ran Codex on Windows.
+
+    Three things are enforced per command hook:
+
+      * a non-empty `commandWindows` exists;
+      * it names the same guard script as its POSIX twin, so the two cannot drift
+        onto different scripts — the failure mode where Windows silently enforces
+        a different rule than POSIX;
+      * it does not itself invoke `sh`, which would reintroduce the dependency the
+        twin exists to remove.
+
+    Deliberately NOT enforced: the shape of the launcher. How the command finds the
+    guard differs by manifest — the bundled plugin keys off %PLUGIN_ROOT%, the
+    repo-local one resolves the checkout with git — and pinning a spelling here
+    would freeze an implementation detail rather than the contract.
+    """
+    for manifest in (manifests if manifests is not None else CODEX_HOOK_MANIFESTS):
+        if not manifest.exists():
+            continue                      # optional surface; _check_codex covers required files
+        try:
+            rel = manifest.relative_to(ROOT).as_posix()
+        except ValueError:
+            rel = manifest.name
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            errors.append(f"{rel}: unreadable Codex hook manifest ({e})")
+            continue
+        for event, hook in _command_hooks(data):
+            posix = hook.get("command") or ""
+            win = hook.get("commandWindows") or ""
+            guards = _guard_scripts(posix)
+            label = f"{rel}: {event} hook for {'/'.join(guards) or '(unknown script)'}"
+            if not win.strip():
+                errors.append(
+                    f"{label}: missing 'commandWindows' — the POSIX command runs "
+                    f"through sh, which a stock Windows install does not have, so "
+                    f"this hook fails rather than runs there")
+                continue
+            if re.search(r"(?<![\w.-])sh\s+-[a-z]*c(?![\w-])", win):
+                errors.append(
+                    f"{label}: 'commandWindows' invokes sh, defeating its purpose")
+            win_guards = _guard_scripts(win)
+            if guards and not win_guards:
+                # The drift the panel found the first version accepting: a twin
+                # that is present, non-empty, sh-free — and runs NOTHING. An
+                # `exit /b 0` here would disable the guard on exactly one
+                # platform while every per-hook assertion above stays green.
+                errors.append(
+                    f"{label}: 'commandWindows' names no guard script at all — a "
+                    f"no-op twin disables this guard on Windows while its POSIX "
+                    f"twin still enforces")
+            elif guards and win_guards != guards:
+                errors.append(
+                    f"{label}: 'commandWindows' runs {'/'.join(win_guards)} but its "
+                    f"POSIX twin runs {'/'.join(guards)} — the two platforms would "
+                    f"enforce different rules")
+
+
+def _guard_scripts(command: str) -> tuple[str, ...]:
+    """The guard scripts a hook command runs, as repo-relative posix paths.
+
+    Anchored at a repo-relative root rather than matched as a loose suffix: both
+    manifests interpolate a variable immediately before the path
+    (`${PLUGIN_ROOT}/...`, `$r/...`, `%PLUGIN_ROOT%\\...`), and a pattern that
+    allows leading path characters swallows the variable's tail into the match.
+    """
+    found = re.findall(r"(?<![\w.])((?:\.codex-plugin|scripts)[\\/][\w./\\-]*\.py)", command)
+    return tuple(sorted({f.replace("\\", "/") for f in found}))
+
+
+# ---------------------------------------------------------------------------
+# Command portability — no POSIX-only shell, interpreter, or utility assumptions
+# ---------------------------------------------------------------------------
+# karta launched every bundled Codex guard through `sh -c`. A stock Windows
+# install has no `sh`, so every guard failed at the LAUNCHER while the guards
+# themselves were correct — and the turn reported only `hook exited with code 1`,
+# which reads exactly like a guard that deliberately blocked. That is a class,
+# not an instance: an encoding rule inspects decoders and would never have caught
+# a command. This rule covers the class.
+#
+# What the rule reads is committed as data (.karta/portability.json), not
+# written into the code: the utility list, the interpreter names, the shell
+# launchers, and the exclusions with the reason each one was excluded. Widening
+# the rule is then a reviewable diff to that file, and a fixture can prove the
+# rule consults it rather than restating it.
+#
+# Reach is derived from git rather than hand-listed, so a manifest or script
+# added later cannot escape by not being on a list. Exclusions are the committed
+# counterweight — every one carries its reason in the same file.
+
+# Tokens after which the NEXT token is a command name rather than an argument.
+# The utility check fires only in command position: an argument that happens to
+# read `test` is not an invocation of test(1), and a rule that cannot tell the
+# difference is a rule that wedges the repo on its first false positive.
+CP_COMMAND_POSITION = frozenset({"|", "||", "&&", ";", "exec", "xargs", "env"})
+
+def _cp_alt(names) -> str:
+    return "|".join(re.escape(str(n)) for n in names)
+
+
+def _cp_command_findings(command: str, policy: dict) -> list[str]:
+    """Every way one command string assumes a POSIX shell, interpreter, or tool."""
+    out: list[str] = []
+    shells = _cp_alt(policy.get("shell_launchers", ()))
+    if shells and re.search(rf"(?<![\w./\\-])({shells})\s+-[a-zA-Z]*c(?![\w-])", command):
+        out.append("launches through a POSIX shell (`sh -c` / `bash -c`), which a stock "
+                   "Windows install does not have — the hook fails rather than runs there")
+    interps = _cp_alt(policy.get("interpreter_names", ()))
+    if interps and re.search(rf"(?<![\w./\\-])({interps})(?![\w.-])", command):
+        out.append("names a bare `python` / `python3` interpreter, which on Windows is "
+                   "either absent or the Store stub that opens a store page and exits")
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    suffixes = tuple(policy.get("script_suffixes", ()))
+    if tokens and suffixes and tokens[0].endswith(suffixes):
+        out.append(f"runs {tokens[0]!r} directly, relying on its shebang and executable "
+                   f"bit — Windows honours neither")
+    utils = set(policy.get("posix_only_utilities", ()))
+    for i, tok in enumerate(tokens):
+        if i and tokens[i - 1] not in CP_COMMAND_POSITION:
+            continue                      # an argument, not a command name
+        base = tok.replace("\\", "/").rsplit("/", 1)[-1]
+        if base in utils:
+            out.append(f"invokes the POSIX-only utility {base!r}, absent from PowerShell")
+    return out
+
+
+def _cp_check_manifest(path: Path, rel: str, policy: dict, errors: list[str]) -> None:
+    """A hook manifest is portable when every command either runs on both platforms
+    or carries a Windows twin. The twin suppresses the POSIX findings on its own
+    hook: _check_codex_hook_windows already proves that twin is non-empty, names the
+    same guard, and does not itself shell out — so a POSIX `command` beside a
+    validated twin is one half of a two-platform pair, not an assumption. A Claude
+    manifest has no twin mechanism at all, so its single command must be portable."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        errors.append(f"{rel}: unreadable hook manifest ({e})")
+        return
+    if not isinstance(data, dict):
+        return
+    for event, hook in _command_hooks(data):
+        command = hook.get("command") or ""
+        if (hook.get("commandWindows") or "").strip() or not command.strip():
+            continue
+        for why in _cp_command_findings(command, policy):
+            errors.append(f"{rel}: {event} hook command is not portable — {why}")
+
+
+def _cp_strings(node, bindings: dict, scope: int, depth: int = 0) -> list[str]:
+    """The string constants an argv element can evaluate to, one alias hop deep.
+
+    One hop is what catches the shape this repo actually had:
+    `py = sys.executable or "python3"` followed by `subprocess.run([py, ...])`.
+    A rule that read only the literals written inside the call would have missed
+    both live instances of its own defect class."""
+    if node is None or depth > 1:
+        return []
+    if isinstance(node, ast.Constant):
+        return [node.value] if isinstance(node.value, str) else []
+    if isinstance(node, ast.Name):
+        return _cp_strings(bindings.get((scope, node.id)), bindings, scope, depth + 1)
+    if isinstance(node, ast.BoolOp):
+        return [s for v in node.values for s in _cp_strings(v, bindings, scope, depth)]
+    if isinstance(node, ast.IfExp):
+        return (_cp_strings(node.body, bindings, scope, depth)
+                + _cp_strings(node.orelse, bindings, scope, depth))
+    return []
+
+
+def _cp_posix_branch(test: ast.AST) -> str | None:
+    """'body' / 'orelse' when `test` is a plain platform comparison and that arm
+    is the POSIX one; None for any test this reader cannot fully decide.
+
+    Recognised: `os.name ==/!= "<x>"` and `sys.platform ==/!= "<x>"` with one
+    constant. `os.name == "nt"` puts POSIX in the orelse; `os.name != "nt"` and
+    `os.name == "posix"` put it in the body. Anything else — a disjunct, a
+    call, a precomputed flag — returns None and the launch stays FLAGGED: a
+    test the rule cannot read must never widen the exemption, or a dead
+    `if os.name == "posix":` wrapper becomes a licence."""
+    if not (isinstance(test, ast.Compare) and len(test.ops) == 1
+            and len(test.comparators) == 1):
+        return None
+    left, op, right = test.left, test.ops[0], test.comparators[0]
+    if isinstance(right, ast.Attribute) and isinstance(left, ast.Constant):
+        left, right = right, left
+    if not (isinstance(left, ast.Attribute) and left.attr in ("name", "platform")
+            and isinstance(left.value, ast.Name) and left.value.id in ("os", "sys")
+            and isinstance(right, ast.Constant) and isinstance(right.value, str)):
+        return None
+    if not isinstance(op, (ast.Eq, ast.NotEq)):
+        return None
+    names_windows = right.value in ("nt", "win32", "cygwin")
+    equals_windows = names_windows == isinstance(op, ast.Eq)
+    return "orelse" if equals_windows else "body"
+
+
+def _cp_platform_guarded(node, parents) -> bool:
+    """True when `node` sits in the POSIX arm of a platform branch. A POSIX
+    shell chosen BY a platform branch is a decision — run_oracle's `sh -c` is
+    the documented POSIX half of an os.name split whose other half runs
+    cmd.exe — where the same launch with no branch around it, in the WINDOWS
+    arm, or under a test this reader cannot decide is the assumption this rule
+    exists to reject. Only the shell finding consults this: a bare `python3`
+    or a POSIX utility stays wrong inside a platform branch too, because
+    sys.executable and portable tools exist on both sides."""
+    child = node
+    cur = parents.get(id(node))
+    while cur is not None:
+        if isinstance(cur, ast.If):
+            arm = _cp_posix_branch(cur.test)
+            if arm is not None:
+                in_body = any(child is s or any(child is d for d in ast.walk(s))
+                              for s in cur.body)
+                if arm == ("body" if in_body else "orelse"):
+                    return True
+        child = cur
+        cur = parents.get(id(cur))
+    return False
+
+
+def _cp_python_findings(source: str, policy: dict) -> list[tuple[int, str]]:
+    """(line, reason) for every subprocess invocation in one module that assumes POSIX."""
+    tree = ast.parse(source)
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+
+    def scope_of(node) -> int:
+        cur = parents.get(id(node))
+        while cur is not None and not isinstance(
+                cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+            cur = parents.get(id(cur))
+        return id(cur)
+
+    bindings: dict[tuple[int, str], ast.AST] = {}
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            bindings[(scope_of(node), node.targets[0].id)] = node.value
+
+    imported = any(isinstance(n, ast.ImportFrom) and n.module == "subprocess"
+                   for n in ast.walk(tree))
+    shells = set(policy.get("shell_launchers", ()))
+    interps = set(policy.get("interpreter_names", ()))
+    utils = set(policy.get("posix_only_utilities", ()))
+    suffixes = tuple(policy.get("script_suffixes", ()))
+
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if isinstance(fn, ast.Attribute):
+            if fn.attr not in CP_SUBPROCESS_CALLS:
+                continue
+        elif isinstance(fn, ast.Name):
+            if not (imported and fn.id in CP_SUBPROCESS_CALLS):
+                continue
+        else:
+            continue
+        argv = node.args[0] if node.args else next(
+            (k.value for k in node.keywords if k.arg == "args"), None)
+        if argv is None:
+            continue
+        scope = scope_of(node)
+        if isinstance(argv, ast.Name):
+            argv = bindings.get((scope, argv.id), argv)
+        if isinstance(argv, (ast.List, ast.Tuple)):
+            elements = list(argv.elts)
+        elif isinstance(argv, ast.Constant) and isinstance(argv.value, str):
+            for why in _cp_command_findings(argv.value, policy):
+                found.append((node.lineno, why))
+            continue
+        else:
+            continue                      # an argv this rule cannot read is not a claim
+        if not elements:
+            continue
+        rest = {s for e in elements[1:] for s in _cp_strings(e, bindings, scope)}
+        for head in _cp_strings(elements[0], bindings, scope):
+            base = head.replace("\\", "/").rsplit("/", 1)[-1]
+            if (base in shells and any(a.startswith("-") and "c" in a for a in rest)
+                    and not _cp_platform_guarded(node, parents)):
+                found.append((node.lineno, f"launches through the POSIX shell {base!r} with "
+                                           f"-c; name a real executable instead"))
+            if base in interps:
+                found.append((node.lineno, f"invokes a bare {base!r} interpreter; use "
+                                           f"sys.executable, which names the running Python"))
+            if base in utils:
+                found.append((node.lineno, f"invokes the POSIX-only utility {base!r}, "
+                                           f"absent from PowerShell"))
+            if suffixes and head.endswith(suffixes):
+                found.append((node.lineno, f"runs {head!r} as the command itself, relying on "
+                                           f"its shebang and executable bit — Windows honours "
+                                           f"neither"))
+    return sorted(set(found))
+
+
+def _check_command_portability(errors: list[str], policy: dict | None = None,
+                               manifests=None, py_files=None) -> None:
+    """Reject POSIX-only command assumptions in karta-owned hook manifests and in the
+    subprocess invocations inside karta-owned Python.
+
+    `policy`, `manifests` and `py_files` exist so the fixtures can drive the rule over
+    fabricated input; left alone, all three come from the committed policy and git."""
+    if policy is None:
+        policy = _load_json(POLICY_PATH, errors)
+        if not policy:
+            return
+    if manifests is None or py_files is None:
+        tracked = _cp_tracked(errors)
+        if tracked is None:
+            return
+        auto_m, auto_p = [], []
+        for rel in tracked:
+            if _excluded(rel, policy):
+                continue
+            path = ROOT / rel
+            if rel.endswith(".py"):
+                auto_p.append((path, rel))
+            elif rel.endswith(".json") and path.is_file():
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue              # not this rule's business; other checks parse it
+                except UnicodeDecodeError as e:
+                    errors.append(f"{rel}: tracked JSON that is not decodable as UTF-8 ({e})")
+                    continue
+                if isinstance(data, dict) and isinstance(data.get("hooks"), dict):
+                    auto_m.append((path, rel))
+        manifests = auto_m if manifests is None else manifests
+        py_files = auto_p if py_files is None else py_files
+    for path, rel in manifests:
+        _cp_check_manifest(Path(path), rel, policy, errors)
+    for path, rel in py_files:
+        try:
+            source = Path(path).read_text(encoding="utf-8")
+        except (OSError, ValueError) as e:
+            errors.append(f"{rel}: unreadable Python source ({e})")
+            continue
+        try:
+            findings = _cp_python_findings(source, policy)
+        except SyntaxError as e:
+            errors.append(f"{rel}: unparseable Python ({e})")
+            continue
+        for line, why in findings:
+            errors.append(f"{rel}:{line}: subprocess call is not portable — {why}")
+
+
 def check() -> list[str]:
     errors: list[str] = []
     skill_dirs = [p.parent for p in SKILLS.glob("*/SKILL.md")]
@@ -467,6 +859,8 @@ def check() -> list[str]:
     _check_fact_traces(errors)
     _check_encoding(errors)
     _check_git_output_encoding(errors)
+    _check_codex_hook_windows(errors)
+    _check_command_portability(errors)
     return errors
 
 
@@ -2279,6 +2673,230 @@ def _self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] ec: a binary-mode open under a degrade "
               f"handler is not a boundary — bytes have nothing to mis-decode"
               + ("" if ok else f" — got {errs!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+    import tempfile as _cp_tf
+    with _cp_tf.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+        # _check_codex_hook_windows: a Codex command hook with no Windows twin fails
+        # on Windows rather than running. Fixtures cover both directions plus the two
+        # drift modes, because a check that cannot fail is not a check.
+        def _manifest(hooks: list) -> dict:
+            return {"hooks": {"Stop": [{"matcher": "*", "hooks": hooks}]}}
+
+        POSIX = ("sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_delivery_stop.py\";"
+                 " [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'")
+        WIN = ('if exist "%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1" (powershell -File'
+               ' "%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1"'
+               ' .codex-plugin/hooks/scripts/guard_delivery_stop.py Plugin) else (exit /b 0)')
+        WIN_OTHER = WIN.replace("guard_delivery_stop.py", "guard_pack_write.py")
+
+        hook_cases = [
+            ("command hook with a matching Windows twin passes",
+             _manifest([{"type": "command", "command": POSIX, "commandWindows": WIN}]), []),
+            ("command hook with no Windows twin is caught",
+             _manifest([{"type": "command", "command": POSIX}]), ["missing 'commandWindows'"]),
+            ("empty Windows twin is caught (present but blank)",
+             _manifest([{"type": "command", "command": POSIX, "commandWindows": "   "}]),
+             ["missing 'commandWindows'"]),
+            ("Windows twin that shells out to sh is caught",
+             _manifest([{"type": "command", "command": POSIX,
+                         "commandWindows": "sh -c 'exec python3 x'"}]), ["invokes sh"]),
+            ("Windows twin naming a different guard is caught",
+             _manifest([{"type": "command", "command": POSIX, "commandWindows": WIN_OTHER}]),
+             ["enforce different rules"]),
+            ("Windows twin that is a sh-free NO-OP is caught — present, non-empty, "
+             "and running nothing is the quietest way to disarm one platform",
+             _manifest([{"type": "command", "command": POSIX,
+                         "commandWindows": "exit /b 0"}]),
+             ["names no guard script"]),
+            ("non-command hooks are not required to have a twin",
+             _manifest([{"type": "prompt"}]), []),
+        ]
+        for i, (name, doc, want) in enumerate(hook_cases):
+            man = Path(td) / f"codexhooks{i}.json"
+            man.write_text(json.dumps(doc), encoding="utf-8")
+            errors = []
+            _check_codex_hook_windows(errors, manifests=[man])
+            ok = bool(errors) == bool(want) and all(any(w in e for e in errors) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errors!r}"))
+            total += 1
+            failures += 0 if ok else 1
+
+        errors = []
+        _check_codex_hook_windows(errors, manifests=[Path(td) / "no-such-manifest.json"])
+        ok = errors == []
+        print(f"[{'PASS' if ok else 'FAIL'}] absent Codex hook manifest is skipped, not an error"
+              + ("" if ok else f" — got {errors!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        bad = Path(td) / "codexhooks-bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        errors = []
+        _check_codex_hook_windows(errors, manifests=[bad])
+        ok = len(errors) == 1 and "unreadable" in errors[0]
+        print(f"[{'PASS' if ok else 'FAIL'}] unreadable Codex hook manifest is reported, not a crash"
+              + ("" if ok else f" — got {errors!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # The shipped manifests must satisfy the check they are the reason for — this
+        # is what would have caught the reported Windows failure before it shipped.
+        errors = []
+        _check_codex_hook_windows(errors)
+        ok = errors == []
+        print(f"[{'PASS' if ok else 'FAIL'}] this repo's Codex hook manifests carry Windows twins"
+              + ("" if ok else f" — got {errors!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # Command portability. The rule covers the CLASS that produced the escaped
+        # defect, so every shape it rejects gets its own negative fixture and every
+        # shape it must tolerate gets a positive one — a rule whose compliant shapes
+        # are untested is a rule that wedges the repo the first time one appears.
+        cp_policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+
+        def cp_manifest(command: str, windows: str | None = None) -> dict:
+            hook = {"type": "command", "command": command}
+            if windows:
+                hook["commandWindows"] = windows
+            return {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [hook]}]}}
+
+        def cp_run(policy, manifest_doc=None, source=None) -> list[str]:
+            errs: list[str] = []
+            mans, pys = [], []
+            if manifest_doc is not None:
+                mp = Path(td) / "cp-fixture-hooks.json"
+                mp.write_text(json.dumps(manifest_doc), encoding="utf-8")
+                mans = [(mp, "fixture/hooks.json")]
+            if source is not None:
+                sp = Path(td) / "cp_fixture_mod.py"
+                sp.write_text(source, encoding="utf-8")
+                pys = [(sp, "fixture/mod.py")]
+            _check_command_portability(errs, policy=policy, manifests=mans, py_files=pys)
+            return errs
+
+        GUARD = "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard_pack_write.py"
+        TWIN = 'powershell -File "%PLUGIN_ROOT%\\launch_hook.ps1" guard_pack_write.py'
+
+        cp_cases = [
+            # --- negative: one per shape the contract names -------------------
+            ("cp: manifest launching a hook through `sh -c` is caught",
+             cp_manifest(f"sh -c 'exec \"{GUARD}\"'"), None, ["POSIX shell"]),
+            ("cp: manifest launching a hook through `bash -c` is caught",
+             cp_manifest(f"bash -c 'exec \"{GUARD}\"'"), None, ["POSIX shell"]),
+            ("cp: manifest naming a bare `python3` is caught",
+             cp_manifest(f'python3 "{GUARD}"'), None, ["bare `python`"]),
+            ("cp: manifest naming a bare `python` is caught",
+             cp_manifest(f'python "{GUARD}"'), None, ["bare `python`"]),
+            ("cp: manifest relying on a shebang and the executable bit is caught",
+             cp_manifest(f'"{GUARD}"'), None, ["shebang and executable bit"]),
+            ("cp: manifest invoking a POSIX-only utility is caught",
+             cp_manifest('grep -qF karta AGENTS.md'), None, ["POSIX-only utility 'grep'"]),
+            ("cp: python launching through `sh -c` is caught", None,
+             'import subprocess\nsubprocess.run(["sh", "-c", "echo hi"])\n', ["POSIX shell 'sh'"]),
+            ("cp: the same launch inside an os.name platform branch is a decision, "
+             "not an assumption — it does not fire", None,
+             'import os, subprocess\n'
+             'if os.name == "nt":\n'
+             '    pass\n'
+             'else:\n'
+             '    subprocess.run(["sh", "-c", "echo hi"])\n', []),
+            ("cp: a platform branch excuses only the shell — a bare interpreter "
+             "inside one is still caught", None,
+             'import os, subprocess\n'
+             'if os.name != "nt":\n'
+             '    subprocess.run(["python3", "x.py"])\n', ["bare 'python3'"]),
+            ("cp: the exemption reads the branch DIRECTION — sh -c in the "
+             "WINDOWS arm is the failure itself, not a platform decision", None,
+             'import os, subprocess\n'
+             'if os.name == "nt":\n'
+             '    subprocess.run(["sh", "-c", "echo hi"])\n', ["POSIX shell 'sh'"]),
+            ("cp: a test the reader cannot decide never widens the exemption — "
+             "a dead platform-flag wrapper is not a licence", None,
+             'import subprocess\n'
+             'IS_POSIX = True\n'
+             'if IS_POSIX:\n'
+             '    subprocess.run(["sh", "-c", "echo hi"])\n', ["POSIX shell 'sh'"]),
+            ("cp: python invoking a bare `python3` is caught", None,
+             'import subprocess\nsubprocess.run(["python3", "x.py"])\n', ["bare 'python3'"]),
+            ("cp: python running a script on its shebang is caught", None,
+             'import subprocess\nsubprocess.run(["tools/thing.py", "--go"])\n',
+             ["shebang and executable bit"]),
+            ("cp: python invoking a POSIX-only utility is caught", None,
+             'import subprocess\nsubprocess.run(["xargs", "-0", "rm"])\n',
+             ["POSIX-only utility 'xargs'"]),
+            ("cp: a bare interpreter reached through one alias hop is caught", None,
+             'import subprocess, sys\n'
+             'def go(args):\n'
+             '    py = sys.executable or "python3"\n'
+             '    return subprocess.run([py, "helper.py", *args])\n',
+             ["bare 'python3'"]),
+            # --- positive: compliant shapes must NOT fire ---------------------
+            ("cp: a manifest hook with a commandWindows twin does not fire",
+             cp_manifest(f"sh -c 'exec python3 \"{GUARD}\"'", TWIN), None, []),
+            ("cp: `uv run --script` is the compliant Claude-side shape",
+             cp_manifest(f'uv run --script "{GUARD}"'), None, []),
+            ("cp: a subprocess invocation naming sys.executable does not fire", None,
+             'import subprocess, sys\nsubprocess.run([sys.executable, "helper.py"])\n', []),
+            ("cp: a POSIX-only name outside command position is an argument, not a call",
+             None, 'import subprocess\nsubprocess.run(["git", "grep", "-n", "test"])\n', []),
+        ]
+        for name, doc, src, want in cp_cases:
+            errs = cp_run(cp_policy, manifest_doc=doc, source=src)
+            ok = bool(errs) == bool(want) and all(any(w in e for e in errs) for w in want)
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" — got {errs!r}"))
+            total += 1
+            failures += 0 if ok else 1
+
+        # The utility list is DATA the rule reads, not prose beside it: the same argv
+        # passes under the committed list and fails once a name is added to it. Without
+        # this, nothing distinguishes a list the rule consults from a list it ignores.
+        widened = dict(cp_policy)
+        widened["posix_only_utilities"] = sorted(set(cp_policy["posix_only_utilities"]) | {"cowsay"})
+        before = cp_run(cp_policy, source='import subprocess\nsubprocess.run(["cowsay", "moo"])\n')
+        after = cp_run(widened, source='import subprocess\nsubprocess.run(["cowsay", "moo"])\n')
+        ok = before == [] and any("'cowsay'" in e for e in after)
+        print(f"[{'PASS' if ok else 'FAIL'}] cp: adding a name to the committed utility list "
+              f"makes a previously-passing argv fail"
+              + ("" if ok else f" — before {before!r}, after {after!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # The four utilities measured absent from PowerShell on the target host, plus the
+        # companions that would otherwise pass by omission. Pinned because a policy file
+        # that quietly lost an entry disarms the rule without failing anything.
+        want_utils = {"env", "xargs", "grep", "test", "sed", "awk", "cat", "tr",
+                      "cut", "mktemp", "readlink", "realpath"}
+        missing = sorted(want_utils - set(cp_policy.get("posix_only_utilities", ())))
+        ok = not missing
+        print(f"[{'PASS' if ok else 'FAIL'}] cp: the committed utility list covers every "
+              f"enumerated name" + ("" if ok else f" — missing {missing!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
+        # Exclusions are committed WITH their reason. A path excluded silently is a hole
+        # nobody can review; a path excluded with a reason is a decision.
+        ok = (_excluded(".karta/binders/archive/pack-separation.json", cp_policy)
+              and _excluded("benchmarks/fixtures/shellenv.py", cp_policy)
+              and not _excluded("hooks/hooks.json", cp_policy)
+              and not _excluded("scripts/hooks/precommit_gate.py", cp_policy)
+              and all(isinstance(x.get("path"), str) and len(str(x.get("reason", "")).strip()) > 40
+                      for x in cp_policy.get("exclusions", [])))
+        print(f"[{'PASS' if ok else 'FAIL'}] cp: every exclusion carries a path and a reason, "
+              f"and excludes only what it names")
+        total += 1
+        failures += 0 if ok else 1
+
+        # The repo must satisfy the rule it arms. This is the assertion that would have
+        # caught the reported Windows failure — and the one that keeps the rule honest,
+        # since a rule armed over an unrepaired tree wedges every later commit.
+        errors = []
+        _check_command_portability(errors)
+        ok = errors == []
+        print(f"[{'PASS' if ok else 'FAIL'}] cp: this repo's manifests and subprocess calls "
+              f"are portable" + ("" if ok else f" — got {errors!r}"))
         total += 1
         failures += 0 if ok else 1
 

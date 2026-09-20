@@ -948,7 +948,9 @@ def _real_git(argv: list[str], input_bytes: bytes | None = None) -> tuple[int, b
 
 
 def _real_helper(args: list[str], input_bytes: bytes | None) -> int:
-    py = sys.executable or "python3"
+    # sys.executable, never a bare "python3" fallback: on Windows that name is either
+    # absent or the Store stub, so the fallback would turn a gate into a spurious pass.
+    py = sys.executable
     try:
         proc = subprocess.run([py, str(ROOT / HELPER), *args], cwd=ROOT, timeout=GIT_TIMEOUT,
                               input=input_bytes, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

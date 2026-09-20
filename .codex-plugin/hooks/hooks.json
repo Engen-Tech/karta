@@ -8,12 +8,14 @@
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_binder_immutability.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_binder_immutability.py\" Plugin) else (exit /b 0)"
           },
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 60
+            "timeout": 60,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_pack_write.py\" Plugin) else (exit /b 0)"
           }
         ]
       },
@@ -23,12 +25,14 @@
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_auditor_dispatch.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_auditor_dispatch.py\" Plugin) else (exit /b 0)"
           },
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_gate_dispatch.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 60
+            "timeout": 60,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_gate_dispatch.py\" Plugin) else (exit /b 0)"
           }
         ]
       }
@@ -40,7 +44,8 @@
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_pack_write.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 60
+            "timeout": 60,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_pack_write.py\" Plugin) else (exit /b 0)"
           }
         ]
       }
@@ -52,7 +57,8 @@
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_delivery_stop.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_delivery_stop.py\" Plugin) else (exit /b 0)"
           }
         ]
       }
@@ -64,7 +70,8 @@
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/guard_subagent_whiff.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/guard_subagent_whiff.py\" Plugin) else (exit /b 0)"
           }
         ]
       }
@@ -76,7 +83,8 @@
           {
             "type": "command",
             "command": "sh -c 'p=\"${PLUGIN_ROOT}/.codex-plugin/hooks/scripts/inject_karta_status.py\"; [ -f \"$p\" ] && exec python3 \"$p\"; exit 0'",
-            "timeout": 30
+            "timeout": 30,
+            "commandWindows": "if exist \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" (powershell -NoProfile -ExecutionPolicy Bypass -File \"%PLUGIN_ROOT%\\.codex-plugin\\hooks\\launch_hook.ps1\" \".codex-plugin/hooks/scripts/inject_karta_status.py\" Plugin) else (exit /b 0)"
           }
         ]
       }
