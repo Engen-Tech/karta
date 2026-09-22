@@ -3,7 +3,7 @@
  "rows": [
   {
    "repo": "parchmark",
-   "head": "83acd645c0e530f2a6ca707c97b8593eedfde12b",
+   "head": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
    "caveat": "deliveries carry no plugin-version stamp, so this is loop health over calendar time, not a controlled version A/B",
    "deliveries": [
     {
@@ -95,6 +95,12 @@
      "sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
      "ct": 1783356245,
      "via": "integration-merge"
+    },
+    {
+     "slug": "auth-service-refresh-coverage",
+     "sha": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+     "ct": 1788110182,
+     "via": "archive-add"
     }
    ],
    "epochs": {
@@ -134,9 +140,9 @@
     }
    },
    "gardner": {
-    "fraction": "10/15",
+    "fraction": "10/16",
     "covered_n": 10,
-    "denominator_N": 15,
+    "denominator_N": 16,
     "per_slug": [
      {
       "slug": "settings-account-summary",
@@ -317,6 +323,18 @@
       "gardner_ct": 1783355355,
       "whiff_class": null,
       "lineage_oldest_ct": null
+     },
+     {
+      "slug": "auth-service-refresh-coverage",
+      "delivery_sha": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+      "delivery_ct": 1788110182,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
      }
     ],
     "whiffs": [
@@ -379,6 +397,18 @@
       "gardner_ct": null,
       "whiff_class": "true-whiff",
       "lineage_oldest_ct": null
+     },
+     {
+      "slug": "auth-service-refresh-coverage",
+      "delivery_sha": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+      "delivery_ct": 1788110182,
+      "via": "archive-add",
+      "enable_ct": 1782268072,
+      "covered": false,
+      "gardner_sha": null,
+      "gardner_ct": null,
+      "whiff_class": "true-whiff",
+      "lineage_oldest_ct": null
      }
     ],
     "excluded_pre_enable": []
@@ -415,8 +445,10 @@
      "seed_excluded": [
       "dd26dd9a374fd5d215bb5b56af8161125a34cf72"
      ],
-     "deliveries_in_kaizen_epoch_n": 0,
-     "deliveries_in_kaizen_epoch": []
+     "deliveries_in_kaizen_epoch_n": 1,
+     "deliveries_in_kaizen_epoch": [
+      "auth-service-refresh-coverage"
+     ]
     }
    },
    "config_staleness": [
@@ -424,31 +456,107 @@
      "config": ".karta/doc-gardner.json",
      "last_touch_sha": "83acd645c0e530f2a6ca707c97b8593eedfde12b",
      "last_touch_ct": 1785427066,
-     "deliveries_since_n": 0,
-     "deliveries_since": [],
+     "deliveries_since_n": 1,
+     "deliveries_since": [
+      "auth-service-refresh-coverage"
+     ],
      "focus": "keep user-facing docs, architecture notes, and API references aligned with shipped behavior across the whole app \u2014 every delivery's blast radius, never one feature area; AGENTS.md's navigation/integration map must name each backend-wired flow",
      "last_5_delivery_slugs": [
-      "note-tags-editing",
       "notes-list-from-backend",
       "deps-upgrade-latest",
       "backend-service-layer-notes-auth",
-      "backend-hygiene"
+      "backend-hygiene",
+      "auth-service-refresh-coverage"
      ]
     },
     {
      "config": ".karta/kaizen.json",
      "last_touch_sha": "0aefe0656f0ebc6d893e4ae643de4f934f76380f",
      "last_touch_ct": 1783356245,
-     "deliveries_since_n": 0,
-     "deliveries_since": [],
+     "deliveries_since_n": 1,
+     "deliveries_since": [
+      "auth-service-refresh-coverage"
+     ],
      "focus": null,
      "last_5_delivery_slugs": [
-      "note-tags-editing",
       "notes-list-from-backend",
       "deps-upgrade-latest",
       "backend-service-layer-notes-auth",
-      "backend-hygiene"
+      "backend-hygiene",
+      "auth-service-refresh-coverage"
      ]
+    }
+   ],
+   "findings": [
+    {
+     "finding_id": "card-contradiction-history-walk",
+     "severity": "info",
+     "summary": "permanent card contradiction: card steps 1/3 pin first-parent-only history walks, but they contradict the card's own step 4 and seed observation on the real repos \u2014 subject-stream matching (docs: gardner, kaizen:, correction commits) walks the full merge-reachable history of the analyzed head (never --all); first-parent is reserved for epoch transitions and delivery enumeration; the delivery denominator is integration merges with archive-adds as the fast-forward fallback (dedupe by slug, merge wins)"
+    }
+   ]
+  },
+  {
+   "repo": "gringotts",
+   "head": "fd2ecea3de12b7f4ad2b332e128201e587b2bf61",
+   "caveat": "deliveries carry no plugin-version stamp, so this is loop health over calendar time, not a controlled version A/B",
+   "deliveries": [],
+   "epochs": {
+    ".karta/doc-gardner.json": {
+     "transitions": [],
+     "intervals": [],
+     "enabled_now": false
+    },
+    ".karta/kaizen.json": {
+     "transitions": [],
+     "intervals": [],
+     "enabled_now": false
+    }
+   },
+   "gardner": {
+    "fraction": "0/0",
+    "covered_n": 0,
+    "denominator_N": 0,
+    "per_slug": [],
+    "whiffs": [],
+    "excluded_pre_enable": []
+   },
+   "kaizen": {
+    "commits": [],
+    "floor": {
+     "fail": [],
+     "warn": [],
+     "checked_n": 0
+    },
+    "incidents": [],
+    "closed_denominator_n": 0,
+    "closed_denominator": [],
+    "window_open": [],
+    "spawn_utility": {
+     "substantive_kaizen_commits_n": 0,
+     "substantive_kaizen_commits": [],
+     "seed_excluded": [],
+     "deliveries_in_kaizen_epoch_n": 0,
+     "deliveries_in_kaizen_epoch": []
+    }
+   },
+   "config_staleness": [
+    {
+     "config": ".karta/doc-gardner.json",
+     "last_touch_sha": null,
+     "last_touch_ct": null,
+     "deliveries_since_n": 0,
+     "deliveries_since": [],
+     "focus": null,
+     "last_5_delivery_slugs": []
+    },
+    {
+     "config": ".karta/kaizen.json",
+     "last_touch_sha": null,
+     "last_touch_ct": null,
+     "deliveries_since_n": 0,
+     "deliveries_since": [],
+     "focus": null,
+     "last_5_delivery_slugs": []
     }
    ],
    "findings": [

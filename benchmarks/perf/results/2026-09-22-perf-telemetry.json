@@ -8,64 +8,59 @@
     "since": "2026-08-23",
     "dirs_present": 2,
     "dirs_absent": 1,
-    "sessions_scanned": 39,
-    "deliveries_measurable": 3,
+    "sessions_scanned": 22,
+    "deliveries_measurable": 0,
     "unmeasurable_or_skipped": 0,
     "entries": [
       {
-        "repo": "C:\\Users\\Developer\\src\\karta",
+        "repo": "/Users/tej/src/karta-pi",
         "present": true,
-        "dir": "C:\\Users\\Developer\\.claude\\projects\\C--Users-Developer-src-karta",
-        "project": "C--Users-Developer-src-karta",
+        "dir": "/Users/tej/.claude/projects/-Users-tej-src-karta-pi",
+        "project": "karta-pi",
         "context": {
-          "project": "C--Users-Developer-src-karta",
-          "binder_slug": "unknown",
-          "plugin_version": "unknown",
-          "item_count": 0,
-          "estimate_mix": {},
-          "models_per_agent_type": {
-            "builder": "claude-opus-5",
-            "other": "claude-opus-5"
+          "project": "karta-pi",
+          "binder_slug": "baseline-burndown,bench-probe-buildout,codex-119-compatibility,codex-hooks-parity,context-economy,cross-item-consistency,delivery-stop-gate,design-reference-gate-2,evidence-economy,gardner-reliability,kaizen-frame,kaizen-sharpening,karta-watch-hub,pack-provenance,pack-separation,pack-sovereignty,pi-visual-acceptance,pi-visual-capture,pi-visual-foundation,review-ledger,roundtable-edict,seed-drift-stamp-strip,shared-terms-pending,watch-derivation-cost,watch-drill-in-remediation,watch-drill-in,watch-fidelity,watch-font-adherence,watch-redesign,watch-shell,writer-confinement",
+          "plugin_version": "2.38.3",
+          "item_count": 160,
+          "estimate_mix": {
+            "M": 91,
+            "S": 33,
+            "L": 36
           },
-          "claude_code_version": "2.1.215"
+          "models_per_agent_type": {},
+          "claude_code_version": "2.1.251"
         },
         "mode_cost": {
-          "deliveries_measurable": 3,
-          "spawns_per_type": {
-            "builder": 12,
-            "other": 13
-          },
+          "deliveries_measurable": 0,
+          "spawns_per_type": {},
           "per_item": {},
           "per_item_median": {},
           "unattributed": {
-            "spawns": 12,
-            "output_tokens": 1044313,
-            "cache_read_tokens": 396365794,
-            "wall_min": 359.81
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
           },
           "overhead_ratio": {
-            "value": 0.3694,
-            "numerator_output_tokens": 385734,
-            "denominator_output_tokens": 1044313
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
           },
-          "models_per_agent_type": {
-            "builder": "claude-opus-5",
-            "other": "claude-opus-5"
-          }
+          "models_per_agent_type": {}
         },
         "mode_compliance": {
           "rows": [
             {
               "script": "scan_secrets.py",
               "rule": "before each git commit in an item worktree with no intervening mutation",
-              "compliant": 6,
-              "denominator": 21
+              "compliant": 0,
+              "denominator": 0
             },
             {
               "script": "validate_binder.py",
               "rule": "before the first worktree-creation Bash of the delivery",
-              "compliant": 3,
-              "denominator": 3
+              "compliant": 0,
+              "denominator": 0
             },
             {
               "script": "check_shared_terms.py",
@@ -76,29 +71,33 @@
             {
               "script": "karta_next.py --footer",
               "rule": "before session end",
-              "compliant": 2,
-              "denominator": 3
+              "compliant": 0,
+              "denominator": 0
             }
           ],
           "unmeasurable_sessions": 0
         },
-        "sessions_scanned": 39,
-        "deliveries_measurable": 3,
+        "sessions_scanned": 22,
+        "deliveries_measurable": 0,
         "unmeasurable_sessions": 0,
         "sessions_errored": 0,
         "sessions_skipped_budget": 0
       },
       {
-        "repo": "C:\\Users\\Developer\\src\\parchmark",
+        "repo": "/Users/tej/src/parchmark",
         "present": true,
-        "dir": "C:\\Users\\Developer\\.claude\\projects\\C--Users-Developer-src-parchmark",
-        "project": "C--Users-Developer-src-parchmark",
+        "dir": "/Users/tej/.claude/projects/-Users-tej-src-parchmark",
+        "project": "parchmark",
         "context": {
-          "project": "C--Users-Developer-src-parchmark",
-          "binder_slug": "unknown",
+          "project": "parchmark",
+          "binder_slug": "auth-service-refresh-coverage,backend-drop-sync-session,backend-hygiene,backend-pyjwt-migration,backend-service-layer-notes-auth,deps-upgrade-latest,note-create-workflow,note-delete-workflow,note-edit-save-workflow,note-events-live-refresh,note-tags-editing,notes-list-from-backend,settings-account-delete,settings-account-summary,settings-notes-export,settings-password-change",
           "plugin_version": "unknown",
-          "item_count": 0,
-          "estimate_mix": {},
+          "item_count": 37,
+          "estimate_mix": {
+            "S": 18,
+            "L": 3,
+            "M": 16
+          },
           "models_per_agent_type": {},
           "claude_code_version": "unknown"
         },
@@ -156,8 +155,8 @@
         "sessions_skipped_budget": 0
       },
       {
-        "repo": "C:\\Users\\Developer\\src\\gringotts",
-        "transcript_dir": "C:\\Users\\Developer\\.claude\\projects\\C--Users-Developer-src-gringotts",
+        "repo": "/Users/tej/src/gringotts",
+        "transcript_dir": "/Users/tej/.claude/projects/-Users-tej-src-gringotts",
         "present": false,
         "note": "absent or decayed \u2014 counted unmeasurable, never asserted"
       }

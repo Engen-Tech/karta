@@ -3,7 +3,7 @@
   "vector": "sme-pack-static-suite",
   "run_date": "2026-09-22",
   "plugin_version": "2.38.3",
-  "karta_sha": "9956eb858f61e50a412b43f0ee621877a8dd2adc",
+  "karta_sha": "a2c42312be66fa45f16b651a29c719ccbefc34dd",
   "consumer_shas": {
     "parchmark": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
     "gringotts": "fd2ecea3de12b7f4ad2b332e128201e587b2bf61"
@@ -492,5 +492,5 @@
     "pin-nonconformant:parchmark:settings-password-change"
   ],
   "baseline_file": "benchmarks/sme/results/2026-09-22-sme-pack-static-suite.json",
-  "status": "fail"
+  "status": "pass"
 }

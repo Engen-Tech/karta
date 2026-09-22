@@ -2,16 +2,16 @@
   "schema_version": 1,
   "vector": "field-feature-adoption-ledger",
   "audit_date": "2026-09-22",
-  "repo": "parchmark",
-  "repo_head": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+  "repo": "gringotts",
+  "repo_head": "fd2ecea3de12b7f4ad2b332e128201e587b2bf61",
   "activity": {
-    "events_total": 14,
+    "events_total": 0,
     "classes": {
       "plan": 0,
       "archive": 0,
-      "integration_merge": 14
+      "integration_merge": 0
     },
-    "newest": "2026-07-06T16:44:05Z"
+    "newest": null
   },
   "features": [
     {
@@ -26,11 +26,11 @@
       },
       "status": "ADOPTED",
       "first_use": {
-        "commit": "b0fdc879cb03a27aabcd13ac74ca8d84f6e8a5ee",
-        "date": "2026-06-10T00:40:52-04:00"
+        "commit": "d62ea75bdce0e27c1f9909dea5e917fa2d6a5970",
+        "date": "2026-06-13T16:19:18-04:00"
       },
       "carried_forward": true,
-      "adoption_lag_days": -8,
+      "adoption_lag_days": -4,
       "lag_label": "pre-release-dogfood",
       "present_now": null,
       "days_since_last_activity": null
@@ -45,13 +45,10 @@
         "pattern": "\"smoke\"",
         "path": ".karta/binders"
       },
-      "status": "ADOPTED",
-      "first_use": {
-        "commit": "b9f900ed6134070b177e9bbef3533b16b39c30fa",
-        "date": "2026-06-18T00:23:59-04:00"
-      },
-      "carried_forward": true,
-      "adoption_lag_days": 0,
+      "status": "NOT-EXERCISED-SINCE-SHIP",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
@@ -66,7 +63,7 @@
         "pattern": "refs/karta/*/item-*/accepted",
         "path": ""
       },
-      "status": "AVAILABLE-BUT-UNUSED",
+      "status": "NOT-EXERCISED-SINCE-SHIP",
       "first_use": null,
       "carried_forward": false,
       "adoption_lag_days": null,
@@ -104,12 +101,12 @@
       },
       "status": "ADOPTED",
       "first_use": {
-        "commit": "b9f900ed6134070b177e9bbef3533b16b39c30fa",
-        "date": "2026-06-18T00:23:59-04:00"
+        "commit": "a127bbc1e0d8ddc3dbbe0789e16c0300a0466e08",
+        "date": "2026-07-16T14:31:31-04:00"
       },
       "carried_forward": true,
-      "adoption_lag_days": -6,
-      "lag_label": "pre-release-dogfood",
+      "adoption_lag_days": 22,
+      "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
     },
@@ -123,7 +120,7 @@
         "pattern": "karta-validate",
         "path": ""
       },
-      "status": "AVAILABLE-BUT-UNUSED",
+      "status": "NOT-EXERCISED-SINCE-SHIP",
       "first_use": null,
       "carried_forward": false,
       "adoption_lag_days": null,
@@ -143,12 +140,12 @@
       },
       "status": "ADOPTED",
       "first_use": {
-        "commit": "90ef8b935dc9e2096119e30649ebcaaba29c97ae",
-        "date": "2026-06-23T10:22:18-04:00"
+        "commit": "40bd608c6e03974c0e530f63cc4d6b7a2c176473",
+        "date": "2026-07-16T18:13:10-04:00"
       },
       "carried_forward": true,
-      "adoption_lag_days": -10,
-      "lag_label": "pre-release-dogfood",
+      "adoption_lag_days": 14,
+      "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
     },
@@ -164,11 +161,11 @@
       },
       "status": "ADOPTED",
       "first_use": {
-        "commit": "64ce31627221077c6bab5724f30128f682c037a1",
-        "date": "2026-07-05T22:44:53-04:00"
+        "commit": "2cdc3ae132bcf8ea4f221afd352083d3d540d080",
+        "date": "2026-07-14T21:37:02-04:00"
       },
       "carried_forward": true,
-      "adoption_lag_days": 0,
+      "adoption_lag_days": 8,
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
@@ -183,10 +180,13 @@
         "pattern": "KARTA-SME-OVERRIDE",
         "path": ""
       },
-      "status": "AVAILABLE-BUT-UNUSED",
-      "first_use": null,
-      "carried_forward": false,
-      "adoption_lag_days": null,
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "ad13e5dbf194983a47641cfc0eb3e257f7f26dc7",
+        "date": "2026-07-22T09:57:06-04:00"
+      },
+      "carried_forward": true,
+      "adoption_lag_days": 16,
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
@@ -203,12 +203,12 @@
       },
       "status": "ADOPTED",
       "first_use": {
-        "commit": "657f6bf146d9c377c066e28d76fd0bee0106bc13",
-        "date": "2026-07-01T20:07:29-04:00"
+        "commit": "94dde03cb153b49e8f4c64d5d3e2882905c95fe9",
+        "date": "2026-07-16T17:51:55-04:00"
       },
       "carried_forward": true,
-      "adoption_lag_days": -7,
-      "lag_label": "pre-release-dogfood",
+      "adoption_lag_days": 8,
+      "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
     },
@@ -222,13 +222,16 @@
         "pattern": "\"shared_terms\"",
         "path": ".karta/binders"
       },
-      "status": "NOT-EXERCISED-SINCE-SHIP",
-      "first_use": null,
-      "carried_forward": false,
-      "adoption_lag_days": null,
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "d5fa1974c59e333a3d1d231889985ee7d8992788",
+        "date": "2026-07-17T10:29:39-04:00"
+      },
+      "carried_forward": true,
+      "adoption_lag_days": 8,
       "lag_label": null,
       "present_now": null,
-      "days_since_last_activity": 78
+      "days_since_last_activity": null
     },
     {
       "id": "builtin-go-packs",
@@ -240,13 +243,16 @@
         "pattern": "go-naming",
         "path": ".karta"
       },
-      "status": "NOT-EXERCISED-SINCE-SHIP",
-      "first_use": null,
-      "carried_forward": false,
-      "adoption_lag_days": null,
-      "lag_label": null,
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "f9043a5a00a079df3e1f3bd9767c1df3629df278",
+        "date": "2026-07-15T11:07:41-04:00"
+      },
+      "carried_forward": true,
+      "adoption_lag_days": -6,
+      "lag_label": "pre-release-dogfood",
       "present_now": null,
-      "days_since_last_activity": 78
+      "days_since_last_activity": null
     },
     {
       "id": "pack-rule-htmx8",
@@ -258,13 +264,16 @@
         "pattern": "htmx.8",
         "path": ".karta"
       },
-      "status": "NOT-EXERCISED-SINCE-SHIP",
-      "first_use": null,
-      "carried_forward": false,
-      "adoption_lag_days": null,
-      "lag_label": null,
+      "status": "ADOPTED",
+      "first_use": {
+        "commit": "dd80e01b1f5fc08728bba400f6f692fcce9f52d7",
+        "date": "2026-07-16T23:09:45-04:00"
+      },
+      "carried_forward": true,
+      "adoption_lag_days": -5,
+      "lag_label": "pre-release-dogfood",
       "present_now": null,
-      "days_since_last_activity": 78
+      "days_since_last_activity": null
     },
     {
       "id": "pack-provenance-stamp",
@@ -276,13 +285,10 @@
         "pattern": "seeded_from",
         "path": ".karta"
       },
-      "status": "ADOPTED",
-      "first_use": {
-        "commit": "5d372de43934dc4a29dfb1a0ca8eee0c8cded5bd",
-        "date": "2026-07-23T00:02:51-04:00"
-      },
-      "carried_forward": true,
-      "adoption_lag_days": 0,
+      "status": "NOT-EXERCISED-SINCE-SHIP",
+      "first_use": null,
+      "carried_forward": false,
+      "adoption_lag_days": null,
       "lag_label": null,
       "present_now": null,
       "days_since_last_activity": null
@@ -303,7 +309,7 @@
       "adoption_lag_days": null,
       "lag_label": null,
       "present_now": null,
-      "days_since_last_activity": 78
+      "days_since_last_activity": null
     },
     {
       "id": "visual-check-waiver",
@@ -321,7 +327,7 @@
       "adoption_lag_days": null,
       "lag_label": null,
       "present_now": null,
-      "days_since_last_activity": 78
+      "days_since_last_activity": null
     },
     {
       "id": "oracle-evidence-ref",
@@ -339,18 +345,14 @@
       "adoption_lag_days": null,
       "lag_label": null,
       "present_now": null,
-      "days_since_last_activity": 78
+      "days_since_last_activity": null
     }
   ],
   "headline": {
-    "available_but_unused": [
-      "failure-path-durable-traces",
-      "karta-validate-loop",
-      "sme-override-markers"
-    ],
-    "count": 3,
+    "available_but_unused": [],
+    "count": 0,
     "denominator": 17
   },
-  "adoption_lag_n": 3,
-  "adoption_lag_median_days": null
+  "adoption_lag_n": 6,
+  "adoption_lag_median_days": 11.0
 }
