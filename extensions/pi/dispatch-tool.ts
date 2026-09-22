@@ -3,6 +3,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
+import { ActionUnion } from "./action-union.ts";
 import {
   ChildRegistry,
   type GateProviderPreflightReport,
@@ -24,7 +25,7 @@ const gateRoleId = Type.Union([
   Type.Literal("safety-gate"),
 ]);
 
-const dispatchParameters = Type.Union([
+const dispatchParameters = ActionUnion([
   Type.Object({
     action: Type.Literal("describeRole"),
     role: roleId,

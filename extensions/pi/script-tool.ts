@@ -6,11 +6,12 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
+import { ActionUnion } from "./action-union.ts";
 import { PACKAGE_ROOT } from "./package-paths.ts";
 import { resolveKartaScript } from "./script-catalog.ts";
 
 const PathValue = Type.String({ minLength: 1, maxLength: 4096 });
-export const ScriptParameters = Type.Union([
+export const ScriptParameters = ActionUnion([
   Type.Object({ action: Type.Literal("detectStack"), root: Type.Optional(PathValue) }, { additionalProperties: false }),
   Type.Object(
     {

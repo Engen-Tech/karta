@@ -6,6 +6,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
+import { ActionUnion } from "./action-union.ts";
 import { requirePackagePath } from "./package-paths.ts";
 
 const exec = promisify(execFile);
@@ -868,7 +869,7 @@ export async function verifyEvidenceFreshness(manifest: KartaEvidenceManifest): 
   }
 }
 
-const evidenceReadParameters = Type.Union([
+const evidenceReadParameters = ActionUnion([
   Type.Object({ action: Type.Literal("summary") }),
   Type.Object({ action: Type.Literal("binder") }),
   Type.Object({ action: Type.Literal("workItem") }),

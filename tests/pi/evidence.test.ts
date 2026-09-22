@@ -379,6 +379,7 @@ test("evidence reader exposes fixed sections and bounded diff pages only", async
     assert.equal((denied as { isError?: boolean }).isError, true);
     assert.match(text(denied), /not in this evidence manifest/);
 
+    assert.equal((tool.parameters as { type?: string }).type, "object");
     const schema = JSON.stringify(tool.parameters);
     for (const forbidden of ["path", "command", "ref", "prompt"] as const) {
       assert.equal(schema.includes(`\"${forbidden}\"`), false, forbidden);
