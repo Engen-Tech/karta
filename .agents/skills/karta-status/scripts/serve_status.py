@@ -18124,7 +18124,7 @@ def main() -> int:
                     help="port to bind (default 8765; hub mode derives per user)")
     ap.add_argument("--key", type=str, default=None, help="if set, require ?key=TOKEN")
     ap.add_argument("--root", type=str, default=None,
-                    help="repo root to serve (chdir here so .karta/binders + git resolve); default CWD")
+                    help="repo root to serve or register during --ensure; default CWD")
     ap.add_argument("--hub", action="store_true",
                     help="serve the persistent multi-repo hub in the foreground")
     ap.add_argument("--print-state", action="store_true",
@@ -18170,7 +18170,7 @@ def main() -> int:
         return 0
 
     if args.ensure:
-        return run_ensure()
+        return run_ensure(cwd=args.root)
 
     if args.opt_in is not None:
         return run_opt(args.opt_in or None, True)
