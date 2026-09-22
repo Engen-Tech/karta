@@ -2,10 +2,11 @@
   "schema_version": 1,
   "vector": "sme-pack-static-suite",
   "run_date": "2026-09-22",
-  "plugin_version": "2.38.2",
-  "karta_sha": "7c7fbc38dd833f54d8c31bcc0749e3b62d70a20a",
+  "plugin_version": "2.38.3",
+  "karta_sha": "9956eb858f61e50a412b43f0ee621877a8dd2adc",
   "consumer_shas": {
-    "parchmark": "83acd645c0e530f2a6ca707c97b8593eedfde12b"
+    "parchmark": "1e8c338e8b5bf97b0e0d892bae1a10489382b438",
+    "gringotts": "fd2ecea3de12b7f4ad2b332e128201e587b2bf61"
   },
   "pack_list": {
     "builtin": [
@@ -33,7 +34,7 @@
     {
       "probe": "matching-rule-hash",
       "outcome": "pass",
-      "file": "skills\\karta-plan\\SKILL.md",
+      "file": "skills/karta-plan/SKILL.md",
       "remediation": ""
     },
     {
@@ -44,6 +45,12 @@
     },
     {
       "probe": "pack-integrity/validate-packs-parchmark",
+      "outcome": "pass",
+      "file": "",
+      "remediation": ""
+    },
+    {
+      "probe": "pack-integrity/validate-packs-gringotts",
       "outcome": "pass",
       "file": "",
       "remediation": ""
@@ -67,6 +74,12 @@
       "remediation": "coverage dirs: backend, ui"
     },
     {
+      "probe": "pin-derivation/gringotts",
+      "outcome": "recorded",
+      "file": "",
+      "remediation": "coverage dirs: "
+    },
+    {
       "probe": "seed-drift",
       "outcome": "recorded",
       "file": "",
@@ -81,12 +94,12 @@
   ],
   "pin_table": [
     {
-      "binder": "parchmark/backend-hygiene",
-      "era": "v1.1.0",
+      "binder": "parchmark/auth-service-refresh-coverage",
+      "era": "v2.32.0",
       "pinned": [
         "minimalism",
-        "python-fastapi",
-        "vue"
+        "python",
+        "python-fastapi"
       ],
       "expected_contract": [
         "minimalism",
@@ -102,7 +115,7 @@
       ],
       "underivable_pins": [],
       "missing_pins": [
-        "python"
+        "vue"
       ]
     },
     {
@@ -128,6 +141,31 @@
       "missing_pins": [
         "python",
         "vue"
+      ]
+    },
+    {
+      "binder": "parchmark/backend-hygiene",
+      "era": "v2.32.0",
+      "pinned": [
+        "minimalism",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_contract": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "expected_coverage": [
+        "minimalism",
+        "python",
+        "python-fastapi",
+        "vue"
+      ],
+      "underivable_pins": [],
+      "missing_pins": [
+        "python"
       ]
     },
     {
@@ -357,7 +395,8 @@
     }
   ],
   "binder_era_counts": {
-    "v1.1.0": 11
+    "v2.32.0": 2,
+    "v1.1.0": 10
   },
   "smeless_excluded": [
     "parchmark/note-create-workflow",
@@ -365,13 +404,14 @@
     "parchmark/note-edit-save-workflow",
     "parchmark/notes-list-from-backend"
   ],
-  "current_era": "v2.38.1",
+  "current_era": "v2.38.2",
   "conformance_pct_current_era": null,
   "unmatched_ecosystems": {
     "parchmark": [
       "javascript",
       "node"
-    ]
+    ],
+    "gringotts": []
   },
   "drift": [
     {
@@ -428,9 +468,9 @@
   ],
   "size_warnings": {
     "karta": [
-      "C:\\Users\\Developer\\src\\karta\\skills\\_shared\\sme\\go-htmx.md: warning: pack is 4030 bytes (> 3500) \u2014 packs are prompt text; trim it",
-      "C:\\Users\\Developer\\src\\karta\\.karta\\sme\\karta-house-skill-authoring.md: warning: pack is 11429 bytes (> 3500) \u2014 packs are prompt text; trim it",
-      "C:\\Users\\Developer\\src\\karta\\.karta\\sme\\karta-house-vue.md: warning: pack is 4361 bytes (> 3500) \u2014 packs are prompt text; trim it"
+      "/Users/tej/src/karta-pi/skills/_shared/sme/go-htmx.md: warning: pack is 4030 bytes (> 3500) \u2014 packs are prompt text; trim it",
+      "/Users/tej/src/karta-pi/.karta/sme/karta-house-skill-authoring.md: warning: pack is 11429 bytes (> 3500) \u2014 packs are prompt text; trim it",
+      "/Users/tej/src/karta-pi/.karta/sme/karta-house-vue.md: warning: pack is 4361 bytes (> 3500) \u2014 packs are prompt text; trim it"
     ],
     "consumers": []
   },
@@ -438,6 +478,7 @@
   "recorded_finding_ids": [
     "dead-token:parchmark:python-fastapi:pydantic",
     "dead-token:parchmark:vue:@vue/runtime-core",
+    "pin-nonconformant:parchmark:auth-service-refresh-coverage",
     "pin-nonconformant:parchmark:backend-drop-sync-session",
     "pin-nonconformant:parchmark:backend-hygiene",
     "pin-nonconformant:parchmark:backend-pyjwt-migration",
@@ -450,6 +491,6 @@
     "pin-nonconformant:parchmark:settings-notes-export",
     "pin-nonconformant:parchmark:settings-password-change"
   ],
-  "baseline_file": "benchmarks/sme/results/2026-09-17-sme-pack-static-suite.json",
-  "status": "pass"
+  "baseline_file": "benchmarks/sme/results/2026-09-22-sme-pack-static-suite.json",
+  "status": "fail"
 }
