@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "vector": "perf-delivery-telemetry",
+  "run_date": "2026-09-22",
+  "generated_by": "benchmarks/probes/perf-delivery-telemetry.py (gate live pass)",
+  "note": "live telemetry evidence over surviving raw transcripts \u2014 recorded, never asserted; the fixture run alone gates",
+  "live": {
+    "since": "2026-08-23",
+    "dirs_present": 2,
+    "dirs_absent": 1,
+    "sessions_scanned": 39,
+    "deliveries_measurable": 3,
+    "unmeasurable_or_skipped": 0,
+    "entries": [
+      {
+        "repo": "C:\\Users\\Developer\\src\\karta",
+        "present": true,
+        "dir": "C:\\Users\\Developer\\.claude\\projects\\C--Users-Developer-src-karta",
+        "project": "C--Users-Developer-src-karta",
+        "context": {
+          "project": "C--Users-Developer-src-karta",
+          "binder_slug": "unknown",
+          "plugin_version": "unknown",
+          "item_count": 0,
+          "estimate_mix": {},
+          "models_per_agent_type": {
+            "builder": "claude-opus-5",
+            "other": "claude-opus-5"
+          },
+          "claude_code_version": "2.1.215"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 3,
+          "spawns_per_type": {
+            "builder": 12,
+            "other": 13
+          },
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 12,
+            "output_tokens": 1044313,
+            "cache_read_tokens": 396365794,
+            "wall_min": 359.81
+          },
+          "overhead_ratio": {
+            "value": 0.3694,
+            "numerator_output_tokens": 385734,
+            "denominator_output_tokens": 1044313
+          },
+          "models_per_agent_type": {
+            "builder": "claude-opus-5",
+            "other": "claude-opus-5"
+          }
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 6,
+              "denominator": 21
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 3,
+              "denominator": 3
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 2,
+              "denominator": 3
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 39,
+        "deliveries_measurable": 3,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "C:\\Users\\Developer\\src\\parchmark",
+        "present": true,
+        "dir": "C:\\Users\\Developer\\.claude\\projects\\C--Users-Developer-src-parchmark",
+        "project": "C--Users-Developer-src-parchmark",
+        "context": {
+          "project": "C--Users-Developer-src-parchmark",
+          "binder_slug": "unknown",
+          "plugin_version": "unknown",
+          "item_count": 0,
+          "estimate_mix": {},
+          "models_per_agent_type": {},
+          "claude_code_version": "unknown"
+        },
+        "mode_cost": {
+          "deliveries_measurable": 0,
+          "spawns_per_type": {},
+          "per_item": {},
+          "per_item_median": {},
+          "unattributed": {
+            "spawns": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "wall_min": 0.0
+          },
+          "overhead_ratio": {
+            "value": null,
+            "numerator_output_tokens": 0,
+            "denominator_output_tokens": 0
+          },
+          "models_per_agent_type": {}
+        },
+        "mode_compliance": {
+          "rows": [
+            {
+              "script": "scan_secrets.py",
+              "rule": "before each git commit in an item worktree with no intervening mutation",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "validate_binder.py",
+              "rule": "before the first worktree-creation Bash of the delivery",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "check_shared_terms.py",
+              "rule": "after each wave build (binders with non-empty shared_terms only)",
+              "compliant": 0,
+              "denominator": 0
+            },
+            {
+              "script": "karta_next.py --footer",
+              "rule": "before session end",
+              "compliant": 0,
+              "denominator": 0
+            }
+          ],
+          "unmeasurable_sessions": 0
+        },
+        "sessions_scanned": 0,
+        "deliveries_measurable": 0,
+        "unmeasurable_sessions": 0,
+        "sessions_errored": 0,
+        "sessions_skipped_budget": 0
+      },
+      {
+        "repo": "C:\\Users\\Developer\\src\\gringotts",
+        "transcript_dir": "C:\\Users\\Developer\\.claude\\projects\\C--Users-Developer-src-gringotts",
+        "present": false,
+        "note": "absent or decayed \u2014 counted unmeasurable, never asserted"
+      }
+    ]
+  }
+}
