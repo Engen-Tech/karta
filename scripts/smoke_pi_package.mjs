@@ -3,13 +3,23 @@ import { execFile, spawn } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const exec = promisify(execFile);
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PROVIDER = join(ROOT, "tests", "pi", "fixtures", "mode-provider.ts");
+const WINDOWS = process.platform === "win32";
+const PI_COMMAND = WINDOWS ? process.execPath : "pi";
+const PI_PREFIX = WINDOWS
+  ? [join(ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js")]
+  : [];
+const NPM_COMMAND = WINDOWS ? process.execPath : "npm";
+const NPM_PREFIX = WINDOWS
+  ? [process.env.npm_execpath
+      ?? resolve(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")]
+  : [];
 
 async function run(command, args, options = {}) {
   return exec(command, args, {
@@ -19,9 +29,20 @@ async function run(command, args, options = {}) {
   });
 }
 
+function runPi(args, options = {}) {
+  return run(PI_COMMAND, [...PI_PREFIX, ...args], options);
+}
+
+function runNpm(args, options = {}) {
+  return run(NPM_COMMAND, [...NPM_PREFIX, ...args], options);
+}
+
 function rpcCommands(cwd, agentDir) {
   return new Promise((resolveCommands, rejectCommands) => {
-    const child = spawn("pi", ["--mode", "rpc", "--no-session", "--approve", "--no-context-files"], {
+    const child = spawn(PI_COMMAND, [
+      ...PI_PREFIX,
+      "--mode", "rpc", "--no-session", "--approve", "--no-context-files",
+    ], {
       cwd,
       env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
       stdio: ["pipe", "pipe", "pipe"],
@@ -75,7 +96,8 @@ function completionChunk(delta, finishReason) {
 
 async function runDispatch(cwd, agentDir, baseUrl) {
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn("pi", [
+    const child = spawn(PI_COMMAND, [
+      ...PI_PREFIX,
       "--mode",
       "text",
       "--print",
@@ -121,7 +143,7 @@ async function runDispatch(cwd, agentDir, baseUrl) {
 async function main() {
   const sourceManifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   const testedPi = sourceManifest.devDependencies["@earendil-works/pi-coding-agent"];
-  const actualPi = (await run("pi", ["--version"])).stdout.trim();
+  const actualPi = (await runPi(["--version"])).stdout.trim();
   assert.equal(actualPi, testedPi, `local Pi ${actualPi} does not match tested Pi ${testedPi}`);
 
   const tempRoot = await mkdtemp(join(tmpdir(), "karta-pi-packed-"));
@@ -139,11 +161,18 @@ async function main() {
       mkdir(consumer, { recursive: true }),
       mkdir(agentDir, { recursive: true }),
     ]);
-    const packed = await run("npm", ["pack", "--silent", "--ignore-scripts", "--pack-destination", tarballs], { cwd: ROOT });
+    const packed = await runNpm(
+      ["pack", "--silent", "--ignore-scripts", "--pack-destination", tarballs],
+      { cwd: ROOT },
+    );
     const filename = packed.stdout.trim().split("\n").at(-1);
     assert.ok(filename?.endsWith(".tgz"));
-    const tarball = join(tarballs, filename);
-    await run("tar", ["-xzf", tarball, "-C", extracted]);
+    // Windows bsdtar still narrows Unicode argv through the active code page.
+    // Keep the deliberately Unicode workspace in cwd and pass ASCII-relative
+    // archive/output names so the smoke test exercises the package, not tar's argv.
+    await run("tar", ["-xzf", join("tarballs", filename), "-C", "extracted"], {
+      cwd: workspace,
+    });
     packageRoot = join(extracted, "package");
     await symlink(join(ROOT, "node_modules"), join(packageRoot, "node_modules"), "dir");
     const packedManifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
@@ -162,9 +191,9 @@ async function main() {
     await run("git", ["commit", "--no-gpg-sign", "-m", "fixture"], { cwd: consumer });
 
     const env = { ...process.env, PI_CODING_AGENT_DIR: agentDir };
-    await run("pi", ["install", packageRoot], { cwd: consumer, env });
+    await runPi(["install", packageRoot], { cwd: consumer, env });
     installed = true;
-    const listed = await run("pi", ["list"], { cwd: consumer, env });
+    const listed = await runPi(["list"], { cwd: consumer, env });
     assert.match(listed.stdout, /karta/i);
     const commands = await rpcCommands(consumer, agentDir);
     const packageSkills = commands.filter((command) => command.name.startsWith("skill:karta-"));
@@ -209,9 +238,9 @@ async function main() {
       await new Promise((resolveClose) => server.close(resolveClose));
     }
 
-    await run("pi", ["remove", packageRoot], { cwd: consumer, env });
+    await runPi(["remove", packageRoot], { cwd: consumer, env });
     installed = false;
-    const afterRemove = await run("pi", ["list"], { cwd: consumer, env });
+    const afterRemove = await runPi(["list"], { cwd: consumer, env });
     assert.equal(afterRemove.stdout.includes(packageRoot), false);
     process.stdout.write(`${JSON.stringify({
       package: `${packedManifest.name}@${packedManifest.version}`,
@@ -224,9 +253,9 @@ async function main() {
   } finally {
     if (installed && packageRoot) {
       const env = { ...process.env, PI_CODING_AGENT_DIR: agentDir };
-      await run("pi", ["remove", packageRoot], { cwd: consumer, env }).catch(() => {});
+      await runPi(["remove", packageRoot], { cwd: consumer, env }).catch(() => {});
     }
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

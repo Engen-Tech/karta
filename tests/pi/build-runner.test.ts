@@ -55,7 +55,11 @@ async function fixture(): Promise<{ repo: string; root: string; cleanup(): Promi
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "base"]);
   await git(repo, ["branch", "karta/demo/integration"]);
-  return { repo, root, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return {
+    repo,
+    root,
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+  };
 }
 
 function workerResult(binder: string, item: string, summary = "ready"): KartaWorkerResult {

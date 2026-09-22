@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import test from "node:test";
 import { PACKAGE_ROOT } from "../../extensions/pi/package-paths.ts";
 import { listKartaRoles, loadKartaRole } from "../../extensions/pi/role-catalog.ts";
@@ -19,7 +19,12 @@ test("role catalog binds every authority profile to a package-owned prompt", () 
   );
   assert.equal(new Set(roles.map((role) => role.definitionHash)).size, roles.length);
   for (const role of roles) {
-    assert.ok(role.sourcePath.startsWith(`${PACKAGE_ROOT}/`), role.sourcePath);
+    const sourceRelative = relative(PACKAGE_ROOT, role.sourcePath);
+    assert.ok(
+      sourceRelative !== ".." && !sourceRelative.startsWith(`..${sep}`)
+      && !isAbsolute(sourceRelative),
+      role.sourcePath,
+    );
     assert.equal(role.prompt.startsWith("---"), false);
     assert.equal(role.promptHash, hash(role.prompt));
     assert.match(role.sourceHash, /^[a-f0-9]{64}$/);

@@ -74,7 +74,11 @@ async function fixture(options: { docs?: boolean; kaizen?: boolean; sme?: string
   await writeFile(join(repo, "source.ts"), "export const value = 2;\n");
   await git(repo, ["add", "source.ts"]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "delivery"]);
-  return { repo, base, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return {
+    repo,
+    base,
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+  };
 }
 
 async function runCompanions(
@@ -262,7 +266,7 @@ test("archive ref-first interruption is repaired from Git by a fresh delivery ow
       /"slug":"demo"/,
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 

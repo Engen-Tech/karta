@@ -181,6 +181,14 @@ def _shell_quote_path(path: str) -> str:
     return f'"{path}"' if os.name == "nt" else shlex.quote(path)
 
 
+def _utf8_python_env() -> dict[str, str]:
+    """Keep child Python output aligned with our explicit UTF-8 decoder."""
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
 def _symref(repo: Path) -> str | None:
     p = _git(repo, "symbolic-ref", "-q", "HEAD")
     out = p.stdout.strip()
@@ -199,7 +207,8 @@ def _run_provenance(repo: Path, item: str, rng: str, slug: str | None = None,
     argv = [sys.executable, str(PROVENANCE), "--repo", str(repo), "--item", item, "--range", rng]
     if check_accepted:
         argv += ["--slug", slug or "", "--check-accepted"]
-    p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
+    p = subprocess.run(
+        argv, capture_output=True, text=True, encoding="utf-8", env=_utf8_python_env())
     return {
         "range": rng,
         "check_accepted": check_accepted,
@@ -215,7 +224,8 @@ def _run_oracle_record(command: str, cwd: Path, expect: str | None) -> dict:
     if expect:
         argv += ["--expect", expect]
     argv.append(command)
-    p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
+    p = subprocess.run(
+        argv, capture_output=True, text=True, encoding="utf-8", env=_utf8_python_env())
     try:
         record = json.loads(p.stdout)
     except json.JSONDecodeError:
@@ -758,6 +768,12 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         return code, obj
 
     tmp = Path(tempfile.mkdtemp(prefix="merge_item_selftest_"))
+    prior_cwd = Path.cwd()
+    prior_git_ceiling = os.environ.get("GIT_CEILING_DIRECTORIES")
+    # A fixture command that loses its requested cwd must fail inside the
+    # disposable tree, never discover and mutate the checkout running the test.
+    os.environ["GIT_CEILING_DIRECTORIES"] = str(tmp.parent.resolve())
+    os.chdir(tmp)
 
     class Fx:
         pass
@@ -807,7 +823,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
         subprocess.run(
             [sys.executable, str(RUN_ORACLE), "--cwd", str(scratch),
              "--attach-ref", "refs/karta/s/item-a/evidence", "--repo", str(repo), oracle_cmd],
-            capture_output=True, text=True, encoding="utf-8")
+            capture_output=True, text=True, encoding="utf-8", env=_utf8_python_env())
         f.item_tip = _rev(repo, "refs/heads/karta/s/item-a")
         g(repo, "update-ref", "refs/karta/s/item-a/built", f.item_tip)
         f.pre_tip = _rev(repo, "HEAD")
@@ -887,7 +903,7 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
               and clean_at(f, f.pre_tip) and no_done(f))
 
         # 8. dirty-after-oracle, passing oracle
-        f = fixture("dirtyoracle", "touch junk.txt")
+        f = fixture("dirtyoracle", "echo dirty>junk.txt")
         code, res = run_cli(merge_args(f))
         check("an oracle that exits 0 but creates an untracked file halts as "
               "dirty-after-oracle with the file removed and no done ref",
@@ -896,7 +912,8 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
               and not (f.repo / "junk.txt").exists())
 
         # 9. failing oracle that dirties the tree
-        f = fixture("dirtyfail", "touch junk.txt && exit 1")
+        f = fixture(
+            "dirtyfail", "echo dirty>junk.txt && git show definitely-missing-ref")
         code, res = run_cli(merge_args(f))
         check("an oracle that fails after creating an untracked file leaves a clean "
               "tree at the pre-merge tip",
@@ -1109,6 +1126,11 @@ def _run_self_test() -> int:  # noqa: C901 — one hermetic harness, many named 
               and clean_at(f, entry))
 
     finally:
+        os.chdir(prior_cwd)
+        if prior_git_ceiling is None:
+            os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+        else:
+            os.environ["GIT_CEILING_DIRECTORIES"] = prior_git_ceiling
         shutil.rmtree(tmp, ignore_errors=True)
 
     print(f"\n{passed}/{total} checks passed")

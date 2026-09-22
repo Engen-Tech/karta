@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -66,6 +66,13 @@ async function pathExists(path: string): Promise<boolean> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
+}
+
+async function sameExistingPath(left: string, right: string): Promise<boolean> {
+  const [leftReal, rightReal] = await Promise.all([realpath(left), realpath(right)]);
+  return process.platform === "win32"
+    ? leftReal.toLowerCase() === rightReal.toLowerCase()
+    : leftReal === rightReal;
 }
 
 function parseAssignment(raw: string, binder: string, item: string): Record<string, unknown> {
@@ -246,7 +253,7 @@ export class KartaBuildItemRunner {
           await git(repoRoot, ["worktree", "add", worktree, branch]);
         }
         state = await deriveItemGitState(repoRoot, binder, item);
-        if (state.worktree !== worktree) {
+        if (!state.worktree || !(await sameExistingPath(state.worktree, worktree))) {
           throw new Error("Karta could not prove ownership of the item worktree it created");
         }
       }

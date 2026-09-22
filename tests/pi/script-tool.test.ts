@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { resolvePackagePath } from "../../extensions/pi/package-paths.ts";
+import { PACKAGE_ROOT, resolvePackagePath } from "../../extensions/pi/package-paths.ts";
 import {
   buildScriptInvocation,
   createKartaScriptTool,
@@ -40,7 +40,11 @@ test("fixed actions build argv without a shell or consumer-relative script", asy
 
 test("script arguments reject project traversal and symlink escape", async (context) => {
   const { cwd, cleanup } = await fixture();
-  const outside = await mkdtemp(join(tmpdir(), "karta-outside-"));
+  const fromPackage = relative(PACKAGE_ROOT, tmpdir());
+  const tempIsInPackage = fromPackage === ""
+    || (!isAbsolute(fromPackage) && fromPackage !== ".." && !fromPackage.startsWith(`..${sep}`));
+  const outsideBase = tempIsInPackage ? dirname(PACKAGE_ROOT) : tmpdir();
+  const outside = await mkdtemp(join(outsideBase, "karta-outside-"));
   await writeFile(join(outside, "pack.md"), "outside");
   try {
     assert.throws(

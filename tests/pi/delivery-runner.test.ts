@@ -73,7 +73,11 @@ async function fixture(
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "--no-gpg-sign", "-m", "base"]);
   if (seedIntegration) await git(repo, ["branch", "karta/demo/integration"]);
-  return { repo, root, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return {
+    repo,
+    root,
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+  };
 }
 
 function createRunner(

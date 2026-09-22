@@ -136,7 +136,7 @@ test("shutdown aborts an active isolated provider stream", async () => {
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -321,6 +321,6 @@ test("stored, environment, runtime-key, and declarative provider classes complet
     await new Promise<void>((resolveClose, rejectClose) =>
       server.close((error) => error ? rejectClose(error) : resolveClose()),
     );
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

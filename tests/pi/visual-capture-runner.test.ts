@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { LifecycleRegistry } from "../../extensions/pi/lifecycle-registry.ts";
 import { KartaProcessManager } from "../../extensions/pi/process-manager.ts";
 import type {
@@ -68,8 +69,8 @@ async function makeRepo(command = "node app.mjs"): Promise<Repo> {
   const root = await mkdtemp(join(tmpdir(), "karta-visual-capture-test-"));
   const repo = join(root, "repo");
   const scratch = join(root, "scratch");
-  await exec("mkdir", ["-p", join(repo, ".karta")]);
-  await exec("mkdir", ["-p", scratch]);
+  await mkdir(join(repo, ".karta"), { recursive: true });
+  await mkdir(scratch, { recursive: true });
   await writeFile(join(repo, "subject.txt"), "fixture\n");
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Visual"]);
@@ -90,8 +91,8 @@ async function makeRepo(command = "node app.mjs"): Promise<Repo> {
 }
 
 async function fixtureArtifact(name: string): Promise<CaptureArtifact> {
-  const raw = await exec("cat", [new URL(`${name}.json`, FIXTURES).pathname], { encoding: "utf8" });
-  return JSON.parse(raw.stdout).capture as CaptureArtifact;
+  const raw = await readFile(fileURLToPath(new URL(`${name}.json`, FIXTURES)), "utf8");
+  return JSON.parse(raw).capture as CaptureArtifact;
 }
 
 function fakeHealthyStart(
@@ -200,9 +201,12 @@ test("playwright-cli absent on PATH fails closed with the install remediation, p
 
   const dir = await mkdtemp(join(tmpdir(), "karta-playwright-bin-"));
   try {
-    const bin = join(dir, "playwright-cli");
-    await writeFile(bin, "#!/bin/sh\nexit 0\n");
-    await chmod(bin, 0o755);
+    const bin = join(dir, process.platform === "win32" ? "playwright-cli.CMD" : "playwright-cli");
+    await writeFile(
+      bin,
+      process.platform === "win32" ? "@echo off\r\nexit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+    );
+    if (process.platform !== "win32") await chmod(bin, 0o755);
     assert.equal(resolvePlaywrightCli({ path: dir }), bin);
     assert.equal(
       resolvePlaywrightCli({ lookup: () => "/somewhere/playwright-cli" }),
@@ -460,7 +464,7 @@ test("the capture's out-of-worktree output never trips the tree re-verify; a mid
 test("an absent visual_env at the candidate commit is opt-out: no capture, no evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "karta-visual-noenv-"));
   const repo = join(root, "repo");
-  await exec("mkdir", ["-p", repo]);
+  await mkdir(repo, { recursive: true });
   await writeFile(join(repo, "subject.txt"), "fixture\n");
   await git(repo, ["init", "--initial-branch=main"]);
   await git(repo, ["config", "user.name", "Karta Visual"]);
@@ -577,7 +581,7 @@ test(
         ].join("\n"),
       );
       const designDir = join(repo.scratch, "design");
-      await exec("mkdir", ["-p", designDir]);
+      await mkdir(designDir, { recursive: true });
       await writeFile(
         join(designDir, "view.standalone.html"),
         '<!doctype html><title>Design</title><main><h1 id="t">Team dashboard</h1><button>New</button></main>',
