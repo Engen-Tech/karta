@@ -262,7 +262,8 @@ WATCH_NUDGE = ('Karta Watch: hub not running{reason} — revive it: '
                'uv run --script {script} --ensure')
 
 
-def _fire_ensure(popen=None, os_name: str | None = None) -> None:
+def _fire_ensure(popen=None, os_name: str | None = None,
+                 cwd: str | None = None) -> None:
     """Fire-and-forget hub revival: spawn `serve_status.py --ensure` with its
     stdio on DEVNULL plus close_fds (POSIX) or the detached-process creation
     flags (Windows), so a parent capturing this script's output can never
@@ -275,14 +276,21 @@ def _fire_ensure(popen=None, os_name: str | None = None) -> None:
         kwargs: dict = {"stdin": subprocess.DEVNULL,
                         "stdout": subprocess.DEVNULL,
                         "stderr": subprocess.DEVNULL,
-                        "close_fds": True}
+                        "close_fds": True,
+                        # A detached Windows child that inherits a short-lived
+                        # repo cwd can keep that directory undeletable. The
+                        # ensure path is state-file driven and never needs the
+                        # caller's checkout as its working directory.
+                        "cwd": str(Path(sys.executable).resolve().parent)}
         if (os_name or os.name) != "posix":
             kwargs["creationflags"] = (
                 getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
                 | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+        source_cwd = os.path.abspath(cwd or os.getcwd())
         (popen or subprocess.Popen)(
-            [sys.executable, str(_WATCH_SCRIPT), "--ensure"], **kwargs)
+            [sys.executable, str(_WATCH_SCRIPT), "--ensure", "--root", source_cwd],
+            **kwargs)
     except Exception:
         pass
 
@@ -1013,11 +1021,13 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
     ok = bool(calls)
     if ok:
         argv, kw = calls[0]
-        ok = (argv == [sys.executable, str(_WATCH_SCRIPT), "--ensure"]
+        ok = (argv == [sys.executable, str(_WATCH_SCRIPT), "--ensure", "--root",
+                       os.path.abspath(os.getcwd())]
               and kw.get("stdin") is subprocess.DEVNULL
               and kw.get("stdout") is subprocess.DEVNULL
               and kw.get("stderr") is subprocess.DEVNULL
               and kw.get("close_fds") is True
+              and kw.get("cwd") == str(Path(sys.executable).resolve().parent)
               and "creationflags" not in kw)
     checks.append(("ensure spawn (POSIX): --ensure argv, DEVNULL stdio, close_fds", ok))
     calls.clear()
@@ -1026,6 +1036,10 @@ def _watch_self_test_checks() -> list[tuple[str, bool]]:
     checks.append(("ensure spawn (Windows): detached creation flags + DEVNULL stdio",
                    bool(flags & 0x00000008) and bool(flags & 0x00000200)
                    and calls and calls[0][1].get("stdout") is subprocess.DEVNULL))
+    checks.append(("ensure spawn never inherits the caller's disposable cwd",
+                   bool(calls)
+                   and calls[0][1].get("cwd")
+                   == str(Path(sys.executable).resolve().parent)))
 
     def _boom(argv, **kw):
         raise OSError("spawn denied")
