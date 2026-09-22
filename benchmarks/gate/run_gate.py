@@ -39,8 +39,9 @@ PROBES = ROOT / "benchmarks" / "probes"
 RESULTS = ROOT / "benchmarks" / "results" / "gate"
 # A probe may run several wrapped checkers back to back (parity-mirror-sync-integrity
 # runs three drills, each able to invoke validate_plugin.py at ~79s), so the per-probe
-# ceiling has to clear the sum, not one checker.
-PROBE_TIMEOUT_S = 600
+# ceiling has to clear the sum, not one checker. Native Windows' complete parity
+# probe can run two several-minute validator passes, so ten minutes was too short.
+PROBE_TIMEOUT_S = 1200
 # Consumer-repo locations reach the probes through the environment rather than a
 # per-probe --consumers registry here: a registry would silently drift as probes
 # are added, and probes that ignore consumers ignore the variable harmlessly.
@@ -73,12 +74,14 @@ def _run_probe(vector_id: str, consumers: str | None = None) -> dict:
                 "implemented_checks": [], "findings_count": 0, "findings": [],
                 "metrics": {}, "detail": "no probe yet"}
     env = dict(os.environ)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     if consumers:
         env[CONSUMERS_ENV] = consumers
     try:
         proc = subprocess.run([sys.executable, str(probe), "--target", str(ROOT)],
                               capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
-                              cwd=str(ROOT), env=env)
+                              cwd=str(ROOT), env=env, encoding="utf-8")
     except subprocess.TimeoutExpired:
         return _error_row(vector_id, f"probe timed out after {PROBE_TIMEOUT_S}s")
     except OSError as e:

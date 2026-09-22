@@ -13,7 +13,8 @@ scripts/validate_plugin.py) and runs the vector card's three integrity drills:
   P3-external-hash-liveness     is tampered external skill content ever noticed?
 
 SAFETY INVARIANT (the card's own): every drill runs against its OWN fresh scratch
-copy (mktemp + rsync -a --exclude .git of the --target repo) and every script
+copy (mktemp + stdlib copytree, excluding VCS/dependency/temp data) of the
+--target repo and every script
 invocation addresses the copy's path ($S/scripts/...) — ROOT in the sync scripts
 resolves from __file__, so invoking the checkout's own copy would run the P2
 rmtree drill destructively against the real repo. The probe asserts the copy path
@@ -66,13 +67,11 @@ CHECKS = [
 ]
 RESULTS_DIR = Path("benchmarks/parity/results")
 RESULTS_GLOB = "benchmarks/parity/results/*-sync-probes.json"
-# Sized against a measured run: validate_plugin.py --self-test takes ~79s because it
-# executes every bundled script's own --self-test, and context-economy added three more
-# (merge_item.py alone is 35 checks doing real git work). The old 55/60s budgets predate
-# those scripts and made this probe ERROR on a healthy tree; keep headroom over 79s.
-CHECK_TIMEOUT_S = 180  # per wrapped checker
-DRILL_TIMEOUT_S = 180  # per subprocess inside a drill
-COPY_TIMEOUT_S = 90    # per rsync scratch copy
+# Sized for native Windows, where validate_plugin.py runs the real Git-heavy
+# self-tests and can take several minutes. The old 180s ceiling normalized a
+# timeout as a parity regression instead of measuring the completed validator.
+CHECK_TIMEOUT_S = 600  # per wrapped checker; full validator is intentionally deep
+DRILL_TIMEOUT_S = 600  # per subprocess inside a drill
 OUTPUT_TAIL = 20       # evidence keeps the last N lines of each command output
 SYNTH_NAME = "bench-external-probe"
 # The card's own fixture-derivation snippet: first external mirror skill name.
@@ -93,10 +92,11 @@ SEED_SUMMARIES = {
 
 def _run(cmd: list[str], cwd: Path, timeout: int = DRILL_TIMEOUT_S) -> tuple[int, str, str]:
     """Run a command; return (exit, stdout, stderr). Never raises."""
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=timeout, cwd=str(cwd))
-        return proc.returncode, proc.stdout, proc.stderr
+                              timeout=timeout, cwd=str(cwd), encoding="utf-8", env=env)
+        return proc.returncode, proc.stdout or "", proc.stderr or ""
     except (OSError, subprocess.TimeoutExpired) as e:
         return -1, "", f"did not complete: {e}"
 
@@ -110,7 +110,7 @@ def _norm(obj: object, roots: list[str]) -> object:
     if isinstance(obj, str):
         for root in roots:
             obj = obj.replace(root, "$S")
-        return obj
+        return obj.replace("\\", "/")
     if isinstance(obj, list):
         return [_norm(x, roots) for x in obj]
     if isinstance(obj, dict):
@@ -135,12 +135,17 @@ def _copy_ok(copy_root: Path, source: Path) -> bool:
 
 
 def _fresh_copy(source: Path, copy_root: Path) -> bool:
-    """mktemp + rsync -a --exclude .git of the source repo; True iff the copy is usable."""
-    copy_root.mkdir(parents=True, exist_ok=True)
-    code, _out, _err = _run(["rsync", "-a", "--exclude", ".git",
-                             f"{source}/", f"{copy_root}/"],
-                            cwd=source, timeout=COPY_TIMEOUT_S)
-    return code == 0 and _copy_ok(copy_root, source)
+    """Copy the checkable tree without requiring rsync on Windows."""
+    try:
+        shutil.copytree(
+            source,
+            copy_root,
+            ignore=shutil.ignore_patterns(
+                ".git", "node_modules", "patches", "__pycache__", "*.pyc", ".tmp-*"),
+        )
+    except OSError:
+        return False
+    return _copy_ok(copy_root, source)
 
 
 def _copy_script(copy_root: Path, rel: str) -> Path:
@@ -162,17 +167,19 @@ def _derive_external(S: Path) -> tuple[str, bool]:
         return name, False
     ext_dir = S / ".agents" / "skills" / SYNTH_NAME
     ext_dir.mkdir(parents=True, exist_ok=True)
-    (ext_dir / "SKILL.md").write_text("# bench fixture\n")
+    (ext_dir / "SKILL.md").write_text(
+        "# bench fixture\n", encoding="utf-8", newline="\n")
     lock_path = S / "skills-lock.json"
     try:
-        lock = json.loads(lock_path.read_text())
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         lock = {"version": 1, "skills": {}}
     lock.setdefault("skills", {})[SYNTH_NAME] = {
         "source": "bench/fixture", "sourceType": "github",
         "skillPath": "f/SKILL.md", "computedHash": "0" * 64,
     }
-    lock_path.write_text(json.dumps(lock, indent=1) + "\n")
+    lock_path.write_text(
+        json.dumps(lock, indent=1) + "\n", encoding="utf-8", newline="\n")
     return SYNTH_NAME, True
 
 
@@ -202,12 +209,18 @@ def drill_p1(S: Path) -> dict:
     sub = Path(rel).relative_to("skills")
     mirror = S / ".agents" / "skills" / sub
     install = S / "plugins" / "karta" / "skills" / sub
-    ok = all(p.is_file() and (p.stat().st_mode & 0o100) for p in (mirror, install))
+    mode_supported = os.name != "nt"
+    projections_exist = all(p.is_file() for p in (mirror, install))
+    ok = (projections_exist
+          and wr_code == 0
+          and (not mode_supported
+               or all(p.stat().st_mode & 0o100 for p in (mirror, install))))
     return {
         "id": DRILL_IDS[0],
         "pass": bool(ok),
         "evidence": {
             "target": rel,
+            "executable_mode_supported": mode_supported,
             "canonical_mode_after_chmod": _mode(canonical),
             "mirror_projection": {"path": str(mirror), "mode": _mode(mirror)},
             "install_projection": {"path": str(install), "mode": _mode(install)},
@@ -221,9 +234,10 @@ def drill_p2(S: Path) -> dict:
     """Delete computedHash from the external entry; does the skill survive write mode?"""
     name, synthesized = _derive_external(S)
     lock_path = S / "skills-lock.json"
-    lock = json.loads(lock_path.read_text())
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
     lock["skills"][name].pop("computedHash", None)
-    lock_path.write_text(json.dumps(lock, indent=1) + "\n")
+    lock_path.write_text(
+        json.dumps(lock, indent=1) + "\n", encoding="utf-8", newline="\n")
     sync = _copy_script(S, "scripts/sync_codex_skills.py")
     wr_code, wr_out, wr_err = _run([sys.executable, str(sync)], cwd=S)
     survived = (S / ".agents" / "skills" / name).is_dir()
@@ -341,7 +355,7 @@ def run_live(target: Path) -> int:
     if tracked:
         baseline_name = tracked[-1]  # newest: date-prefixed names sort chronologically
         try:
-            data = json.loads((target / baseline_name).read_text())
+            data = json.loads((target / baseline_name).read_text(encoding="utf-8"))
             baseline_map = {p["id"]: bool(p["pass"]) for p in data.get("probes", [])
                             if isinstance(p, dict) and "id" in p}
         except (OSError, json.JSONDecodeError, TypeError, AttributeError):
@@ -368,7 +382,8 @@ def run_live(target: Path) -> int:
     results_dir.mkdir(parents=True, exist_ok=True)
     out_path = results_dir / f"{datetime.date.today().isoformat()}-sync-probes.json"
     out_path.write_text(json.dumps(
-        {"probes": cards, "passed": passed, "total": len(DRILL_IDS)}, indent=2) + "\n")
+        {"probes": cards, "passed": passed, "total": len(DRILL_IDS)}, indent=2) + "\n",
+        encoding="utf-8", newline="\n")
 
     print(json.dumps({
         "id": PROBE_ID,
@@ -392,21 +407,25 @@ def _build_synthetic_tree(root: Path, with_external: bool, repo_scripts: Path) -
     write mode re-baselines the seeded 0*64 computedHash and prints old -> new."""
     (root / "skills" / "demo-skill" / "scripts").mkdir(parents=True)
     (root / "skills" / "demo-skill" / "SKILL.md").write_text(
-        "---\nname: demo-skill\ndescription: bench self-test fixture\n---\nfixture\n")
-    (root / "skills" / "demo-skill" / "scripts" / "tool.py").write_text("print('fixture')\n")
+        "---\nname: demo-skill\ndescription: bench self-test fixture\n---\nfixture\n",
+        encoding="utf-8", newline="\n")
+    (root / "skills" / "demo-skill" / "scripts" / "tool.py").write_text(
+        "print('fixture')\n", encoding="utf-8", newline="\n")
     (root / "scripts").mkdir()
     for name in ("sync_codex_skills.py", "validate_plugin.py"):
         shutil.copy(repo_scripts / name, root / "scripts" / name)
     (root / ".codex-plugin").mkdir()
-    (root / ".codex-plugin" / "plugin.json").write_text("{}\n")
+    (root / ".codex-plugin" / "plugin.json").write_text(
+        "{}\n", encoding="utf-8", newline="\n")
     if with_external:
         ext = root / ".agents" / "skills" / "ext-demo"
         ext.mkdir(parents=True)
-        (ext / "SKILL.md").write_text("# external fixture\n")
+        (ext / "SKILL.md").write_text(
+            "# external fixture\n", encoding="utf-8", newline="\n")
         (root / "skills-lock.json").write_text(json.dumps({"version": 1, "skills": {
             "ext-demo": {"source": "bench/fixture", "sourceType": "github",
                          "skillPath": "e/SKILL.md", "computedHash": "0" * 64}}},
-            indent=1) + "\n")
+            indent=1) + "\n", encoding="utf-8", newline="\n")
     code, out, err = _run([sys.executable, str(root / "scripts" / "sync_codex_skills.py")],
                           cwd=root)
     if code != 0:
@@ -428,10 +447,11 @@ def self_test() -> int:
         p1, p2, p3 = (by_id[d] for d in DRILL_IDS)
         checks.append(("P1 write-mode sync projects the canonical exec bit onto both mirrors",
                        p1["pass"] is True and p1["evidence"]["write"]["exit"] == 0))
-        checks.append(("P1 --check flags the exec-bit drift before write repairs it",
-                       p1["evidence"]["check"]["exit"] != 0
-                       and any("executable bit" in ln
-                               for ln in p1["evidence"]["check"]["output"])))
+        checks.append(("P1 --check follows the host filesystem's executable-bit semantics",
+                       (p1["evidence"]["check"]["exit"] == 0 if os.name == "nt" else
+                        p1["evidence"]["check"]["exit"] != 0
+                        and any("executable bit" in ln
+                                for ln in p1["evidence"]["check"]["output"]))))
         checks.append(("P2 degraded lock is non-destructive: dir survives, write exits 0",
                        p2["pass"] is True
                        and p2["evidence"]["external_dir_survived"] is True
@@ -448,18 +468,20 @@ def self_test() -> int:
         # previousHash audit trail: the setup sync already re-baselined the
         # fixture's seeded 0*64 computedHash to sha256 of the local SKILL.md.
         ext_hash = hashlib.sha256(b"# external fixture\n").hexdigest()
-        entry = json.loads((tree / "skills-lock.json").read_text())["skills"]["ext-demo"]
+        entry = json.loads(
+            (tree / "skills-lock.json").read_text(encoding="utf-8"))["skills"]["ext-demo"]
         checks.append(("re-baseline stores sha256(SKILL.md), keeps the prior hash in "
                        "previousHash, and prints old -> new",
                        entry.get("computedHash") == ext_hash
                        and entry.get("previousHash") == "0" * 64
                        and f"{'0' * 64} -> {ext_hash}" in setup_out))
         (tree / ".agents" / "skills" / "ext-demo" / "SKILL.md").write_text(
-            "# external fixture v2\n")
+            "# external fixture v2\n", encoding="utf-8", newline="\n")
         v2_hash = hashlib.sha256(b"# external fixture v2\n").hexdigest()
         sync = tree / "scripts" / "sync_codex_skills.py"
         code, out, err = _run([sys.executable, str(sync)], cwd=tree)
-        entry = json.loads((tree / "skills-lock.json").read_text())["skills"]["ext-demo"]
+        entry = json.loads(
+            (tree / "skills-lock.json").read_text(encoding="utf-8"))["skills"]["ext-demo"]
         checks.append(("a second re-baseline rolls previousHash forward to the displaced hash",
                        code == 0 and entry.get("computedHash") == v2_hash
                        and entry.get("previousHash") == ext_hash
@@ -485,17 +507,18 @@ def self_test() -> int:
             t = base / name
             _build_synthetic_tree(t, with_external=True, repo_scripts=repo_scripts)
             script = t / "scripts" / "sync_codex_skills.py"
-            src = script.read_text()
+            src = script.read_text(encoding="utf-8")
             if src.count(anchor) != 1:
                 raise RuntimeError(
                     f"seeded-defect anchor not unique in sync script: {anchor!r}")
-            script.write_text(src.replace(anchor, replacement))
+            script.write_text(
+                src.replace(anchor, replacement), encoding="utf-8", newline="\n")
             return t
 
         bad = seeded_defect("seed-p1", "p.chmod((mode & ~0o111) | exec_bits)",
                             "pass  # seeded defect: exec bit never projected")
-        checks.append(("seeded mode-blind projection defect turns P1 red (caught)",
-                       drill_p1(bad)["pass"] is False))
+        checks.append(("seeded mode-blind projection defect is caught where mode bits exist",
+                       drill_p1(bad)["pass"] is (os.name == "nt")))
         bad = seeded_defect(
             "seed-p2",
             "return (set(_lock_skills()) | (mirror_dirs - "

@@ -69,6 +69,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import re
 import shutil
 import socket
@@ -120,9 +121,11 @@ class ProbeError(RuntimeError):
 
 def _run(cmd: list[str], cwd: Path | None = None, stdin: str | None = None
          ) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
         return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd,
-                              input=stdin, timeout=SUB_TIMEOUT_S)
+                              input=stdin, timeout=SUB_TIMEOUT_S, encoding="utf-8",
+                              env=env)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise ProbeError(f"subprocess did not complete: {cmd[:2]}... ({e})") from e
 
@@ -130,7 +133,7 @@ def _run(cmd: list[str], cwd: Path | None = None, stdin: str | None = None
 def _load_expected(target: Path) -> dict:
     path = target / FIXTURES / "expected.json"
     try:
-        doc = json.loads(path.read_text())
+        doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise ProbeError(f"cannot read fixture anchors {path}: {e}") from e
     if not isinstance(doc.get("payloads"), dict) or not doc["payloads"]:
@@ -221,7 +224,10 @@ def _launch_server(target: Path, repo: Path, key: str | None) -> tuple[subproces
         cmd = [sys.executable, str(script), "--root", str(repo), "--port", str(port)]
         if key:
             cmd += ["--key", key]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8",
+            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
         deadline = time.time() + SERVER_READY_S
         while time.time() < deadline:
             if proc.poll() is not None:
@@ -258,7 +264,7 @@ def _fetch(port: int, path: str, key: str | None = None) -> tuple[int, bytes]:
 
 def _bind_scope_static(target: Path) -> bool:
     """serve_status must bind loopback and never all interfaces."""
-    src = (target / SERVE_REL).read_text()
+    src = (target / SERVE_REL).read_text(encoding="utf-8")
     return '"127.0.0.1"' in src and "0.0.0.0" not in src
 
 
@@ -333,7 +339,7 @@ def _hook_budget(target: Path) -> int | None:
     or the constant is absent (which the caller treats as a budget mismatch —
     fail-closed, never a silent skip)."""
     try:
-        src = (target / INJECT_REL).read_text()
+        src = (target / INJECT_REL).read_text(encoding="utf-8")
     except OSError:
         return None
     m = _BUDGET_RE.search(src)
@@ -535,7 +541,7 @@ def run_probe(target: Path) -> int:
     findings = seeded_findings(matrix, verbatim)
     (results_dir / f"{run_date}-sec-probes.json").write_text(
         json.dumps(results_payload(matrix, verbatim, findings, run_date),
-                   indent=2, sort_keys=True) + "\n")
+                   indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
     findings = list(findings)
     findings += [{"finding_id": f"regression-{r}", "severity": "error",
@@ -667,13 +673,14 @@ def _run_self_test() -> int:
         scratch2, repo2 = _assemble_fixture(target)
         fake_root = Path(tempfile.mkdtemp(prefix="karta-bench-sab-"))
         try:
-            serve_src = (target / SERVE_REL).read_text()
+            serve_src = (target / SERVE_REL).read_text(encoding="utf-8")
             guard = 'if __name__ == "__main__":'
             sabotaged = serve_src.replace(
                 guard,
                 "def _inert_json(obj):\n    return json.dumps(obj)\n\n\n" + guard, 1)
             shutil.copytree((target / SERVE_REL).parent, (fake_root / SERVE_REL).parent)
-            (fake_root / SERVE_REL).write_text(sabotaged)
+            (fake_root / SERVE_REL).write_text(
+                sabotaged, encoding="utf-8", newline="\n")
             proc, port = _launch_server(fake_root, repo2, key=None)
             try:
                 _, idx_body = _fetch(port, "/")
@@ -686,10 +693,11 @@ def _run_self_test() -> int:
             finally:
                 _terminate(proc)
 
-            hook_src = (target / INJECT_REL).read_text()
+            hook_src = (target / INJECT_REL).read_text(encoding="utf-8")
             drifted = _BUDGET_RE.sub("BYTE_BUDGET = 8192", hook_src, count=1)
             (fake_root / INJECT_REL).parent.mkdir(parents=True)
-            (fake_root / INJECT_REL).write_text(drifted)
+            (fake_root / INJECT_REL).write_text(
+                drifted, encoding="utf-8", newline="\n")
             drift_cells, _ = probe_p2(fake_root, repo2, expected)
             bb = drift_cells["injection-byte-budget"]
             drift_fails = (bb["good"] is False
@@ -723,11 +731,12 @@ def _run_self_test() -> int:
         fake_t = Path(td)
         hook = fake_t / INJECT_REL
         hook.parent.mkdir(parents=True)
-        hook.write_text("# drifted copy\nBYTE_BUDGET = 99999\n")
+        hook.write_text("# drifted copy\nBYTE_BUDGET = 99999\n",
+                        encoding="utf-8", newline="\n")
         check("budget parser reads a drifted hook constant that disagrees with the fixture",
               _hook_budget(fake_t) == 99999
               and (not exp_ok or _hook_budget(fake_t) != expected["injection_byte_budget"]))
-        hook.write_text("# no budget constant here\n")
+        hook.write_text("# no budget constant here\n", encoding="utf-8", newline="\n")
         check("a hook without a parseable BYTE_BUDGET reads None (fail-closed mismatch)",
               _hook_budget(fake_t) is None)
 
