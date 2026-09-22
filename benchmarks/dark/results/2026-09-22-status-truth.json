@@ -280,12 +280,11 @@
       "exists": true,
       "good": true,
       "hits": [
-        "skills\\karta-deliver\\scripts\\__pycache__\\merge_item.cpython-314.pyc",
-        "skills\\karta-deliver\\scripts\\check_item_provenance.py",
-        "skills\\karta-deliver\\scripts\\deliver_preflight.py",
-        "skills\\karta-deliver\\scripts\\merge_item.py",
-        "skills\\karta-deliver\\SKILL.md",
-        "hooks\\scripts\\guard_subagent_whiff.py"
+        "skills/karta-deliver/SKILL.md",
+        "skills/karta-deliver/scripts/check_item_provenance.py",
+        "skills/karta-deliver/scripts/deliver_preflight.py",
+        "skills/karta-deliver/scripts/merge_item.py",
+        "hooks/scripts/guard_subagent_whiff.py"
       ]
     }
   },

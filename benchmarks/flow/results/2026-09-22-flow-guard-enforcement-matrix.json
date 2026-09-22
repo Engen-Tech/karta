@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "vector": "flow-guard-enforcement-matrix",
- "platform": "nt",
+ "platform": "posix",
  "manifest_version": 1,
  "baseline": "benchmarks/flow/results/2026-09-17-flow-guard-enforcement-matrix.json",
  "family_a": [
@@ -36,10 +36,10 @@
    "probe_id": "binder-symlink-alias",
    "guard": "guard_binder_immutability.py",
    "payload": "binder-write-symlink-alias.json",
-   "expected": 2,
-   "actual": 2,
-   "gap": null,
-   "note": "Windows resolves the directory alias before matching, so the committed binder write is denied"
+   "expected": 0,
+   "actual": 0,
+   "gap": "symlink-alias",
+   "note": "a write via a symlink alias dir escapes BINDER_RE \u2014 the path is matched as the tool call names it, before any resolution"
   },
   {
    "probe_id": "binder-staged-not-committed",
@@ -776,6 +776,11 @@
   ]
  },
  "findings": [
+  {
+   "finding_id": "gap:symlink-alias",
+   "severity": "known-gap",
+   "summary": "a write via a symlink alias dir escapes BINDER_RE \u2014 the path is matched as the tool call names it, before any resolution"
+  },
   {
    "finding_id": "gap:staged-not-committed",
    "severity": "known-gap",

@@ -5,26 +5,28 @@
       "pass": true,
       "evidence": {
         "target": "skills/karta-build/scripts/item_context.py",
-        "executable_mode_supported": false,
-        "canonical_mode_after_chmod": "0o666",
+        "executable_mode_supported": true,
+        "canonical_mode_after_chmod": "0o755",
         "mirror_projection": {
           "path": "$S/.agents/skills/karta-build/scripts/item_context.py",
-          "mode": "0o666"
+          "mode": "0o755"
         },
         "install_projection": {
           "path": "$S/plugins/karta/skills/karta-build/scripts/item_context.py",
-          "mode": "0o666"
+          "mode": "0o755"
         },
         "check": {
-          "exit": 0,
+          "exit": 1,
           "output": [
-            "CODEX SKILLS PROJECTIONS: IN SYNC"
+            "CODEX SKILLS PROJECTIONS: DRIFT",
+            "  - .agents/skills/karta-build/scripts/item_context.py executable bit differs from canonical \u2014 run: uv run scripts/sync_codex_skills.py",
+            "  - plugins/karta/skills/karta-build/scripts/item_context.py executable bit differs from canonical \u2014 run: uv run scripts/sync_codex_skills.py"
           ]
         },
         "write": {
           "exit": 0,
           "output": [
-            "codex projections in sync (136 mirror files, 0 written/updated; 146 install files, 0 written/updated)"
+            "codex projections in sync (136 mirror files, 1 written/updated; 146 install files, 1 written/updated)"
           ]
         }
       }
