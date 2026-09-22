@@ -61,6 +61,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from platform_support import bash_argv  # noqa: E402
+
 PROBE_ID = "dark-status-surface-probes"
 S_CASES = ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8")
 F_CASES = ("F1", "F2", "F3", "F4")
@@ -104,7 +107,7 @@ def _fabricate(target: Path, case: str) -> tuple[Path, Path]:
     """Fresh scratch repo for one case. Returns (scratch_root, repo)."""
     scratch = Path(tempfile.mkdtemp(prefix=f"karta-bench-{case}-"))
     repo = scratch / "repo"
-    p = _run(["bash", str(target / FIXTURES / "make_state.sh"), case, str(repo)])
+    p = _run(bash_argv(target / FIXTURES / "make_state.sh", case, repo))
     if p.returncode != 0:
         shutil.rmtree(scratch, ignore_errors=True)
         raise ProbeError(f"make_state.sh {case} failed (exit {p.returncode}): "

@@ -32,6 +32,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lint_delivery_refs, audit_hygiene, check_markers, audit_binder_mutations  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from platform_support import bash_argv  # noqa: E402
 
 LINTER_VERSION = "1.0.0"
 FIXTURE_SH = Path(__file__).resolve().parent / "fixtures" / "delivery-state" / "build_fixture.sh"
@@ -151,8 +153,8 @@ def attribute(repo: Path, findings: list[dict], ledger: list[tuple[int, str]]) -
 # --- fixture matrix (the gate) -------------------------------------------------
 
 def build_fixture(dest: Path) -> None:
-    r = subprocess.run(["bash", str(FIXTURE_SH), str(dest)],
-                       capture_output=True, text=True, timeout=90)
+    r = subprocess.run(bash_argv(FIXTURE_SH, dest), capture_output=True, text=True,
+                       timeout=90, encoding="utf-8")
     if r.returncode != 0:
         raise RuntimeError(f"fixture build failed: {r.stderr.strip()}")
 

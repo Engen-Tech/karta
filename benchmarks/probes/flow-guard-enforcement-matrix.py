@@ -45,8 +45,11 @@ The self-test prints [PASS]/[FAIL] lines and an N/N checks passed summary, and
 exits 0 only when the summary is N/N checks passed, nonzero otherwise.
 """
 from __future__ import annotations
-import argparse, datetime, json, os, subprocess, sys, tempfile
+import argparse, datetime, json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from platform_support import bash_argv  # noqa: E402
 
 VECTOR = "flow-guard-enforcement-matrix"
 RESULTS_DIR = Path("benchmarks") / "flow" / "results"
@@ -71,9 +74,12 @@ FAMILY_A = (
      "binder-write-archived.json", 2, None,
      "a Write to a committed archived binder is denied"),
     ("binder-symlink-alias", "guard_binder_immutability.py",
-     "binder-write-symlink-alias.json", 0, "symlink-alias",
-     "a write via a symlink alias dir escapes BINDER_RE — the path is matched as "
-     "the tool call names it, before any resolution"),
+     "binder-write-symlink-alias.json", 2 if os.name == "nt" else 0,
+     None if os.name == "nt" else "symlink-alias",
+     ("Windows resolves the directory alias before matching, so the committed "
+      "binder write is denied" if os.name == "nt" else
+      "a write via a symlink alias dir escapes BINDER_RE — the path is matched as "
+      "the tool call names it, before any resolution")),
     ("binder-staged-not-committed", "guard_binder_immutability.py",
      "binder-write-staged-only.json", 0, "staged-not-committed",
      "a binder staged but not committed passes the HEAD-only check (ls-tree HEAD "
@@ -132,7 +138,7 @@ FAMILY_A = (
 # closed when any of these is absent from its own first baseline.
 SEEDED_FINDINGS = (
     "gap:staged-not-committed",
-    "gap:symlink-alias",
+    *(("gap:symlink-alias",) if os.name != "nt" else ()),
     "gap:notebookedit-on-pack",
     "bypass:binder-write:bash",
     "bypass:pack-write:bash",
@@ -143,15 +149,32 @@ SEEDED_FINDINGS = (
     "bypass:integration-merge:bash",
 )
 
+# This probe intentionally differs because the guard follows Windows aliases to
+# model what NTFS opens, while POSIX matches the spelling the tool supplied.
+PLATFORM_DEPENDENT_PROBES = {"binder-symlink-alias"}
+
 
 # --- Family A ------------------------------------------------------------------
 
 def _build_fixture(target: Path, dest: Path) -> None:
     script = target / FIXTURE_DIR / "build_fixture.sh"
-    proc = subprocess.run(["bash", str(script), str(dest)],
-                          capture_output=True, text=True, timeout=60)
+    proc = subprocess.run(bash_argv(script, dest), capture_output=True, text=True,
+                          timeout=60, encoding="utf-8")
     if proc.returncode != 0:
         raise RuntimeError(f"fixture build failed: {proc.stderr.strip()}")
+    if os.name == "nt":
+        alias = dest / "plans"
+        # MSYS can emulate `ln -s` as a plain file. The guard drill needs an
+        # alias Windows and Python both resolve, so replace it with a real link.
+        if not alias.is_symlink() and not alias.is_junction():
+            if alias.is_dir():
+                shutil.rmtree(alias)
+            else:
+                alias.unlink(missing_ok=True)
+            try:
+                os.symlink(dest / ".karta" / "binders", alias, target_is_directory=True)
+            except OSError as exc:
+                raise RuntimeError(f"fixture directory symlink failed: {exc}") from exc
 
 
 def _run_guard(target: Path, fixture: Path, guard: str, payload_file: str) -> int:
@@ -263,7 +286,8 @@ def _regressions(fam_a: list[dict], famb: dict, baseline: dict) -> list[dict]:
     base_a = {r.get("probe_id"): r for r in baseline.get("family_a", [])}
     for row in fam_a:
         b = base_a.get(row["probe_id"])
-        if b and (b.get("expected"), b.get("actual")) != (row["expected"], row["actual"]):
+        if b and row["probe_id"] not in PLATFORM_DEPENDENT_PROBES \
+                and (b.get("expected"), b.get("actual")) != (row["expected"], row["actual"]):
             out.append({"kind": "family-a-changed", "id": row["probe_id"],
                         "summary": f"family-a row {row['probe_id']} changed: "
                                    f"exit {b.get('actual')} -> {row['actual']}"})
@@ -337,7 +361,7 @@ def _assemble(fam_a: list[dict], famb: dict, baseline_name: str | None,
                "family_a_mismatch_count": mismatches,
                "manifest_version": famb["manifest_version"],
                "baseline": baseline_name or "none"}
-    return {"schema_version": 1, "vector": VECTOR,
+    return {"schema_version": 1, "vector": VECTOR, "platform": os.name,
             "manifest_version": famb["manifest_version"],
             "baseline": baseline_name,
             "family_a": fam_a,
@@ -387,7 +411,8 @@ def _fixture_state_ok(fixture: Path) -> tuple[bool, str]:
          ".karta/binders/staged-only.json" in git("ls-files").stdout),
         ("staged-only binder NOT in HEAD",
          git("cat-file", "-e", "HEAD:.karta/binders/staged-only.json").returncode != 0),
-        ("symlink alias present", (fixture / "plans").is_symlink()),
+        ("symlink alias present",
+         (fixture / "plans").is_symlink() or (fixture / "plans").is_junction()),
         ("built ref standing",
          git("show-ref", "--verify", "--quiet",
              "refs/karta/hooked/item-beta/built").returncode == 0),

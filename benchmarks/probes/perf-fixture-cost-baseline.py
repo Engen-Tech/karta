@@ -47,6 +47,9 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from platform_support import bash_argv  # noqa: E402
+
 PROBE_ID = "perf-fixture-cost-baseline"
 IMPLEMENTED_CHECKS = ["fixture-v1-integrity (frozen-fixture)",
                       "mine_fixture-correctness (fixture-validated)"]
@@ -89,8 +92,9 @@ def check_fixture_integrity(fixture_dir: Path) -> list[tuple[str, bool, str]]:
     runner = fixture_dir / "runner.sh"
     if runner.is_file():
         try:
-            proc = subprocess.run(["sh", "-n", str(runner)], capture_output=True,
-                                  text=True, timeout=30)
+            proc = subprocess.run(bash_argv(runner, syntax_only=True),
+                                  capture_output=True, text=True, timeout=30,
+                                  encoding="utf-8")
             checks.append(("runner.sh parses under sh -n", proc.returncode == 0,
                            (proc.stderr or proc.stdout).strip()[:200]))
         except (OSError, subprocess.SubprocessError) as e:
