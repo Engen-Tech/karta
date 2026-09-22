@@ -256,8 +256,10 @@ class _WindowsJob:
 _WINDOWS_GATE = (
     "import sys\n"
     "if sys.stdin.buffer.read(1) != b'G': sys.exit(2)\n"
-    "import subprocess\n"
-    "sys.exit(subprocess.call(sys.argv[1], stdin=subprocess.DEVNULL))\n"
+    "import os, subprocess\n"
+    "cwd = sys.argv[2]\n"
+    "os.chdir(cwd)\n"
+    "sys.exit(subprocess.call(sys.argv[1], cwd=cwd, stdin=subprocess.DEVNULL))\n"
 )
 
 
@@ -271,10 +273,11 @@ def _run_windows(command: str, cwd: Path, timeout: float) -> tuple[str, int, boo
     abandoned = False
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-I", "-S", "-c", _WINDOWS_GATE, shell_command],
+            [sys.executable, "-I", "-S", "-c", _WINDOWS_GATE,
+             shell_command, str(cwd)],
             cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True,
-         encoding="utf-8")
+            encoding="utf-8")
         try:
             job.assign(proc)
         except BaseException:
@@ -465,6 +468,11 @@ def _run_self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}{suffix}")
 
     tmp_root = Path(tempfile.mkdtemp(prefix="run_oracle_selftest_"))
+    prior_git_ceiling = os.environ.get("GIT_CEILING_DIRECTORIES")
+    # The self-test may run with TEMP inside a checkout (as Codex's Windows
+    # sandbox does). Never let a fixture with a missing/broken .git directory
+    # discover and operate on that enclosing repository.
+    os.environ["GIT_CEILING_DIRECTORIES"] = str(tmp_root.parent.resolve())
     try:
         def python_command(source: str) -> str:
             script = tmp_root / "script space & quote" / "probe.py"
@@ -573,10 +581,10 @@ def _run_self_test() -> int:
             for released in (False, True):
                 with subprocess.Popen(
                     [sys.executable, "-I", "-S", "-c", _WINDOWS_GATE,
-                     f'"{shell}" /d /s /c "{gate_command}"'],
+                     f'"{shell}" /d /s /c "{gate_command}"', str(tmp_root)],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT, text=True,
-                 encoding="utf-8") as gated:
+                    encoding="utf-8") as gated:
                     job = _WindowsJob()
                     try:
                         if released:
@@ -697,6 +705,14 @@ def _run_self_test() -> int:
         subprocess.run(["git", "init", "-q"], cwd=str(repo_dir), check=True)
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(repo_dir), check=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=str(repo_dir), check=True)
+        git_context = run_oracle("git rev-parse --show-toplevel", repo_dir, None, None, 30)
+        check(
+            "Windows gate keeps git commands inside the requested repository",
+            git_context["success"]
+            and str(repo_dir.resolve()).replace("\\", "/")
+            in git_context["decisive_output"]["head"].replace("\\", "/"),
+            git_context["decisive_output"]["head"],
+        )
         ref_record = run_oracle("echo ref-test", repo_dir, None, None, 30)
         ref_name = "refs/karta/selftest/item-x/evidence"
         attach_ref(ref_record, ref_name, repo_dir)
@@ -793,6 +809,10 @@ def _run_self_test() -> int:
         )
 
     finally:
+        if prior_git_ceiling is None:
+            os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+        else:
+            os.environ["GIT_CEILING_DIRECTORIES"] = prior_git_ceiling
         shutil.rmtree(tmp_root, ignore_errors=True)
 
     print(f"\n{cases_passed}/{cases_total} checks passed")

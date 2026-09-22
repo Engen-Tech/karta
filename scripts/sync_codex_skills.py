@@ -41,7 +41,7 @@ Usage:
   uv run scripts/sync_codex_skills.py --self-test # drills on a synthetic tree
 """
 from __future__ import annotations
-import argparse, hashlib, json, shutil, subprocess, sys, tempfile
+import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -171,7 +171,8 @@ def _rebaseline_lock() -> list[tuple[str, str | None, str]]:
             meta["computedHash"] = local
             updated.append((name, old if isinstance(old, str) and old else None, local))
     if updated:
-        SKILLS_LOCK.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        SKILLS_LOCK.write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
     return updated
 
 
@@ -285,17 +286,21 @@ def _selftest_tree(root: Path) -> None:
     (root / ".codex-plugin" / "plugin.json").write_text("{}\n", encoding="utf-8")
     ext = root / ".agents" / "skills" / "ext-demo"
     ext.mkdir(parents=True)
-    (ext / "SKILL.md").write_text("# external fixture\n", encoding="utf-8")
+    (ext / "SKILL.md").write_text(
+        "# external fixture\n", encoding="utf-8", newline="\n")
     (root / "skills-lock.json").write_text(json.dumps({"version": 1, "skills": {
         "ext-demo": {"source": "bench/fixture", "sourceType": "github",
                      "skillPath": "e/SKILL.md", "computedHash": "0" * 64}}}, indent=2) + "\n", encoding="utf-8")
 
 
 def _sync(root: Path, *args: str) -> tuple[int, str]:
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     proc = subprocess.run(
         [sys.executable, str(root / "scripts" / "sync_codex_skills.py"), *args],
-        capture_output=True, text=True, timeout=60, encoding="utf-8")
-    return proc.returncode, proc.stdout + proc.stderr
+        capture_output=True, text=True, timeout=60, encoding="utf-8", env=env)
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
 def self_test() -> int:
@@ -344,19 +349,21 @@ def self_test() -> int:
         tool = root / "skills" / "demo-a" / "scripts" / "tool.py"
         tool.chmod(tool.stat().st_mode | 0o111)
         code, out = _sync(root, "--check")
-        checks.append(("--check flags a projection missing the canonical executable bit",
-                       code != 0 and "executable bit" in out))
+        checks.append(("--check flags executable-bit drift where the filesystem exposes it",
+                       code == 0 if os.name == "nt"
+                       else code != 0 and "executable bit" in out))
         code, _out = _sync(root)
         projections = (root / ".agents" / "skills" / "demo-a" / "scripts" / "tool.py",
                        root / "plugins" / "karta" / "skills" / "demo-a" / "scripts" / "tool.py")
-        checks.append(("canonical +x projects the executable bit onto both projections",
-                       code == 0 and all(p.stat().st_mode & 0o100 for p in projections)))
+        checks.append(("canonical +x projects the executable bit where supported",
+                       code == 0 and (os.name == "nt"
+                                      or all(p.stat().st_mode & 0o100 for p in projections))))
 
         skill_md.write_bytes(skill_md.read_bytes() + b"x")
         code, out = _sync(root, "--check")
         checks.append(("tampered external SKILL.md fails --check naming the skill",
                        code != 0 and "ext-demo" in out))
-        skill_md.write_text("# external fixture\n", encoding="utf-8")
+        skill_md.write_text("# external fixture\n", encoding="utf-8", newline="\n")
 
         lock = json.loads((root / "skills-lock.json").read_text(encoding="utf-8"))
         lock["skills"]["ext-demo"].pop("computedHash")

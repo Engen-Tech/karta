@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,12 @@ test("npm package inventory contains runtime assets and excludes development pro
   ]);
   assert.equal(manifest.scripts["smoke:pi-package"], "node scripts/smoke_pi_package.mjs");
   await access(`${ROOT}/scripts/smoke_pi_package.mjs`);
-  const { stdout } = await exec("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+  const npmArgs = ["pack", "--dry-run", "--json", "--ignore-scripts"];
+  const npmCommand = process.platform === "win32" ? process.execPath : "npm";
+  const commandArgs = process.platform === "win32"
+    ? [resolve(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), ...npmArgs]
+    : npmArgs;
+  const { stdout } = await exec(npmCommand, commandArgs, {
     cwd: ROOT,
     maxBuffer: 20 * 1024 * 1024,
   });

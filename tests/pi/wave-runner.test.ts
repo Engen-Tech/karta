@@ -15,6 +15,8 @@ import {
 } from "../../extensions/pi/wave-runner.ts";
 
 const exec = promisify(execFile);
+const PASS_COMMAND = process.platform === "win32" ? "exit /b 0" : "true";
+const FAIL_COMMAND = process.platform === "win32" ? "exit /b 1" : "false";
 
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await exec("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -61,7 +63,7 @@ async function fixture(
     runner: new KartaWaveRunner(locks, checkpoint),
     async cleanup() {
       await locks.releaseAll();
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
 }
@@ -120,7 +122,7 @@ test("post-wave checks write a success tag only after the assembled tip passes",
       state.integration,
       lease,
       [integration],
-      [{ id: "floor", purpose: "floor", command: "true", cwd: "." }],
+      [{ id: "floor", purpose: "floor", command: PASS_COMMAND, cwd: "." }],
     );
     assert.equal(result.status, "passed");
     assert.equal(await git(state.integration, ["rev-parse", result.successTag!]), integration.mergeCommit);
@@ -143,7 +145,7 @@ test("shared-term drift rolls back even when the post-wave floor passes", async 
       state.integration,
       lease,
       [integration],
-      [{ id: "floor", purpose: "floor", command: "true", cwd: "." }],
+      [{ id: "floor", purpose: "floor", command: PASS_COMMAND, cwd: "." }],
     );
     assert.equal(result.status, "rolled-back");
     assert.equal(await git(state.integration, ["rev-parse", "HEAD"]), anchor.base);
@@ -173,7 +175,7 @@ test("accepted wave rollback removes accepted and restores failed instead of bui
       state.integration,
       lease,
       [integration],
-      [{ id: "floor", purpose: "floor", command: "false", cwd: "." }],
+      [{ id: "floor", purpose: "floor", command: FAIL_COMMAND, cwd: "." }],
     );
     assert.equal(result.status, "rolled-back");
     assert.equal(
@@ -207,7 +209,7 @@ test("crash after atomic rollback refs leaves Git at the resumable committed-unm
         state.integration,
         lease,
         [integration],
-        [{ id: "floor", purpose: "floor", command: "false", cwd: "." }],
+        [{ id: "floor", purpose: "floor", command: FAIL_COMMAND, cwd: "." }],
       ),
       /injected rollback crash/,
     );
@@ -233,7 +235,7 @@ test("failed post-wave floor atomically restores integration and removes done an
       state.integration,
       lease,
       [integration],
-      [{ id: "floor", purpose: "floor", command: "false", cwd: "." }],
+      [{ id: "floor", purpose: "floor", command: FAIL_COMMAND, cwd: "." }],
     );
     assert.equal(result.status, "rolled-back");
     assert.equal(await git(state.integration, ["rev-parse", "HEAD"]), anchor.base);

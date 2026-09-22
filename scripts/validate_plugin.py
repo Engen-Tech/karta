@@ -24,6 +24,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sync_codex_skills, sync_codex_agents, check_fact_traces  # noqa: E402
 
 
+def _utf8_python_env() -> dict[str, str]:
+    """A child Python process must emit the UTF-8 that this process decodes."""
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
 def _frontmatter(text: str) -> dict[str, str]:
     if not text.startswith("---"):
         return {}
@@ -1326,7 +1334,8 @@ def _registered_behaviours(script: Path) -> tuple[dict, str | None]:
     """The live coverage registry, read from the page's own script. (registry, error)."""
     try:
         proc = subprocess.run([sys.executable, str(script), "--list-behaviours"],
-                              capture_output=True, text=True, timeout=120, encoding="utf-8")
+                              capture_output=True, text=True, timeout=120,
+                              encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         return {}, f"could not read the coverage registry ({e})"
     if proc.returncode != 0:
@@ -3206,22 +3215,25 @@ def _run_self_test(script: Path, errors: list[str]) -> None:
             return p.name
     try:
         helpp = subprocess.run([sys.executable, str(script), "--help"],
-                               capture_output=True, text=True, timeout=120, encoding="utf-8")
+                               capture_output=True, text=True, timeout=120,
+                               encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: could not probe --help ({e})")
         return
-    if "--self-test" not in (helpp.stdout + helpp.stderr):
+    if "--self-test" not in ((helpp.stdout or "") + (helpp.stderr or "")):
         errors.append(f"{rel(script)}: does not expose --self-test "
                       f"(the validator floor self-tests every gated script; add a --self-test mode)")
         return
     try:
         proc = subprocess.run([sys.executable, str(script), "--self-test"],
-                              capture_output=True, text=True, timeout=120, encoding="utf-8")
+                              capture_output=True, text=True, timeout=120,
+                              encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: --self-test did not run ({e})")
         return
     if proc.returncode != 0:
-        tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
+        output = (proc.stdout or "") + (proc.stderr or "")
+        tail = "; ".join(output.strip().splitlines()[-3:])
         errors.append(f"{rel(script)}: --self-test failed ({tail})")
 
 

@@ -115,7 +115,8 @@ class GateModelsTest(unittest.TestCase):
         with patch("sys.argv", ["sync_codex_agents.py", "--check"]):
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(sync.main(), 1)
-        self.assertIn(".github/agents/karta-safety-auditor.agent.md", output.getvalue())
+        self.assertIn(".github/agents/karta-safety-auditor.agent.md",
+                      output.getvalue().replace("\\", "/"))
 
     def test_copilot_reviewers_cannot_acquire_edit_tools(self):
         path = self.root / "agents/karta-safety-auditor.md"
