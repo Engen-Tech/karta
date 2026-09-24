@@ -44,6 +44,50 @@ How many git subprocesses the hot scripts make (call sites, not runtime calls):
 `karta_next.py` 16, `inject_karta_status.py` 6, `merge_item.py` 5, `guard_gate_dispatch.py`
 4, `guard_binder_immutability.py` 3.
 
+## Why the Codex Windows launcher is PowerShell
+
+Recorded here because the plan below proposes retiring `launch_hook.ps1`, and the reasons
+it exists have to survive its retirement. Source: commit `8e3c926` (2026-09-19) and the
+header of `.codex-plugin/hooks/launch_hook.ps1`. Performance was never a criterion in that
+change; correctness on a stock Windows install was.
+
+- **The defect it fixed.** All 17 Codex command hooks launched through `sh -c`. A stock
+  Windows install has no `sh`, so every fail-closed guard died at the launcher, and Codex
+  reported it as `hook exited with code 1`, indistinguishable from a deliberate block.
+- **cmd is still the outer layer.** Codex runs `commandWindows` through cmd, and karta's
+  entries are cmd syntax: `if exist <launcher> (powershell …) else (exit /b 0)`. The choice
+  was what the launcher body is written in, not whether cmd is involved.
+- **Why the body is PowerShell rather than a batch file.** The launcher resolves the root,
+  joins a forward-slash script path, finds a real CPython, sets `PYTHONUTF8=1`, propagates
+  the guard's exit code verbatim, and fails open only on launcher-level errors. The
+  interpreter search is the part batch cannot do well: the WindowsApps `python.exe` is a
+  0-byte app-execution alias whether it is the Store stub that opens the Store or a real
+  Store-installed Python, so the only reliable test is to run each candidate with
+  `-I -S -c` and a 3.11 floor. The header rejects a one-liner because PowerShell "would have
+  to be embedded in a JSON string, quoted through the manifest, and repeated once per hook
+  entry". Two more PowerShell-specific fixes came out of that change's roundtable review:
+  reading the working directory from `[Environment]::CurrentDirectory` because
+  `Set-Location` treats `[` in a path as a wildcard, and forcing `ErrorActionPreference` to
+  `Continue` so a guard writing its deny reason to stderr cannot fall into the fail-open trap.
+- **Why `powershell.exe` 5.1 rather than `pwsh` 7.** Not recorded in the commit. The evident
+  reason is presence: 5.1 ships with every Windows, pwsh does not. That is an inference,
+  not a decision on file.
+- **What it costs.** Measured below: 0.45 to 1.2 s per hook, three hooks per `apply_patch`.
+
+What makes it revisitable is that the same commit made uv karta's declared runner on the
+Claude side, and uv does interpreter discovery and `requires-python` itself, which is the
+launcher's hardest job. A replacement that calls `uv run --script` straight from cmd must
+still keep:
+
+| Launcher duty | Who covers it without the launcher |
+|-|-|
+| resolve the root | `%PLUGIN_ROOT%` in the bundled manifest; the git-toplevel form is only needed by the repo-local `.codex/hooks.json` |
+| fail open when the guard file is missing | the cmd `if exist … else (exit /b 0)` wrapper already does this |
+| propagate the guard's exit code verbatim | uv exits with python's code |
+| UTF-8 stdio and file reads | set `PYTHONUTF8=1` in the cmd line, or finish the work the header defers to the windows-parity binder and have each guard name its encodings |
+| the validator's rules (`_check_codex_hook_windows`, `_check_command_portability`) | every command hook still needs a `commandWindows` twin naming the same guard and never via sh; a `uv run --script` twin passes because uv is the declared runner |
+| uv present on PATH inside the Codex process | the Claude side already assumes this; a consumer without uv fails open at `if exist` only if the check targets uv, so decide whether a missing uv should fail open or loud |
+
 ## Measured on this machine
 
 Windows 11 Enterprise 10.0.26200, Defender real-time protection on, repo on NTFS (not a
