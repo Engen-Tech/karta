@@ -334,6 +334,89 @@ cache every turn, which took trivial prompts to minutes until users moved `CODEX
 ([#26149](https://github.com/openai/codex/issues/26149)). WSL1 is unsupported since 0.115.
 The cost is moving the repo and any Windows-only toolchain into the Linux side.
 
+### If karta moves to WSL2, where does the browser live?
+
+Asked on 2026-09-24: how do `playwright-cli` and the UI verification skill work under WSL2,
+especially when a human has to log in, so a headless browser cannot do it alone.
+
+**What karta-validate does today.** `capture_view.py` runs `playwright-cli -s=<session> open`
+and navigates from there; it has no attach or saved-state path. The skill already treats
+a login screen as a precondition failure, not a capture step: a route that renders an auth
+screen sets `APP_HEALTH: DEGRADED_AUTH`, comparison is blocked, and the caller is asked for
+"authenticated session setup", with storage state, cookie, token or a test login listed as
+the accepted inputs. So a human typing into a browser mid-capture is not part of the design
+on any OS. The question is where the human logs in once, and how the capture reuses it.
+
+**Headless in WSL2 is the normal case and works unchanged.** `playwright-cli` is Node;
+`npx playwright install --with-deps chromium` installs Linux Chromium and its libraries.
+Captures are non-interactive, so they run headless at Linux speeds. WSL1 is out
+(bubblewrap and WSLg both need WSL2).
+
+**Headed in WSL2 via WSLg is for watching, not typing.** Windows 11 ships WSLg, so a headed
+Linux browser gets a window on the Windows desktop with no X server to install. Two
+caveats from the field: some GPU drivers render Chromium windows transparent or black
+until `[wsl2] gpuSupport=false` is set in `.wslconfig`
+([playwright #21813](https://github.com/microsoft/playwright/issues/21813)), and a
+chrome-devtools-mcp write-up reports a WSLg Chrome window that "renders, but the keyboard
+doesn't follow", so an OAuth password cannot be typed into it
+([Fransys](https://fransys.io/en/blog/mcp-chrome-devtools-wsl-windows)). Do not plan on a
+human logging in through a WSLg window.
+
+**The answer for human input: the browser stays on Windows, the agent attaches over CDP.**
+
+1. Start a Windows Chrome or Edge with a dedicated profile and the debug port:
+   `chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\Temp\chrome-agent`.
+   Chromium 136+ ignores the flag on the default profile, and `--remote-debugging-address`
+   is gone, so the port is loopback-only
+   ([wsl-cdp README](https://github.com/StartupBros-com/wsl-cdp)). Newer Chrome can instead
+   enable "Allow remote debugging for this browser instance" at `chrome://inspect/#remote-debugging`.
+2. Make Windows loopback reachable from WSL. Either `.wslconfig` with
+   `networkingMode=mirrored` plus `[experimental] hostAddressLoopback=true`, which the
+   Fransys write-up found necessary because mirrored mode alone left the debug port
+   unreachable half the time, or stay on NAT and add a `netsh interface portproxy` rule, a
+   firewall rule scoped to the WSL range, and a same-port relay on the WSL side because
+   DevTools echoes the request `Host` into `webSocketDebuggerUrl` (the wsl-cdp README
+   documents both hazards). Then `wsl --shutdown`.
+3. From WSL: `playwright-cli attach --cdp=http://127.0.0.1:9222` (the CLI also supports
+   `--cdp=<channel>`, `--endpoint=` for a Playwright server, and `--extension`;
+   [attach docs](https://playwright.dev/agent-cli/commands/attach)). The human logs in in
+   the visible Windows window; the agent drives the same tabs.
+4. `playwright-cli state-save auth.json`, which the docs describe as saving state "for
+   future headless sessions". Later captures run headless in WSL and load that state, which
+   is exactly the "storage state" input karta-validate already accepts.
+
+The app under test and `serve_design.py` run in WSL and listen on localhost; WSL2 forwards
+Linux-listening ports to Windows localhost by default, and mirrored mode makes loopback
+symmetric, so the Windows browser opens the WSL-served app at `http://localhost:<port>`.
+Screenshots and DOM snapshots cross the VM boundary over the CDP socket; the relay authors
+note multi-megabyte frames pass through, but nobody has measured the per-capture cost.
+
+**What this means for karta.** Two small additions make the WSL story complete without
+changing the skill's contract: an attach path in `capture_view.py` (`--cdp <url>` mapping to
+`playwright-cli attach --cdp=` instead of `open`) and a saved-state path (`state-load` before
+navigation). Both feed the existing "Auth / login setup" input. The skill text would say:
+headless Linux Chromium by default; when a human must authenticate, attach to a Windows
+browser, let them log in, save state, and capture headless with that state. Under Codex in
+WSL, the CDP hop is network traffic from the bubblewrap sandbox, so the capture command
+needs network access (`network_access = true` in the workspace-write sandbox, as the
+wsl-chrome-bridge README's Codex example sets).
+
+**The MCP browser tools follow the same rule.** Playwright MCP from WSL can take
+`--cdp-endpoint` to the Windows browser, and its `--extension` mode connecting to Windows
+Chrome was reported working from WSL with `--executable-path /mnt/c/.../chrome.exe
+--extension --browser chrome` ([playwright-mcp #941](https://github.com/microsoft/playwright-mcp/issues/941)).
+Bridges such as [wsl-chrome-bridge](https://github.com/pigochu/wsl-chrome-bridge) present
+themselves as a Chrome executable to Playwright MCP or chrome-devtools-mcp and forward CDP
+to Windows Chrome; note their warning that Playwright falls back to headless when
+`DISPLAY` is unset, so set it in the MCP env to keep a visible Windows window. Claude in
+Chrome is the exception: Anthropic's docs say "Chrome integration isn't supported in WSL",
+because Windows Chrome spawns the native-messaging host as a Windows process and cannot
+reach into the VM. Community bridges route it through `wsl.exe` or a TCP relay
+([anthropics/claude-code #41625](https://github.com/anthropics/claude-code/issues/41625),
+[#14367](https://github.com/anthropics/claude-code/issues/14367)), with `read_page` and
+`screenshot` timing out on `document_idle` in at least one report and the bridge `.bat`
+overwritten by Claude Code updates. Treat that one as unsupported.
+
 ### Copilot CLI
 
 Copilot CLI hardcodes `pwsh.exe` and requires PowerShell 7
