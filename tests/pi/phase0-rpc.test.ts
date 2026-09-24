@@ -59,7 +59,9 @@ async function rpcRequest<T>(options: {
     let stderr = "";
     let buffered = "";
     let settling = false;
-    const timer = setTimeout(() => finish(undefined, new Error(`RPC timeout: ${stderr}`)), 20_000);
+    // Keep the deadline above observed cold-start time on Windows-backed WSL
+    // checkouts; this guards the RPC exchange, not production runtime latency.
+    const timer = setTimeout(() => finish(undefined, new Error(`RPC timeout: ${stderr}`)), 60_000);
 
     function finish(value?: T, error?: Error): void {
       if (settling) return;
