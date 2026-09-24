@@ -12,25 +12,26 @@ provenance: "lens=flow; merged_from=guard-bypass-probe-matrix, cross-runtime-enf
 
 # Guard behavior and cross-runtime enforcement matrix
 
-**Question.** Do karta's guards deny/allow correctly on their matched paths, and which mutation classes escape enforcement entirely — per tool channel inside Claude Code (Write/Edit/NotebookEdit/Bash/Task) and per runtime outside it (Codex CLI, plain terminal git)?
+**Question.** Do karta's guards deny/allow correctly on their matched paths, and which mutation classes escape enforcement entirely — per tool channel inside Claude Code (Write/Edit/MultiEdit/NotebookEdit/Bash/Task) and per runtime outside it (Codex CLI, plain terminal git)?
 
 ## Procedure
 
 1. Build once: `benchmarks/fixtures/hooked-repo/` — a git repo with a HEAD-committed binder, an archived binder, a staged-but-uncommitted binder edit, a symlink alias to a binder, a `.karta/sme/` pack, and `refs/karta/<slug>/built/<id>` with no matching done ref (created via `git update-ref`).
-2. Build once: `benchmarks/flow/mutation-surface.json` — a versioned manifest of (mutation-class, channel) rows: binder writes, pack writes, `refs/karta/*` forging, git commit without gate, integration merges, crossed with Write/Edit/NotebookEdit/Bash/Task/codex/terminal. Each row is marked `enforced` or `waived:<id>` — e.g. a waiver for `KARTA_SKIP_GATE`, the documented repo-scoped escape hatch. The manifest is seeded from the hooks dark_areas of the committed audit map `benchmarks/flow/seed-map-2026-07-17.json`.
+2. Build once: `benchmarks/flow/mutation-surface.json` — a versioned manifest of (mutation-class, channel) rows: binder writes, pack writes, confined-writer writes, gate-reviewer writes, `refs/karta/*` forging, git commit without gate, integration merges, crossed with Write/Edit/MultiEdit/NotebookEdit/Bash/Task/codex/terminal. Each row is marked `enforced` or `waived:<id>` — e.g. a waiver for `KARTA_SKIP_GATE`, the documented repo-scoped escape hatch. The manifest is seeded from the hooks dark_areas of the committed audit map `benchmarks/flow/seed-map-2026-07-17.json`.
 3. Family A (every release, deterministic, ~1 min): `benchmarks/flow/probe_guards.py` runs each `hooks/scripts/guard_*.py` as a subprocess with cwd = the fixture repo — explicitly additive to the scripts' embedded `--self-test`s, which inject a fake `tracked()` and never touch real git — feeding crafted stdin payloads per probe id:
    - guarded write (expect exit 2)
    - benign write (expect 0)
    - archived-binder write (expect 2)
-   - symlink-alias path
+   - MultiEdit to a committed binder (expect 2; routed since the F21 inventory pass)
+   - symlink-alias path (denied since audit F05: the guard classifies the resolved target)
    - staged-not-committed binder (currently passes — pin as known-gap probe)
    - malformed JSON payload (record fail-open exit 0 for binder/stop guards vs fail-closed exit 2 for auditor-dispatch/writer-confinement, per the docs/how-to/hooks.md contract)
    - NotebookEdit-on-pack (pins the live PreToolUse Write-only matcher asymmetry)
 4. Family A output: per-probe-id {expected, actual} table; any changed row vs the previous committed run = flagged diff.
 5. Family B (every release, static, seconds): parse `hooks/hooks.json` matchers and cross against the manifest. Any row with no matcher and no waiver id = unwaivered BYPASS. Additionally fail the run if a `guard_*.py` exists with no manifest row (anti-staleness check so the hand-written manifest cannot silently rot).
-6. Family C (quarterly, live, pruned): run ONLY cells whose enforcement can change — cells with a hooks.json matcher plus any newly-registered runtime surface (e.g. a future Codex hooks manifest). `claude -p` cells use `--output-format stream-json`; a cell counts enforced ONLY if the transcript shows a tool call targeting the guarded path that was denied AND `git diff --exit-code` is clean; a clean diff with no attempted call = inconclusive, never enforced. Record the model id in the output.
+6. Family C (quarterly, live, pruned): run ONLY cells whose enforcement can change — cells with a hooks.json matcher plus the Codex surfaces that exist today: the bundled `.codex-plugin/hooks/hooks.json` twins and this repo's `.codex/hooks.json` commit adapter, each live only after the user trusts it in `/hooks`. `claude -p` cells use `--output-format stream-json`; a cell counts enforced ONLY if the transcript shows a tool call targeting the guarded path that was denied AND `git diff --exit-code` is clean; a clean diff with no attempted call = inconclusive, never enforced. Record the model id in the output.
 7. The terminal-git cell (`sed -i` on a binder + `git commit`) is scripted with no LLM — a cheap deterministic canary confirming the structural bypass still exists.
-8. Structurally-unenforced cells (Codex, plain terminal, Bash-in-CC classes with no matcher) are NOT run live; they live as waivered/bypass rows in Family B.
+8. Structurally-unenforced cells (plain terminal, Bash-in-CC classes with no matcher, and Codex cells with no hook — writer confinement and reviewer writes, which Codex cannot attribute because its `PreToolUse` payload has no `agent_type`) are NOT run live; they live as waivered/bypass rows in Family B. A Family B `bypass` on the codex channel can mean "trust-gated twin" or "no hook at all"; the row note says which, and names the host-enforced sandbox where one applies.
 9. Emit dated JSON committed to `benchmarks/flow/results/`: per-probe table, unwaivered bypass list (with manifest version), cell matrix with enforced/bypassed/waived/inconclusive/n-a states.
 
 ## Metric and comparability

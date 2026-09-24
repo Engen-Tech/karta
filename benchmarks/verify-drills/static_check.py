@@ -21,7 +21,8 @@ claude -p and are phase 3 — this file is Layer 0 only):
       protection regressing is fail-closed.
   (c) 'store no loop state' stays paired with a persisted-attempt mechanism
       once one ships (regex 'refs/karta/\\S*attempt|persisted attempt
-      (counter|ref)' in the same file). Unpaired occurrences are known-open
+      (counter|ref)|gate_attempts\\.py' in the same file; the attempt ledger
+      shipped as gate_attempts.py). Unpaired occurrences are known-open
       findings; the string vanishing entirely is the anchor-lost loud finding.
 
 A missing or renamed Verdicts section anchor is a loud finding (anchor gone
@@ -74,7 +75,8 @@ PRECONDITION_HEADING = "## Precondition — the diff must be non-empty"
 EMPTY_CLAUSE_BOLD = "readable but **empty**"
 EMPTY_CLAUSE_PLAIN = "readable but empty"
 LOOP_ANCHOR = "store no loop state"
-PERSIST_RE = re.compile(r"refs/karta/\S*attempt|persisted attempt (counter|ref)")
+PERSIST_RE = re.compile(r"refs/karta/\S*attempt|persisted attempt (counter|ref)"
+                        r"|gate_attempts\.py")
 
 # The first committed baseline must contain these seeded findings (plan-time
 # truth, v2.21.0); the run fails closed if one is absent from its own first
@@ -201,7 +203,13 @@ def decide_status(tripwires: dict, findings: list[dict],
         return "fail", extra  # fail-closed: a shipped protection regressed
     if baseline is None:
         have = {f["finding_id"] for f in findings}
-        absent = [fid for fid in SEEDED_FINDING_IDS if fid not in have]
+        # A seed whose sentinel now passes is resolved, not absent: the fix is
+        # the outcome the seed existed to drive. Only a seed that is neither
+        # reproduced nor resolved (its sentinel lost its anchor) fails closed.
+        resolved = {fid for fid in SEEDED_FINDING_IDS
+                    if sentinels.get(fid.split("-")[1]) == "pass"}
+        absent = [fid for fid in SEEDED_FINDING_IDS
+                  if fid not in have and fid not in resolved]
         if absent:
             extra.append({
                 "finding_id": "seeded-finding-absent",
@@ -408,10 +416,21 @@ def self_test() -> int:
     st, _ = decide_status(t, f, None)
     check("no baseline + seeded findings present -> status pass", st == "pass")
 
-    t9, f9 = evaluate(S_FIXED, A_PAIRED)
+    t9, f9 = evaluate(S_NO_VERDICTS, A_TODAY)
     st9, ex9 = decide_status(t9, f9, None)
-    check("no baseline + seeded finding absent -> fail-closed",
+    check("no baseline + seeded finding neither reproduced nor resolved -> fail-closed",
           st9 == "fail" and "seeded-finding-absent" in ids(ex9))
+
+    t9b, f9b = evaluate(S_FIXED, A_PAIRED)
+    st9b, ex9b = decide_status(t9b, f9b, None)
+    check("no baseline + every seed resolved by a passing sentinel -> pass",
+          t9b["a"] == "pass" and t9b["c"] == "pass" and st9b == "pass" and ex9b == [])
+
+    t9c, _ = evaluate(S_NO_LOOP, A_PAIRED.replace(
+        "Attempts persist under refs/karta/<slug>/item-<id>/attempt",
+        "The orchestrator's ledger (scripts/gate_attempts.py) keeps the count"))
+    check("(c) the gate_attempts.py ledger counts as the persisted mechanism",
+          t9c["c"] == "pass")
 
     base = {"tripwires": dict(t), "findings": list(f)}
     st10, _ = decide_status(t, f, base)

@@ -8,7 +8,7 @@ A binder may declare canonical strings that several work items must render
 byte-identically (see validate_binder.py for the plan-time schema check). This
 script is the deliver-time enforcement point. An item counts as landed only when
 its git done ref — refs/karta/<slug>/item-<id>/done, probed under the scan root —
-resolves; an item with no done ref is not yet landed, so every entry listing it is
+resolves (for an item a successor binder carries, the ref under the `supersedes` slug); an item with no done ref is not yet landed, so every entry listing it is
 reported [PENDING] and skipped, never failed (a non-git scan root, or git being
 unavailable, leaves every item pending). For landed items the script reads the
 touched files each actually produced and fails if a declared term drifted.
@@ -39,9 +39,9 @@ def _landed(slug: str, item_id: str, root: Path) -> bool:
         return subprocess.run(
             ["git", "show-ref", "--verify", "--quiet",
              f"refs/karta/{slug}/item-{item_id}/done"],
-            cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
         ).returncode == 0
-    except OSError:  # git missing, or root unusable as a working directory
+    except (OSError, subprocess.TimeoutExpired):  # git missing, root unusable, or hung
         return False
 
 
@@ -61,6 +61,11 @@ def evaluate_binder(binder: dict, root: Path) -> list[tuple[str, str, list[str],
 
     An absent or empty `shared_terms` yields an empty list (a clean no-op pass)."""
     slug = binder.get("slug", "")
+    # A successor binder's carried items landed under the predecessor's slug; their done
+    # refs live there (deliver_preflight.py proves them before a successor run starts).
+    sup = binder.get("supersedes") if isinstance(binder.get("supersedes"), dict) else {}
+    carried = set(sup.get("carried") or [])
+    ref_slug = {iid: sup.get("slug", slug) for iid in carried}
     items_by_id = {it["id"]: it for it in binder.get("work_items", []) if isinstance(it, dict)}
     results: list[tuple[str, str, list[str], str]] = []
     for entry in binder.get("shared_terms", []) or []:
@@ -69,7 +74,7 @@ def evaluate_binder(binder: dict, root: Path) -> list[tuple[str, str, list[str],
         listed = entry.get("items", [])
 
         # An entry is only judged once every listed item has landed (done ref set).
-        pending = [iid for iid in listed if not _landed(slug, iid, root)]
+        pending = [iid for iid in listed if not _landed(ref_slug.get(iid, slug), iid, root)]
         if pending:
             results.append((eid, "PENDING", pending, canonical))
             continue

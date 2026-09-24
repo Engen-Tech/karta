@@ -25,6 +25,19 @@ Ten skills ship in the plugin, but the flow is simple: you describe the job, kar
 | ![Many pieces built side by side, each in its own space, then combined into one finished layout](docs/images/web/parallel-build.png) | ![Every piece earns its place — checked for behavior and appearance before it ships](docs/images/web/quality-gate.png) |
 | **Many pieces, built side by side** — each item gets its own git worktree, so parallel work never collides. The finished pieces merge at the end. | **Every piece earns its place** — each item must clear its own gate (does it *work*, does it *look right*) before it lands. |
 
+## Before you install
+
+Every install needs these, whatever you plan to run:
+
+- **`git` 2.23 or newer.** Items build in `git worktree`s, and the status helper suggests `git restore`.
+- **[`uv`](https://docs.astral.sh/uv/).** Every Claude Code hook in [`hooks/hooks.json`](hooks/hooks.json) starts with `uv run --script`, and the skills run their Python helpers through it. This is not only for visual validation.
+- **Python 3.11 or newer, as `python3` on `PATH`.** The Codex hook launchers run the Python guards directly, and every helper script declares `requires-python >= 3.11`.
+- **Hooks the host will actually run.** Claude Code plugin hooks must be enabled and launchable: `disableAllHooks` must not disable them, and managed policy such as `allowManagedHooksOnly` can still exclude this plugin. Codex hooks are on by default, but plugin hooks do not run until you review and trust them in `/hooks`; trust is tied to each hook's exact definition, so an updated hook needs review again.
+
+Check a clone or installed plugin copy with `python3 scripts/install_smoke.py` (add `--plugin-root <path>` for an installed copy). It verifies the prerequisite executables, hook targets, and harmless launcher behavior in a scratch repository. It does not prove the host enabled or trusted the hooks, nor that every guard blocks correctly. Windows launchers are checked for existence only.
+
+What each skill needs on top of this is listed under [Requirements](#requirements).
+
 ## Install
 
 karta ships first-class integrations for **Claude Code, Codex CLI, and Pi**. The GitHub repo is public, so installing needs no auth, but the code is proprietary, not open source; use is governed by the [License](#license). Plugin and skill names are stable since 1.0.
@@ -36,7 +49,7 @@ karta ships first-class integrations for **Claude Code, Codex CLI, and Pi**. The
 /plugin install karta@karta
 ```
 
-This registers all karta skills under the `karta:` namespace, plus five agents (three gates, two writers). The gates run automatically as registered read-only subagents; no setup. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
+This registers all karta skills under the `karta:` namespace, plus five agents (three gates, two writers). The gates run automatically as registered subagents; no setup. They get no edit tool, and a plugin hook refuses their edit-tool calls and lets their shell run only a fixed list of read-only commands, denying everything else — a hook, not a sandbox. Full guide: [docs/how-to/claude-code.md](docs/how-to/claude-code.md).
 
 ### Codex CLI
 
@@ -45,7 +58,7 @@ Two ways in:
 - **Plugin** — add this repo as a marketplace source in `/plugins`, then install karta. Invoke a skill with `$karta-plan` (or `@karta`), or let Codex pick one from your prompt.
 - **Clone and run** — run `codex` in a karta checkout. Codex auto-discovers the skills from the committed `.agents/skills/` mirror (real directories, no symlinks, so macOS, Linux, and Windows all work).
 
-The gate runs automatically — no setup. On a plugin install (Codex can't register subagents) `karta-verify` spawns a read-only subagent from the gate instructions bundled in the skill; in a checkout, the same agents run as registered, sandbox-enforced read-only subagents. Full guide: [docs/how-to/codex.md](docs/how-to/codex.md).
+The gate runs automatically — no setup beyond trusting the bundled hooks in `/hooks`. On a plugin install (Codex can't register subagents) `karta-verify` spawns a fallback reviewer from the gate instructions bundled in the skill; that fallback's read-only rule is an instruction, not a sandbox, unless the whole session is read-only. In a checkout, the same agents run as registered subagents with Codex's read-only sandbox, unless you loosen the session's permissions live. Full guide: [docs/how-to/codex.md](docs/how-to/codex.md).
 
 ### Copilot CLI reviewer models
 
@@ -85,7 +98,7 @@ karta runs items in parallel and goes serial only when two would collide. Need j
 
 ## The binder
 
-The **binder** is one JSON file (`.karta/binders/<slug>.json`) that drives planning, build, and integration. Every skill reads it; none writes to it during a run, and it can't change while a wave runs.
+The **binder** is one JSON file (`.karta/binders/<slug>.json`) that drives planning, build, and integration. Every skill reads it; none writes to it, and once committed it can't change — between waves as much as during one. When a wave proves the plan wrong, you commit a successor binder that carries the finished items forward: see [docs/how-to/binder-repair.md](docs/how-to/binder-repair.md).
 
 It holds the slug (which names the integration branch and tags), scope, the env contract, optional design facts and token manifest, optional **shared terms** (strings several items must render identically), and an ordered list of work items. Each item carries its dependencies, an optional `contract`, optional `shared_resources`/`serialize` flags, and an `oracle` — its acceptance check.
 
@@ -144,7 +157,7 @@ Curated **stack packs** make karta plan and build the way each stack expects. ka
 
 ## Enforcement below the agent
 
-The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships eight **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, and each confined writer stays inside its own surface — kaizen only `.karta/sme/` and `.karta/kaizen.json`, doc-gardner only the prose docs plus `.gitignore` — so any other write is refused before it lands. Three more guard a dispatch and a stop: a safety-auditor dispatch missing its binder or pinned checklists is refused before it starts, a gate dispatch whose diff range is empty or whose `Diff-size` line disagrees with git is refused before the reviewers spin up, and a session cannot silently end with built-but-unmerged items or a complete-but-unarchived binder — it is blocked once with the fix named, then the next identical stop passes. Two hooks inform rather than block — one lists your binders at session start, and one turns a karta subagent's stop back once when a build item produced nothing, so the report names it. Codex ships bundled twins of seven of these — see the parity table in [`docs/how-to/codex.md`](docs/how-to/codex.md) — enforced once you trust the plugin's hooks (`/hooks`); writer confinement stays skill doctrine there, since karta registers no kaizen or doc-gardner agent on Codex. Pi enforces most of the same rules through its own extension surface and advises where Pi cannot refuse a stop; its parity table is in [`docs/how-to/pi.md`](docs/how-to/pi.md). Skills still state every rule; hooks are the backstop. And a rule never claims more than its backstop delivers: a sentence that promises a check no code performs is not documentation, it is the defect — when the two disagree, shrink the claim or build the check. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
+The rules that matter most don't rely on the agent remembering them. On Claude Code, the plugin ships eight **hooks** — scripts the harness runs deterministically around tool calls: committed binders are read-only, edits under `.karta/sme/` must pass the pack validator, and each confined writer stays inside its own surface — kaizen only `.karta/sme/` and `.karta/kaizen.json`, doc-gardner only the prose docs plus `.gitignore` — so recognized file writes outside the resolved surface or active working directory are refused before they land. The same hook refuses every edit-tool call from the three gate reviewers and holds their shell to a fail-closed allowlist of read-only commands; git can still run a program the repository's own git config names. The guard resolves symlinks and parent directories; it is a pre-operation check, not a filesystem sandbox, and cannot prevent a concurrent link swap or detect every interpreter-side write. Three more guard a dispatch and a stop: a safety-auditor dispatch missing its binder or pinned checklists is refused before it starts, a gate dispatch whose diff range is empty or whose `Diff-size` line disagrees with git is refused before the reviewers spin up, and a session cannot silently end with built-but-unmerged items or a complete-but-unarchived binder — it is blocked once with the fix named, then the next identical stop passes. Two hooks inform rather than block — one lists your binders at session start, and one turns a karta subagent's stop back once when a build item produced nothing, so the report names it. Codex ships bundled twins of seven of these — see the parity table in [`docs/how-to/codex.md`](docs/how-to/codex.md) — enforced once you trust the plugin's hooks (`/hooks`); writer confinement and the reviewers' write denial stay instructions there because a Codex tool-call hook is not told which subagent made the call. Pi enforces most of the same rules through its own extension surface and advises where Pi cannot refuse a stop; its parity table is in [`docs/how-to/pi.md`](docs/how-to/pi.md). A hook holds only when the host starts it. Skills still state every rule; hooks are the backstop. And a rule never claims more than its backstop delivers: a sentence that promises a check no code performs is not documentation, it is the defect — when the two disagree, shrink the claim or build the check. Full guide: [`docs/how-to/hooks.md`](docs/how-to/hooks.md).
 
 ## Consistent wording across items
 
@@ -161,10 +174,12 @@ karta builds each item in isolation, so two items can word the same user-facing 
 
 ## Requirements
 
+Everything in [Before you install](#before-you-install) applies to every skill. On top of that:
+
 - **`karta-plan`** — read access to the work description/design and the repo. Writes only the binder.
 - **`karta-deliver` and `karta-build`** — `git` (per-item worktrees), your package manager + toolchain (lint/test/build/dev), and the binder on disk.
 - **`karta-verify`** — the diff and the binder. Read-only.
-- **`karta-validate`** — [`uv`](https://docs.astral.sh/uv/), [`playwright-cli`](https://playwright.dev) (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`), and Chromium. The app must already be running — you own the dev server.
+- **`karta-validate`** — [`playwright-cli`](https://playwright.dev) (`npm install -g @playwright/cli@latest`, then `playwright-cli install --skills`), and Chromium. The app must already be running — you own the dev server.
 - **Pi package** — Pi 0.84.2 or a later tested version, Node.js 22.19 or newer, Git, and `uv`; plus [`playwright-cli`](https://playwright.dev) and Chromium only for visual oracles (`oracle.type: visual`). Karta 2.36.0 supports native macOS and Linux; see the [Pi guide](docs/how-to/pi.md#current-support-matrix).
 
 ## License

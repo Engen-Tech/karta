@@ -73,6 +73,7 @@ uv run --script <skill-dir>/scripts/serve_design.py --design-path <design-path> 
 The script:
 
 - resolves the HTML path
+- resolves each requested file and directory index and rejects symlinks outside the design directory (a concurrent filesystem mutation after the check remains outside this local preview server's protection)
 - refuses to serve a repository/worktree root (or a directory containing it) as the document root before opening a socket; a design directory strictly inside the repository stays allowed, and outside Git only a filesystem root is refused
 - serves from the design file's parent directory so relative `fonts/`, `assets/`, and `uploads/` paths work
 - binds to `127.0.0.1` on an OS-assigned port

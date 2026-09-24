@@ -64,11 +64,15 @@ It does not certify full Copilot parity with the Claude, Codex, or Pi integratio
 The Copilot entrypoint declares an empty hook configuration so the CLI does not
 load the incompatible Claude hook manifest by convention.
 
-The profiles retain read, search, and shell tools for inspecting the actual diff.
-They expose no editing tool, and their prompts forbid writes. Shell access is
-still controlled by Copilot's host permissions; these profiles are not OS-enforced
-read-only sandboxes. The existing acceptance assertions, safety checks, and retry
-limits remain in the canonical reviewer prompts.
+The profiles retain read, search, and shell (`execute`) tools for inspecting the
+actual diff. They expose no editing tool, and their prompts forbid writes. Shell
+access is still controlled by Copilot's host permissions, and no Karta
+hook runs on Copilot, so a shell write by a reviewer is stopped only by its
+instructions or by what you allow in Copilot's permission prompts: read-only is
+instruction-level here, not an OS-enforced sandbox. This was not exercised against
+a live Copilot session. The existing acceptance assertions, safety checks, and retry
+limits remain in the canonical reviewer prompts; the retry counts themselves are kept
+by `karta-verify`'s attempt ledger.
 
 ## Contributors
 

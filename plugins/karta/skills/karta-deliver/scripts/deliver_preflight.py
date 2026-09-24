@@ -22,9 +22,31 @@ Top-level keys:
                         ALSO sets `halt` — an invalid binder is a stop, never a frontier
                         to build from.
   slug                — the binder's slug.
-  default_branch      — detected via `git remote show origin`'s HEAD-branch line, else
-                        whichever of main/master exists.
+  default_branch      — resolved locally, with no network call: `git config
+                        karta.defaultBranch`, else the local
+                        refs/remotes/origin/HEAD symbolic ref, else the only local branch
+                        (karta/* branches aside), else exactly one of
+                        main/master. null when none of those settles it.
+  default_branch_error — null, or why the default branch could not be established and how
+                        to set it. A non-null value sets `halt`: the default is never
+                        guessed.
   integration_branch   — {name, exists, tip}.
+  integration_base     — {ref, sha}: where a first run branches the integration branch
+                        from — the default branch, or for a successor binder the
+                        predecessor's integration branch.
+  supersedes           — null for an ordinary binder. For a successor binder (top-level
+                        `supersedes`): {predecessor, predecessor_integration {name, tip},
+                        carried {id: done-provenance record}, dropped {id: predecessor
+                        done sha}, findings, ok}. Each carried
+                        item needs a done ref under the predecessor's slug passing the
+                        same checks as done_provenance on the predecessor's integration
+                        branch, and must equal the predecessor's committed work item; an
+                        existing successor integration branch must contain the
+                        predecessor's tip. Every predecessor done item must be carried or
+                        listed in `supersedes.dropped` (its merge is on the successor's
+                        base; a successor item must revert or replace it), and every
+                        dropped id needs a predecessor done ref. Any failure sets `halt`.
+                        Proven carried items count as done for the frontier.
   refs                — every refs/karta/<slug>/item-*/{built,failed,done,accepted,evidence}
                         that exists, mapped to its target sha. The canonical evidence
                         namespace is refs/karta/<slug>/item-<id>/evidence.
@@ -38,8 +60,9 @@ Top-level keys:
                         appear in `git rev-list --first-parent karta/<slug>/integration`.
                         Either check failing is reported per item and sets `halt` — a
                         forged accepted/done pair cannot hide behind a clean frontier.
-  halt                 — true when the binder failed validation or any done_provenance
-                        check failed. The deliver doctrine treats a packet with `halt`
+  halt                 — true when the binder failed validation, the default branch could
+                        not be established, a successor's carried work is unproven, or any
+                        done_provenance check failed. The deliver doctrine treats a packet with `halt`
                         set as a stop, never as a frontier to build from.
   frontier             — ready item ids: not done, and every depends_on id already
                         carries a done ref.
@@ -85,24 +108,70 @@ ITEM_CONTEXT = (SCRIPT_DIR / ".." / ".." / "karta-build" / "scripts" / "item_con
 ENV_ORACLE_TYPES = {"integration", "e2e", "visual"}
 
 
-def _run(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8")
+GIT_TIMEOUT = 30       # seconds; every git call here is local and should be instant
+SCRIPT_TIMEOUT = 300   # seconds; the validator and the provenance checker
+
+
+def _run(args: list[str], timeout: float = SCRIPT_TIMEOUT) -> subprocess.CompletedProcess:
+    """Every subprocess is bounded. A timeout reads as a failed call (exit 124), which
+    every caller already treats as "not proven" — never as success."""
+    try:
+        return subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
+                              timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, "", f"timed out after {timeout}s")
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
-    return _run(["git", "-C", str(repo), *args])
+    return _run(["git", "-C", str(repo), *args], timeout=GIT_TIMEOUT)
+
+
+DEFAULT_BRANCH_KEY = "karta.defaultBranch"
+_SET_DEFAULT_HINT = (f"set it explicitly with `git config {DEFAULT_BRANCH_KEY} <branch>` "
+                     "in this repository, then re-run preflight")
+
+
+def _local_branch_exists(repo: Path, name: str) -> bool:
+    return _git(repo, "rev-parse", "--verify", "--quiet",
+                f"refs/heads/{name}^{{commit}}").returncode == 0
+
+
+def resolve_default_branch(repo: Path) -> tuple[str | None, str | None]:
+    """Return (branch, problem). Local and offline by construction — no call here
+    contacts a remote. Order: explicit configuration, then the local
+    refs/remotes/origin/HEAD symbolic ref, then an unambiguous local answer (the only
+    local branch, or exactly one of main/master). Anything else is a problem naming
+    how to set the branch; the default is never guessed."""
+    configured = _git(repo, "config", "--get", DEFAULT_BRANCH_KEY)
+    if configured.returncode == 0 and configured.stdout.strip():
+        name = configured.stdout.strip()
+        if _local_branch_exists(repo, name):
+            return name, None
+        return None, (f"git config {DEFAULT_BRANCH_KEY} names '{name}', which is not a "
+                      f"local branch; create it or {_SET_DEFAULT_HINT}")
+
+    origin_head = _git(repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    prefix = "refs/remotes/origin/"
+    target = origin_head.stdout.strip()
+    if origin_head.returncode == 0 and target.startswith(prefix):
+        return target[len(prefix):], None
+
+    heads = _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    # karta's own integration and item branches are never the default.
+    branches = [b.strip() for b in heads.stdout.splitlines()
+                if b.strip() and not b.strip().startswith("karta/")]
+    if len(branches) == 1:
+        return branches[0], None
+    conventional = [b for b in ("main", "master") if b in branches]
+    if len(conventional) == 1:
+        return conventional[0], None
+    found = ", ".join(branches) if branches else "none"
+    return None, (f"cannot establish the default branch offline (local branches: {found}; "
+                  f"no refs/remotes/origin/HEAD); {_SET_DEFAULT_HINT}")
 
 
 def detect_default_branch(repo: Path) -> str | None:
-    proc = _git(repo, "remote", "show", "origin")
-    if proc.returncode == 0:
-        m = re.search(r"HEAD branch:\s*(\S+)", proc.stdout)
-        if m and m.group(1) != "(unknown)":
-            return m.group(1)
-    for cand in ("main", "master"):
-        if _git(repo, "rev-parse", "--verify", "--quiet", cand).returncode == 0:
-            return cand
-    return None
+    return resolve_default_branch(repo)[0]
 
 
 def ref_target(repo: Path, ref: str) -> str | None:
@@ -135,6 +204,20 @@ def first_parent_chain(repo: Path, branch: str) -> set[str]:
     return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
 
 
+def _done_record(repo: Path, slug: str, item_id: str, sha: str, chain: set[str]) -> dict:
+    proc = _run([sys.executable, str(CHECK_PROVENANCE), "--repo", str(repo),
+                 "--item", item_id, "--range", f"{sha}^1..{sha}",
+                 "--slug", slug, "--check-accepted"])
+    reachable = sha in chain
+    return {
+        "target": sha,
+        "checker_exit": proc.returncode,
+        "checker_output": (proc.stdout + proc.stderr).strip(),
+        "first_parent_reachable": reachable,
+        "ok": proc.returncode == 0 and reachable,
+    }
+
+
 def compute_done_provenance(repo: Path, slug: str, refs: dict[str, str],
                              integration_name: str) -> tuple[dict, bool]:
     """Rule: every done ref must pass check_item_provenance --check-accepted over its
@@ -148,23 +231,97 @@ def compute_done_provenance(repo: Path, slug: str, refs: dict[str, str],
         m = done_pat.match(refname)
         if not m:
             continue
-        item_id = m.group(1)
-        proc = _run([sys.executable, str(CHECK_PROVENANCE), "--repo", str(repo),
-                     "--item", item_id, "--range", f"{sha}^1..{sha}",
-                     "--slug", slug, "--check-accepted"])
-        checker_ok = proc.returncode == 0
-        reachable = sha in chain
-        ok = checker_ok and reachable
-        result[item_id] = {
-            "target": sha,
-            "checker_exit": proc.returncode,
-            "checker_output": (proc.stdout + proc.stderr).strip(),
-            "first_parent_reachable": reachable,
-            "ok": ok,
-        }
-        if not ok:
+        result[m.group(1)] = record = _done_record(repo, slug, m.group(1), sha, chain)
+        if not record["ok"]:
             halt = True
     return result, halt
+
+
+def _predecessor_plan(repo: Path, pred: str, tip: str) -> dict | None:
+    """The predecessor's committed binder as its own integration tip holds it — live, or
+    already moved to the archive path by the sanctioned retirement."""
+    for rel in (f".karta/binders/{pred}.json",
+                f".karta/binders/archive/{pred}.json"):
+        proc = _git(repo, "show", f"{tip}:{rel}")
+        if proc.returncode == 0:
+            try:
+                doc = json.loads(proc.stdout)
+            except json.JSONDecodeError:
+                return None
+            return doc if isinstance(doc, dict) else None
+    return None
+
+
+def check_supersedes(repo: Path, binder: dict, integration_name: str,
+                     integration_tip: str | None) -> tuple[dict | None, bool]:
+    """A successor binder (top-level `supersedes`) is refused unless every carried item
+    is proven delivered by the predecessor: a done ref under the predecessor's slug that
+    passes the same provenance and first-parent checks as a resumed done ref, on the
+    predecessor's integration branch, for an item this binder copies unchanged from the
+    predecessor's committed plan. When the successor's own integration branch exists it
+    must already contain the predecessor's integration tip. Returns (report, halt)."""
+    sup = binder.get("supersedes")
+    if not isinstance(sup, dict):
+        return None, False
+    pred = sup.get("slug")
+    carried_ids = [c for c in sup.get("carried") or [] if isinstance(c, str)]
+    dropped_ids = [d for d in sup.get("dropped") or [] if isinstance(d, str)]
+    dropped: dict[str, str] = {}
+    pred_integration = f"karta/{pred}/integration"
+    pred_tip = ref_target(repo, pred_integration)
+    findings: list[str] = []
+    carried: dict[str, dict] = {}
+    if pred_tip is None:
+        findings.append(f"predecessor integration branch {pred_integration} does not exist; "
+                        "the carried work cannot be proven or built on")
+    else:
+        chain = first_parent_chain(repo, pred_integration)
+        plan = _predecessor_plan(repo, pred, pred_tip)
+        pred_items = {it.get("id"): it for it in (plan or {}).get("work_items", [])
+                      if isinstance(it, dict)}
+        own_items = {it.get("id"): it for it in binder.get("work_items", []) if isinstance(it, dict)}
+        if plan is None:
+            findings.append(f"no committed binder for '{pred}' on {pred_integration}")
+        for cid in carried_ids:
+            sha = ref_target(repo, f"refs/karta/{pred}/item-{cid}/done")
+            if sha is None:
+                carried[cid] = {"target": None, "ok": False,
+                                "finding": f"no refs/karta/{pred}/item-{cid}/done"}
+                continue
+            record = _done_record(repo, pred, cid, sha, chain)
+            if plan is not None and pred_items.get(cid) != own_items.get(cid):
+                record["ok"] = False
+                record["finding"] = (f"work item '{cid}' differs from the predecessor's "
+                                     "committed plan; a carried item is copied unchanged")
+            carried[cid] = record
+        # The successor starts from the predecessor's integration tip, so every done
+        # predecessor item's code is on its base. Each must be named: carried (proven
+        # above) or dropped (the successor plans the revert). Silence is refused.
+        pred_done = {name.split("/")[-2][len("item-"):]: sha for name, sha in
+                     list_prefixed_refs(repo, f"refs/karta/{pred}/").items()
+                     if name.endswith("/done") and name.split("/")[-2].startswith("item-")}
+        for did in dropped_ids:
+            if did in pred_done:
+                dropped[did] = pred_done[did]
+            else:
+                findings.append(f"dropped id '{did}' has no refs/karta/{pred}/"
+                                f"item-{did}/done; there is no delivered work to drop")
+        for did in sorted(set(pred_done) - set(carried_ids) - set(dropped_ids)):
+            findings.append(f"predecessor item '{did}' is done and its merge "
+                            f"({pred_done[did]}) is on {pred_integration}, which this binder "
+                            "starts from; carry it, or list it in supersedes.dropped and "
+                            "plan a work item that reverts or replaces it")
+    if integration_tip is not None and pred_tip is not None:
+        contained = _git(repo, "merge-base", "--is-ancestor", pred_tip,
+                         integration_tip).returncode == 0
+        if not contained:
+            findings.append(f"{integration_name} does not contain the predecessor's "
+                            f"integration tip {pred_tip}; start it from {pred_integration}")
+    ok = not findings and bool(carried) and all(r["ok"] for r in carried.values())
+    report = {"predecessor": pred,
+              "predecessor_integration": {"name": pred_integration, "tip": pred_tip},
+              "carried": carried, "dropped": dropped, "findings": findings, "ok": ok}
+    return report, not ok
 
 
 def compute_parallelism(items_by_id: dict, frontier: list[str], env_contract: dict | None) -> dict:
@@ -226,11 +383,22 @@ def build_packet(binder_path: Path, repo: Path) -> dict:
         binder = None
 
     slug = binder.get("slug") if isinstance(binder, dict) else None
-    default_branch = detect_default_branch(repo)
+    default_branch, default_branch_error = resolve_default_branch(repo)
+    halt = halt or default_branch_error is not None
     integration_name = f"karta/{slug}/integration" if slug else None
     integration_tip = ref_target(repo, integration_name) if integration_name else None
     integration_branch = {"name": integration_name, "exists": integration_tip is not None,
                           "tip": integration_tip}
+    integration_base = {"ref": default_branch,
+                        "sha": ref_target(repo, default_branch) if default_branch else None}
+
+    supersedes: dict | None = None
+    if slug and isinstance(binder, dict) and validator_proc.returncode == 0:
+        supersedes, sup_halt = check_supersedes(repo, binder, integration_name, integration_tip)
+        halt = halt or sup_halt
+        if supersedes is not None:
+            pred = supersedes["predecessor_integration"]
+            integration_base = {"ref": pred["name"], "sha": pred["tip"]}
 
     refs: dict[str, str] = {}
     wave_tags: dict[str, str] = {}
@@ -248,13 +416,16 @@ def build_packet(binder_path: Path, repo: Path) -> dict:
             items = binder.get("work_items", [])
             items_by_id = {it["id"]: it for it in items}
             done_ids = set(done_provenance)
+            if supersedes is not None and supersedes["ok"]:
+                done_ids |= set(supersedes["carried"])
             frontier = [it["id"] for it in items
                         if it["id"] not in done_ids
                         and all(d in done_ids for d in (it.get("depends_on") or []))]
             parallelism = compute_parallelism(items_by_id, frontier, binder.get("env_contract"))
 
-    if validator_proc.returncode != 0:
+    if validator_proc.returncode != 0 or (supersedes is not None and not supersedes["ok"]):
         frontier = []
+        parallelism = {"parallel": [], "serialize": [], "reasons": {}, "unresolved": []}
 
     tools = {
         "run_oracle.py": str(RUN_ORACLE),
@@ -267,7 +438,10 @@ def build_packet(binder_path: Path, repo: Path) -> dict:
         "validator": validator,
         "slug": slug,
         "default_branch": default_branch,
+        "default_branch_error": default_branch_error,
         "integration_branch": integration_branch,
+        "integration_base": integration_base,
+        "supersedes": supersedes,
         "refs": refs,
         "wave_tags": wave_tags,
         "done_provenance": done_provenance,
@@ -469,8 +643,26 @@ def _run_self_test() -> int:
         check("tools map carries absolute, existing paths for all four scripts", tools_ok,
               json.dumps(packet["tools"]))
 
+        # --- default branch: local-only discovery, never a guess ---------------------
+        r = tmp / "trunk"
+        r.mkdir()
+        _git(r, "init", "-q", "-b", "trunk")
+        _git(r, "config", "user.email", "t@example.invalid")
+        _git(r, "config", "user.name", "karta self-test")
+        commit(r, "base")
+        check("a local-only repository whose one branch is trunk resolves to trunk",
+              detect_default_branch(r) == "trunk")
+        _git(r, "branch", "feature")
+        name, problem = resolve_default_branch(r)
+        check("two unconventional branches and no configuration is an error, not a guess",
+              name is None and DEFAULT_BRANCH_KEY in (problem or ""), str(problem))
+        _git(r, "config", DEFAULT_BRANCH_KEY, "trunk")
+        check("git config karta.defaultBranch settles it",
+              detect_default_branch(r) == "trunk")
+
         # --- required top-level keys always present ----------------------------------
-        need = {"validator", "slug", "default_branch", "integration_branch", "refs",
+        need = {"validator", "slug", "default_branch", "default_branch_error",
+                "integration_branch", "integration_base", "supersedes", "refs",
                 "wave_tags", "done_provenance", "halt", "frontier", "parallelism", "tools"}
         check("packet always carries every contracted top-level key", need <= set(packet))
     finally:

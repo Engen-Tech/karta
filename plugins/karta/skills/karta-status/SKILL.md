@@ -24,8 +24,29 @@ All state is git-native and recomputed on every call — there is no stored curs
   phase.
 - **Binder status** — `merged` (every item's `done` ref is an ancestor of the default branch),
   `in_flight` (integration branch exists, or some items merged), or `not_started`.
-- **Work-item frontier** (for the in-flight binder) — `done` / `built` / `failed` / `building` /
-  `ready` / `blocked`, from `depends_on` and the `refs/karta/<slug>/item-<id>/*` refs.
+- **Work-item frontier** (for the in-flight binder) — `done` / `accepted` / `built` / `failed` /
+  `building` / `ready` / `blocked`, from `depends_on` and the `refs/karta/<slug>/item-<id>/*` refs.
+  `accepted` is done under a human waiver: merged, but the named assertion was not met. It counts
+  as complete, and every surface shows it apart from a clean pass, with the reason from the merge
+  commit's `Karta-Accept-Reason` trailer.
+- **A done ref is trusted only after provenance.** Status applies the rules karta-deliver
+  uses on resume — the deliver skill's `check_item_provenance.py` over `<done>^1..<done>` with its
+  accepted-state rules, plus first-parent reachability on `karta/<slug>/integration`. A done ref
+  that fails is ignored and named in a warning, and so is a ref for an item the binder does not
+  declare. The delivery Stop guard reads the same verdicts, so a forged done never silences it.
+- **Successor binders.** A binder with `supersedes: {slug, carried}` repairs a partially delivered
+  one. Each carried item is `done` (or `accepted`) when its predecessor's done ref under
+  `refs/karta/<predecessor>/` passes the same provenance rules, and it is shown as
+  delivered by the predecessor; a carried item without that proof is not done and draws a
+  warning. A live predecessor with a live successor is labelled superseded and is never offered
+  as the next action — its remaining work is the successor's.
+- **Unreadable binders are errors, never skipped.** A binder file that is not JSON, or is JSON but
+  not a binder object, is listed in `errors` by path, and the next action says to repair it.
+- **Next action** — one of: repair an unreadable or deleted binder; resume a delivery (including
+  built items the merge queue never merged); land an integration branch whose every item is
+  merged (the human's decision — status names it and never runs it); start the next binder;
+  clean up branches or worktrees a landed binder left behind; plan the first binder in an empty
+  repo; or the calm all-delivered end state.
 
 ## Two modes, two gates
 
@@ -50,12 +71,15 @@ the default — not an extra someone has to ask for:
 It is a **long-running** server (a browser polls it for as long as the page is open), so start it as a
 **persistent/managed process** — a bare `&` or `nohup` is often reaped by the agent runtime before
 it binds, so use the runtime's managed background-session mechanism — then **confirm it is serving
-and hand the user the working URL**, not just the launch command: `http://127.0.0.1:8765/` (forward
-the port on a remote host). The page shows the binder sequence as a card column ending at the
+and hand the user the working URL**, not just the launch command: the full
+`http://127.0.0.1:8765/?key=<token>` URL it prints at startup (on a remote host, forward the port to
+the same port number locally — the page only answers a Host of `127.0.0.1:<port>` or
+`localhost:<port>`). The page shows the binder sequence as a card column ending at the
 `★ main` integration star, the current binder's work items grouped by state (each with its oracle
 and a click-to-expand assertion + command), and the next action as a copy banner; it polls
-`/state.json` to stay live. `?theme=light|dark` forces a theme; `--key <token>` gates it behind
-`?key=`. It is **self-contained** (vendored Vue, system fonts, no CDN, no build step) and
+`/state.json` to stay live. `?theme=light|dark` forces a theme. Every route except the static
+assets needs `?key=`: a fresh token is generated on each start (`--key <token>` supplies your own),
+and a request naming any other Host is refused, assets included. It is **self-contained** (vendored Vue, system fonts, no CDN, no build step) and
 **zero-dependency** stdlib Python; `serve_status.py --self-test` checks its invariants.
 
 ## Persistent mode — the Karta Watch hub (per-repo opt-in)

@@ -292,14 +292,18 @@ def derive_state(cwd: str) -> dict | None:
 
 
 def summarize(binders: list[dict], state: dict | None) -> list[str]:
-    """At most one short line per binder, MAX_LINES total; empty when no binders."""
-    if not binders:
+    """At most one short line per binder, MAX_LINES total; empty when there are
+    no binders and the engine reports no error (an unreadable binder file is an
+    engine error, so it is named rather than silently summarized away)."""
+    errors = [e for e in (state or {}).get("errors") or [] if isinstance(e, str)]
+    if not binders and not errors:
         return []
     lines = [f"karta: {len(binders)} binder(s) in .karta/binders"]
     by_slug: dict = {}
     if state:
         by_slug = {b.get("slug"): b for b in state.get("binders", []) if isinstance(b, dict)}
-    room = _BODY_LINES - 1 - (1 if state else 0)  # header + optional next-action line
+    # header + optional next-action line + optional error line
+    room = _BODY_LINES - 1 - (1 if state else 0) - (1 if errors else 0)
     shown = binders if len(binders) <= room else binders[:room - 1]
     for b in shown:
         slug = b["slug"]
@@ -308,13 +312,19 @@ def summarize(binders: list[dict], state: dict | None) -> list[str]:
         st = by_slug.get(slug)
         if st:
             items = st.get("items") or {}
+            # accepted-done is complete but waived: counted, and named apart
+            done = (items.get("done", 0) or 0) + (items.get("accepted", 0) or 0)
+            waived = f" ({items['accepted']} waived)" if items.get("accepted") else ""
             lines.append(f"  {slug} — {st.get('status', '?')}, "
-                         f"{items.get('done', 0)}/{items.get('total', count)} items done, "
+                         f"{done}/{items.get('total', count)} items done{waived}, "
                          f"packs: {packs}")
         else:
             lines.append(f"  {slug} — {count} item(s), packs: {packs}")
     if len(binders) > len(shown):
         lines.append(f"  … and {len(binders) - len(shown)} more binder(s)")
+    if errors:
+        more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
+        lines.append(f"  error: {errors[0]}{more}")
     if state:
         na = state.get("next_action") or {}
         nxt = na.get("command") or na.get("human")
@@ -645,9 +655,31 @@ def _run_self_test() -> int:
         loaded = load_binders(binders_dir)
         checks.append(("loader keeps binders, skips junk",
                        [b["slug"] for b in loaded] == ["s-a"]))
-        # a non-dict JSON in the dir crashes the engine — the hook must degrade, not raise
-        checks.append(("engine crash degrades to the static summary", derive_state(td) is None))
-        static_e2e = summarize(loaded, derive_state(td))
+        # the engine names junk binder files as errors instead of crashing on them
+        state = derive_state(td)
+        named = summarize(loaded, state)
+        checks.append(("engine reports junk binder files; the summary names the error",
+                       isinstance(state, dict)
+                       and any("broken.json" in e for e in state.get("errors", []))
+                       and any(ln.startswith("  error: binder file ") for ln in named)
+                       and any("s-a" in ln for ln in named)))
+        # an engine that cannot run (a stand-in plugin root whose engine exits
+        # non-zero) degrades to the static summary — the hook never raises
+        saved_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as stub:
+            stub_script = Path(stub) / STATUS_REL
+            stub_script.parent.mkdir(parents=True)
+            stub_script.write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
+            os.environ["CLAUDE_PLUGIN_ROOT"] = stub
+            try:
+                crashed = derive_state(td)
+            finally:
+                if saved_root is None:
+                    os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+                else:
+                    os.environ["CLAUDE_PLUGIN_ROOT"] = saved_root
+        checks.append(("engine crash degrades to the static summary", crashed is None))
+        static_e2e = summarize(loaded, crashed)
         checks.append(("degraded summary still emits", any("s-a" in ln for ln in static_e2e)))
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
@@ -688,8 +720,11 @@ def main() -> int:
         cwd = payload.get("cwd") if isinstance(payload, dict) else None
         cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
         _fire_ensure(cwd)  # fire-and-forget hub revival on every session start
-        binders = load_binders(Path(cwd) / ".karta" / "binders")
-        lines = summarize(binders, derive_state(cwd)) if binders else []
+        binders_dir = Path(cwd) / ".karta" / "binders"
+        binders = load_binders(binders_dir)
+        # any binder file at all, readable or not: an unreadable one is reported
+        present = binders_dir.is_dir() and any(binders_dir.glob("*.json"))
+        lines = summarize(binders, derive_state(cwd)) if present else []
         watch = _watch_line(cwd)
         if watch is not None:
             print(wrap(lines, protected=watch))

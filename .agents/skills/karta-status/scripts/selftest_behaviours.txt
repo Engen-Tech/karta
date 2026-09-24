@@ -508,3 +508,8 @@ review-record-only-shows-verdicts-and-no-rounds
 review-strip-survives-a-mid-session-archive
 review-slug-cannot-escape-the-roundtable-directory
 review-file-corruption-degrades-to-unavailable
+
+# Status truth (audit F13/F14): a waived item never reads as passed, and the
+# engine's warnings/errors are on the page whenever the next action points at them.
+accepted-is-never-badged-passed
+notices-list-engine-warnings-and-errors

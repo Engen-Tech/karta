@@ -28,7 +28,7 @@ match: ["go"]
 ## Review checklist
 - [ ] goname.1 — Changed identifiers use camelCase/PascalCase (no snake_case or SCREAMING_SNAKE) and keep initialisms one case (userID, HTTPClient, parseXML); Test/Benchmark/Fuzz names may carry underscores after the prefix (TestFoo_bar).
 - [ ] goname.2 — New exports are justified in the diff — a consumer in it or its tests, or the declared contract/library surface; main packages export only reflection-read struct fields.
-- [ ] goname.3 — No new identifier shadows a builtin (any, min, max, len, clear, …) or a package imported by the same file.
+- [ ] goname.3 — No new identifier shadows a builtin of go.mod's `go` version (any, min, len, …) or a package the file imports.
 - [ ] goname.4 — No type names embedded in new identifiers, except conversion pairs (userIDStr).
 - [ ] goname.5 — New packages are short lowercase single words naming their contents — no catch-alls (util, helpers, common, types), no Go-special names (internal, vendor, testdata), no stdlib package name (strings, fmt, errors).
 - [ ] goname.6 — New exported names don't repeat their package name (customer.New, not customer.NewCustomer).

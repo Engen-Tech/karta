@@ -8,22 +8,25 @@ exclude_rules: ["vue.1", "vue.2", "vue.3"]
 ---
 ## Why this pack exists
 
-The built-in `vue` pack assumes a Single-File-Component project with a build step and
-TypeScript. Karta Watch is not that, and cannot become that: it is one Vue app created
-with `Vue.createApp`, using the Options API, whose template is a string embedded in
-`skills/karta-status/scripts/serve_status.py` and whose runtime is a single vendored
-file served same-origin. There is no compiler, so there are no compiler macros; there
+The built-in `vue` pack scopes `vue.1` to Single-File-Component projects with a build
+step and `vue.2`/`vue.3` to TypeScript. Karta Watch is neither, and cannot become either:
+it is one Vue app created with `Vue.createApp`, using the Options API, whose template is
+a string embedded in `skills/karta-status/scripts/serve_status.py` and whose runtime is
+a single vendored file served same-origin. There is no compiler, so there are no compiler macros; there
 is no TypeScript, so there are no typed signatures.
 
 `vue.1` (use `<script setup>`), `vue.2` (typed `defineProps`/`defineEmits`) and `vue.3`
-(no `any` in signatures) are therefore excluded rather than left to fail forever. The
-rest of the built-in still applies and still enforces — `vue.4` stable `:key`, `vue.5`
-no prop mutation, `vue.6` teardown for listeners and timers, `vue.7` sanitized `v-html`,
-`vue.8` native inputs over picker dependencies.
+(no `any` in signatures) therefore never apply here; excluding them states that outright
+and puts `hvue.1` in their place. Once this pack is active, the rest of the built-in applies
+and enforces — `vue.4` stable `:key`, `vue.5` no prop mutation, `vue.6` teardown for
+listeners and timers, `vue.7` sanitized `v-html`, `vue.8` native inputs over picker
+dependencies.
 
-The `vue` built-in does not match this repo on its own: `detect_stack.py` reads package
-manifests, and karta has none — every script carries inline metadata instead. This pack
-is `always: true` so the guidance applies to the watch page regardless.
+Activation: this pack declares `match: ["vue"]`, not `always: true`. Stack detection reads
+package manifests, and this repo has none that declares vue — every script carries inline
+metadata instead — so detection never emits the `vue` token and this pack is currently
+inactive: it is never pinned to a binder and its checklist gates nothing. Turning it on
+(`always: true` in place of `match`) adds gating, which is a human policy decision.
 
 ## Do
 

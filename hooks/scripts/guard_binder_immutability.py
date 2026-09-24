@@ -8,7 +8,10 @@
 Zero dependencies (pure stdlib). The harness invokes this on Write|Edit|NotebookEdit
 with the hook payload JSON on stdin. If the target path is a binder
 (`.karta/binders/*.json`, or a delivered one under `.karta/binders/archive/`) that
-already exists in HEAD, the write is denied — exit 2 with the reason on stderr. A
+already exists in HEAD, the write is denied — exit 2 with the reason on stderr. The
+target is judged by its lexical name, its symlink-resolved name, and — for a regular
+file with more than one link — its inode, so a hard link to a committed binder is
+denied like the binder itself. A
 committed live binder is the plan of record karta-deliver derives run state from, so
 mutating it mid-flight desynchronizes the run; an archived binder is delivered
 history and is never edited. Untracked binder writes (plan drafting) pass. Any
@@ -19,7 +22,7 @@ call.
   guard_binder_immutability.py --self-test  # run embedded fixtures, exit 0/1
 """
 from __future__ import annotations
-import argparse, json, os, re, subprocess, sys
+import argparse, json, os, re, stat, subprocess, sys
 from pathlib import Path
 
 def _read_stdin_text() -> str:
@@ -36,26 +39,77 @@ BINDER_RE = re.compile(r"(?:^|/)\.karta/binders/(?:archive/)?[^/]+\.json$")
 
 
 def _os_spelling(path: str, cwd: str) -> str:
-    """The spelling the OS will actually open, in git's forward-slash form.
+    """Resolve dot segments and existing symlinks before classifying a target."""
+    target = os.path.realpath(os.path.join(cwd or os.getcwd(), path))
+    return os.path.normcase(target).replace(os.sep, "/")
 
-    A literal match on the typed path is the fact on POSIX, where open() opens
-    exactly what was typed — only separators are normalised. On Windows it is
-    not: a write resolves case-insensitively (`.Karta`), strips trailing dots
-    and spaces from the last component (`x.json.`), and accepts 8.3 short
-    names (`KARTA~1`), so all of those reach the file this guard protects
-    while sailing past the pattern. abspath() applies the dot/space cleanup
-    the OS will apply, realpath() returns existing components in their true
-    long-name casing, and the lowercase fold covers components that do not
-    exist yet — matched against an all-lowercase pattern, that is NTFS's own
-    equivalence."""
-    if os.name != "nt":
-        return path.replace("\\", "/")
-    p = path if os.path.isabs(path) else os.path.join(cwd or ".", path)
+
+def _binder_targets(path: str, cwd: str) -> set[str]:
+    # Keep the lexical name too: overwriting a committed binder that is itself
+    # a symlink must not become legal merely because its target is elsewhere.
+    lexical = os.path.normcase(os.path.abspath(os.path.join(cwd or os.getcwd(), path)))
+    return {p for p in (lexical.replace(os.sep, "/"), _os_spelling(path, cwd))
+            if BINDER_RE.search(p)}
+
+
+def _repo_top(start: str) -> str | None:
+    top = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True, encoding="utf-8")
+    return top.stdout.strip() if top.returncode == 0 and top.stdout.strip() else None
+
+
+def _worktrees(top: str) -> list[str]:
+    """`top` plus every worktree of its repository (`git worktree list --porcelain`)."""
     try:
-        p = os.path.realpath(os.path.abspath(p))
-    except (OSError, ValueError):
-        pass
-    return p.replace(os.sep, "/").lower()
+        out = subprocess.run(["git", "-C", top, "worktree", "list", "--porcelain"],
+                             capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return [top]
+    if out.returncode != 0:
+        return [top]
+    lines = out.stdout.decode("utf-8", errors="surrogateescape").splitlines()
+    return [top, *(line[len("worktree "):] for line in lines if line.startswith("worktree "))]
+
+
+def _hardlinked_binder(path: str, cwd: str) -> bool:
+    """Is `path` a hard link to a binder committed in HEAD?
+
+    realpath collapses symlinks, never hard links: a second name for the binder's
+    inode classifies as an ordinary file. So when the resolved target is a regular
+    file with more than one link, compare its (st_dev, st_ino) with every binder
+    HEAD tracks — live and archived — in every worktree of the repository of the
+    working directory and of the target, and apply the binder rule on a match. A
+    linked worktree holds its own copy of each tracked file, so a hard link made in
+    one worktree to another worktree's binder matches only in that other worktree."""
+    target = os.path.realpath(os.path.join(cwd or os.getcwd(), path))
+    try:
+        st = os.stat(target)
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink < 2:
+        return False
+    tops = {t for t in (_repo_top(os.path.dirname(target)), _repo_top(cwd or os.getcwd())) if t}
+    tops = {os.path.realpath(w) for t in tops for w in _worktrees(t)}
+    for top in sorted(tops):
+        listing = subprocess.run(["git", "-C", top, "ls-tree", "-r", "-z", "--name-only", "HEAD"],
+                                 capture_output=True, timeout=10)
+        if listing.returncode != 0:
+            continue
+        for rel in listing.stdout.decode("utf-8", errors="surrogateescape").split("\0"):
+            if not rel or not BINDER_RE.search(rel):
+                continue
+            try:
+                other = os.stat(os.path.join(top, rel))
+            except OSError:
+                continue
+            if (other.st_dev, other.st_ino) == (st.st_dev, st.st_ino):
+                return True
+    return False
+
+
+def _committed_binder(path: str, cwd: str, tracked) -> bool:
+    return (any(tracked(p, cwd) for p in _binder_targets(path, cwd))
+            or _hardlinked_binder(path, cwd))
 
 
 def _target_path(tool_input: dict) -> str | None:
@@ -68,7 +122,7 @@ def _target_path(tool_input: dict) -> str | None:
 
 def _tracked_in_head(path: str, cwd: str) -> bool:
     """Is `path` (as the tool call names it) a blob in HEAD of its repo?"""
-    abs_path = (Path(path) if os.path.isabs(path) else Path(cwd) / path).resolve()
+    abs_path = Path(os.path.abspath(os.path.join(cwd, path)))
     base = str(abs_path.parent) if abs_path.parent.is_dir() else cwd
     top = subprocess.run(["git", "-C", base, "rev-parse", "--show-toplevel"],
                          capture_output=True, text=True, encoding="utf-8")
@@ -90,9 +144,9 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
         return 0, ""
     target = _target_path(tool_input)
     cwd = payload.get("cwd") or os.getcwd()
-    if not target or not BINDER_RE.search(_os_spelling(target, cwd)):
+    if not target:
         return 0, ""
-    if not tracked(target, cwd):
+    if not _committed_binder(target, cwd, tracked):
         return 0, ""  # untracked draft — plan-time binder writing is allowed
     return 2, (
         f"karta: committed binders are read-only. '{target}' already exists in HEAD, and a "
@@ -181,15 +235,36 @@ def _run_self_test() -> int:
         git("add", ".")
         git("-c", "user.email=karta@test", "-c", "user.name=karta", "commit", "-q", "-m", "seed")
         (repo / ".karta" / "binders" / "draft.json").write_text("{}\n", encoding="utf-8")
+        # A linked worktree holds its own copies: a hard link made there to the main
+        # checkout's binder must still meet the binder rule; one to a non-binder not.
+        (repo / "notes.txt").write_text("x\n", encoding="utf-8")
+        git("add", "notes.txt")
+        git("-c", "user.email=karta@test", "-c", "user.name=karta", "commit", "-q", "-m", "notes")
+        wt = Path(td) / "wt"
+        git("worktree", "add", "-q", str(wt), "HEAD")
+        linked = True
+        try:
+            os.link(repo / ".karta" / "binders" / "committed.json", wt / "alias.json")
+            os.link(repo / "notes.txt", wt / "notes-alias.txt")
+        except OSError:
+            linked = False  # no hard links on this filesystem: nothing to alias
 
         git_cases = [
             ("git: committed binder denied across path aliases",
              ".karta/binders/committed.json", 2),
             ("git: untracked draft passes", ".karta/binders/draft.json", 0),
         ]
-        for name, rel, want in git_cases:
+        git_cases = [(n, rel, want, repo) for n, rel, want in git_cases]
+        if linked:
+            git_cases += [
+                ("git: hard link in a linked worktree to the main checkout's binder denied",
+                 "alias.json", 2, wt),
+                ("git: hard link in a linked worktree to a non-binder passes",
+                 "notes-alias.txt", 0, wt),
+            ]
+        for name, rel, want, where in git_cases:
             payload = {"hook_event_name": "PreToolUse", "tool_name": "Write",
-                       "cwd": str(repo), "tool_input": {"file_path": rel, "content": "{}"}}
+                       "cwd": str(where), "tool_input": {"file_path": rel, "content": "{}"}}
             code, _ = decide(payload)
             ok = code == want
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
@@ -203,7 +278,7 @@ def _run_self_test() -> int:
     print(f"[{'PASS' if msg_ok else 'FAIL'}] denial names the withdrawal path")
     failures += 0 if msg_ok else 1
 
-    total = len(cases) + 3
+    total = len(cases) + len(git_cases) + 1
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 

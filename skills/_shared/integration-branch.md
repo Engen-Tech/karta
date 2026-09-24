@@ -72,6 +72,10 @@ Git refs carry no authorship, and both commit identity and trailers are worker-f
 
 The accept multi-ref write is not atomic; write-order is fixed (trailers stamped only after the floor passes; then `done`; then `accepted` last), so re-entrancy is gated on the same reachability check. For a merge commit on the integration first-parent chain: carrying trailers but missing `accepted`/`done` → the floor already passed (the trailer implies it), so finish by writing `done`/`accepted`; no trailers yet (crash between merge and floor check) → the floor is unconfirmed, so re-run the post-accept floor check (revert-the-accept on failure), then stamp + write refs; `failed` deleted but no integration-reachable merge → the accept did not complete, so treat as still-halted and re-prompt.
 
+## Successor binders
+
+A successor binder (`supersedes: {slug, carried}`, see docs/how-to/binder-repair.md) builds on its predecessor's delivered work. Its integration branch starts from `karta/<predecessor>/integration`, not from the default branch, so the carried items are already present. The carried items' evidence stays under the predecessor's refs (`refs/karta/<predecessor>/item-<id>/done`); keep those refs and the predecessor's integration branch until the successor lands, because `deliver_preflight.py` re-proves every carried item from them on each run.
+
 ## Env-injection contract
 
 The test env binds to the wave (started once, torn down once). An item needing a stateful env gets karta-injected isolation params from the binder's `env_contract.isolation_params` (e.g. `PORT`, `COMPOSE_PROJECT_NAME`) **only if `env_contract.supports_isolation` is true**; otherwise the item **serializes** (a "do not parallelise" trigger).

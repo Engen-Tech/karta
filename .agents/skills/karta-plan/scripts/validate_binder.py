@@ -18,27 +18,11 @@ from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "references" / "binder-schema.json"
 
-# `shared_terms` — an optional top-level array declaring canonical strings several
-# work items must render byte-identically (the whole-binder consistency gate that
-# check_shared_terms.py enforces at deliver time). Its shape lives here rather than in
-# binder-schema.json because only validate_binder.py and check_shared_terms.py read the
-# field; injecting it into the loaded schema at check time keeps the top-level
-# additionalProperties:false from rejecting it while reusing the same JSON-schema checker
-# for its shape. Cross-references (unique entry id, item ids that resolve) are checked in
-# Python below, exactly as depends_on's duplicate/dangling checks are.
-_SHARED_TERMS_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "required": ["id", "canonical", "items"],
-        "additionalProperties": False,
-        "properties": {
-            "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
-            "canonical": {"type": "string", "minLength": 1},
-            "items": {"type": "array", "minItems": 2, "items": {"type": "string"}},
-        },
-    },
-}
+# binder-schema.json is the one complete structural contract: every field this validator
+# accepts is declared there, and the schema is loaded exactly as it sits on disk — never
+# extended at check time — so an editor or third-party tool validating against the file
+# gets the same structural answer as this script. Cross-references a JSON schema cannot
+# express (duplicate/dangling ids, cycles, waiver coverage) are checked in Python below.
 
 
 def _load_schema() -> dict:
@@ -49,7 +33,8 @@ def _load_schema() -> dict:
 # karta owns its binder schema, so rather than depend on `jsonschema` we check
 # against exactly the draft-2020-12 keywords binder-schema.json actually uses:
 #   type (incl. union lists), required, properties, additionalProperties:false,
-#   items, enum, const, pattern, minLength, minItems, oneOf, and local $ref.
+#   items, enum, const, pattern, minLength, minItems, uniqueItems, oneOf, anyOf,
+#   if/then/else, and local $ref.
 # Keywords outside that subset are ignored — keep this in step with the schema.
 
 def _type_ok(value, t: str) -> bool:
@@ -99,6 +84,13 @@ def _check(value, schema: dict, root: dict, path: list, errors: list[str]) -> No
     if isinstance(value, list):
         if "minItems" in schema and len(value) < schema["minItems"]:
             errors.append(f"schema: {loc}: array shorter than minItems {schema['minItems']}")
+        if schema.get("uniqueItems") is True:
+            seen: list = []
+            for item in value:
+                if item in seen:
+                    errors.append(f"schema: {loc}: has non-unique element {item!r}")
+                    break
+                seen.append(item)
         if "items" in schema:
             for i, item in enumerate(value):
                 _check(item, schema["items"], root, path + [i], errors)
@@ -116,6 +108,15 @@ def _check(value, schema: dict, root: dict, path: list, errors: list[str]) -> No
             if key in value:
                 _check(value[key], subschema, root, path + [key], errors)
 
+    if "anyOf" in schema:
+        if not any(_passes(value, sub, root, path) for sub in schema["anyOf"]):
+            errors.append(f"schema: {loc}: matched none of the anyOf branches")
+
+    if "if" in schema:
+        branch = "then" if _passes(value, schema["if"], root, path) else "else"
+        if branch in schema:
+            _check(value, schema[branch], root, path, errors)
+
     if "oneOf" in schema:
         matched = 0
         for sub in schema["oneOf"]:
@@ -128,9 +129,14 @@ def _check(value, schema: dict, root: dict, path: list, errors: list[str]) -> No
                 f"schema: {loc}: matched {matched} of the oneOf branches (exactly 1 required)")
 
 
+def _passes(value, schema: dict, root: dict, path: list) -> bool:
+    branch: list[str] = []
+    _check(value, schema, root, path, branch)
+    return not branch
+
+
 def _schema_errors(binder: dict) -> list[str]:
     schema = _load_schema()
-    schema.setdefault("properties", {})["shared_terms"] = _SHARED_TERMS_SCHEMA
     errors: list[str] = []
     _check(binder, schema, schema, [], errors)
     return sorted(errors)
@@ -164,6 +170,19 @@ def validate_binder(binder: dict) -> list[str]:
         for ref in term.get("items", []):
             if ref not in id_set:
                 errors.append(f"shared_terms: entry '{tid}' lists unknown work-item id '{ref}'")
+
+    # supersedes cross-references: a successor names another binder, and every carried id
+    # is one of its own work items (copied unchanged from the predecessor). Whether the
+    # predecessor really delivered them is a git question deliver_preflight.py answers.
+    sup = binder.get("supersedes")
+    if sup is not None:
+        if sup.get("slug") == binder.get("slug"):
+            errors.append("supersedes: a binder cannot supersede its own slug")
+        for ref in sup.get("carried", []):
+            if ref not in id_set:
+                errors.append(f"supersedes: carried id '{ref}' is not a work item of this binder")
+        for ref in set(sup.get("carried", [])) & set(sup.get("dropped", [])):
+            errors.append(f"supersedes: id '{ref}' is both carried and dropped")
 
     # cycle detection (DFS over depends_on)
     graph = {it["id"]: list(it.get("depends_on", [])) for it in items}
@@ -942,6 +961,24 @@ def _run_self_test() -> int:
         "design-reference-empty",
         [{"id": "a", "title": "A", "summary": "s", "design_reference": "", "oracle": _u}])
 
+    # UI-only fields on an item with no design_reference (a non-UI item) — a schema if/then.
+    ui_fields_non_ui = _design_binder("ui-fields-non-ui", [
+        {"id": "m", "title": "M", "summary": "s", "oracle": _u, "component_map": [{"n": "T"}]}])
+    ui_fields_ui = _design_binder("ui-fields-ui", [
+        {"id": "m", "title": "M", "summary": "s", "oracle": _u, "design_reference": "none",
+         "component_map": [{"n": "T"}], "icon_map": [], "token_changes": []}])
+
+    # supersedes: a successor binder carrying items the predecessor already delivered.
+    def _succ_binder(slug, supersedes):
+        return _design_binder(slug, [
+            {"id": "a", "title": "A", "summary": "s", "oracle": _u},
+            {"id": "b", "title": "B", "summary": "s", "oracle": _u, "depends_on": ["a"]}]) | {
+            "supersedes": supersedes}
+    succ_ok = _succ_binder("s-r2", {"slug": "s", "carried": ["a"]})
+    succ_dangling = _succ_binder("s-r2", {"slug": "s", "carried": ["ghost"]})
+    succ_self = _succ_binder("s-r2", {"slug": "s-r2", "carried": ["a"]})
+    succ_dup = _succ_binder("s-r2", {"slug": "s", "carried": ["a", "a"]})
+
     cases = [
         ("valid example", valid, True),
         ("well-formed shared_terms", shared_terms_ok, True),
@@ -1000,6 +1037,12 @@ def _run_self_test() -> int:
         ("design_reference empty string rejected by minLength", design_reference_empty, False),
         ("oracle carrying an expect marker validates", oracle_expect_ok, True),
         ("oracle expect that is not a string is rejected", oracle_expect_not_string, False),
+        ("UI-only field on an item without design_reference", ui_fields_non_ui, False),
+        ("UI-only fields on an item with design_reference", ui_fields_ui, True),
+        ("successor binder carrying a delivered item", succ_ok, True),
+        ("successor carried id that is not a work item", succ_dangling, False),
+        ("binder superseding its own slug", succ_self, False),
+        ("successor carried ids not unique", succ_dup, False),
     ]
     failures = 0
     for name, binder, should_pass in cases:
