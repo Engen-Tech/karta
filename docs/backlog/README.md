@@ -733,6 +733,37 @@ FINDINGS.md row 11 for `serialize`.
 
 ---
 
+## 29. karta is slow on Windows hosts — *Ready* (researched 2026-09-24)
+
+**What.** On Windows, driven from PowerShell by Copilot CLI or the ChatGPT/Codex desktop app, a karta shell
+invocation that takes seconds elsewhere can take minutes. Measured on a Windows 11 26200 box with
+Defender on, every layer karta itself spawns finishes in under 1.3 s: a `uv run --script` guard is
+0.2 to 0.5 s, and the worst karta-owned layer is the Codex `commandWindows` launcher at 0.45 to
+1.2 s per hook (cmd → Windows PowerShell 5.1 → four `Get-Command` probes → python). The minutes
+come from above karta: the desktop app's native Windows sandbox re-checks ACLs and re-logs-on a sandbox user before every command (15 to
+90 s per call in openai/codex #31958, #32314, #34529, #34889, #41351), with Defender real-time
+scanning as the multiplier.
+
+**Why it matters.** The plugin reads as unusable on Windows even though most of the time is not
+its own. The part that is its own, three process chains per `apply_patch` on Codex and one pwsh +
+uv + python + git chain per `uv run` line a skill asks for on Copilot, is fixable without a
+rewrite. A Go port was asked about: it removes 100 to 230 ms of interpreter and import time per
+call and nothing above that, so it is not the answer to "minutes".
+
+**Unblock path.** In payoff order. (1) Environment, no karta change: Codex sandbox log triage,
+Defender exclusions or a Dev Drive, `core.fscache`/`core.untrackedCache`/`core.fsmonitor`,
+`UV_PYTHON` pinned. (2) karta, cheap: make `commandWindows` call `uv run --script` straight from
+cmd and drop `launch_hook.ps1`; move Claude hooks to exec form (`command` + `args`, no bash.exe)
+with `if` filters; merge the three Write/Edit guards into one dispatcher; lazy-import the guards'
+stdlib; batch git calls; fewer `uv run` lines per skill turn. (3) Resident guards through Claude's
+`http`/`mcp_tool` and Codex's `mcp_tool` hook types, which remove the spawn instead of trimming
+it. Each step is independently measurable with the benchmark script in the findings.
+
+**Evidence.** [`windows-latency/FINDINGS.md`](windows-latency/FINDINGS.md): per-layer
+measurements, the source list, the per-host breakdown, the Go comparison, and the bench script.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
