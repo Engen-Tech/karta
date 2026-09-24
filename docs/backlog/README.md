@@ -735,12 +735,12 @@ FINDINGS.md row 11 for `serialize`.
 
 ## 29. karta is slow on Windows hosts — *Ready* (researched 2026-09-24)
 
-**What.** On Windows, driven from PowerShell by Copilot CLI or the Codex App, a karta shell
+**What.** On Windows, driven from PowerShell by Copilot CLI or the ChatGPT/Codex desktop app, a karta shell
 invocation that takes seconds elsewhere can take minutes. Measured on a Windows 11 26200 box with
 Defender on, every layer karta itself spawns finishes in under 1.3 s: a `uv run --script` guard is
 0.2 to 0.5 s, and the worst karta-owned layer is the Codex `commandWindows` launcher at 0.45 to
 1.2 s per hook (cmd → Windows PowerShell 5.1 → four `Get-Command` probes → python). The minutes
-come from above karta: Codex's native Windows sandbox re-checks ACLs before every command (15 to
+come from above karta: the desktop app's native Windows sandbox re-checks ACLs and re-logs-on a sandbox user before every command (15 to
 90 s per call in openai/codex #31958, #32314, #34529, #34889, #41351), with Defender real-time
 scanning as the multiplier.
 

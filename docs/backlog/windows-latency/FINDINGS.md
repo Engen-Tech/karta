@@ -7,8 +7,9 @@ Backlog item: `docs/backlog/README.md` §29 "karta is slow on Windows hosts"
 ## TL;DR
 
 **The minutes are not karta's Python. On this machine every layer karta spawns finishes in
-under 1.3 s. The multi-minute stalls people see in Codex App on Windows are Codex's native
-sandbox re-checking ACLs before every command, made worse by Defender. A Go rewrite would
+under 1.3 s. The multi-minute stalls people see in the ChatGPT/Codex desktop app on Windows
+are Codex's native sandbox re-checking ACLs and re-logging-on a sandbox user before every
+command, made worse by Defender. A Go rewrite would
 take 100 to 230 ms off each karta invocation and nothing off the layers that cost seconds
 or minutes.**
 
@@ -19,8 +20,9 @@ does a compiled binary become worth discussing, and even then as a thin shim.
 ## The question
 
 The deliverable's hooks and skill scripts are Python launched through `uv run --script`.
-On Windows, driven from PowerShell by GitHub Copilot's UI or the Codex App, a shell
-invocation that takes seconds on macOS or Linux takes minutes. What can karta do about it,
+On Windows, driven from PowerShell by GitHub Copilot's UI or the ChatGPT/Codex desktop app
+(build 26.915.31945 at the time of asking; not the standalone Codex CLI), a shell invocation
+that takes seconds on macOS or Linux takes minutes. What can karta do about it,
 and would rewriting the scripts in Go make it faster?
 
 ## What karta actually spawns per event
@@ -142,11 +144,22 @@ karta's repos are small, so the win is per-call latency, not seconds.
 
 ## Where the minutes come from, per host
 
-### Codex App and Codex CLI: the native Windows sandbox
+### The ChatGPT/Codex desktop app (and Codex CLI): the native Windows sandbox
+
+The desktop app is the case that was asked about. It bundles its own command runner (the
+sandbox log names it, for example `codex-command-runner-0.151.0-alpha.7.1.exe` under the
+`WindowsApps\OpenAI.Codex_26.825…` package), so a separately installed Codex CLI version
+says nothing about what the app is running, and the app updates itself. Most of the reports
+below are desktop reports, and the desktop path is the slower one: on the same machine a
+trivial probe took 31 to 68 s through the app's nested sandbox shell and 1.3 to 2.2 s through
+a direct `codex sandbox` call (#32314); another user measured 89 to 98 s through the app
+against about 1 s direct (#34529). The app processes three writable roots where the CLI
+processes two.
 
 Before every sandboxed command Codex runs `codex-windows-sandbox-setup.exe`, which
-re-verifies ACLs across every writable root. Users on Windows 11 build 26200 measured the
-delay directly, with the command itself taking well under a second:
+re-verifies ACLs across every writable root, then launches the runner as a dedicated sandbox
+user. Users on Windows 11 build 26200 measured the delay directly, with the command itself
+taking well under a second:
 
 | Report | What was measured | Workaround that worked |
 |-|-|-|
@@ -156,17 +169,26 @@ delay directly, with the command itself taking well under a second:
 | [#34889](https://github.com/openai/codex/issues/34889) | 0.145.0 explicit-ACE repair; `%TEMP%` with 165k objects exceeds 60 s; still present in 0.147.0 | point `TMP`/`TEMP` at a clean directory; a `writable_roots` list that included the uv cache directories hung every command |
 | [#41351](https://github.com/openai/codex/issues/41351) | 0.150.1 unelevated: 15.4 s in one `CreateFile` on a `\\NUL` path before every command | none yet; `danger-full-access` control ran in 122 ms |
 | [#39484](https://github.com/openai/codex/issues/39484), [#39574](https://github.com/openai/codex/issues/39574) | trivial `Get-Content` stays "Working" for minutes on 0.144 and 0.145 | `[features] unified_exec = true` gave one reporter a 0 ms exec |
+| [#34062](https://github.com/openai/codex/issues/34062) | the elevated runner is started with `CreateProcessWithLogonW(LOGON_WITH_PROFILE)`, loading the sandbox user's registry hive on every command; desktop 26.707 measured `cmd /c exit 0` at 31.9 to 35.9 s elevated against 0.3 s unelevated | a one-line patch (logon flags 0) removed the profile loads; not confirmed merged |
+| [#33049](https://github.com/openai/codex/issues/33049) | desktop 26.707: `Get-Location` never returns; traced to stale explicit `CodexSandboxUsers` `0x1301FF` ACEs from an older install that setup tries and fails to repair every call | removing those ACEs from the drive root and user folder restored a working `elevated` sandbox |
 
 Fixes have shipped piecemeal: coalesced setup requests in 0.145.0, hardened elevated
-startup in 0.146.0, Unicode-path and ACL read-control fixes in 0.150.0, compatible
-PowerShell selection in 0.152.0 ([releases](https://github.com/openai/codex/releases)).
-The 0.147.0 retest in #34889 says the tree-size cost is still there. The official
-[Windows sandbox page](https://learn.chatgpt.com/docs/windows/windows-sandbox) documents
-the `elevated` and `unelevated` modes and says nothing about latency.
+startup in 0.146.0, Unicode-path and ACL read-control fixes plus Windows sandbox
+diagnostics in `codex doctor` in 0.150.0, compatible PowerShell selection in 0.152.0
+([releases](https://github.com/openai/codex/releases),
+[changelog](https://learn.chatgpt.com/docs/changelog)). The September 2026 releases start
+restructuring the path itself: "Separate Windows sandbox provisioning from ACL refresh"
+(#42309), a sandbox provisioning service (#42334, #42353), and a shared background
+app-server daemon on Windows (#42405). The 0.147.0 retest in #34889 says the tree-size cost
+was still there then. Desktop build 26.915.31945 is newer than any report found here, so
+whether it carries the provisioning split is unverified; the sandbox log will say. The
+official [Windows sandbox page](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+documents the `elevated` and `unelevated` modes and says nothing about latency.
 
-How to confirm on a given machine: open `%USERPROFILE%\.codex\.sandbox\sandbox.*.log` and
-read the gap between `setup refresh: spawning … codex-windows-sandbox-setup.exe` and
-`setup binary completed`. If that gap is tens of seconds, karta is not the problem.
+How to confirm on a given machine: open `%USERPROFILE%\.codex\.sandbox\sandbox.*.log`. The
+`spawning` line names the app package and runner version; the gap between
+`setup refresh: spawning … codex-windows-sandbox-setup.exe` and `setup binary completed` is
+the sandbox cost. If that gap is tens of seconds, karta is not the problem.
 
 On top of that, karta's own Codex launcher adds 0.45 to 1.2 s per hook (measured above),
 three times per `apply_patch`.
@@ -195,11 +217,14 @@ parallel, so a Write costs roughly one guard's wall time, not four.
 
 ### Tier 0: environment, no karta change, largest wins
 
-1. **Codex.** Read the sandbox log gap first. Upgrade to 0.150 or later. Add the Codex
-   install directory and the repo to Defender exclusions. Point `TMP`/`TEMP` at a small
-   clean directory. Keep `writable_roots` short and never include the uv cache. Try
-   `[features] unified_exec = true`. Weigh `[windows] sandbox = "unelevated"` against the
-   `apply_patch` split-root failure.
+1. **Codex desktop app.** Read the sandbox log gap first, and note the bundled runner
+   version it prints. Add the app's `WindowsApps\OpenAI.Codex_*` package directory and the
+   repo to Defender exclusions. Point `TMP`/`TEMP` at a small clean directory. Keep
+   `writable_roots` short and never include the uv cache. If the machine had an older Codex
+   install, check the drive root and user folder for stale explicit `CodexSandboxUsers`
+   ACEs (#33049). Try `[features] unified_exec = true`. Weigh
+   `[windows] sandbox = "unelevated"` against the `apply_patch` split-root failure. If a
+   standalone CLI is also installed, `codex doctor` reports sandbox diagnostics since 0.150.
 2. **Defender.** Exclude the repo, `%LOCALAPPDATA%\uv`, and the Python install, or add
    process exclusions for `python.exe`, `uv.exe`, `git.exe`, `pwsh.exe`. Better: put repos
    and the uv cache on a Dev Drive so scanning goes asynchronous without exclusions.
