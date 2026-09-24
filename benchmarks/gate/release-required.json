@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "purpose": "One explicit release decision per bench-spec vector. The house release gate (scripts/hooks/precommit_gate.py) refuses a version bump unless the committed gate result reports every required vector as PASS, never SKIPPED, and partial only where partial_allowed carries a written partial_reason. A vector marked required: false is not release evidence in either direction; its reason says why. This inventory records what a green gate covers today. It is not a claim that the not-required vectors are covered, and changing a decision changes the source fingerprint, so a result produced under an older inventory cannot authorize a release.",
+  "vectors": [
+    {
+      "id": "flow-guard-enforcement-matrix",
+      "required": true,
+      "partial_allowed": true,
+      "partial_reason": "Families A and B (guard payload matrix and manifest-vs-matcher parity) are gated; Family C live cells need headless host sessions and are a deferred quarterly phase. The probe also passes while known-open rows stay unchanged, so known_open_count is reported separately from regression health."
+    },
+    {
+      "id": "flow-spec-contradictions",
+      "required": true,
+      "partial_allowed": false
+    },
+    {
+      "id": "dark-ledger-burndown",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists; the one-time seeding pass the vector depends on has not been done."
+    },
+    {
+      "id": "dark-status-surface-probes",
+      "required": true,
+      "partial_allowed": false
+    },
+    {
+      "id": "dark-midwave-crash-resume",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists; the campaign needs a headless deliver run killed mid-wave, which is a deferred live-agent phase."
+    },
+    {
+      "id": "field-delivery-state-audit",
+      "required": false,
+      "not_required": "needs-consumer",
+      "reason": "Measures deliveries in enrolled consumer repositories; this checkout alone has none to audit. Reported SKIPPED when no --consumers are given.",
+      "needs_consumers": true
+    },
+    {
+      "id": "field-feature-adoption-ledger",
+      "required": false,
+      "not_required": "needs-consumer",
+      "reason": "Measures feature use in enrolled consumer repositories; without them the probe can only fail its own usage check. Reported SKIPPED when no --consumers are given.",
+      "needs_consumers": true
+    },
+    {
+      "id": "field-companion-loop-health",
+      "required": false,
+      "not_required": "needs-consumer",
+      "reason": "Measures gardner and kaizen activity in enrolled consumer repositories. Reported SKIPPED when no --consumers are given.",
+      "needs_consumers": true
+    },
+    {
+      "id": "sme-pack-static-suite",
+      "required": false,
+      "not_required": "needs-consumer",
+      "reason": "The probe refuses to run without enrolled consumer repositories to match packs against. Pack validity itself is checked by the commit gate's validate_packs step, not by this vector. Reported SKIPPED when no --consumers are given.",
+      "needs_consumers": true
+    },
+    {
+      "id": "sme-fixture-campaign",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists; the A/B fixture campaign needs headless agent runs, a deferred quarterly phase."
+    },
+    {
+      "id": "perf-context-latency-floors",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists and no latency budgets have been recorded yet."
+    },
+    {
+      "id": "perf-delivery-telemetry",
+      "required": false,
+      "not_required": "needs-consumer",
+      "reason": "Mines delivery telemetry from enrolled consumer repositories. Reported SKIPPED when no --consumers are given.",
+      "needs_consumers": true
+    },
+    {
+      "id": "perf-fixture-cost-baseline",
+      "required": true,
+      "partial_allowed": true,
+      "partial_reason": "Only fixture integrity and miner correctness are gated. The timed 90-minute headless delivery run and its cross-release comparison stay a manual quarterly run and never appear in implemented_checks."
+    },
+    {
+      "id": "quality-oracle-discrimination",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists."
+    },
+    {
+      "id": "quality-verify-integrity-drills",
+      "required": true,
+      "partial_allowed": true,
+      "partial_reason": "Only the Layer 0 static sentinels are gated. Families E (empty-diff agent paths) and K (kickback caps) need headless agent sessions and are a deferred live-agent phase. Known-open sentinels are counted in known_open_count, not as regressions."
+    },
+    {
+      "id": "quality-doc-gardner-recall",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists; recall needs headless doc-gardner runs over seeded drift, a deferred quarterly phase."
+    },
+    {
+      "id": "parity-doc-truth-ledger",
+      "required": true,
+      "partial_allowed": false
+    },
+    {
+      "id": "parity-mirror-sync-integrity",
+      "required": true,
+      "partial_allowed": false
+    },
+    {
+      "id": "sec-untrusted-input-surfaces",
+      "required": true,
+      "partial_allowed": true,
+      "partial_reason": "P1 (status page escaping, bind scope, key refusal) and P2 (delimited, budgeted SessionStart injection) are gated. P3, the live prompt-injection trajectories that measure whether an agent follows hostile repository or tool content, is a deferred live-agent phase; text delimiting and HTML escaping do not measure that."
+    },
+    {
+      "id": "release-gate-blocking-smoke",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists. The release gate's own behaviour is covered by precommit_gate.py --self-test and tests/test_audit_remaining_release.py, not by this vector."
+    },
+    {
+      "id": "bench-self-integrity",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists; its M1 mutation drill is a deferred quarterly phase."
+    },
+    {
+      "id": "ownership-cost-ledger",
+      "required": true,
+      "partial_allowed": false
+    },
+    {
+      "id": "consumer-upgrade-compat",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists, and the vector would also need enrolled consumer repositories.",
+      "needs_consumers": true
+    },
+    {
+      "id": "model-refresh-sentinel",
+      "required": false,
+      "not_required": "unimplemented",
+      "reason": "No probe exists; the sentinel needs live model runs, a deferred live-agent phase."
+    }
+  ]
+}

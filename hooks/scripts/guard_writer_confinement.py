@@ -3,11 +3,12 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""PreToolUse guard: confined writers stay inside their declared surfaces.
+"""PreToolUse guard: confined writers stay inside their declared surfaces, and the
+read-only gate reviewers write nothing.
 
-Zero dependencies (pure stdlib). The harness invokes this on Write|Edit|NotebookEdit
-and on Bash, with the hook payload JSON on stdin. It recognizes a confined writer by
-the payload's top-level `agent_type` — exactly the bare name or an exact
+Zero dependencies (pure stdlib). The harness invokes this on Write|Edit|MultiEdit|
+NotebookEdit and on Bash, with the hook payload JSON on stdin. It recognizes an actor
+by the payload's top-level `agent_type` — exactly the bare name or an exact
 `*:`-namespaced form, nothing wider (so `karta-kaizen-v2` is not recognized). Two
 writers are confined:
 
@@ -18,17 +19,23 @@ writers are confined:
                  payload `cwd`), plus exactly `.gitignore` — its one non-doc
                  exception (the superpowers-salvage ignore line). Never `.karta/`.
 
-On Write/Edit/NotebookEdit every target (`tool_input.file_path`,
-`tool_input.notebook_path`) must sit inside the writer's surface after normpath
-normalization; a call with no extractable string path is denied as unverifiable.
+On Write/Edit/MultiEdit/NotebookEdit every writer target (`tool_input.file_path`,
+`tool_input.notebook_path`) must resolve inside both the payload's working directory
+and the writer's surface. Existing symlinks and parent directories are resolved
+before classification, including for new files. A missing working directory or
+unverifiable target is denied.
 
 On Bash the command string is statically parsed for high-confidence file-write and
 delete operations — output redirections (`>`, `>>`, `>|`, `&>`), `tee`, `sed`/`perl`/
 `python`/`ruby` in-place (`-i`) flags, `mv`/`cp`/`install` destinations (`mv` checks
 both ends: it deletes the source too), `rm`/`rmdir`/`unlink`, `git mv`/`git rm`
-(honoring `git -C`), and one level of `bash -c`/`eval` unwrapping. Extracted targets
-are resolved against the payload `cwd` and checked against the same surface. Commands
-with no detected write operation (grep, ls, git status, ...) pass.
+(honoring `git -C`), and one level of `bash -c`/`eval` unwrapping. Commands are split
+on `;`, `&`, `|`, parentheses and newlines, and shell syntax in front of a command —
+`!`, `{`, `if`/`then`/`else`/`elif`, `while`/`until`/`do`, `time`, `coproc`, a
+`function NAME` header — is not taken for its name, so `{ rm x; }` and
+`if true; then rm x; fi` are judged as `rm x`. Extracted targets are resolved against
+the payload `cwd` and checked against the same surface. Commands with no detected
+write operation (grep, ls, git status, ...) pass.
 
 Fail posture — FAIL-CLOSED on the recognized shape, same as the kaizen-only cut and
 `guard_auditor_dispatch.py`: for a recognized confined writer, an internal error
@@ -39,18 +46,62 @@ no `cwd` in the payload, and `xargs`/`find -delete`-style runtime-determined tar
 are all denied with a corrective reason, not waved through. Unrecognized shapes —
 unreadable payload, missing `agent_type`, unknown writer, main thread — always pass.
 
-Honest limits (documented, deliberate): this is per-writer confinement, not a
-sandbox — an interpreter invocation (`python x.py`) or an unlisted tool that writes
-is not detected; segment/basename anchoring admits nested `docs/`/`README*` paths
-(the same accepted residual as kaizen's nested `.karta/sme/`); a Bash-written pack
-bypasses PostToolUse pack validation (kaizen carries no Bash today — this mode is
-defense against tool-grant drift, like the NotebookEdit matcher).
+Three gate reviewers are read-only — `karta-acceptance-reviewer`,
+`karta-safety-auditor`, `karta-design-reviewer`. Their writable
+surface is empty: every Write/Edit/MultiEdit/NotebookEdit is denied. Their Bash is
+judged by a fail-closed ALLOWLIST, not by the writers' deny analysis: a command passes
+only when every simple command in it is a listed read-only tool — `cat`, `head`,
+`tail`, `wc`, `ls`, `stat`, `file`, `grep`/`egrep`/`fgrep`, `rg`, `diff`, `cmp`, `sort`,
+`uniq`, `cut`, `tr`, `nl`, `basename`, `dirname`, `realpath`, `readlink`, `pwd`, `echo`,
+`true`, `false`, `test`/`[`, `find`, `jq`, `sha256sum`/`sha1sum`/`shasum`/`md5sum`, and `git` with a read-only subcommand (`diff`, `log`, `show`, `status`,
+`rev-parse`, `ls-files`, `ls-tree`, `cat-file`, `merge-base`, `blame`, `grep`,
+`for-each-ref`, `rev-list`, `describe`, `name-rev`, reading forms of `symbolic-ref`,
+`branch`, `worktree list` and `config`) — named by bare name, meeting its argument rule,
+and joined only by `;`, `&&`, `||`, `|` or newlines. Argument rules refuse the options
+that write or run a program: `find -exec`/`-execdir`/`-ok`/`-okdir`/`-delete`/`-fprint*`/
+`-fls`; `sort -o`/`-T`/`--compress-program`; a second `uniq` operand; `file -C`;
+`rg --pre`/`--hostname-bin`; git's `-c`, `--config-env`, `--exec-path`, `--git-dir`,
+`--work-tree` and every global option but `-C`, `--no-pager`, `-P`,
+`--no-optional-locks`, `--literal-pathspecs`, `--no-replace-objects`; a `git -C` that
+does not resolve (each `-C` applied to the last, as git does) to the working directory
+or the top level of one of its repository's worktrees — a directory below one may be a
+nested repository with its own config; `--output`, `--ext-diff`, `--textconv`, `--filters`
+and `git grep -O` (with every abbreviation git or GNU getopt would complete). Denied
+outright: shell reserved words and compound syntax (`{ } ( ) ! [[ ]]`, `if`, `for`,
+`while`, `until`, `case`, `function`, `select`, `coproc`, `time`, ...), `$` expansion
+and backticks, `#` comments, `&` background jobs, `|&`, every wrapper that runs
+another command (`eval`, `source`, `.`, `exec`, `trap`, `builtin`, `command`, `env`,
+`nohup`, `setsid`, `xargs`, `timeout`, `nice`, `stdbuf`, the shells themselves, ...),
+every builtin that assigns a variable or changes directory (`printf` — whose `-v`, in
+any spelling, can set `HOME` or `PATH` for the next listed command — `read`, `mapfile`,
+`getopts`, `let`, `declare`, `export`, `cd`, `pushd`, ...; `echo` covers output),
+every unlisted program (`sed`, `awk`, `perl`, `python`, `node`, `less`, `more`, `man`,
+`make`, `tee`, package managers and runners — so a project type-check is the
+orchestrator's to run, not the reviewer's), a program named by path (`./x`, `/usr/bin/x`),
+an unquoted glob or brace (`git rev^{tree}` and `ref@{n}` excepted), every assignment
+prefix but `GIT_PAGER=cat`, `PAGER=cat`, `LC_ALL=C` and `LANG=C`, and every redirection
+but one to `/dev/null` or an fd copy such as `2>&1`. Reviewer internal errors deny.
+
+Honest limits (documented, deliberate): this is per-writer confinement and a
+pre-operation hook, not a sandbox, and it runs only when the host starts it. For the
+writers, an interpreter invocation (`python x.py`), a shell script (`bash x.sh`) or an
+unlisted tool that writes is not detected; segment/basename anchoring admits nested
+`docs/`/`README*` paths (the same accepted residual as kaizen's nested
+`.karta/sme/`); a Bash-written pack bypasses PostToolUse pack validation
+(kaizen carries no Bash today — this mode is defense against tool-grant drift, like
+the NotebookEdit matcher). For the reviewers, the allowlisted tools keep their own
+behaviours, and git still runs any program the repository's own git config names
+(`core.fsmonitor`, a `diff.<driver>.textconv` or `diff.external` driver, a pager) and
+may refresh its own index file; a reviewer cannot set that config without a write,
+but whoever wrote the repository's `.git/config` can. Aliases and functions the host
+shell defines before it runs the command are outside the hook's view. A concurrent
+symlink swap after this pre-operation check is outside the hook's protection.
 
   guard_writer_confinement.py              # hook mode: payload on stdin, exit 0/2
   guard_writer_confinement.py --self-test  # run embedded fixtures, exit 0/1
 """
 from __future__ import annotations
-import argparse, json, os, re, shlex, sys
+import argparse, json, os, re, shlex, subprocess, sys
 
 def _read_stdin_text() -> str:
     """The hook payload is UTF-8 JSON, whatever the host's locale codec is.
@@ -88,6 +139,13 @@ WRITERS: dict[str, dict] = {
     },
 }
 
+# Read-only gate reviewers: an empty writable surface. Recognized like the writers.
+REVIEWERS = ("karta-acceptance-reviewer", "karta-safety-auditor",
+             "karta-design-reviewer")
+_EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+_REVIEWER_DOCTRINE = ("the gate reviewers are read-only: they read the diff, the binder and "
+                      "the evidence, and report; any edit goes back to karta-build")
+
 # Bash static analysis: commands that mutate files directly, shells/wrappers that
 # can smuggle a mutation past a surface check, and substitution markers that hide
 # commands from any static tokenization.
@@ -104,12 +162,86 @@ _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SCRIPT_FLAG_RE = re.compile(r"-[A-Za-z]*[eEcCmM]$")  # option cluster consuming a script arg
 _SUBSTITUTION_MARKERS = ("$(", "`", "<(", ">(")
 
+# Writers only: shell syntax that can stand in front of a command without being its
+# name. `{ rm x; }`, `if true; then rm x; fi` and `! rm x` must be judged as `rm x`.
+_RESERVED_LEAD = {"!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while",
+                  "until", "esac", "[[", "]]"}
+# A `for`/`select`/`case` segment is a loop or case header, not a command; its body
+# arrives as segments of its own after the `do`/`)` that the tokenizer splits on.
+_HEADER_WORDS = {"for", "select", "case"}
+
+# Gate reviewers: a fail-closed allowlist. A reviewer's Bash command passes only when
+# every simple command in it is one of these read-only tools, meets its argument rule,
+# and the commands are joined by nothing but `;`, `&&`, `||`, `|` and newlines. Any
+# other command, and any other shell syntax, is denied.
+_REVIEWER_COMMANDS = (
+    "cat", "head", "tail", "wc", "ls", "stat", "file", "grep", "egrep", "fgrep", "rg",
+    "diff", "cmp", "sort", "uniq", "cut", "tr", "nl", "basename", "dirname", "realpath",
+    "readlink", "pwd", "echo", "true", "false", "test", "[", "find", "jq",
+    "sha256sum", "sha1sum", "shasum", "md5sum", "git")
+# The only assignment prefixes a reviewer may put in front of a listed command.
+_REVIEWER_ASSIGNMENTS = {"GIT_PAGER=cat", "PAGER=cat", "LC_ALL=C", "LANG=C"}
+# Compound syntax and reserved words (bash and zsh): each opens a construct whose body
+# the allowlist would have to understand, so none is a command a reviewer runs.
+_SHELL_SYNTAX = {"{", "}", "(", ")", "!", "[[", "]]", "if", "then", "else", "elif", "fi",
+                 "for", "while", "until", "do", "done", "case", "esac", "in", "function",
+                 "select", "coproc", "time", "repeat", "foreach", "end", "nocorrect",
+                 "noglob"}
+# Programs and builtins that run another command, a script, or change the shell.
+_RUNNERS = {"eval", "source", ".", "exec", "trap", "builtin", "command", "env", "nohup",
+            "setsid", "xargs", "timeout", "nice", "ionice", "chrt", "taskset", "stdbuf",
+            "flock", "watch", "parallel", "script", "sudo", "doas", "busybox", "export",
+            "declare", "typeset", "local", "readonly", "alias", "unalias", "set", "shopt",
+            "enable", "hash", "cd", "pushd", "popd", "sh", "bash", "zsh", "dash", "ksh",
+            "fish", "csh", "tcsh", "coproc",
+            # Builtins that assign a variable: `printf -vHOME .` makes the next listed
+            # command read a committed config or run a committed program.
+            "printf", "print", "read", "mapfile", "readarray", "getopts", "let", "unset",
+            "vared"}
+_FIND_DENIED = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0",
+                "-fprintf", "-fls"}
+_GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs",
+                     "--no-replace-objects"}
+_GIT_READ = {"diff", "log", "show", "status", "rev-parse", "ls-files", "ls-tree", "cat-file",
+             "merge-base", "blame", "grep", "for-each-ref", "rev-list", "describe",
+             "name-rev", "symbolic-ref", "branch", "worktree", "config"}
+# Options that write a file or run a program. git and GNU getopt accept a unique
+# prefix of a long option, so every prefix of these is refused too (`--out=x`).
+_GIT_DENIED_LONG = ("--output", "--ext-diff", "--textconv", "--filters",
+                    "--open-files-in-pager")
+_GIT_BRANCH_LIST_MODE = {"-l", "--list", "-a", "--all", "-r", "--remotes", "-v", "-vv",
+                         "--verbose", "--contains", "--no-contains", "--merged",
+                         "--no-merged", "--points-at"}
+_GIT_BRANCH_FLAGS = _GIT_BRANCH_LIST_MODE | {"--show-current", "--format", "--sort",
+                                             "--color", "--no-color", "--abbrev",
+                                             "--no-abbrev", "--column", "--no-column",
+                                             "-i", "--ignore-case", "--omit-empty"}
+_GIT_CONFIG_READ_ACTIONS = {"--get", "--get-all", "--get-regexp", "--get-urlmatch",
+                            "--list", "-l"}
+_GIT_CONFIG_FLAGS = _GIT_CONFIG_READ_ACTIONS | {
+    "--local", "--global", "--system", "--worktree", "--file", "-f", "--blob", "--type",
+    "--bool", "--int", "--bool-or-int", "--path", "--null", "-z", "--name-only",
+    "--show-origin", "--show-scope", "--includes", "--no-includes", "--default",
+    "--fixed-value", "--all", "--regexp", "--value", "--url"}
+_REDIRECT_SINK = "/dev/null"
+
+
 
 def _recognized(agent_type: object) -> str | None:
     """Return the writer-table key for an exactly recognized confined writer."""
     if not isinstance(agent_type, str):
         return None
     for name in WRITERS:
+        if agent_type == name or agent_type.endswith(":" + name):
+            return name
+    return None
+
+
+def _recognized_reviewer(agent_type: object) -> str | None:
+    """Return the reviewer-table key for an exactly recognized read-only gate reviewer."""
+    if not isinstance(agent_type, str):
+        return None
+    for name in REVIEWERS:
         if agent_type == name or agent_type.endswith(":" + name):
             return name
     return None
@@ -123,22 +255,32 @@ def _isabs(path: str) -> bool:
 
 
 def _allowed(conf: dict, path: str, cwd: object) -> bool:
-    p = os.path.normpath(path).replace(os.sep, "/")
+    # Judge the object the OS will open, including symlinked parent directories.
+    # realpath resolves existing ancestors of a not-yet-created destination too.
+    # This is a pre-operation check, not protection against a concurrent link swap.
+    if not isinstance(cwd, str) or not cwd or not path:
+        return False
+    try:
+        root = os.path.realpath(cwd)
+        target = os.path.realpath(path if _isabs(path) else os.path.join(root, path))
+        if os.path.commonpath((root, target)) != root:
+            return False
+        p = os.path.relpath(target, root).replace(os.sep, "/")
+    except (OSError, ValueError):
+        return False
     if any(rx.search(p) for rx in conf["regexes"]):
         return True
     if conf["toplevel_md"] and p.endswith(".md"):
         if "/" not in p:
             return True  # bare relative filename — top level of the working dir
-        if _isabs(p) and isinstance(cwd, str) and cwd:
-            rel = os.path.relpath(p, os.path.normpath(cwd).replace(os.sep, "/"))
-            rel = rel.replace(os.sep, "/")
-            if not rel.startswith("..") and "/" not in rel:
-                return True
     return False
 
 
 def _tokenize(command: str) -> list[str]:
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+    # A newline ends a command just as `;` does, so it is a separator token here, not
+    # whitespace: `echo x\nrm y` is two commands, and so is a multi-line `for` loop.
+    lex = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
+    lex.whitespace = " \t\r"
     lex.whitespace_split = True
     return list(lex)
 
@@ -164,7 +306,8 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
 
     Returns (resolved_targets, ambiguities). Any ambiguity means the command could
     not be pinned down with confidence — the caller denies for a recognized writer
-    (fail-closed), never guesses.
+    (fail-closed), never guesses. This is the writers' analysis; the gate reviewers
+    are judged by the allowlist in `_reviewer_verdict` instead.
     """
     targets: list[str] = []
     ambiguities: list[str] = []
@@ -203,8 +346,22 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
 
     def finalize(words: list[str]) -> None:
         nonlocal shifted
-        while words and (_ASSIGNMENT_RE.match(words[0])
-                         or words[0] in _TRANSPARENT_PREFIXES):
+        while words:
+            # Reserved words, `!` and `{` are syntax in front of a command, never its
+            # name: `{ rm x; }` and `if true; then rm x; fi` are judged as `rm x`.
+            if words[0] in _HEADER_WORDS:
+                return  # `for x in ...` / `case x in` — a header, not a command
+            if words[0] == "function":
+                del words[:2]  # `function NAME {` — the body follows the name
+                continue
+            if words[0] == "coproc":
+                del words[:2 if len(words) > 2 and words[2] == "{" else 1]
+                continue
+            if words[0] in _RESERVED_LEAD:
+                words.pop(0)
+                continue
+            if not (_ASSIGNMENT_RE.match(words[0]) or words[0] in _TRANSPARENT_PREFIXES):
+                break
             if words[0] == "command" and len(words) > 1 and words[1].startswith("-"):
                 if words[1] in ("-v", "-V"):
                     return  # `command -v X` — the POSIX tool-presence probe, read-only
@@ -370,7 +527,7 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
     i = 0
     while i < len(tokens):
         tok = tokens[i]
-        if all(c in "();|&" for c in tok) and (">" not in tok and "<" not in tok):
+        if all(c in "();|&\n" for c in tok) and (">" not in tok and "<" not in tok):
             finalize(cur)
             cur = []
         elif all(c in "<>|&" for c in tok) and (">" in tok or "<" in tok):
@@ -382,7 +539,7 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
             i += 1
             nxt = tokens[i] if i < len(tokens) else None
             if ">" in tok:
-                if nxt is None or all(c in "();<>|&" for c in nxt):
+                if nxt is None or all(c in "();<>|&\n" for c in nxt):
                     ambiguities.append("output redirection with no target")
                 elif tok.endswith("&") and (nxt.isdigit() or nxt == "-"):
                     pass  # fd duplication/close (2>&1, >&-) — not a file target
@@ -394,6 +551,335 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
         i += 1
     finalize(cur)
     return targets, ambiguities
+
+
+def _reviewer_lex(command: str) -> tuple[list[dict], str | None]:
+    """Split a reviewer's command into simple commands, or name what stops that.
+
+    A deliberately small shell reader for the allowlist: plain words with single
+    quotes, double quotes and backslashes; `;`, `&&`, `||`, `|` and newlines between
+    commands; and redirections, which are returned for judging. Every
+    other construct — expansion (`$`, backticks), subshells and grouping (`(`, `)`),
+    background jobs, `|&`, case separators — returns a reason instead, because the
+    reader does not model it; so does a `#` comment, since whether one starts depends on
+    the shell's options. Each word keeps a per-character quoted flag so glob and
+    brace characters are judged only where the shell would expand them."""
+    commands: list[dict] = [{"words": [], "redirs": []}]
+    n = len(command)
+    i = 0
+    breaks = " \t;&|<>()\n"
+
+    def read_word(i: int) -> tuple[list[tuple[str, bool]], int, str | None]:
+        chars: list[tuple[str, bool]] = []
+        while i < n:
+            c = command[i]
+            if c in breaks:
+                break
+            if c == "'":
+                j = command.find("'", i + 1)
+                if j < 0:
+                    return chars, i, "an unterminated single quote"
+                chars.extend((ch, True) for ch in command[i + 1:j])
+                i = j + 1
+            elif c == '"':
+                i += 1
+                while True:
+                    if i >= n:
+                        return chars, i, "an unterminated double quote"
+                    ch = command[i]
+                    if ch == '"':
+                        i += 1
+                        break
+                    if ch in "$`":
+                        return chars, i, (f"`{ch}` inside double quotes expands to text "
+                                          "this check cannot see")
+                    if ch == "\\" and i + 1 < n and command[i + 1] in '$`"\\\n':
+                        if command[i + 1] != "\n":
+                            chars.append((command[i + 1], True))
+                        i += 2
+                        continue
+                    chars.append((ch, True))
+                    i += 1
+            elif c == "\\":
+                if i + 1 >= n:
+                    return chars, i, "a trailing backslash"
+                if command[i + 1] != "\n":
+                    chars.append((command[i + 1], True))
+                i += 2
+            elif c in "$`":
+                return chars, i, (f"`{c}` expands a variable, a command or arithmetic into "
+                                  "text this check cannot see")
+            else:
+                chars.append((c, False))
+                i += 1
+        return chars, i, None
+
+    last_word_end = -1
+    while i < n:
+        c = command[i]
+        if c in " \t":
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n and command[i + 1] == "\n":
+            i += 2  # line continuation
+            continue
+        if c == "#":
+            return [], ("a `#` comment; bash and zsh do not agree on when one starts, so "
+                        "leave it out")
+        if c == "\n" or c == ";":
+            if c == ";" and i + 1 < n and command[i + 1] in ";&":
+                return [], "`;;`/`;&` belong to `case`, which is compound syntax"
+            commands.append({"words": [], "redirs": []})
+            i += 1
+            continue
+        if c in "()":
+            return [], f"`{c}` opens a subshell, a function or a group"
+        if c == "&" and command.startswith("&&", i):
+            commands.append({"words": [], "redirs": []})
+            i += 2
+            continue
+        if c == "|":
+            if command.startswith("||", i):
+                i += 2
+            elif command.startswith("|&", i):
+                return [], "`|&` pipes a second stream into a command"
+            else:
+                i += 1
+            commands.append({"words": [], "redirs": []})
+            continue
+        if c in "<>" or (c == "&" and command.startswith("&>", i)):
+            cur = commands[-1]
+            fd = None
+            if (cur["words"] and last_word_end == i and cur["words"][-1]
+                    and all(ch.isdigit() and not q for ch, q in cur["words"][-1])):
+                fd = "".join(ch for ch, _ in cur["words"].pop())
+            op = next(o for o in ("<<<", "<<-", "&>>", "<<", "<>", "<&", ">>", ">|", ">&", "&>",
+                                  "<", ">") if command.startswith(o, i))
+            i += len(op)
+            while i < n and command[i] in " \t":
+                i += 1
+            target, i, err = read_word(i)
+            if err:
+                return [], err
+            if not target:
+                return [], f"the redirection `{op}` has no plain target"
+            cur["redirs"].append((fd, op, target))
+            continue
+        if c == "&":
+            return [], "`&` runs a command in the background"
+        word, i, err = read_word(i)
+        if err:
+            return [], err
+        commands[-1]["words"].append(word)
+        last_word_end = i
+    return [c for c in commands if c["words"] or c["redirs"]], None
+
+
+def _plain(word: list[tuple[str, bool]]) -> str:
+    return "".join(ch for ch, _ in word)
+
+
+def _word_problem(word: list[tuple[str, bool]]) -> str | None:
+    """Glob and brace characters the shell would expand, judged by quoting."""
+    value = _plain(word)
+    if value in ("[", "]") and not word[0][1]:
+        return None  # the `[` test command and its closing bracket
+    unquoted = "".join("_" if q else ch for ch, q in word)
+    if any(ch in unquoted for ch in "*?["):
+        return (f"`{value}` has an unquoted glob character; quote it, or use Glob — a "
+                "pattern can expand to names that read as options")
+    # `rev^{tree}` and `ref@{1}` are git revision syntax, not brace expansion.
+    kept = re.sub(r"(?<=[\^@])\{[^{},]*\}", lambda m: m.group() if ".." in m.group() else "",
+                  unquoted)
+    if "{" in kept or "}" in kept:
+        return f"`{value}` has an unquoted brace, which the shell can expand into words"
+    return None
+
+
+def _long_hits(arg: str, names: tuple[str, ...], exact_ok: tuple[str, ...] = ()) -> bool:
+    """True when `arg` is one of `names`, or a prefix a GNU/git parser completes to one."""
+    name = arg.split("=", 1)[0]
+    if not name.startswith("--") or name == "--" or name in exact_ok:
+        return False
+    return any(full.startswith(name) for full in names)
+
+
+def _flag_words(args: list[str]) -> list[str]:
+    """Arguments before `--` that look like options."""
+    out = []
+    for a in args:
+        if a == "--":
+            break
+        if a.startswith("-") and a != "-":
+            out.append(a)
+    return out
+
+
+def _reviewer_roots(cwd: object) -> list[str]:
+    """Where a reviewer's `git -C` may point: the working directory itself and the top
+    level of every worktree of its repository — never a directory below one, which may
+    be a different repository nested inside with its own config."""
+    if not isinstance(cwd, str) or not cwd:
+        return []
+    roots = [os.path.realpath(cwd)]
+    try:
+        out = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"],
+                             capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return roots
+    if out.returncode == 0:
+        for line in out.stdout.decode("utf-8", errors="surrogateescape").splitlines():
+            if line.startswith("worktree "):
+                roots.append(os.path.realpath(line[len("worktree "):]))
+    return roots
+
+
+def _reviewer_git(args: list[str], cwd: object) -> str | None:
+    sub = None
+    j = 0
+    base = None
+    while j < len(args):
+        a = args[j]
+        if a == "-C":
+            if j + 1 >= len(args):
+                return "`git -C` names no directory"
+            d = args[j + 1]
+            roots = _reviewer_roots(cwd)
+            if d.startswith("~") or not roots:
+                return f"`git -C {d}` cannot be resolved against the working directory"
+            # git applies each `-C` relative to the one before it.
+            base = os.path.realpath(d if _isabs(d) else os.path.join(base or roots[0], d))
+            if base not in roots:
+                return (f"`git -C {d}` is outside the working directory and the top "
+                        "levels of this repository's worktrees (a directory below one may "
+                        "be another repository with its own config)")
+            j += 2
+            continue
+        if a in _GIT_GLOBAL_FLAGS:
+            j += 1
+            continue
+        if a.startswith("-"):
+            if a in ("--version", "--help") and j == len(args) - 1:
+                return None
+            return (f"`git {a}` is not a global option reviewers may use (`-c`, "
+                    "`--config-env`, `--exec-path`, `--git-dir` and kin can point git at "
+                    "another program or repository)")
+        sub = a
+        break
+    if sub is None:
+        return "`git` with no subcommand"
+    if sub not in _GIT_READ:
+        return (f"`git {sub}` is not on the reviewers' read-only git list "
+                f"({', '.join(sorted(_GIT_READ))})")
+    rest = args[j + 1:]
+    flags = _flag_words(rest)
+    for a in flags:
+        if _long_hits(a, _GIT_DENIED_LONG, exact_ok=("--text",)):
+            return f"`git {sub} {a}` writes a file or runs a configured program"
+    if sub == "grep" and any(not a.startswith("--") and "O" in a for a in flags):
+        return "`git grep -O` opens the matches in a pager program"
+    positional = [a for a in rest if not a.startswith("-")]
+    if sub == "branch":
+        names = {a.split("=", 1)[0] for a in flags}
+        if names - _GIT_BRANCH_FLAGS or (positional and not names & _GIT_BRANCH_LIST_MODE):
+            return f"`git branch {' '.join(rest)}` creates, moves or deletes a branch"
+    elif sub == "worktree":
+        if positional[:1] != ["list"] or len(positional) > 1 or set(flags) - {
+                "--porcelain", "-v", "--verbose", "-z"}:
+            return "only `git worktree list` is read-only"
+    elif sub == "symbolic-ref":
+        if set(flags) - {"-q", "--quiet", "--short", "--no-recurse"} or len(positional) != 1:
+            return "`git symbolic-ref` with these arguments changes a ref"
+    elif sub == "config":
+        names = {a.split("=", 1)[0] for a in flags}
+        verb = positional[0] if positional else None
+        reading = names & _GIT_CONFIG_READ_ACTIONS or verb in ("get", "list")
+        if names - _GIT_CONFIG_FLAGS or not reading:
+            return "only the reading forms of `git config` (`--get`, `--list`, ...) are read-only"
+    return None
+
+
+def _reviewer_simple(words: list[str], cwd: object) -> str | None:
+    """Judge one simple command (assignments already split off) against the allowlist."""
+    cmd, args = words[0], words[1:]
+    if cmd in _SHELL_SYNTAX:
+        return f"`{cmd}` is shell compound syntax; reviewers run plain simple commands"
+    if "/" in cmd or "\\" in cmd:
+        return (f"`{cmd}` names a program by path; reviewers read code and do not run it, "
+                "and run listed tools by name only")
+    if cmd in _RUNNERS:
+        return (f"`{cmd}` runs another command or a script, or changes the shell; reviewers "
+                "read code and do not run it")
+    if cmd not in _REVIEWER_COMMANDS:
+        return (f"`{cmd}` is not on the reviewers' read-only command list "
+                f"({', '.join(_REVIEWER_COMMANDS)})")
+    flags = _flag_words(args)
+    if cmd == "git":
+        return _reviewer_git(args, cwd)
+    if cmd == "find":
+        hit = next((a for a in args if a in _FIND_DENIED), None)
+        return f"`find {hit}` runs a command, deletes, or writes a file" if hit else None
+    if cmd == "sort":
+        if (any(not a.startswith("--") and ("o" in a or "T" in a) for a in flags)
+                or any(_long_hits(a, ("--output", "--compress-program",
+                                      "--temporary-directory")) for a in flags)):
+            return "`sort -o`/`-T`/`--compress-program` writes a file or runs a program"
+    if cmd == "uniq":
+        operands, skip, done = [], False, False
+        for a in args:
+            if skip:
+                skip = False
+            elif done or not a.startswith("-") or a == "-":
+                operands.append(a)
+            elif a == "--":
+                done = True
+            elif a in ("-f", "-s", "-w"):
+                skip = True
+        if len(operands) > 1:
+            return "`uniq IN OUT` writes its second operand"
+    if cmd == "file" and (any(not a.startswith("--") and "C" in a for a in flags)
+                          or any(_long_hits(a, ("--compile",)) for a in flags)):
+        return "`file -C` compiles a magic file and writes the result"
+    if cmd == "rg" and any(a.split("=", 1)[0] in ("--pre", "--hostname-bin") for a in flags):
+        return "`rg --pre`/`--hostname-bin` runs a program"
+    return None
+
+
+def _reviewer_verdict(command: str, cwd: object) -> str | None:
+    """None when the whole command is on the allowlist, else the first reason it is not."""
+    commands, err = _reviewer_lex(command)
+    if err:
+        return err
+    for c in commands:
+        for fd, op, target in c["redirs"]:
+            value = _plain(target)
+            if op in (">", ">>", "&>", "&>>", "<") and value == _REDIRECT_SINK:
+                continue
+            if op in (">&", "<&") and (value.isdigit() or value == "-"):
+                continue
+            return (f"the redirection `{fd or ''}{op} {value}` is not `/dev/null` or a file "
+                    "descriptor copy such as `2>&1`")
+        words = [_plain(w) for w in c["words"]]
+        k = 0
+        while k < len(words) and re.match(r"[A-Za-z_][A-Za-z0-9_]*=", words[k]) and all(
+                not q for _, q in c["words"][k][:words[k].index("=") + 1]):
+            if words[k] not in _REVIEWER_ASSIGNMENTS:
+                return (f"the `{words[k].split('=', 1)[0]}=` assignment can change what a "
+                        "command runs; only " + ", ".join(sorted(_REVIEWER_ASSIGNMENTS))
+                        + " may prefix a reviewer's command")
+            k += 1
+        if k == len(words):
+            return "a command with no program name (a bare assignment or redirection)"
+        if words[k] in _SHELL_SYNTAX:
+            return _reviewer_simple(words[k:], cwd)
+        for word in c["words"]:
+            problem = _word_problem(word)
+            if problem:
+                return problem
+        reason = _reviewer_simple(words[k:], cwd)
+        if reason:
+            return reason
+    return None
 
 
 def _decide_bash(writer: str, conf: dict, tool_input: object,
@@ -423,13 +909,44 @@ def _decide_bash(writer: str, conf: dict, tool_input: object,
     return 0, ""
 
 
+def _decide_reviewer(payload: dict) -> tuple[int, str]:
+    who = payload["agent_type"]
+    tool = payload.get("tool_name")
+    if tool in _EDIT_TOOLS:
+        return 2, (
+            f"karta: '{who}' is a read-only gate reviewer and `{tool}` edits a "
+            f"file. {_REVIEWER_DOCTRINE}. Report the finding instead of making the change.")
+    if tool != "Bash":
+        return 0, ""  # Read, Grep, Glob, ... — nothing to confine
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str):
+        return 2, (
+            f"karta: '{who}' is a read-only gate reviewer and this Bash call "
+            "carries no verifiable command string (tool_input.command missing or not a "
+            "string) — an unverifiable call is denied, not waved through. "
+            f"{_REVIEWER_DOCTRINE}.")
+    reason = _reviewer_verdict(command, payload.get("cwd"))
+    if reason:
+        return 2, (
+            f"karta: '{who}' is a read-only gate reviewer and this Bash command is "
+            f"outside the reviewers' read-only allowlist: {reason}. {_REVIEWER_DOCTRINE}; "
+            "run listed read-only tools by name (git diff/log/show/status/rev-parse, grep, "
+            "rg, cat, ls, find, jq, sha256sum, ...) joined only by `;`, `&&`, `||`, `|` or "
+            "newlines, or use Read/Grep/Glob. The guard fails closed: anything it does not "
+            "list is denied.")
+    return 0, ""
+
+
 def decide(payload: object) -> tuple[int, str]:
     """Return (exit_code, stderr_reason)."""
     if not isinstance(payload, dict):
         return 0, ""  # unrecognized shape — pass
     key = _recognized(payload.get("agent_type"))
     if key is None:
-        return 0, ""  # main thread or unknown writer — pass
+        if _recognized_reviewer(payload.get("agent_type")) is not None:
+            return _decide_reviewer(payload)
+        return 0, ""  # main thread or unknown agent — pass
     conf = WRITERS[key]
     writer = payload["agent_type"]
     tool_input = payload.get("tool_input")
@@ -483,7 +1000,7 @@ def _run_self_test() -> int:
          pre("karta:karta-kaizen", file_path=".karta/sme/python.md", content="x"), 0, None),
         ("absolute worktree .karta/sme/ path passes (segment anchor)",
          pre("karta-kaizen",
-             file_path="/abs/worktree/.karta/sme/minimalism.md", content="x"), 0, None),
+             cwd="/abs/worktree", file_path="/abs/worktree/.karta/sme/minimalism.md", content="x"), 0, None),
         ("nested src/x/.karta/sme/y.md passes (accepted residual)",
          pre("karta-kaizen", file_path="src/x/.karta/sme/y.md", content="x"), 0, None),
         ("exact .karta/kaizen.json passes",
@@ -528,7 +1045,7 @@ def _run_self_test() -> int:
          pre("karta-doc-gardner", file_path="README.md", content="x"), 0, None),
         ("doc-gardner writing an absolute docs/ path passes (segment anchor)",
          pre("karta:karta-doc-gardner",
-             file_path="/abs/worktree/docs/how-to/hooks.md", content="x"), 0, None),
+             cwd="/abs/worktree", file_path="/abs/worktree/docs/how-to/hooks.md", content="x"), 0, None),
         ("doc-gardner writing AGENTS.md passes",
          pre("karta-doc-gardner", file_path="AGENTS.md", content="x"), 0, None),
         ("doc-gardner writing CLAUDE.md passes",
@@ -541,9 +1058,9 @@ def _run_self_test() -> int:
         ("doc-gardner writing other top-level markdown passes (cwd-relative)",
          pre("karta:karta-doc-gardner", file_path="/repo/CHANGELOG.md", content="x",
              cwd="/repo"), 0, None),
-        ("doc-gardner absolute README in a sibling worktree passes (basename anchor)",
+        ("doc-gardner absolute README outside the active worktree is denied",
          pre("karta-doc-gardner", file_path="/abs/worktree/README.md", content="x"),
-         0, None),
+         2, None),
         ("doc-gardner writing nested non-doc markdown denied (not top-level)",
          pre("karta-doc-gardner", file_path="/repo/src/notes.md", content="x",
              cwd="/repo"), 2, "src/notes.md"),
@@ -655,6 +1172,158 @@ def _run_self_test() -> int:
          sh("karta-kaizen", "echo x > .karta/sme/x.md", cwd=None), 2, "no cwd"),
         ("recognized writer Bash with no command string blocked (unverifiable)",
          sh("karta-kaizen", tool_input={}), 2, "no verifiable"),
+        # --- read-only gate reviewers: empty writable surface ---
+        ("safety auditor Write denied",
+         pre("karta-safety-auditor", file_path="docs/x.md", content="x"), 2, "read-only"),
+        ("namespaced acceptance reviewer MultiEdit denied",
+         pre("karta:karta-acceptance-reviewer", tool="MultiEdit",
+             file_path="src/app.py", edits=[]), 2, "`MultiEdit`"),
+        ("design reviewer Read passes",
+         pre("karta-design-reviewer", tool="Read", file_path="src/app.py"), 0, None),
+        ("reviewer redirect denied", sh("karta-safety-auditor", "echo x > out.txt"),
+         2, ("allowlist", "out.txt")),
+        ("reviewer touch denied (not listed)", sh("karta-safety-auditor", "touch x"),
+         2, "`touch` is not on the reviewers' read-only command list"),
+        ("reviewer git add denied", sh("karta-acceptance-reviewer", "git add -A"),
+         2, "`git add`"),
+        ("reviewer git -c denied", sh("karta-acceptance-reviewer",
+                                      "git -c core.pager=cat log"), 2, "`git -c`"),
+        ("reviewer package install denied", sh("karta-safety-auditor",
+                                                "npm install x"), 2, "`npm`"),
+        ("reviewer python one-liner denied (interpreters are not listed)",
+         sh("karta-safety-auditor", "python3 -c \"print(1)\""), 2, "`python3`"),
+        ("reviewer project type-check denied (runs project code)",
+         sh("karta-acceptance-reviewer", "npx tsc --noEmit"), 2, "`npx`"),
+        ("reviewer timeout wrapper denied", sh("karta-safety-auditor",
+                                               "timeout 5 cat x"), 2, "`timeout` runs another"),
+        ("reviewer git diff range passes",
+         sh("karta-safety-auditor", "git diff --stat a..b"), 0, None),
+        ("reviewer git branch listing passes",
+         sh("karta-acceptance-reviewer", "git branch -a --contains HEAD"), 0, None),
+        ("reviewer git branch create denied",
+         sh("karta-acceptance-reviewer", "git branch new"), 2, "branch"),
+        ("reviewer grep pipeline passes",
+         sh("karta-design-reviewer", "git diff a..b | grep -n x | head"), 0, None),
+        ("reviewer digest pipeline passes",
+         sh("karta-safety-auditor",
+            "git diff --no-ext-diff --no-textconv --binary --no-color a..b -- | sha256sum"),
+         0, None),
+        ("reviewer reviewed-tree lookup passes (git revision braces)",
+         sh("karta-acceptance-reviewer", "git rev-parse b^{tree}"), 0, None),
+        ("reviewer quiet redirect and fd copy pass",
+         sh("karta-safety-auditor", "git diff a..b > /dev/null 2>&1"), 0, None),
+        ("reviewer newline-separated reads pass",
+         sh("karta-safety-auditor", "git status --short\ngit log -1"), 0, None),
+        ("reviewer GIT_PAGER=cat passes",
+         sh("karta-safety-auditor", "GIT_PAGER=cat git log -1"), 0, None),
+        ("reviewer other assignment prefix denied",
+         sh("karta-safety-auditor", "BASH_ENV=x.sh cat a"), 2, "`BASH_ENV=`"),
+        ("reviewer `bash script.sh` denied",
+         sh("karta-safety-auditor", "bash tool.sh"), 2, "`bash` runs another"),
+        ("reviewer stdin script denied",
+         sh("karta-safety-auditor", "cat tool.sh | sh"), 2, "`sh` runs another"),
+        ("reviewer ./script denied (run by path)",
+         sh("karta-design-reviewer", "./tool.sh"), 2, "by path"),
+        ("reviewer system program by absolute path denied too",
+         sh("karta-safety-auditor", "/usr/bin/git diff HEAD"), 2, "by path"),
+        ("reviewer `source` denied",
+         sh("karta-acceptance-reviewer", ". tool.sh"), 2, "`.` runs another"),
+        ("reviewer `exec` denied",
+         sh("karta-safety-auditor", "exec ./tool.sh"), 2, "`exec` runs another"),
+        ("reviewer brace group denied (reserved word first)",
+         sh("karta-safety-auditor", "{ rm src/app.py; }"), 2, "`{` is shell"),
+        ("reviewer if/then denied",
+         sh("karta-safety-auditor", "if true; then bash x.sh; fi"), 2, "`if` is shell"),
+        ("reviewer `!` denied", sh("karta-safety-auditor", "! ./x.sh"), 2,
+         "`!` is shell"),
+        ("reviewer subshell denied", sh("karta-safety-auditor", "( cat a )"), 2,
+         "subshell"),
+        ("reviewer $SHELL denied", sh("karta-safety-auditor", "$SHELL x.sh"), 2,
+         "`$` expands"),
+        ("reviewer env wrapper denied",
+         sh("karta-safety-auditor", "/usr/bin/env bash x.sh"), 2, "by path"),
+        ("reviewer xargs denied",
+         sh("karta-safety-auditor", "echo a | xargs -n 1 ./x.sh"), 2, "`xargs`"),
+        ("reviewer find -exec denied",
+         sh("karta-safety-auditor", "find . -name x.sh -exec {} \\;"), 2,
+         "unquoted brace"),
+        ("reviewer find -exec with quoted braces denied",
+         sh("karta-safety-auditor", "find . -exec env '{}' ';'"), 2, "`find -exec`"),
+        ("reviewer trap denied", sh("karta-safety-auditor", "trap ./x.sh EXIT"), 2,
+         "`trap`"),
+        ("reviewer sed denied (`e` runs a command)",
+         sh("karta-safety-auditor", "sed '1e ./x.sh' a"), 2, "`sed`"),
+        ("reviewer awk denied (`system()`)",
+         sh("karta-safety-auditor", "awk 'BEGIN{system(\"x\")}'"), 2, "`awk`"),
+        ("reviewer make denied", sh("karta-safety-auditor", "make"), 2, "`make`"),
+        ("reviewer sort -o denied",
+         sh("karta-safety-auditor", "sort -o out a"), 2, "`sort -o`"),
+        ("reviewer sort abbreviated --out= denied",
+         sh("karta-safety-auditor", "sort --out=x a"), 2, "`sort -o`"),
+        ("reviewer uniq output operand denied",
+         sh("karta-safety-auditor", "uniq a b"), 2, "second operand"),
+        ("reviewer rg --pre denied",
+         sh("karta-safety-auditor", "rg --pre ./x.sh y"), 2, "`rg --pre`"),
+        ("reviewer git log --output denied",
+         sh("karta-safety-auditor", "git log --output=x"), 2, "writes a file"),
+        ("reviewer git diff --ext-diff denied",
+         sh("karta-safety-auditor", "git diff --ext-diff"), 2, "configured program"),
+        ("reviewer git -C outside the working directory denied",
+         sh("karta-safety-auditor", "git -C /elsewhere status"), 2, "outside"),
+        ("reviewer git -C into a subdirectory (maybe a nested repository) denied",
+         sh("karta-safety-auditor", "git -C sub diff"), 2, "top levels"),
+        ("reviewer chained git -C into a subdirectory denied",
+         sh("karta-safety-auditor", "git -C . -C sub diff"), 2, "`git -C sub`"),
+        ("reviewer git -C to the working directory passes",
+         sh("karta-safety-auditor", "git -C /repo diff"), 0, None),
+        ("reviewer git --work-tree denied",
+         sh("karta-safety-auditor", "git --work-tree=sub diff"), 2,
+         "global option"),
+        ("reviewer printf -vHOME denied",
+         sh("karta-safety-auditor", "printf -vHOME .; git diff"), 2, "`printf`"),
+        ("reviewer printf -v HOME denied",
+         sh("karta-acceptance-reviewer", "printf -v HOME ."), 2, "`printf`"),
+        ("reviewer printf -- denied (printf is off the list)",
+         sh("karta:karta-design-reviewer", "printf -- -vHOME"), 2,
+         "`printf`"),
+        ("reviewer printf -vPATH combined denied",
+         sh("karta-safety-auditor", "printf -vPATH %s .:/bin; cat a"), 2,
+         "`printf`"),
+        ("reviewer read denied (assigns a variable)",
+         sh("karta-safety-auditor", "read HOME < /dev/null"), 2, "`read`"),
+        ("reviewer unquoted glob denied",
+         sh("karta-safety-auditor", "ls src/*.py"), 2, "glob"),
+        ("reviewer quoted glob passes",
+         sh("karta-safety-auditor", "find . -name '*.py'"), 0, None),
+        ("reviewer background job denied",
+         sh("karta-safety-auditor", "cat a &"), 2, "background"),
+        ("reviewer heredoc denied",
+         sh("karta-safety-auditor", "cat <<EOF\nx\nEOF"), 2, "`<< EOF`"),
+        ("reviewer input redirect from a file denied",
+         sh("karta-safety-auditor", "wc -l < a"), 2, "redirection"),
+        ("reviewer unterminated quote denied",
+         sh("karta-safety-auditor", "cat 'a"), 2, "unterminated"),
+        ("reviewer comment denied (shells differ on where one starts)",
+         sh("karta-safety-auditor", "cat a # ; touch x"), 2, "comment"),
+        ("reviewer empty command passes (nothing runs)",
+         sh("karta-safety-auditor", ""), 0, None),
+        ("writer brace group judged as its command (kaizen, outside surface)",
+         sh("karta-kaizen", "{ rm src/app.py; }"), 2, "/repo/src/app.py"),
+        ("writer if/then judged as its command (doc-gardner, outside surface)",
+         sh("karta-doc-gardner", "if true; then rm src/app.py; fi"), 2,
+         "/repo/src/app.py"),
+        ("writer `!` and while/do judged as the command",
+         sh("karta-doc-gardner", "while true; do ! rm src/app.py; done"), 2,
+         "/repo/src/app.py"),
+        ("writer multi-line loop body judged (newline separates commands)",
+         sh("karta-kaizen", "for f in a\ndo rm src/app.py\ndone"), 2,
+         "/repo/src/app.py"),
+        ("writer brace group inside the surface passes",
+         sh("karta-doc-gardner", "{ rm docs/old.md; }"), 0, None),
+        ("writer `bash script.sh` unchanged (not a detected write)",
+         sh("karta-kaizen", "bash tool.sh"), 0, None),
+        ("reviewer-v2 lookalike passes (not recognized)",
+         sh("karta-safety-auditor-v2", "touch x"), 0, None),
     ]
     failures = 0
     for name, payload, want, needle in cases:
@@ -690,8 +1359,14 @@ def main() -> int:
         # fail closed only on the writers this guard exists to confine; all else passes
         try:
             key = _recognized(payload.get("agent_type"))
+            reviewer = _recognized_reviewer(payload.get("agent_type"))
         except Exception:  # noqa: BLE001
-            key = None
+            key = reviewer = None
+        if reviewer is not None:
+            print("karta: internal error while checking a read-only gate "
+                  f"reviewer's call — this guard fails closed for them. {_REVIEWER_DOCTRINE}.",
+                  file=sys.stderr)
+            return 2
         if key is None:
             return 0
         code, reason = 2, (

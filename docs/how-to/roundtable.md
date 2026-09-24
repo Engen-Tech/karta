@@ -151,7 +151,7 @@ The assignment has to prefix the merge itself; the same string elsewhere in the 
 
 If you are an agent reading this: do not set it. Report that the branch is assembled and what the floor said, then ask.
 
-Two known limits, stated rather than implied. The gate matches command text, so it cannot tell an agent's merge from a human's — the rule against forging the variable is doctrine, not enforcement. And it shares the bypasses below: `git cherry-pick`, `git rebase`, and `git reset --hard` are not a `git merge`.
+Three known limits, stated rather than implied. The gate matches command text, so it cannot tell an agent's merge from a human's — the rule against forging the variable is doctrine, not enforcement. It shares the bypasses below: `git cherry-pick`, `git rebase`, and `git reset --hard` are not a `git merge`. And it runs only in Claude Code sessions, from `.claude/settings.json`: this repo's `.codex/hooks.json` runs the commit gate but not this hook, so a Codex session meets no landing gate at all.
 
 ## Escape hatch
 

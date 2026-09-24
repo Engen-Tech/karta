@@ -219,7 +219,7 @@
     {
       "id": "fixtures-stranded-states-make-state-sh",
       "path": "benchmarks/fixtures/stranded-states/make_state.sh",
-      "sha256": "6e03662cbf9f4e81994d07d277d6c53e53094ec2d3fc338fbc0af092a2cd2f2d",
+      "sha256": "f7aa21fc1696d2beaf3da6b9cab9c7b95a71fa3307cc47c91d2f338c952c0236",
       "used_by": [
         "dark-status-surface-probes"
       ]
@@ -227,7 +227,7 @@
     {
       "id": "fixtures-stranded-states-expected-json",
       "path": "benchmarks/fixtures/stranded-states/expected.json",
-      "sha256": "0b4942c2b67853fec19c125991f499e925343ae3c399776e1bf840891c2efc09",
+      "sha256": "a1f0582a5aca30e8053a07fd699a9a595ce1afa6733c8dc671ef0a34b7e6c915",
       "used_by": [
         "dark-status-surface-probes"
       ]
@@ -406,6 +406,15 @@
       "sha256": "95a5b138101045af3057927467dd026a81d69703e1f4fc0e8fc97b237da6699c",
       "used_by": [
         "perf-delivery-telemetry"
+      ]
+    },
+    {
+      "id": "fixtures-hooked-repo-payloads-binder-write-multiedit-json",
+      "path": "benchmarks/fixtures/hooked-repo/payloads/binder-write-multiedit.json",
+      "sha256": "829944838854c23934342b00c52ff5caa9336131970d2cbd0ba43626320ed507",
+      "used_by": [
+        "flow-guard-enforcement-matrix",
+        "flow-spec-contradictions"
       ]
     }
   ]

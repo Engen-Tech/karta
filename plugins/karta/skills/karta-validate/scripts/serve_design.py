@@ -99,6 +99,17 @@ def enforce_document_root_containment(document_root: Path) -> None:
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def send_head(self):
+        root = Path(self.directory).resolve()
+        target = Path(self.translate_path(self.path))
+        candidates = [target]
+        if target.is_dir():
+            candidates += [target / name for name in ("index.html", "index.htm")]
+        if any(not _contains(root, path.resolve()) for path in candidates):
+            self.send_error(403, "Requested file is outside the design directory")
+            return None
+        return super().send_head()
+
     def log_message(self, format: str, *args: object) -> None:
         return
 

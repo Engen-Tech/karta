@@ -6,7 +6,7 @@
 
 Zero dependencies (pure stdlib), so every invocation form behaves identically —
 nothing has to be provisioned before it runs:
-  python3 detect_stack.py <repo-root>        # print {"dependencies": [...], "languages": [...]}
+  python3 detect_stack.py <repo-root>        # print {"dependencies", "languages", "versions"}
   python3 detect_stack.py --self-test        # run embedded fixtures, exit 0/1
   uv run --script detect_stack.py <repo-root>  # also fine — no deps to install
 
@@ -24,6 +24,13 @@ php (composer.json).
 
 Stack-pack matching consumes this output: a pack applies when one of its match
 tokens equals (case-insensitively) a detected dependency name or language.
+`versions` never affects matching; it is the context a version-aware pack rule
+reads (for example Angular's OnPush default from v22). It maps a dependency name
+to the sorted distinct version specifiers the manifests DECLARE for it — ranges
+as written (`^22.0.1`, `>=0.110`, `~> 7.1`), not a lockfile resolution — plus the
+toolchain pins `go` (go.mod `go` directive) and `python` (requires-python or the
+poetry `python` key). A dependency declared without a version has no entry;
+several entries mean the monorepo declares it more than once.
 Unparseable manifests warn on stderr and are skipped — the JSON on stdout stays valid.
 """
 from __future__ import annotations
@@ -34,11 +41,35 @@ from pathlib import Path
 # ==, >=, <=, ~=, !=, [, ; (or any other non-name character).
 _REQ_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _GEM_RE = re.compile(r"""^\s*gem\s+["']([^"']+)["']""")
+# Each further positional string argument of a `gem` line is a version constraint.
+_GEM_ARG_RE = re.compile(r"""\s*,\s*(["'])([^"']*)\1""")
 
 
 def _req_name(spec: str) -> str | None:
     m = _REQ_NAME_RE.match(spec.strip())
     return m.group(0) if m else None
+
+
+def _req_version(spec: str) -> str | None:
+    """The version specifier of a PEP 508 requirement: the text after the name,
+    minus extras and environment markers (`celery[redis]~=5.3 ; ...` -> `~=5.3`)."""
+    spec = spec.strip()
+    m = _REQ_NAME_RE.match(spec)
+    if not m:
+        return None
+    rest = spec[m.end():].split(";", 1)[0].strip()
+    if rest.startswith("["):
+        rest = rest.partition("]")[2].strip()
+    return rest or None
+
+
+def _toml_version(value) -> str | None:
+    """A Cargo/poetry dependency value: a bare version string or a table with `version`."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and isinstance(value.get("version"), str):
+        return value["version"]
+    return None
 
 
 # Directories the walk never descends into: version control, dependency caches,
@@ -78,9 +109,10 @@ def _iter_dirs(root: Path, max_depth: int):
 
 
 def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
-              warnings: list[str]) -> None:
+              versions: dict[str, set[str]], warnings: list[str]) -> None:
     """Read every manifest directly in directory `d`, folding dependency names
-    into `deps` and languages into `langs`. Warnings are labelled with the path
+    into `deps`, languages into `langs`, and declared version specifiers into
+    `versions`. Warnings are labelled with the path
     relative to `root` so a monorepo's two package.json files stay distinct.
     Unparseable manifests warn and are skipped; valid output is never dropped."""
 
@@ -105,6 +137,10 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
             warnings.append(f"{_label(path)}: skipped ({e})")
             return {}
 
+    def version(name: str, spec) -> None:
+        if isinstance(spec, str) and spec.strip():
+            versions.setdefault(name, set()).add(spec.strip())
+
     def read_lines(path: Path) -> list[str]:
         try:
             return path.read_text(encoding="utf-8").splitlines()
@@ -120,19 +156,28 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
             section = data.get(key)
             if isinstance(section, dict):
                 deps.update(section)
+                for name, spec in section.items():
+                    version(name, spec)
 
     pp = d / "pyproject.toml"
     if pp.is_file():
         langs.add("python")
         data = load_toml(pp)
-        project_deps = (data.get("project") or {}).get("dependencies") or []
-        for spec in project_deps:
+        project = data.get("project") or {}
+        version("python", project.get("requires-python"))
+        for spec in project.get("dependencies") or []:
             if isinstance(spec, str) and (name := _req_name(spec)):
                 deps.add(name)
+                version(name, _req_version(spec))
         poetry = ((data.get("tool") or {}).get("poetry") or {}).get("dependencies") or {}
         if isinstance(poetry, dict):
             # tool.poetry.dependencies.python pins the interpreter, not a dependency
-            deps.update(k for k in poetry if k.lower() != "python")
+            for k, v in poetry.items():
+                if k.lower() == "python":
+                    version("python", _toml_version(v))
+                else:
+                    deps.add(k)
+                    version(k, _toml_version(v))
 
     for req_file in sorted(d.glob("requirements*.txt")):
         langs.add("python")
@@ -142,6 +187,7 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
                 continue  # comments and pip options (-r, -e, --index-url, …)
             if name := _req_name(line):
                 deps.add(name)
+                version(name, _req_version(line))
 
     gm = d / "go.mod"
     if gm.is_file():
@@ -155,13 +201,19 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
                 if line == ")":
                     in_block = False
                 else:
-                    deps.add(line.split()[0])
+                    parts = line.split()
+                    deps.add(parts[0])
+                    version(parts[0], parts[1] if len(parts) > 1 else None)
             elif line.startswith("require"):
                 rest = line[len("require"):].strip()
                 if rest == "(" or not rest:
                     in_block = True
                 else:
-                    deps.add(rest.split()[0])
+                    parts = rest.split()
+                    deps.add(parts[0])
+                    version(parts[0], parts[1] if len(parts) > 1 else None)
+            elif line.split()[0] == "go" and len(line.split()) > 1:
+                version("go", line.split()[1])
 
     ct = d / "Cargo.toml"
     if ct.is_file():
@@ -170,6 +222,8 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
         section = data.get("dependencies")
         if isinstance(section, dict):
             deps.update(section)
+            for name, spec in section.items():
+                version(name, _toml_version(spec))
 
     gf = d / "Gemfile"
     if gf.is_file():
@@ -177,6 +231,11 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
         for line in read_lines(gf):
             if m := _GEM_RE.match(line):
                 deps.add(m.group(1))
+                constraints, pos = [], m.end()
+                while a := _GEM_ARG_RE.match(line, pos):
+                    constraints.append(a.group(2))
+                    pos = a.end()
+                version(m.group(1), ", ".join(c for c in constraints if c) or None)
 
     cj = d / "composer.json"
     if cj.is_file():
@@ -185,19 +244,24 @@ def _scan_dir(d: Path, root: Path, deps: set[str], langs: set[str],
         section = data.get("require")
         if isinstance(section, dict):
             deps.update(section)
+            for name, spec in section.items():
+                version(name, spec)
 
 
-def detect(root: Path) -> tuple[dict[str, list[str]], list[str]]:
+def detect(root: Path) -> tuple[dict, list[str]]:
     """Scan the repo root and its sub-trees (to `_MAX_DEPTH`) for manifests,
-    unioning the results. Returns ({"dependencies", "languages"}, warnings).
+    unioning the results. Returns ({"dependencies", "languages", "versions"},
+    warnings); the first two lists keep their original shape for existing consumers.
     Sub-tree scanning is what lets a monorepo whose manifests live under
     backend/ or packages/<pkg>/ match its stack packs."""
     deps: set[str] = set()
     langs: set[str] = set()
+    versions: dict[str, set[str]] = {}
     warnings: list[str] = []
     for d in _iter_dirs(root, _MAX_DEPTH):
-        _scan_dir(d, root, deps, langs, warnings)
-    return {"dependencies": sorted(deps), "languages": sorted(langs)}, warnings
+        _scan_dir(d, root, deps, langs, versions, warnings)
+    return {"dependencies": sorted(deps), "languages": sorted(langs),
+            "versions": {k: sorted(versions[k]) for k in sorted(versions)}}, warnings
 
 
 # --- Self-test -----------------------------------------------------------------
@@ -207,7 +271,7 @@ def _run_self_test() -> int:
     failures = 0
 
     def case(name: str, files: dict[str, str], want_deps: set[str], want_langs: set[str],
-             want_warnings: int = 0) -> None:
+             want_warnings: int = 0, want_versions: dict | None = None) -> None:
         nonlocal failures
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -220,7 +284,8 @@ def _run_self_test() -> int:
                   and set(result["languages"]) == want_langs
                   and result["dependencies"] == sorted(result["dependencies"])
                   and result["languages"] == sorted(result["languages"])
-                  and len(warnings) == want_warnings)
+                  and len(warnings) == want_warnings
+                  and (want_versions is None or result["versions"] == want_versions))
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: {result}"
                   f"{' warnings=' + repr(warnings) if warnings else ''}")
             if not ok:
@@ -294,7 +359,33 @@ def _run_self_test() -> int:
           "lvl4/a/b/c/package.json": json.dumps({"dependencies": {"toodeep": "1"}})},
          {"found"}, {"javascript", "node"})
 
-    case("empty repo", {}, set(), set())
+    case("declared versions: every manifest kind, extras/markers stripped, toolchain pins",
+         {"package.json": json.dumps({"dependencies": {"@angular/core": "^22.0.1"},
+                                      "devDependencies": {"@angular/cli": "~22.0.0"}}),
+          "pyproject.toml": ('[project]\nname = "x"\nversion = "0"\nrequires-python = ">=3.11"\n'
+                             'dependencies = ["uvicorn[standard]>=0.23", "httpx"]\n'
+                             '[tool.poetry.dependencies]\npydantic = { version = "^2.7" }\n'),
+          "requirements.txt": "celery[redis]~=5.3 ; python_version >= '3.10'\n",
+          "go.mod": "module m\n\ngo 1.22\n\nrequire gopkg.in/yaml.v3 v3.0.1\n",
+          "Cargo.toml": '[dependencies]\nserde = "1"\nlocal = { path = "../l" }\n',
+          "Gemfile": 'gem "rails", "~> 7.1", ">= 7.1.2"\ngem "puma"\n',
+          "composer.json": json.dumps({"require": {"laravel/framework": "^11.0"}})},
+         {"@angular/core", "@angular/cli", "uvicorn", "httpx", "pydantic", "celery",
+          "gopkg.in/yaml.v3", "serde", "local", "rails", "puma", "laravel/framework"},
+         {"javascript", "node", "python", "go", "rust", "ruby", "php"},
+         want_versions={"@angular/cli": ["~22.0.0"], "@angular/core": ["^22.0.1"],
+                        "celery": ["~=5.3"], "go": ["1.22"], "gopkg.in/yaml.v3": ["v3.0.1"],
+                        "laravel/framework": ["^11.0"], "pydantic": ["^2.7"],
+                        "python": [">=3.11"], "rails": ["~> 7.1, >= 7.1.2"], "serde": ["1"],
+                        "uvicorn": [">=0.23"]})
+
+    case("monorepo keeps each distinct declared specifier",
+         {"a/package.json": json.dumps({"dependencies": {"vue": "^2.7.16"}}),
+          "b/package.json": json.dumps({"dependencies": {"vue": "^3.4.0"}}),
+          "c/package.json": json.dumps({"dependencies": {"vue": "^3.4.0"}})},
+         {"vue"}, {"javascript", "node"}, want_versions={"vue": ["^2.7.16", "^3.4.0"]})
+
+    case("empty repo", {}, set(), set(), want_versions={})
 
     case("malformed manifest warns, others still scanned",
          {"package.json": "{nope",

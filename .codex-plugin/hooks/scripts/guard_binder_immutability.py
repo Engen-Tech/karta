@@ -20,6 +20,8 @@ binder (`.karta/binders/*.json`, or a delivered one under
 - Add File over a path tracked in HEAD — denied (a re-add is an overwrite).
 - Delete File of a committed binder — denied; archive it with `git mv` or a
   hunk-free patch move instead.
+- A path that is a hard link to a committed binder (same device and inode) gets
+  the same rule as the binder, since realpath does not collapse hard links.
 - Untracked binder writes (plan drafting) pass, as on Claude Code.
 
 A Claude-shaped payload (`tool_input.file_path`/`notebook_path`) is also handled,
@@ -32,7 +34,7 @@ maintained by hand, not generated.
   guard_binder_immutability.py --self-test  # run embedded fixtures, exit 0/1
 """
 from __future__ import annotations
-import argparse, json, os, re, subprocess, sys
+import argparse, json, os, re, stat, subprocess, sys
 from pathlib import Path
 
 def _read_stdin_text() -> str:
@@ -50,26 +52,77 @@ DIRECTIVE_RE = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to): 
 
 
 def _os_spelling(path: str, cwd: str) -> str:
-    """The spelling the OS will actually open, in git's forward-slash form.
+    """Resolve dot segments and existing symlinks before classifying a target."""
+    target = os.path.realpath(os.path.join(cwd or os.getcwd(), path))
+    return os.path.normcase(target).replace(os.sep, "/")
 
-    A literal match on the typed path is the fact on POSIX, where open() opens
-    exactly what was typed — only separators are normalised. On Windows it is
-    not: a write resolves case-insensitively (`.Karta`), strips trailing dots
-    and spaces from the last component (`x.json.`), and accepts 8.3 short
-    names (`KARTA~1`), so all of those reach the file this guard protects
-    while sailing past the pattern. abspath() applies the dot/space cleanup
-    the OS will apply, realpath() returns existing components in their true
-    long-name casing, and the lowercase fold covers components that do not
-    exist yet — matched against an all-lowercase pattern, that is NTFS's own
-    equivalence."""
-    if os.name != "nt":
-        return path.replace("\\", "/")
-    p = path if os.path.isabs(path) else os.path.join(cwd or ".", path)
+
+def _binder_targets(path: str, cwd: str) -> set[str]:
+    # Keep the lexical name too: overwriting a committed binder that is itself
+    # a symlink must not become legal merely because its target is elsewhere.
+    lexical = os.path.normcase(os.path.abspath(os.path.join(cwd or os.getcwd(), path)))
+    return {p for p in (lexical.replace(os.sep, "/"), _os_spelling(path, cwd))
+            if BINDER_RE.search(p)}
+
+
+def _repo_top(start: str) -> str | None:
+    top = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True, encoding="utf-8")
+    return top.stdout.strip() if top.returncode == 0 and top.stdout.strip() else None
+
+
+def _worktrees(top: str) -> list[str]:
+    """`top` plus every worktree of its repository (`git worktree list --porcelain`)."""
     try:
-        p = os.path.realpath(os.path.abspath(p))
-    except (OSError, ValueError):
-        pass
-    return p.replace(os.sep, "/").lower()
+        out = subprocess.run(["git", "-C", top, "worktree", "list", "--porcelain"],
+                             capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return [top]
+    if out.returncode != 0:
+        return [top]
+    lines = out.stdout.decode("utf-8", errors="surrogateescape").splitlines()
+    return [top, *(line[len("worktree "):] for line in lines if line.startswith("worktree "))]
+
+
+def _hardlinked_binder(path: str, cwd: str) -> bool:
+    """Is `path` a hard link to a binder committed in HEAD?
+
+    realpath collapses symlinks, never hard links: a second name for the binder's
+    inode classifies as an ordinary file. So when the resolved target is a regular
+    file with more than one link, compare its (st_dev, st_ino) with every binder
+    HEAD tracks — live and archived — in every worktree of the repository of the
+    working directory and of the target, and apply the binder rule on a match. A
+    linked worktree holds its own copy of each tracked file, so a hard link made in
+    one worktree to another worktree's binder matches only in that other worktree."""
+    target = os.path.realpath(os.path.join(cwd or os.getcwd(), path))
+    try:
+        st = os.stat(target)
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink < 2:
+        return False
+    tops = {t for t in (_repo_top(os.path.dirname(target)), _repo_top(cwd or os.getcwd())) if t}
+    tops = {os.path.realpath(w) for t in tops for w in _worktrees(t)}
+    for top in sorted(tops):
+        listing = subprocess.run(["git", "-C", top, "ls-tree", "-r", "-z", "--name-only", "HEAD"],
+                                 capture_output=True, timeout=10)
+        if listing.returncode != 0:
+            continue
+        for rel in listing.stdout.decode("utf-8", errors="surrogateescape").split("\0"):
+            if not rel or not BINDER_RE.search(rel):
+                continue
+            try:
+                other = os.stat(os.path.join(top, rel))
+            except OSError:
+                continue
+            if (other.st_dev, other.st_ino) == (st.st_dev, st.st_ino):
+                return True
+    return False
+
+
+def _committed_binder(path: str, cwd: str, tracked) -> bool:
+    return (any(tracked(p, cwd) for p in _binder_targets(path, cwd))
+            or _hardlinked_binder(path, cwd))
 
 
 def parse_patch_ops(text: str) -> list[dict]:
@@ -99,7 +152,7 @@ def parse_patch_ops(text: str) -> list[dict]:
 
 def _tracked_in_head(path: str, cwd: str) -> bool:
     """Is `path` (as the patch names it) a blob in HEAD of its repo?"""
-    abs_path = (Path(path) if os.path.isabs(path) else Path(cwd) / path).resolve()
+    abs_path = Path(os.path.abspath(os.path.join(cwd, path)))
     base = str(abs_path.parent) if abs_path.parent.is_dir() else cwd
     top = subprocess.run(["git", "-C", base, "rev-parse", "--show-toplevel"],
                          capture_output=True, text=True, encoding="utf-8")
@@ -146,7 +199,7 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     for key in ("file_path", "notebook_path"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
-            if BINDER_RE.search(_os_spelling(val, cwd)) and tracked(val, cwd):
+            if _committed_binder(val, cwd, tracked):
                 return _deny(val, "overwrite")
             return 0, ""
 
@@ -161,19 +214,19 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
         src = _os_spelling(op["path"], cwd)
         dst = (_os_spelling(op["move_to"], cwd)
                if isinstance(op["move_to"], str) else None)
-        src_is_binder = bool(BINDER_RE.search(src))
+        # _committed_binder covers a binder spelling and a hard link to a binder alike.
         if op["op"] == "Add File":
-            if src_is_binder and tracked(op["path"], cwd):
+            if _committed_binder(op["path"], cwd, tracked):
                 return _deny(op["path"], "re-add (overwrite)")
         elif op["op"] == "Delete File":
-            if src_is_binder and tracked(op["path"], cwd):
+            if _committed_binder(op["path"], cwd, tracked):
                 return _deny(op["path"], "delete")
         elif op["op"] == "Update File":
-            if src_is_binder and tracked(op["path"], cwd):
+            if _committed_binder(op["path"], cwd, tracked):
                 if dst and dst == _archive_dst(src) and not op["changed"]:
                     continue  # the sanctioned end-of-life archive move
                 return _deny(op["path"], "rewrite")
-            if dst and BINDER_RE.search(dst) and tracked(dst, cwd):
+            if dst and _committed_binder(op["move_to"], cwd, tracked):
                 return _deny(dst, "move another file over")
     return 0, ""
 
@@ -297,22 +350,43 @@ def _run_self_test() -> int:
         git("add", ".")
         git("-c", "user.email=karta@test", "-c", "user.name=karta", "commit", "-q", "-m", "seed")
         (repo / ".karta" / "binders" / "draft.json").write_text("{}\n", encoding="utf-8")
+        # A linked worktree holds its own copies: a hard link made there to the main
+        # checkout's binder must still meet the binder rule; one to a non-binder not.
+        (repo / "notes.txt").write_text("x\n", encoding="utf-8")
+        git("add", "notes.txt")
+        git("-c", "user.email=karta@test", "-c", "user.name=karta", "commit", "-q", "-m", "notes")
+        wt = Path(td) / "wt"
+        git("worktree", "add", "-q", str(wt), "HEAD")
+        linked = True
+        try:
+            os.link(repo / ".karta" / "binders" / "committed.json", wt / "alias.json")
+            os.link(repo / "notes.txt", wt / "notes-alias.txt")
+        except OSError:
+            linked = False  # no hard links on this filesystem: nothing to alias
 
         git_cases = [
             ("git: committed binder update denied",
              ".karta/binders/committed.json", 2),
             ("git: untracked draft update passes", ".karta/binders/draft.json", 0),
         ]
-        for name, rel, want in git_cases:
+        git_cases = [(n, rel, want, repo) for n, rel, want in git_cases]
+        if linked:
+            git_cases += [
+                ("git: hard link in a linked worktree to the main checkout's binder denied",
+                 "alias.json", 2, wt),
+                ("git: hard link in a linked worktree to a non-binder passes",
+                 "notes-alias.txt", 0, wt),
+            ]
+        for name, rel, want, where in git_cases:
             body = f"*** Begin Patch\n*** Update File: {rel}\n@@\n+x\n*** End Patch"
             payload = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch",
-                       "cwd": str(repo), "tool_input": {"command": body}}
+                       "cwd": str(where), "tool_input": {"command": body}}
             code, _ = decide(payload)
             ok = code == want
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
             failures += 0 if ok else 1
 
-    total = len(cases) + 2
+    total = len(cases) + len(git_cases)
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 

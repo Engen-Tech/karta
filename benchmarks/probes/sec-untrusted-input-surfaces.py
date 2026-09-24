@@ -284,11 +284,14 @@ def probe_p1(target: Path, repo: Path, expected: dict) -> dict:
     payloads = expected["payloads"]
     static_loopback = _bind_scope_static(target)
 
-    # Launch 1: keyless server — fetch / and /state.json, grep for unescaped payloads.
-    proc, port = _launch_server(target, repo, key=None)
+    # Launch 1: fetch / and /state.json with the key, grep for unescaped payloads.
+    # Ephemeral Watch always gates on a key since audit F10 (a fresh token when
+    # none is named), so the render is read through the key a user holds — a
+    # keyless fetch would grade the 403 page and prove nothing about escaping.
+    proc, port = _launch_server(target, repo, key=KEY_TOKEN)
     try:
-        idx_status, idx_body = _fetch(port, "/")
-        st_status, st_body = _fetch(port, "/state.json")
+        idx_status, idx_body = _fetch(port, "/", key=KEY_TOKEN)
+        st_status, st_body = _fetch(port, "/state.json", key=KEY_TOKEN)
         runtime_reachable = idx_status == 200 and st_status == 200
         surfaces = {"index": idx_body, "state_json": st_body}
         sinks = _grep_sinks(payloads, surfaces)
@@ -681,10 +684,10 @@ def _run_self_test() -> int:
             shutil.copytree((target / SERVE_REL).parent, (fake_root / SERVE_REL).parent)
             (fake_root / SERVE_REL).write_text(
                 sabotaged, encoding="utf-8", newline="\n")
-            proc, port = _launch_server(fake_root, repo2, key=None)
+            proc, port = _launch_server(fake_root, repo2, key=KEY_TOKEN)
             try:
-                _, idx_body = _fetch(port, "/")
-                _, st_body = _fetch(port, "/state.json")
+                _, idx_body = _fetch(port, "/", key=KEY_TOKEN)
+                _, st_body = _fetch(port, "/state.json", key=KEY_TOKEN)
                 sab_sinks = _grep_sinks(expected["payloads"],
                                         {"index": idx_body, "state_json": st_body})
                 sab_leaks = (serve_src.count(guard) == 1

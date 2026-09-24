@@ -82,36 +82,77 @@ def added_lines(base: str | None = None, target: str | None = None) -> list[tupl
     """
     if (base is None) != (target is None):
         raise ValueError("--base and --target must be supplied together")
-    command = ["git", "diff"]
+    # Pin every setting that changes the text parse_added_lines reads, so a user's
+    # git config cannot reshape it: blank context printed as an empty line
+    # (suppressBlankEmpty), hunks merged across unchanged lines (interHunkContext),
+    # the `+++ b/` header prefix (noprefix, mnemonicPrefix), a subdirectory-only
+    # diff (relative), quoted paths, colour and external diff drivers.
+    command = ["git", "-c", "diff.suppressBlankEmpty=false", "-c", "diff.interHunkContext=0",
+               "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false",
+               "-c", "diff.relative=false", "-c", "core.quotePath=false",
+               "-c", "color.diff=false", "-c", "color.ui=false", "diff"]
     if base is None:
         command.append("--cached")
     else:
         command.extend([base, target])
-    command.extend(["--no-color", "-U0"])
+    command.extend(["--no-ext-diff", "--no-textconv", "--no-color", "-U0",
+                    "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/"])
     try:
-        out = subprocess.run(
-            command,
-            text=True, capture_output=True, check=True,
-         encoding="utf-8").stdout
+        out = subprocess.run(command, capture_output=True, check=True).stdout
     except FileNotFoundError as exc:
         raise RuntimeError("git is unavailable during secret scan") from exc
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(exc.stderr.strip() or "git diff failed during secret scan") from exc
-    rows: list[tuple[str, int, str]] = []
+        err = exc.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(err or "git diff failed during secret scan") from exc
+    # Bytes in, lossy decode: secret patterns are ASCII, and a strict decode
+    # would let one invalid byte abort the whole scan.
+    return parse_added_lines(out.decode("utf-8", errors="replace"))
+
+
+def parse_added_lines(diff: str) -> list[tuple[str, int, str]]:
+    """Parse unified hunk content separately from file metadata.
+
+    Git ends every diff line with "\\n" and nothing else, so only "\\n" splits
+    lines: str.splitlines() would also break on \\f, \\v, a lone CR, U+2028
+    and friends inside an added line, and a fragment starting with "+", "-"
+    or " " would then spend the hunk counters. A counter that goes negative
+    means the diff was misread, so the scan fails closed with ValueError.
+
+    An empty line inside a hunk is a context line whose single space was
+    dropped, as git prints a blank context line under diff.suppressBlankEmpty.
+    """
+    rows = []
     path = ""
-    new_line = 0
-    hunk = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-    for raw in out.splitlines():
-        if raw.startswith("+++ b/"):
-            path = raw[6:]
+    new_line = old_left = new_left = 0
+    hunk = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+    lines = diff.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    for raw in lines:
+        match = hunk.match(raw)
+        if match:
+            old_left = int(match[1]) if match[1] is not None else 1
+            new_line = int(match[2])
+            new_left = int(match[3]) if match[3] is not None else 1
+        elif old_left or new_left:
+            if raw.startswith("+"):
+                rows.append((path, new_line, raw[1:]))
+                new_line += 1
+                new_left -= 1
+            elif raw.startswith("-"):
+                old_left -= 1
+            elif raw.startswith(" ") or raw == "":
+                old_left -= 1
+                new_left -= 1
+                new_line += 1
+            elif not raw.startswith("\\"):
+                raise ValueError(f"malformed diff: hunk line outside +/-/space in {path or '?'}")
+            if old_left < 0 or new_left < 0:
+                raise ValueError(f"malformed diff: hunk counts overrun in {path or '?'}")
         elif raw.startswith("+++ "):
             path = raw[4:]
-        elif raw.startswith("@@"):
-            m = hunk.match(raw)
-            new_line = int(m.group(1)) if m else 0
-        elif raw.startswith("+") and not raw.startswith("+++"):
-            rows.append((path, new_line, raw[1:]))
-            new_line += 1
+            if path.startswith("b/"):
+                path = path[2:]
     return rows
 
 
@@ -182,18 +223,7 @@ def _run_self_test() -> int:
         '+secret = "ghp_' + "c" * 36 + '"\n'
         "+ok = 1\n"
     )
-    parsed = []
-    path, new_line = "", 0
-    hunk = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-    for raw in diff.splitlines():
-        if raw.startswith("+++ b/"):
-            path = raw[6:]
-        elif raw.startswith("@@"):
-            mm = hunk.match(raw)
-            new_line = int(mm.group(1)) if mm else 0
-        elif raw.startswith("+") and not raw.startswith("+++"):
-            parsed.append((path, new_line, raw[1:]))
-            new_line += 1
+    parsed = parse_added_lines(diff)
     ok = parsed and parsed[0] == ("src/c.py", 1, 'secret = "ghp_' + "c" * 36 + '"') and parsed[1][1] == 2
     print(f"[{'PASS' if ok else 'FAIL'}] diff parse: {parsed}")
     failures += 0 if ok else 1
@@ -214,7 +244,12 @@ def main() -> int:
     if (args.base is None) != (args.target is None):
         ap.error("--base and --target must be supplied together")
     allow = load_allowlist(args.allowlist)
-    findings = scan_lines(added_lines(args.base, args.target), allow)
+    try:
+        added = added_lines(args.base, args.target)
+    except (RuntimeError, ValueError) as exc:
+        print(f"SECRET SCAN: ERROR: {exc}")
+        return 1
+    findings = scan_lines(added, allow)
     if findings:
         print("SECRET SCAN: BLOCKED")
         for f in findings:
