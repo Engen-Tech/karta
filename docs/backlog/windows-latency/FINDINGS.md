@@ -134,13 +134,45 @@ each stub took seconds to query and discovery took 25 s
 the search. On a machine with no Python 3.11+ at all, the first `uv run --script` downloads
 one, which behind a corporate proxy can hang until timeout.
 
-**git on Windows.** `git status` and friends stat the worktree with per-file calls that
-are expensive on NTFS. `core.fscache` (Windows only) bulk-reads directories;
-`core.untrackedCache` skips unchanged directories; the built-in `core.fsmonitor` daemon
-turns full scans into change lists. GitHub measured status dropping from 17 to 85 s to
-under 1 s on large trees with fsmonitor plus untracked-cache
-([GitHub blog](https://github.blog/engineering/infrastructure/improve-git-monorepo-performance-with-a-file-system-monitor/)).
-karta's repos are small, so the win is per-call latency, not seconds.
+**git on Windows.** Commands that refresh the index (`status`, `diff`, `add`, `checkout`,
+`stash`, `describe --dirty`) stat the worktree with per-file calls that are expensive on
+NTFS. Three settings address that, and they are not equal:
+
+- `core.fscache` (Windows only) bulk-reads directories within one command instead of
+  calling `lstat` per file: 3 to 6x on `status` in a 200k-file repo
+  ([msysgit #94](https://github.com/msysgit/git/pull/94)). Git for Windows turns it on in
+  the system gitconfig by default, so setting it globally is usually a no-op; check with
+  `git config --show-origin core.fscache`. It is a per-command in-memory cache with no
+  daemon and nothing to go stale.
+- `core.untrackedCache` stores directory mtimes in the index so unchanged directories skip
+  the untracked scan, about 2x on that phase
+  ([GitHub blog](https://github.blog/engineering/infrastructure/improve-git-monorepo-performance-with-a-file-system-monitor/)).
+  It trusts directory mtime: fine on NTFS, wrong on network shares, some FUSE mounts, and
+  WSL's `/mnt/c`, where it can report stale status. `git update-index --test-untracked-cache`
+  checks a volume before you trust it.
+- `core.fsmonitor` starts a long-lived `git fsmonitor--daemon` per working directory and
+  asks it for changes instead of scanning. GitHub measured status on Chromium-sized trees
+  dropping from 17 to 85 s to under 1 s with fsmonitor plus untracked-cache. The costs: one
+  daemon process per worktree, so a delivery that builds each item in its own worktree
+  spawns one per item, each a CreateProcess plus a Defender scan; the first status after a
+  daemon starts is as slow as before or slower; daemons outlive the shell and pile up
+  ([microsoft/vscode #161088](https://github.com/microsoft/vscode/issues/161088)). Before
+  git 2.34 the daemon held the worktree root open and blocked `worktree move`, rename, and
+  delete ([git-for-windows #3370](https://github.com/git-for-windows/git/issues/3370),
+  [#3408](https://github.com/git-for-windows/git/issues/3408)); fixed by changing directory
+  to HOME at startup ([git 39664e9](https://github.com/git/git/commit/39664e93093bd9545ad4085523b122196c449508))
+  and a force-shutdown when the root moves, so git 2.55 is clear, but any IDE bundling git
+  2.35.1 or older misreads a boolean `core.fsmonitor` as a hook path. The daemon refuses
+  network-mounted repos unless `fsmonitor.allowRemote` is set
+  ([git docs](https://git-scm.com/docs/git-fsmonitor--daemon)).
+
+None of the three speeds up karta's status script: `karta_next.py`'s git calls are
+`rev-parse`, `for-each-ref`, `symbolic-ref`, `merge-base`, and `ls-tree`, all ref and
+object reads that never touch the worktree. They help the build and deliver phases
+(`worktree add`, merges) and the model's own `git status` and `git diff` calls. karta's
+repos are small, and the fsmonitor wins in the sources start at hundreds of thousands of
+files, so on a repo like karta itself the daemon saves tens of milliseconds per status
+while costing a process per item worktree.
 
 ## Where the minutes come from, per host
 
@@ -228,8 +260,13 @@ parallel, so a Write costs roughly one guard's wall time, not four.
 2. **Defender.** Exclude the repo, `%LOCALAPPDATA%\uv`, and the Python install, or add
    process exclusions for `python.exe`, `uv.exe`, `git.exe`, `pwsh.exe`. Better: put repos
    and the uv cache on a Dev Drive so scanning goes asynchronous without exclusions.
-3. **git.** `git config --global core.fscache true`, `core.untrackedCache true`,
-   `core.fsmonitor true`.
+3. **git.** Keep `core.fscache` (the installer default; confirm with
+   `git config --show-origin core.fscache`) and set `git config --global core.untrackedCache true`,
+   which is cheap and safe on NTFS. Treat `core.fsmonitor` as a per-repo opt-in for large
+   worktrees, not a global default: it costs a daemon per karta item worktree for a saving
+   measured in tens of milliseconds on small repos. If it is on, run
+   `git fsmonitor--daemon stop` in a worktree before removing it. None of this touches
+   karta's own ref-reading scripts; it helps `status`, `diff`, merges, and `worktree add`.
 4. **uv.** Set `UV_PYTHON` to the interpreter path (or `uv python pin`) so discovery is
    skipped, and run `uv python install 3.12` once so a first run never downloads.
 5. **PowerShell.** Install pwsh 7 (Copilot needs it anyway), keep `$PROFILE` light, and on

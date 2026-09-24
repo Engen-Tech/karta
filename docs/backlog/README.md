@@ -751,8 +751,8 @@ rewrite. A Go port was asked about: it removes 100 to 230 ms of interpreter and 
 call and nothing above that, so it is not the answer to "minutes".
 
 **Unblock path.** In payoff order. (1) Environment, no karta change: Codex sandbox log triage,
-Defender exclusions or a Dev Drive, `core.fscache`/`core.untrackedCache`/`core.fsmonitor`,
-`UV_PYTHON` pinned. (2) karta, cheap: make `commandWindows` call `uv run --script` straight from
+Defender exclusions or a Dev Drive, `core.untrackedCache` globally with `core.fsmonitor` only as a
+per-repo opt-in for large worktrees, `UV_PYTHON` pinned. (2) karta, cheap: make `commandWindows` call `uv run --script` straight from
 cmd and drop `launch_hook.ps1`; move Claude hooks to exec form (`command` + `args`, no bash.exe)
 with `if` filters; merge the three Write/Edit guards into one dispatcher; lazy-import the guards'
 stdlib; batch git calls; fewer `uv run` lines per skill turn. (3) Resident guards through Claude's
