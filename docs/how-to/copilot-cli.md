@@ -63,6 +63,9 @@ This integration supplies the shared skills and these two native reviewers.
 It does not certify full Copilot parity with the Claude, Codex, or Pi integrations.
 The Copilot entrypoint declares an empty hook configuration so the CLI does not
 load the incompatible Claude hook manifest by convention.
+The known gaps, including what blocks wiring karta's guards on Copilot and on
+Windows, are listed in
+[the Copilot parity gap analysis](../backlog/copilot-parity-gaps/FINDINGS.md).
 
 The profiles retain read, search, and shell tools for inspecting the actual diff.
 They expose no editing tool, and their prompts forbid writes. Shell access is
