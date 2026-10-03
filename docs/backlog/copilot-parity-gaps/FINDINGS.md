@@ -12,9 +12,11 @@ Method:
 - A live probe on Linux with the real `copilot` 1.0.92 binary, a throwaway trusted repo, and a
   Claude-format plugin loaded with `--plugin-dir`. Every hook dumped its env and stdin payload to a
   file. Claims marked **(probed)** come from those dumps, not from the docs.
-- Not probed: Windows. `pwsh` is not installed on the probe host. Every Windows claim below comes
-  from the official docs and is marked *(docs)*. No Copilot guard can be called enforced on Windows
-  until one real Windows run passes. See [G13](#g13--no-copilot-hook-tests-and-no-windows-run).
+- Windows: one probe ran on a GitHub-hosted `windows-latest` runner (see
+  [Windows probe](#windows-probe-2026-10-03-github-actions-windows-latest)). It covered hook shell
+  selection, the native payload, and the G4 failure, not karta's own guards. Other Windows claims
+  come from the official docs and are marked *(docs)*. No Copilot guard can be called enforced on
+  Windows until karta's guards pass on Windows. See [G13](#g13--no-copilot-hook-tests-and-no-windows-run).
 
 ## Verdict
 
@@ -66,6 +68,21 @@ The rest of the list is packaging, coverage, and docs.
 |PostToolUse exit 2 stderr reaches the model|No. Exit 2 is a warning except for preToolUse, permissionRequest, and postToolUseFailure. Use `additionalContext`|docs|
 |Timeouts|Fail open for every event, preToolUse included. Default 30 s|docs|
 |Other non-zero exits|Fail open, except preToolUse, which fails closed|docs|
+
+### Windows probe (2026-10-03, GitHub Actions `windows-latest`)
+
+Copilot CLI 1.0.91 on a hosted Windows runner, authenticated with the workflow's own
+`GITHUB_TOKEN` (`permissions: copilot-requests: write`, user-owned private repo, no PAT). Repo
+hooks loaded because the workspace was listed in `trustedFolders`.
+
+|Question|Answer|
+|-|-|
+|Which entry runs from a native `.github/hooks/*.json` hook?|`powershell`, under PowerShell 7.6 Core. `bash` entries were ignored|
+|Native preToolUse payload on Windows|camelCase: `sessionId`, `timestamp`, `cwd` (`D:\\a\\...`), `toolName`, `toolArgs`|
+|Shell tool name on Windows|`powershell`, not `bash`/`Bash`. Guards matching only the Bash tool miss every shell call|
+|Claude-format repo hook with `matcher: ""`|Whole `.claude/settings.json` rejected: "matcher cannot be empty"|
+|Claude-format `python "${CLAUDE_PROJECT_DIR}/probe.py"`|Hook errored, and the shell call was denied ("hook errored", fail-closed). Confirms G4|
+|`bash` on the runner|Git Bash (`C:\Program Files\Git\bin\bash.exe`), Python 3.12 as `python`|
 
 ## Gap list
 
@@ -275,6 +292,12 @@ be the Windows default.
 - Add an opt-in live smoke test (needs a Copilot login): run `copilot -p` in a temp trusted repo
   with `--plugin-dir`, attempt a binder write, and assert the deny. Run it on a Windows runner with
   `pwsh` too. Until that Windows run passes, G1–G4 are "wired", not "enforced".
+- Windows harness options: a `windows-latest` GitHub Actions job authenticates with the
+  workflow's `GITHUB_TOKEN` and `copilot-requests: write` (proven 2026-10-03), but needs karta
+  mirrored to a private GitHub repo. A tailnet Windows PC with OpenSSH lets the test driver run
+  the same smoke test over `ssh`, with no code leaving the network. `pwsh` on Linux checks
+  PowerShell syntax only: Copilot runs the `bash` entry there, and paths, Python, and process
+  start-up stay Linux.
 
 ### G14 — Docs describe Copilot as skills plus two reviewers
 
