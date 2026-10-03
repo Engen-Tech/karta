@@ -776,6 +776,18 @@ measurements, the source list, the per-host breakdown, the Go comparison, and th
 
 ---
 
+## 31. Engen-Tech plugin marketplace for karta, steward and later plugins: *Ready* (designed 2026-10-03)
+
+**What.** Each product repo is its own single-plugin marketplace today (`karta@karta`, `karta@karta-local` on Codex, `steward@steward`), and every install clones the whole product repo, including karta's docs, tests, benchmarks and binders. The design replaces them with one GitHub repo, `Engen-Tech/plugins` (marketplace `name`: `engen-tech`), that holds only each plugin's shipped files under `plugins/<name>/` plus the catalog files. A release script, run from Forgejo, clones the release tag, copies the shipped set, lifts the plugin's catalog entry, records a lock entry, validates, and pushes to GitHub. Product repos stay canonical on Forgejo; there is no Forgejo copy of the marketplace.
+
+**Why it matters.** One install line per harness for every plugin (`/plugin install karta@engen-tech`), a lean install, and no dependence on a GitHub mirror that can lag. A pointer catalog was rejected: the harnesses disagree on remote-source syntax, and Codex's remote forms are not on its docs page.
+
+**Unblock path.** Nothing has been built. Decide each product's shipped set and the lock file format, then write `scripts/release.py` and `scripts/validate.py` in the new repo and update the install docs in this repo (inventory in the findings). The first release must prove four things before it is announced: karta runs from the shipped set alone, Copilot finds its manifest in a marketplace subfolder, Codex loads the plugin from a folder that also holds `.claude-plugin/`, and `claude plugin validate` passes. Everyone reinstalls once because the install ids change.
+
+**Evidence.** [`engen-tech-plugin-marketplace/FINDINGS.md`](engen-tech-plugin-marketplace/FINDINGS.md): current marketplace layouts, the options considered, harness facts with their sources, the design, a file-and-line inventory of this repo's changes, the migration, and open questions.
+
+---
+
 ## Done (recent)
 
 - **v1.9.0** — per-host model + effort tiering on all 3 agents + 9 skills (PR #1, merged).
