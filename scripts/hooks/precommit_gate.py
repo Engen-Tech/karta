@@ -1215,6 +1215,8 @@ def decide(payload, env, runner, gates=None, git=None, root=None) -> tuple[int, 
 
 def hook_main(stdin_text: str, env, runner) -> tuple[int, str]:
     """Parse the payload and decide; any internal error fails open (exit 0)."""
+    if env.get("COPILOT_CLI") and env.get("KARTA_HOOK_SOURCE") != "copilot":
+        return 0, ""
     try:
         payload = json.loads(stdin_text)
     except (ValueError, TypeError):
@@ -1588,6 +1590,16 @@ def _run_self_test() -> int:
         raise RuntimeError("boom")
     code, _ = hook_main(json.dumps(_payload("git commit -m x")), {}, exploding)
     check("runner exception fails open", code == 0)
+
+    # Copilot runs this gate twice: the .claude/settings.json copy is a no-op there,
+    # the .github/hooks/karta-repo.json copy (KARTA_HOOK_SOURCE=copilot) decides.
+    blocked = lambda name, argv: (1, "blocked")
+    commit = json.dumps(_payload("git commit -m x"))
+    check("legacy copy under Copilot is a silent no-op",
+          hook_main(commit, {"COPILOT_CLI": "1"}, blocked) == (0, ""))
+    check("Copilot manifest copy keeps the normal decision",
+          hook_main(commit, {"COPILOT_CLI": "1", "KARTA_HOOK_SOURCE": "copilot"}, blocked)[0] == 2)
+    check("no COPILOT_CLI keeps the normal decision", hook_main(commit, {}, blocked)[0] == 2)
 
     # real gate list has the expected shape (no gates executed)
     specs = gate_specs(ROOT)
