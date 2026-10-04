@@ -58,7 +58,8 @@ class RepoCase(unittest.TestCase):
     def write(self, path, content):
         p = self.root / path
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+        # Exact bytes: text-mode newline translation would commit CRLF on Windows.
+        p.write_text(content, encoding="utf-8", newline="\n")
 
     def commit(self):
         self.git("add", "-A")

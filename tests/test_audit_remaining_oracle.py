@@ -38,7 +38,7 @@ def py(source: str) -> str:
 
 class OracleCase(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-oracle-fix-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-oracle-fix-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
@@ -149,10 +149,9 @@ class BoundedCapture(OracleCase):
     def test_expect_substring_matches_beyond_retained_window(self):
         # The marker sits in the middle of the stream, outside the retained
         # head and tail; the streaming substring match must still see it.
-        cmd = py(
-            "import sys\n"
-            "w = sys.stdout.write\n"
-            "w('a' * (8 * 1024 * 1024)); w('MID-MARK'); w('b' * (8 * 1024 * 1024))\n")
+        # One line: cmd.exe ends the command at the first newline.
+        cmd = py("import sys; w = sys.stdout.write; "
+                 "w('a' * (8 * 1024 * 1024)); w('MID-MARK'); w('b' * (8 * 1024 * 1024))")
         record = self.run_oracle(cmd, expect="MID-MARK")
         self.assertTrue(record["decisive_output"]["stream_truncated"])
         self.assertTrue(record["expect"]["matched"])

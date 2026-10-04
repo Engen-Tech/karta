@@ -61,14 +61,18 @@ GATE_TIMEOUT = 100   # default seconds per gate; a hung gate is a failed gate, n
                      # stall. The budget exists to catch a hang, never to rank
                      # hardware — a gate that legitimately needs longer gets an
                      # override below rather than a failure that reads as a hang.
-# validate_plugin's floor runs every gated script's own --self-test as a subprocess,
-# so its cost is process spawns: ~200s green on a Windows dev machine whose four
-# other gates finish in seconds. Overrides only ever RAISE the default, and the
-# invariant the old comment stated per-gate is now a sum: every gate's budget
-# together (4x100 + 450 = 850) must stay inside the hook's outer timeout — 900 in
-# .claude/settings.json and .codex/hooks.json — because the harness must never kill
-# this hook mid-run: a timed-out PreToolUse hook does not block.
-GATE_TIMEOUTS = {"validate_plugin": 450}
+# validate_plugin's floor runs every gated script's own --self-test and every
+# tests/test_audit_*.py suite as subprocesses. Measured on a Windows 8-CPU dev
+# machine (2026 zbook), whose four other gates finish in seconds: serial 992s green;
+# concurrent (the default, 8 workers; also 4) 440-490s. That parallel figure sat on
+# top of the old 450s budget, so the budget is 720 — real margin over the measured
+# worst case rather than a coin flip. KARTA_VALIDATE_JOBS=1 restores the serial run,
+# which does NOT fit this budget on Windows. Overrides only ever RAISE the default,
+# and the invariant is a sum: every gate's budget together (4x100 + 720 = 1120) must
+# stay inside the hook's outer timeout — 1200 in .claude/settings.json,
+# .codex/hooks.json and .github/hooks/karta-repo.json — because the harness must
+# never kill this hook mid-run: a timed-out PreToolUse hook does not block.
+GATE_TIMEOUTS = {"validate_plugin": 720}
 
 
 def _gate_timeout(name: str) -> int:
@@ -1215,6 +1219,8 @@ def decide(payload, env, runner, gates=None, git=None, root=None) -> tuple[int, 
 
 def hook_main(stdin_text: str, env, runner) -> tuple[int, str]:
     """Parse the payload and decide; any internal error fails open (exit 0)."""
+    if env.get("COPILOT_CLI") and env.get("KARTA_HOOK_SOURCE") != "copilot":
+        return 0, ""
     try:
         payload = json.loads(stdin_text)
     except (ValueError, TypeError):
@@ -1589,6 +1595,16 @@ def _run_self_test() -> int:
     code, _ = hook_main(json.dumps(_payload("git commit -m x")), {}, exploding)
     check("runner exception fails open", code == 0)
 
+    # Copilot runs this gate twice: the .claude/settings.json copy is a no-op there,
+    # the .github/hooks/karta-repo.json copy (KARTA_HOOK_SOURCE=copilot) decides.
+    blocked = lambda name, argv: (1, "blocked")
+    commit = json.dumps(_payload("git commit -m x"))
+    check("legacy copy under Copilot is a silent no-op",
+          hook_main(commit, {"COPILOT_CLI": "1"}, blocked) == (0, ""))
+    check("Copilot manifest copy keeps the normal decision",
+          hook_main(commit, {"COPILOT_CLI": "1", "KARTA_HOOK_SOURCE": "copilot"}, blocked)[0] == 2)
+    check("no COPILOT_CLI keeps the normal decision", hook_main(commit, {}, blocked)[0] == 2)
+
     # real gate list has the expected shape (no gates executed)
     specs = gate_specs(ROOT)
     names = [n for n, _ in specs]
@@ -1601,23 +1617,26 @@ def _run_self_test() -> int:
 
     # --- gate budgets: overrides only raise, and the sum fits the outer timeout --
     check("timeout: the spawn-bound validator keeps its longer budget",
-          _gate_timeout("validate_plugin") == 450)
+          _gate_timeout("validate_plugin") == 720)
     check("timeout: every other gate gets the default",
           _gate_timeout("check_shared_copies") == GATE_TIMEOUT)
     check("timeout: overrides only ever raise the default, never lower it",
           all(v >= GATE_TIMEOUT for v in GATE_TIMEOUTS.values()))
     # The invariant is a SUM: if every gate hit its budget the hook must still
-    # finish inside the outer timeout both harnesses give it, because a hook the
+    # finish inside the outer timeout every harness gives it, because a hook the
     # harness kills mid-run does not block. Read from the committed configs so an
     # edit to either side re-arms this check rather than silently unbalancing them.
     budget_sum = sum(_gate_timeout(n) for n, _ in specs)
-    for cfg, needle in ((ROOT / ".claude/settings.json", "precommit_gate.py"),
-                        (ROOT / ".codex/hooks.json", "codex_precommit_gate.py")):
+    for cfg, needle, key, field in (
+            (ROOT / ".claude/settings.json", "precommit_gate.py", "timeout", "command"),
+            (ROOT / ".codex/hooks.json", "codex_precommit_gate.py", "timeout", "command"),
+            (ROOT / ".github/hooks/karta-repo.json", "/precommit_gate.py", "timeoutSec",
+             "bash")):
         try:
             hooks_conf = json.loads(cfg.read_text(encoding="utf-8", errors="replace"))
-            outer = min(h["timeout"] for grp in hooks_conf["hooks"].values()
+            outer = min(h[key] for grp in hooks_conf["hooks"].values()
                         for m in grp for h in m["hooks"]
-                        if needle in h.get("command", ""))
+                        if needle in h.get(field, ""))
         except (OSError, ValueError, KeyError, TypeError):
             outer = None
         check(f"timeout: gate budgets ({budget_sum}s) fit inside {cfg.name}'s "

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "description": "Repo-local Copilot CLI hooks for the karta checkout: run the dev-repo commit gates scripts/hooks/precommit_gate.py and scripts/hooks/roundtable_gate.py on Bash tool calls. Each entry sets KARTA_HOOK_SOURCE=copilot so the gates run once: the legacy .claude/settings.json copies exit 0 under Copilot when that marker is absent. The bash launcher is fail-open (no repo or no gate script allows); the PowerShell entry goes through .codex-plugin/hooks/launch_hook.ps1 and carries the gate's exit code out with a trailing exit $LASTEXITCODE.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "bash": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/precommit_gate.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "powershell": "& \"$env:COPILOT_PROJECT_DIR\\.codex-plugin\\hooks\\launch_hook.ps1\" \"scripts/hooks/precommit_gate.py\" GitTop; exit $LASTEXITCODE",
+            "env": {
+              "KARTA_HOOK_SOURCE": "copilot"
+            },
+            "timeoutSec": 1200
+          },
+          {
+            "type": "command",
+            "bash": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/roundtable_gate.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
+            "powershell": "& \"$env:COPILOT_PROJECT_DIR\\.codex-plugin\\hooks\\launch_hook.ps1\" \"scripts/hooks/roundtable_gate.py\" GitTop; exit $LASTEXITCODE",
+            "env": {
+              "KARTA_HOOK_SOURCE": "copilot"
+            },
+            "timeoutSec": 600
+          }
+        ]
+      }
+    ]
+  }
+}

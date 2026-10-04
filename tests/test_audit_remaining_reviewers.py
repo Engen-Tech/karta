@@ -30,11 +30,53 @@ GUARD = ROOT / "hooks/scripts/guard_writer_confinement.py"
 LEDGER = ROOT / "skills/karta-verify/scripts/gate_attempts.py"
 REVIEWERS = ("karta-acceptance-reviewer", "karta-safety-auditor",
              "karta-design-reviewer")
+# Every reviewer in both spellings the harness sends: the bare name and the plugin's.
+SPELLINGS = tuple(t for name in REVIEWERS for t in (name, "karta:" + name))
+PLUGIN_SPELLINGS = tuple("karta:" + name for name in REVIEWERS)
+
+WINDOWS = os.name == "nt"
+POWERSHELL = "PowerShell"      # needs PowerShell (any version), not cmd
+POWERSHELL_7 = "PowerShell 7"  # needs pwsh: Windows PowerShell 5.1 has no `&&`
+
+
+def windows_shell():
+    """The shell GitHub Copilot CLI and Claude Code run a Bash-tool command through on
+    Windows: PowerShell (pwsh, else Windows PowerShell), else cmd. Never WSL or Git Bash."""
+    exe = shutil.which("pwsh") or shutil.which("powershell")
+    if exe:
+        return [exe, "-NoProfile", "-NonInteractive", "-Command"]
+    return [os.environ.get("COMSPEC") or "cmd.exe", "/d", "/c"]
+
+
+def windows_control_skip(command, runnable, why):
+    """Why a positive control cannot run in the Windows harness shell, or None.
+
+    `runnable` maps each command the harness shell can run to what it needs:
+    POWERSHELL, POWERSHELL_7 or a program name. Any other command is POSIX-only and
+    `why` says so. Only the positive control is skipped; the deny is still asserted."""
+    if not WINDOWS:
+        return None
+    if command not in runnable:
+        return why
+    shell = windows_shell()[0]
+    for need in runnable[command]:
+        if need == POWERSHELL:
+            if "-NoProfile" not in windows_shell():
+                return f"needs PowerShell; only {shell} is available"
+        elif need == POWERSHELL_7:
+            if not shutil.which("pwsh"):
+                return "needs PowerShell 7 (pwsh) for `&&`"
+        else:
+            path = shutil.which(need)
+            # The WindowsApps python3 is a Store installer stub, not Python.
+            if path is None or "windowsapps" in path.lower():
+                return f"`{need}` is not installed on this Windows host"
+    return None
 
 
 class GitRepo(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-reviewer-fix-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-reviewer-fix-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.repos = 0
         self.fresh_repo()
@@ -58,7 +100,7 @@ class GitRepo(unittest.TestCase):
     def write(self, path, content):
         p = self.root / path
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+        p.write_text(content, encoding="utf-8", newline="\n")
 
     def commit(self, message="fixture"):
         self.git("add", "-A")
@@ -84,7 +126,9 @@ class ReviewerWriteProtection(GitRepo):
         return p.returncode, p.stderr
 
     def snapshot(self):
-        """Everything a reviewer must not change: files, index entries, refs, stashes."""
+        """Everything a reviewer must not change: files, index entries, refs, stashes,
+        HEAD and the repository config. Refs and config are read from .git directly so
+        a snapshot costs one Git process."""
         h = hashlib.sha256()
         for p in sorted(self.root.rglob("*")):
             rel = p.relative_to(self.root).as_posix()
@@ -96,25 +140,57 @@ class ReviewerWriteProtection(GitRepo):
             elif p.is_file():
                 h.update(p.read_bytes())
             h.update(oct(p.lstat().st_mode).encode("utf-8"))
-        for args in (("ls-files", "-s"), ("for-each-ref",), ("stash", "list"), ("config", "--local", "--list")):
-            h.update(self.git(*args).encode("utf-8"))
+        git_dir = self.root / ".git"
+        meta = [git_dir / name for name in ("HEAD", "config", "packed-refs")]
+        meta += sorted(git_dir.glob("refs/**/*")) + sorted(git_dir.glob("reftable/*"))
+        for p in meta:
+            h.update(p.relative_to(git_dir).as_posix().encode("utf-8") + b"\0")
+            if p.is_file():
+                h.update(p.read_bytes())
+        h.update(self.git("ls-files", "-s").encode("utf-8"))
         return h.hexdigest()
+
+    def run_as_harness(self, command):
+        shell = windows_shell() if WINDOWS else ["bash", "-c"]
+        subprocess.run([*shell, command], cwd=self.root, capture_output=True, timeout=60)
 
     def harness_bash(self, agent_type, command):
         """Run the hook; when it allows, execute the command as the harness would."""
         code, reason = self.hook(agent_type, "Bash", {"command": command, "description": "fixture"})
         if code == 0:
-            if os.name == "nt":
-                # Claude Code's Bash tool runs commands through Git Bash on Windows.
-                git_bash = shutil.which("bash")
-                if git_bash is None:
-                    self.skipTest("Git Bash not installed")
-                subprocess.run([git_bash, "-c", command], cwd=self.root,
-                               capture_output=True, timeout=60)
-            else:
-                subprocess.run(["bash", "-c", command], cwd=self.root,
-                               capture_output=True, timeout=60)
+            self.run_as_harness(command)
         return code, reason
+
+    def assert_reviewer_bash(self, commands, want, agent_types, check=lambda reason: None):
+        """Assert the hook's verdict on each command for every agent type, then do what
+        the harness would: run a command the hook allowed, and show the repository is
+        unchanged.
+
+        The command is the same for every agent type, so an allowed one runs once. A
+        denied one never runs, so the tree is snapshotted again only after a command
+        ran and once at the end; each comparison is against the last snapshot."""
+        before = self.snapshot()
+        for command in commands:
+            allowed = False
+            for agent_type in agent_types:
+                with self.subTest(agent=agent_type, command=command):
+                    code, reason = self.hook(agent_type, "Bash",
+                                             {"command": command, "description": "fixture"})
+                    allowed = allowed or code == 0
+                    self.assertEqual(want, code, f"{command}: {reason}")
+                    check(reason)
+            if allowed:
+                self.run_as_harness(command)
+                with self.subTest(command=command):
+                    after, before = before, self.snapshot()
+                    self.assertEqual(after, before, f"repository changed: {command}")
+        with self.subTest(command="(after every probe)"):
+            self.assertEqual(before, self.snapshot())
+
+    def skip_control_on_windows(self, command, runnable, why):
+        reason = windows_control_skip(command, runnable, why)
+        if reason:
+            self.skipTest(f"{reason}: {command}")
 
     WRITE_SHAPES = (
         "echo leaked > leaked.txt",
@@ -151,6 +227,36 @@ class ReviewerWriteProtection(GitRepo):
         "env FOO=1 touch leaked.txt",
         "timeout 5 touch leaked.txt",
     )
+
+    # The write shapes the Windows harness shell runs as written. The rest are
+    # POSIX-only there: chmod, ln, heredocs, `bash -c` (WSL), find -exec (find.exe
+    # searches text), timeout (timeout.exe sleeps) and perl's nested quoting.
+    WINDOWS_WRITE_CONTROLS = {
+        "echo leaked > leaked.txt": (),
+        "echo leaked >> src/app.py": (),
+        "printf x | tee leaked.txt": (POWERSHELL, "printf"),
+        "sed -i s/hello/bye/ src/app.py": ("sed",),
+        "rm src/app.py": (POWERSHELL,),
+        "mv docs/notes.md docs/moved.md": (POWERSHELL,),
+        "cp src/app.py src/copy.py": (POWERSHELL,),
+        "mkdir newdir": (),
+        "touch leaked.txt": ("touch",),
+        "git add -A": (),
+        "git checkout -b reviewer-branch": (),
+        "git branch reviewer-branch": (),
+        "git tag reviewer-tag": (),
+        "git stash": (),
+        "git reset --hard HEAD": (),
+        "git config user.name reviewer": (),
+        "git diff --output=leaked.txt HEAD": (),
+        "python3 -c \"open('leaked.txt', 'w').write('x')\"": (POWERSHELL, "python3"),
+        "python3 -c \"from pathlib import Path; Path('leaked.txt').write_text('x')\"":
+            (POWERSHELL, "python3"),
+        "node -e \"require('fs').writeFileSync('leaked.txt', 'x')\"": (POWERSHELL, "node"),
+        "cd src && touch leaked.txt": (POWERSHELL_7, "touch"),
+        "echo $(touch leaked.txt)": (POWERSHELL, "touch"),
+        "env FOO=1 touch leaked.txt": ("env", "touch"),
+    }
 
     READ_SHAPES = (
         "git status --short",
@@ -190,14 +296,8 @@ class ReviewerWriteProtection(GitRepo):
                         self.assertIn("read-only", reason)
 
     def test_write_shaped_bash_denied_and_nothing_changes(self):
-        for command in self.WRITE_SHAPES:
-            for name in REVIEWERS:
-                with self.subTest(agent=name, command=command):
-                    before = self.snapshot()
-                    code, reason = self.harness_bash("karta:" + name, command)
-                    self.assertEqual(2, code, reason)
-                    self.assertTrue(reason.startswith("karta: "))
-                    self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash(self.WRITE_SHAPES, 2, PLUGIN_SPELLINGS,
+                                  lambda reason: self.assertTrue(reason.startswith("karta: ")))
 
     # `git -c` only reads here; it is denied because a config override can name a program.
     NOT_A_WRITE_BY_ITSELF = ("git -c core.pager=cat log -1",)
@@ -210,6 +310,9 @@ class ReviewerWriteProtection(GitRepo):
             if "install" in command or command in self.NOT_A_WRITE_BY_ITSELF:
                 continue
             with self.subTest(command=command):
+                self.skip_control_on_windows(
+                    command, self.WINDOWS_WRITE_CONTROLS,
+                    "POSIX-only shape; PowerShell and cmd cannot run it")
                 self.fresh_repo()
                 self.write("docs/notes.md", "dirty\n")
                 before = self.snapshot()
@@ -218,13 +321,7 @@ class ReviewerWriteProtection(GitRepo):
                 self.assertNotEqual(before, self.snapshot(), f"positive control did not write: {command}")
 
     def test_read_only_bash_allowed_for_reviewers(self):
-        for command in self.READ_SHAPES:
-            for name in REVIEWERS:
-                with self.subTest(agent=name, command=command):
-                    before = self.snapshot()
-                    code, reason = self.harness_bash(name, command)
-                    self.assertEqual(0, code, reason)
-                    self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash(self.READ_SHAPES, 0, REVIEWERS)
 
     # Script execution: every shape runs a committed script that writes `leaked.txt`.
     SCRIPT_SHAPES = (
@@ -267,16 +364,9 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_script_execution_denied_for_reviewers_and_nothing_changes(self):
         self.script_repo()
-        for template in self.SCRIPT_SHAPES:
-            command = template.format(root=self.root)
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash([t.format(root=self.root) for t in self.SCRIPT_SHAPES], 2,
+                                  SPELLINGS,
+                                  lambda reason: self.assertTrue(reason.startswith("karta: ")))
 
     # Shapes whose write depends on the host's interactive start-up, not on tool.sh.
     SCRIPT_CONTROL_SKIP = ("bash -i -c 'true'",)
@@ -289,6 +379,9 @@ class ReviewerWriteProtection(GitRepo):
                 continue
             command = template.format(root=self.root)
             with self.subTest(command=command):
+                self.skip_control_on_windows(
+                    template, {}, "tool.sh is a POSIX shell script; PowerShell and cmd "
+                    "do not run it (bash there is WSL)")
                 self.script_repo()
                 command = template.format(root=self.root)
                 code, _ = self.harness_bash(None, command)
@@ -365,15 +458,9 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_prompted_reads_still_pass_for_reviewers(self):
         self.script_repo()
-        for template in self.PROMPTED_READS:
-            command = template.format(root=self.root, range="HEAD~1..HEAD")
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(0, code, reason)
-                        self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash(
+            [t.format(root=self.root, range="HEAD~1..HEAD") for t in self.PROMPTED_READS], 0,
+            SPELLINGS)
 
     def test_git_c_into_a_linked_worktree_passes_and_elsewhere_is_denied(self):
         self.script_repo()
@@ -413,20 +500,17 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_printf_is_denied_in_every_spelling_and_nothing_changes(self):
         self.printf_repo()
-        for command in self.PRINTF_SHAPES + self.PRINTF_PLAIN:
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertIn("`printf`", reason)
-                        self.assertEqual(before, self.snapshot())
+
+        def check(reason):
+            self.assertTrue(reason.startswith("karta: "))
+            self.assertIn("`printf`", reason)
+        self.assert_reviewer_bash(self.PRINTF_SHAPES + self.PRINTF_PLAIN, 2, SPELLINGS, check)
 
     def test_printf_shapes_really_run_a_program_for_the_main_thread(self):
         for command in self.PRINTF_SHAPES:
             with self.subTest(command=command):
+                self.skip_control_on_windows(
+                    command, {}, "`printf -v` is a bash builtin; PowerShell and cmd have none")
                 self.printf_repo()
                 self.assertEqual(0, self.harness_bash(None, command)[0])
                 self.assertTrue((self.root / "leaked.txt").exists(),
@@ -441,13 +525,14 @@ class ReviewerWriteProtection(GitRepo):
         self.git("init", "-q", cwd=sub)
         self.git("config", "user.email", "fixture@example.invalid", cwd=sub)
         self.git("config", "user.name", "Regression fixture", cwd=sub)
-        (sub / "tool.sh").write_text("#!/bin/sh\ntouch leaked.txt\n", encoding="utf-8")
+        (sub / "tool.sh").write_text("#!/bin/sh\ntouch leaked.txt\n", encoding="utf-8",
+                                     newline="\n")
         os.chmod(sub / "tool.sh", 0o755)
-        (sub / "a.txt").write_text("one\n", encoding="utf-8")
+        (sub / "a.txt").write_text("one\n", encoding="utf-8", newline="\n")
         self.git("add", "-A", cwd=sub)
         self.git("commit", "-qm", "nested", cwd=sub)
         self.git("config", "diff.external", "./tool.sh", cwd=sub)
-        (sub / "a.txt").write_text("two\n", encoding="utf-8")
+        (sub / "a.txt").write_text("two\n", encoding="utf-8", newline="\n")
         return sub
 
     NESTED_SHAPES = (
@@ -464,17 +549,13 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_git_c_into_a_nested_repository_is_denied_and_nothing_changes(self):
         sub = self.nested_repo()
-        for template in self.NESTED_SHAPES:
-            command = template.format(root=self.root, sub=sub)
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertEqual(before, self.snapshot())
-                        self.assertFalse((sub / "leaked.txt").exists())
+
+        def check(reason):
+            self.assertTrue(reason.startswith("karta: "))
+            self.assertFalse((sub / "leaked.txt").exists())
+        self.assert_reviewer_bash([t.format(root=self.root, sub=sub) for t in self.NESTED_SHAPES],
+                                  2, SPELLINGS, check)
+        self.assertFalse((sub / "leaked.txt").exists())
 
     def test_git_c_into_a_nested_repository_really_runs_its_driver_for_the_main_thread(self):
         for template in ("git -C sub diff", "git -C . -C sub diff"):
@@ -490,14 +571,8 @@ class ReviewerWriteProtection(GitRepo):
         for command in (f"git -C {other} diff HEAD~0", f"git -C {self.root} diff",
                         "git -C . diff", f"git -C {other}/ status --short",
                         f"git -C {self.root} -C {other} log -1 --oneline"):
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(0, code, reason)
-                        self.assertEqual(before, self.snapshot())
-                        self.assertFalse((sub / "leaked.txt").exists())
+            self.assert_reviewer_bash([command], 0, SPELLINGS)
+            self.assertFalse((sub / "leaked.txt").exists())
 
     # Commands the old deny list let through that the allowlist now refuses: none of
     # them is in a reviewer prompt, and each either runs a program, reads a script, or
@@ -549,15 +624,11 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_commands_outside_the_allowlist_are_denied(self):
         self.script_repo()
-        for command in self.NOW_DENIED:
-            for name in REVIEWERS:
-                with self.subTest(agent=name, command=command):
-                    before = self.snapshot()
-                    code, reason = self.harness_bash(name, command)
-                    self.assertEqual(2, code, f"allowed: {command}")
-                    self.assertTrue(reason.startswith("karta: "))
-                    self.assertIn("read-only", reason)
-                    self.assertEqual(before, self.snapshot())
+
+        def check(reason):
+            self.assertTrue(reason.startswith("karta: "))
+            self.assertIn("read-only", reason)
+        self.assert_reviewer_bash(self.NOW_DENIED, 2, REVIEWERS, check)
 
     # The independent verifier's probes against the old deny list, rebuilt. Every one
     # writes (or runs a committed script that writes) when the main thread runs it,
@@ -650,6 +721,17 @@ class ReviewerWriteProtection(GitRepo):
         "./tool.sh &",
     )
 
+    # The probes the Windows harness shell runs as written; the rest are bash syntax or
+    # POSIX tools there.
+    WINDOWS_PROBE_CONTROLS = {
+        "echo x > leaked.txt": (),
+        "git log --output=leaked.txt -1": (),
+        "jq -n 1 > leaked.txt": ("jq",),
+        "python3 tool.py": ("python3",),
+        "node tool.js": ("node",),
+        "perl tool.pl": ("perl",),
+    }
+
     def probe_repo(self):
         self.script_repo()
         self.write("tool.awk", "BEGIN { system(\"./tool.sh\") }\n")
@@ -661,22 +743,18 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_verifier_probes_denied_for_every_reviewer_and_nothing_changes(self):
         self.probe_repo()
-        for template in self.VERIFIER_PROBES:
-            command = template.format(root=self.root)
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash([t.format(root=self.root) for t in self.VERIFIER_PROBES], 2,
+                                  SPELLINGS,
+                                  lambda reason: self.assertTrue(reason.startswith("karta: ")))
 
     def test_verifier_probes_really_write_for_the_main_thread(self):
         for template in self.VERIFIER_PROBES:
             if template in self.PROBE_CONTROL_SKIP:
                 continue
             with self.subTest(command=template):
+                self.skip_control_on_windows(
+                    template, self.WINDOWS_PROBE_CONTROLS,
+                    "bash syntax or a POSIX tool; PowerShell and cmd cannot run it")
                 self.probe_repo()
                 command = template.format(root=self.root)
                 before = self.snapshot()
@@ -752,6 +830,93 @@ class ReviewerWriteProtection(GitRepo):
         self.assertEqual(0, p.returncode, p.stdout[-2000:])
 
 
+def _load_guard():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("guard_writer_confinement_under_test", GUARD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class ReviewerWindowsPaths(unittest.TestCase):
+    """On Windows the harness shell is PowerShell or cmd, where a backslash is an
+    ordinary character; a reviewer's `git -C C:\\...` must keep its path."""
+
+    def setUp(self):
+        self.guard = _load_guard()
+
+    def words(self, command, literal):
+        commands, err = self.guard._reviewer_lex(command, literal_backslash=literal)
+        self.assertIsNone(err)
+        return [[self.guard._plain(w) for w in c["words"]] for c in commands]
+
+    def test_windows_lexer_keeps_backslashes(self):
+        path = r"C:\Users\Developer\src\temp\x\same-repo-wt"
+        self.assertEqual(self.words(f"git -C {path} diff HEAD~0", True),
+                         [["git", "-C", path, "diff", "HEAD~0"]])
+        self.assertEqual(self.words(f'git -C "{path}" status', True),
+                         [["git", "-C", path, "status"]])
+        self.assertEqual(self.words("git log C:\\", True), [["git", "log", "C:\\"]])
+
+    def test_windows_lexer_still_refuses_expansion(self):
+        for cmd in ("git -C $env:TEMP diff", "git -C `whoami` diff", 'git -C "a$b" diff'):
+            with self.subTest(cmd=cmd):
+                _, err = self.guard._reviewer_lex(cmd, literal_backslash=True)
+                self.assertIsNotNone(err)
+
+    def test_posix_lexer_is_unchanged(self):
+        self.assertEqual(self.words(r"git -C C:\Users\x diff", False),
+                         [["git", "-C", "C:Users" "x", "diff"]])
+        _, err = self.guard._reviewer_lex("git log \\", literal_backslash=False)
+        self.assertEqual(err, "a trailing backslash")
+
+    def test_windows_control_tables_name_real_shapes(self):
+        P = ReviewerWriteProtection
+        self.assertLessEqual(set(P.WINDOWS_WRITE_CONTROLS), set(P.WRITE_SHAPES))
+        self.assertLessEqual(set(P.WINDOWS_PROBE_CONTROLS), set(P.VERIFIER_PROBES))
+
+    def test_windows_control_skip_decisions(self):
+        from unittest import mock
+        mod = sys.modules[__name__]
+        table = {"echo x > a": (), "rm a": (POWERSHELL,), "cd s && touch a": (POWERSHELL_7, "touch"),
+                 "python3 t.py": ("python3",)}
+
+        def run(found):
+            which = lambda name: found.get(name)  # noqa: E731
+            with mock.patch.object(mod, "WINDOWS", True), \
+                    mock.patch.object(mod.shutil, "which", which):
+                return {c: windows_control_skip(c, table, "posix") for c in (*table, "chmod 600 a")}
+
+        pwsh = run({"pwsh": r"C:\pwsh\pwsh.exe",
+                    "python3": r"C:\Users\u\AppData\Local\Microsoft\WindowsApps\python3.exe"})
+        self.assertIsNone(pwsh["echo x > a"])
+        self.assertIsNone(pwsh["rm a"])
+        self.assertIn("touch", pwsh["cd s && touch a"])
+        self.assertIn("python3", pwsh["python3 t.py"])
+        self.assertEqual("posix", pwsh["chmod 600 a"])
+        ps51 = run({"powershell": r"C:\WINDOWS\powershell.exe", "touch": r"C:\Git\usr\bin\touch.exe"})
+        self.assertIsNone(ps51["rm a"])
+        self.assertIn("PowerShell 7", ps51["cd s && touch a"])
+        cmd = run({})
+        self.assertIsNone(cmd["echo x > a"])
+        self.assertIn("PowerShell", cmd["rm a"])
+        with mock.patch.object(mod, "WINDOWS", True), \
+                mock.patch.object(mod.shutil, "which", lambda name: None):
+            self.assertNotIn("bash", " ".join(windows_shell()).lower())
+        with mock.patch.object(mod, "WINDOWS", False):
+            self.assertIsNone(windows_control_skip("chmod 600 a", {}, "posix"))
+
+    def test_path_key_folds_case_and_separators_on_windows(self):
+        import ntpath
+        import posixpath
+        key = self.guard._path_key
+        self.assertEqual(key("C:/Users/Developer/wt", ntpath),
+                         key(r"c:\users\developer\wt", ntpath))
+        self.assertEqual(key("C:/Users/Developer/wt/", ntpath),
+                         key(r"C:\Users\Developer\wt", ntpath))
+        self.assertNotEqual(key("/tmp/Repo", posixpath), key("/tmp/repo", posixpath))
+
+
 class ReviewerHookRouting(unittest.TestCase):
     """hooks.json must route every reviewer write tool to the guard."""
 
@@ -792,12 +957,15 @@ class CodexReadOnlySandbox(unittest.TestCase):
     """The host mechanism the registered Codex profiles request, exercised without a model."""
 
     def run_in(self, profile, directory):
-        return subprocess.run(["codex", "sandbox", "-P", profile, "-C", str(directory), "--",
-                               "sh", "-c", "touch probe"], capture_output=True, text=True, encoding="utf-8",
-                              timeout=60)
+        try:
+            return subprocess.run(["codex", "sandbox", "-P", profile, "-C", str(directory),
+                                   "--", "sh", "-c", "touch probe"], capture_output=True,
+                                  text=True, encoding="utf-8", timeout=60)
+        except OSError:  # FileNotFoundError, or a Windows shim CreateProcess cannot start
+            self.skipTest("codex CLI not installed")
 
     def test_read_only_profile_denies_a_harmless_write(self):
-        with tempfile.TemporaryDirectory(prefix="gpt-codex-ro-") as d:
+        with tempfile.TemporaryDirectory(prefix="gpt-codex-ro-", ignore_cleanup_errors=True) as d:
             p = self.run_in(":read-only", d)
             if "panicked" in p.stderr or "No such file" in p.stderr:
                 self.skipTest("codex sandbox cannot start here: " + p.stderr[-300:])
@@ -805,7 +973,7 @@ class CodexReadOnlySandbox(unittest.TestCase):
             self.assertFalse((Path(d) / "probe").exists())
 
     def test_workspace_profile_positive_control_writes(self):
-        with tempfile.TemporaryDirectory(prefix="gpt-codex-ww-") as d:
+        with tempfile.TemporaryDirectory(prefix="gpt-codex-ww-", ignore_cleanup_errors=True) as d:
             p = self.run_in(":workspace", d)
             if p.returncode != 0:
                 self.skipTest("codex workspace sandbox cannot start here: " + p.stderr[-300:])

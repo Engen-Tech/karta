@@ -207,7 +207,7 @@ class MultiEditIsRouted(unittest.TestCase):
         probe = load("inventory_multiedit_probe", "benchmarks/probes/flow-guard-enforcement-matrix.py")
         ids = {row[0] for row in probe.FAMILY_A}
         self.assertIn("binder-multiedit-write", ids)
-        with tempfile.TemporaryDirectory(prefix="gpt-multiedit-") as td:
+        with tempfile.TemporaryDirectory(prefix="gpt-multiedit-", ignore_cleanup_errors=True) as td:
             fixture = Path(td) / "hooked-repo"
             probe._build_fixture(ROOT, fixture)
             self.assertEqual(probe._run_guard(ROOT, fixture, "guard_binder_immutability.py",
@@ -231,7 +231,7 @@ class FlowProbesAgreeWithCode(unittest.TestCase):
 
     def test_guard_matrix_has_no_mismatch_and_no_missing_seed(self):
         probe = load("inventory_matrix_probe", "benchmarks/probes/flow-guard-enforcement-matrix.py")
-        with tempfile.TemporaryDirectory(prefix="gpt-inventory-") as td:
+        with tempfile.TemporaryDirectory(prefix="gpt-inventory-", ignore_cleanup_errors=True) as td:
             fixture = Path(td) / "hooked-repo"
             probe._build_fixture(ROOT, fixture)
             fam_a = probe._family_a(ROOT, fixture)
@@ -244,11 +244,36 @@ class FlowProbesAgreeWithCode(unittest.TestCase):
         probe = load("inventory_contra_probe", "benchmarks/probes/flow-spec-contradictions.py")
         os.environ.setdefault("UV_CACHE_DIR", str(Path(tempfile.gettempdir()) / "gpt-inventory-uv"))
         current, err = probe._run_runner(ROOT)
+        if current is None and "host toolchain missing" in err:
+            self.skipTest(err)
         self.assertIsNotNone(current, err)
         result = probe.assemble(current, None, None)
         missing = [f["finding_id"] for f in result["findings"]
                    if f["finding_id"].startswith("seed-missing:")]
         self.assertEqual(missing, [])
+
+    def test_runner_skips_when_uv_cannot_resolve_an_interpreter(self):
+        # Windows: uv launches but its managed python.exe sits behind an untrusted
+        # mount point (os error 448). That is a host toolchain gap, not a finding.
+        import subprocess
+        from unittest import mock
+        probe = load("inventory_contra_probe_uv", "benchmarks/probes/flow-spec-contradictions.py")
+        stderr = ("error: Failed to inspect Python interpreter from managed installations at "
+                  "C:\\uv\\python\\python.exe\n  Caused by: failed to query metadata of file: "
+                  "The path cannot be traversed because it contains an untrusted mount point. "
+                  "(os error 448)\n")
+        fake = subprocess.CompletedProcess(args=[], returncode=2, stdout="", stderr=stderr)
+        with mock.patch.object(probe.subprocess, "run", return_value=fake):
+            current, err = probe._run_runner(ROOT)
+        self.assertIsNone(current)
+        self.assertIn("uv cannot resolve a Python interpreter", err)
+        self.assertIn("host toolchain missing", err)
+        # Any other non-zero exit stays a hard failure.
+        other = subprocess.CompletedProcess(args=[], returncode=2, stdout="", stderr="boom\n")
+        with mock.patch.object(probe.subprocess, "run", return_value=other):
+            current, err = probe._run_runner(ROOT)
+        self.assertIsNone(current)
+        self.assertEqual(err, "runner exit 2: boom")
 
     def test_hooks_doc_rows_match_the_matchers(self):
         probe = load("inventory_ledger_probe", "benchmarks/probes/parity-doc-truth-ledger.py")

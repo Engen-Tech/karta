@@ -15,7 +15,7 @@ live in the same checkout, which is what makes the confusion easy.
 - **karta this repository** — the checkout that authors the deliverable and also consumes it. It
   carries a second layer that never ships: `.karta/roundtable.json` with
   `scripts/hooks/roundtable_gate.py` and `scripts/hooks/precommit_gate.py`, the `karta-house-*`
-  packs under `.karta/sme/`, `.codex/hooks.json`, and its own `docs/`, `tests/`, and binders.
+  packs under `.karta/sme/`, `.codex/hooks.json`, `.github/hooks/karta-repo.json`, and its own `docs/`, `tests/`, and binders.
 
 Where the distinction changes the answer:
 

@@ -89,7 +89,7 @@ class BinderPaths(RepoCase):
         # A linked worktree has its own copy of every tracked file, so a hard link made
         # there to the main checkout's binder shares no inode with anything the linked
         # worktree's HEAD names. Every worktree of the repository has to be compared.
-        holder = tempfile.TemporaryDirectory(prefix="gpt-hardlink-wt-", dir=self.root.parent)
+        holder = tempfile.TemporaryDirectory(prefix="gpt-hardlink-wt-", dir=self.root.parent, ignore_cleanup_errors=True)
         self.addCleanup(holder.cleanup)
         wt = Path(holder.name) / "wt"
         self.addCleanup(lambda: subprocess.run(["git", "-C", str(self.root), "worktree", "remove",

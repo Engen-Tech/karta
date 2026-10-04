@@ -61,7 +61,9 @@ that worktree, so the commit is judged on the tree git will commit) — and
 denies every other shape it cannot reproduce: a preceding or trailing command
 segment, a command substitution anywhere, an unquoted expansion character, a
 redirection, a relocating `git -C`/`--git-dir`/`--work-tree` or `GIT_*=`
-prefix, an option outside the whitelist, a pathspec it cannot resolve
+prefix (in the hook environment only a few inert exact values pass, plus a
+`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` set whose every pair
+is on the INERT_GIT_CONFIG allowlist), an option outside the whitelist, a pathspec it cannot resolve
 root-relatively. The cost of that posture is over-denial of unusual but valid
 spellings, never under-denial. Malformed ledgers, records and configs are
 denials with the defect named, never internal errors.
@@ -169,6 +171,11 @@ ALLOWED_PREFIXES = (f"{SKIP_VAR}=1", f"{LAND_VAR}=1", f"{PRECOMMIT_SKIP_VAR}=1")
 # the only GIT_* environment values the hook accepts: inert exact values, never
 # a program git would run after the hook (an editor, a pager, an ssh command)
 INERT_GIT_ENV = {"GIT_EDITOR": ("true", ":"), "GIT_PAGER": ("cat",), "GIT_TERMINAL_PROMPT": ("0",)}
+# the only GIT_CONFIG_COUNT/GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n pairs the hook
+# accepts (key lowercased, value exact). Copilot CLI injects this hardening
+# setting into hook environments; it only restricts which bare repositories git
+# will open and cannot relocate the repository or name a program.
+INERT_GIT_CONFIG = {"safe.barerepository": ("explicit",)}
 
 # `git commit` / `git merge`: word-boundary match where anything between the two
 # words must be option tokens (each optionally trailing one non-dash argument),
@@ -1300,9 +1307,42 @@ def _deny_landing(ref: str, branch: str) -> str:
 
 # --- the decision ----------------------------------------------------------------
 
-def _check_environment(env) -> None:
+def _check_git_config_env(env) -> None:
+    """Accept the GIT_CONFIG_COUNT/KEY_n/VALUE_n set only when every pair is on
+    INERT_GIT_CONFIG; a malformed count, a missing half, or a stray pair denies."""
+    raw = env.get("GIT_CONFIG_COUNT")
+    count = 0
+    if raw is not None:
+        if not (isinstance(raw, str) and raw.isascii() and raw.isdigit()):
+            raise Denial(f"GIT_CONFIG_COUNT={raw!r} in the hook environment is not a non-negative "
+                         "integer; unset it")
+        count = int(raw)
+    for i in range(count):
+        key, val = env.get(f"GIT_CONFIG_KEY_{i}"), env.get(f"GIT_CONFIG_VALUE_{i}")
+        if key is None or val is None:
+            raise Denial(f"GIT_CONFIG_COUNT={count} but GIT_CONFIG_KEY_{i} or GIT_CONFIG_VALUE_{i} is "
+                         "missing from the hook environment; unset the GIT_CONFIG_* variables")
+        if val not in INERT_GIT_CONFIG.get(key.lower(), ()):
+            raise Denial(f"GIT_CONFIG_KEY_{i}={key} / GIT_CONFIG_VALUE_{i}={val} is set in the hook "
+                         "environment — only inert hardening config is accepted there; unset it")
     for k in env:
-        if isinstance(k, str) and k.startswith("GIT_"):
+        if isinstance(k, str):
+            for pre in ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"):
+                if k.startswith(pre):
+                    n = k[len(pre):]
+                    if not (n.isascii() and n.isdigit() and int(n) < count):
+                        raise Denial(f"{k} is set in the hook environment outside GIT_CONFIG_COUNT "
+                                     "— a stray git config pair; unset it")
+
+
+def _is_git_config_env(k: str) -> bool:
+    return k == "GIT_CONFIG_COUNT" or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+
+
+def _check_environment(env) -> None:
+    _check_git_config_env(env)
+    for k in env:
+        if isinstance(k, str) and k.startswith("GIT_") and not _is_git_config_env(k):
             if env.get(k) not in INERT_GIT_ENV.get(k, ()):
                 raise Denial(f"{k} is set in the hook environment — a GIT_* variable relocates the "
                              "repository or names a program git runs after the hook; unset it")
@@ -1593,6 +1633,8 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
 
 
 def hook_main(stdin_text: str, env, git, helper, config=None) -> tuple[int, str]:
+    if env.get("COPILOT_CLI") and env.get("KARTA_HOOK_SOURCE") != "copilot":
+        return 0, ""
     try:
         payload = json.loads(stdin_text)
     except (ValueError, TypeError):
@@ -2047,6 +2089,18 @@ def _run_self_test() -> int:
         check(f"a non-inert GIT_* in the hook environment denies: {envv}", code == 2)
     code, msg, _ = run("git commit -m x", PLAIN, ON, env={"GIT_EDITOR": "true"})
     check("inert GIT_EDITOR=true in the environment does not deny", code == 0, msg)
+    copilot_cfg = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.bareRepository",
+                   "GIT_CONFIG_VALUE_0": "explicit"}
+    code, msg, _ = run("git commit -m x", PLAIN, ON, env=copilot_cfg)
+    check("Copilot's inert safe.bareRepository=explicit config injection does not deny", code == 0, msg)
+    for envv in ({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": "/tmp/h"},
+                 {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.bareRepository", "GIT_CONFIG_VALUE_0": "all"},
+                 {"GIT_CONFIG_COUNT": "abc"},
+                 {"GIT_CONFIG_KEY_0": "safe.bareRepository", "GIT_CONFIG_VALUE_0": "explicit"},
+                 {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_VALUE_0": "explicit"},
+                 {**copilot_cfg, "GIT_CONFIG_KEY_1": "core.hooksPath", "GIT_CONFIG_VALUE_1": "/tmp/h"}):
+        code, _, _ = run("git commit -m x", PLAIN, ON, env=envv)
+        check(f"a non-allowlisted, malformed or stray GIT_CONFIG_* injection denies: {envv}", code == 2)
 
     # symlinks and object modes
     for name in (BP, RP, LP):
@@ -2226,6 +2280,15 @@ def _run_self_test() -> int:
         raise RuntimeError("boom")
     code, _ = hook_main(json.dumps(_payload("git commit -m x")), {}, exploding, stale, CFG)
     check("git exception fails open", code == 0)
+
+    # Copilot runs this gate twice: the .claude/settings.json copy is a no-op there,
+    # the .github/hooks/karta-repo.json copy (KARTA_HOOK_SOURCE=copilot) decides.
+    hidden = json.dumps(_payload("env -S 'git commit -m x'"))
+    check("legacy copy under Copilot is a silent no-op",
+          hook_main(hidden, {"COPILOT_CLI": "1"}, exploding, stale, ON) == (0, ""))
+    check("Copilot manifest copy keeps the normal decision",
+          hook_main(hidden, {"COPILOT_CLI": "1", "KARTA_HOOK_SOURCE": "copilot"}, exploding, stale, ON)[0] == 2)
+    check("no COPILOT_CLI keeps the normal decision", hook_main(hidden, {}, exploding, stale, ON)[0] == 2)
     code, _, _ = run("ls -la", {}, helper_=stale)
     check("non-command allows", code == 0)
 
