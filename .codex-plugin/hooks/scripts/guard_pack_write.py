@@ -13,7 +13,10 @@ PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT, falling back to this script's own plugin root
   - PreToolUse `Write`: the proposed content is validated from a temp file; a
     failure denies the write (exit 2, findings on stderr).
   - PostToolUse `Edit`/`Write`: the file on disk is validated; a failure exits 2
-    so the findings reach the model as feedback it must fix.
+    with the findings on stderr AND as exactly one stdout JSON line,
+    `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+    <findings>}}`, so Copilot injects them into the model's context as feedback
+    it must fix. PreToolUse denies and clean passes print nothing to stdout.
 
 The Write-preventive / Edit-corrective asymmetry is deliberate: PreToolUse fires on
 `Write` (deny before a malformed pack lands), PostToolUse on `Edit`|`Write` (diagnose
@@ -397,6 +400,50 @@ def _run_self_test() -> int:
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
             failures += 0 if ok else 1
 
+        # Hook-mode stdout is parsed by Copilot: exactly one JSON line on a
+        # PostToolUse finding, nothing on a PreToolUse deny or a clean pass.
+        import io
+
+        def run_hook(payload: dict) -> tuple[int, str, str]:
+            stdin = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode("utf-8")))
+            out, err = io.StringIO(), io.StringIO()
+            with patch.object(sys, "argv", ["guard_pack_write.py"]), \
+                    patch.object(sys, "stdin", stdin), \
+                    patch.object(sys, "stdout", out), patch.object(sys, "stderr", err):
+                code = main()
+            return code, out.getvalue(), err.getvalue()
+
+        def post_context_ok(code: int, out: str, err: str) -> bool:
+            lines = out.splitlines()
+            if code != 2 or len(lines) != 1 or not out.endswith("\n"):
+                return False
+            obj = json.loads(lines[0])
+            hso = obj.get("hookSpecificOutput", {}) if isinstance(obj, dict) else {}
+            return (list(obj) == ["hookSpecificOutput"]
+                    and hso.get("hookEventName") == "PostToolUse"
+                    and hso.get("additionalContext") == err.rstrip("\n")
+                    and "frontmatter" in err)
+
+        stdout_cases = [
+            ("PostToolUse finding emits one additionalContext JSON line",
+             post("Edit", ".karta/sme/broken.md"), post_context_ok),
+            ("PreToolUse deny keeps stdout empty",
+             pre_write(".karta/sme/terraform.md", _INVALID_PACK),
+             lambda c, o, e: c == 2 and o == "" and "frontmatter" in e),
+            ("clean pass keeps stdout and stderr empty",
+             post("Write", ".karta/sme/terraform.md"),
+             lambda c, o, e: c == 0 and o == "" and e == ""),
+        ]
+        for name, payload, check in stdout_cases:
+            code, out, err = run_hook(payload)
+            try:
+                ok = check(code, out, err)
+            except ValueError:
+                ok = False
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
+            failures += 0 if ok else 1
+        cases.extend(stdout_cases)
+
     total = len(cases)
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
@@ -415,6 +462,11 @@ def main() -> int:
         return 0  # fail open: a guard-internal error must never break the tool call
     if code == 2:
         print(reason, file=sys.stderr)
+        if payload.get("hook_event_name") == "PostToolUse":
+            # One ASCII-escaped JSON line: Copilot injects additionalContext
+            # into the model's context. PreToolUse relies on exit 2 alone.
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PostToolUse", "additionalContext": reason}}))
     return code
 
 
