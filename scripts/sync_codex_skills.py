@@ -352,6 +352,11 @@ def self_test() -> int:
         code, out = _sync(root, "--check")
         checks.append(("build artifacts under .codex-plugin/ are not install-projection drift",
                        code == 0 and "__pycache__" not in out))
+        code, _out = _sync(root)
+        installed = (root / "plugins" / "karta" / ".codex-plugin").rglob("*")
+        checks.append(("a sync run copies no build artifact into the install projection",
+                       code == 0 and not any("__pycache__" in p.parts or p.suffix == ".pyc"
+                                             for p in installed)))
         shutil.rmtree(cache)
 
         tool = root / "skills" / "demo-a" / "scripts" / "tool.py"
