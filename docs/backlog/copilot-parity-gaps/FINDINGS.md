@@ -365,7 +365,7 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 |G1|No hooks wired for Copilot|Done, verified on zbook via PowerShell 2026-10-03|M|needs a `powershell` launcher|
 |G2|Stop, SubagentStop, and PostToolUse guards signal with exit 2|P0|S|same fix on both|
 |G3|Edit guards ignore patch-string `tool_input`|Done, verified on zbook via PowerShell 2026-10-03|S|`\` separators in patch paths; the PC sent dicts in one run and a patch string under `Edit` in another|
-|G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|P0|S|errored on the runner; `uv` could not start from a hook on the PC|
+|G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|Done, verified on zbook via PowerShell 2026-10-04|S|errored on the runner; `uv` could not start from a hook on the PC|
 |G5|SessionStart status uses Claude output conventions|P1|S|none|
 |G6|Three of five agents have no Copilot profile|P1|S|none|
 |G7|Writer confinement has no Copilot writer to recognize|P1|M|Bash parser must also read PowerShell|
@@ -469,7 +469,9 @@ where karta is not installed.
     script's `--self-test` under Windows Python on zbook, run from `C:\Users\Developer\src\karta`:
     `C:\Python314\python.exe hooks\scripts\guard_binder_immutability.py --self-test` and
     `C:\Python314\python.exe hooks\scripts\guard_pack_write.py --self-test`.
-  - The live Claude-side run under Copilot is owed to G4's acceptance.
+  - Live Claude-side run under Copilot on zbook (2026-10-04): a committed binder edit was denied
+    and left unchanged, and an untracked draft was allowed. See
+    [G4 acceptance on zbook](#g4-acceptance-on-zbook-2026-10-04).
 
 ### G16: `path` and `file_text` keys — Done, verified on zbook via PowerShell 2026-10-03
 
@@ -586,6 +588,88 @@ the full suite pass.
 **Not verified on zbook.** A live Stop `{"decision":"block"}` continuing a session (G2, and G17's
 Stop half); a dict-shaped `{path, old_str, new_str}` edit live (this model sent patch strings, so
 the dict path is covered by self-tests only); Linux `copilot -p`.
+
+### G4 acceptance on zbook (2026-10-04)
+
+**Setup.** Copilot CLI 1.0.92-3, pwsh 7.6.6, Python 3.14.3. Bypass-permissions is disabled by
+enterprise policy, and hooks fail closed. Checkout: `C:\Users\Developer\src\karta-wt-g4`, fed by
+a git bundle. Defender exclusions cover it and `C:\Users\Developer\src\temp`, which serves as
+TEMP and TMP. Each run: `copilot -p "Run the shell command: <cmd>" --allow-all-tools --no-ask-user
+--log-dir <dir> --log-level all`, from pwsh scripts. The outcome is read from the log, because
+copilot exits 0 even when the call is denied.
+
+**Commit probes.** Each attempt ran `git commit` on a staged `docs/zbook-probe.txt` and took about
+9 minutes. There were 8 attempts.
+
+|Attempt|Result|
+|-|-|
+|#1–#6|denied by timeouts: `validate_plugin` ran 992 s serially, over the 450 s per-gate budget and the 900 s outer hook timeout|
+|#7|both karta gates in `.github/hooks/karta-repo.json` (`powershell` entries via `launch_hook.ps1`) passed; `roundtable_gate` then denied, and after that fix the legacy `.claude/settings.json` hook denied because `uv.exe` could not start|
+|#8|with `uv` started, the `.claude/settings.json` hook still denied: `${CLAUDE_PROJECT_DIR}` expanded to empty; `echo ok` denied the same way|
+
+**Fixes on the item branch after #1–#6.**
+
+- `validate_plugin` fans out in parallel: 441–545 s on zbook. `KARTA_VALIDATE_JOBS` sets the
+  width; the default is min(8, max(2, cpu_count)).
+- Per-gate budgets: `GATE_TIMEOUTS={"validate_plugin": 720}`, with `GATE_TIMEOUT=100` for the rest.
+- Outer hook timeouts: 900 to 1200 for precommit, 600 for roundtable, in `.claude/settings.json`,
+  `.codex/hooks.json`, and `.github/hooks/karta-repo.json`.
+- Windows test fixes: 8e8d101, 72d4547, 003e849, 94603d9, 5272693, 2db6bd1, 7ff62a3. The reviewers
+  suite runs in 305 s on pwsh.
+
+**Attempt #7.** Copilot injects `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.bareRepository`, and
+`GIT_CONFIG_VALUE_0=explicit` into the hook environment. `roundtable_gate` treated that as a
+foreign git config and denied. Fixed in 96a9be8 with an `INERT_GIT_CONFIG` allow-list in
+`roundtable_gate.py`. Copilot then ran the cross-tool `.claude/settings.json` hook
+(`uv run --script "${CLAUDE_PROJECT_DIR}/scripts/hooks/precommit_gate.py"`, source "repo
+settings", fail-closed) through PowerShell. PowerShell cannot start the WinGet Links `uv.exe`
+symlink: "No application is associated with the specified file".
+
+**Attempt #8.** The real `uv` package folder was put on PATH, with
+`UV_PYTHON=C:\Python314\python.exe` and `UV_NO_MANAGED_PYTHON=1`. `uv` started, but PowerShell
+expanded `${CLAUDE_PROJECT_DIR}` to empty, so the hook looked for
+`C:\scripts\hooks\precommit_gate.py`, did not find it, and the commit was denied. `echo ok` was
+denied the same way. The root cause is upstream in Copilot CLI: github/copilot-cli#4001
+(".claude/settings.json hooks fail on Windows: executed via PowerShell, $CLAUDE_PROJECT_DIR not
+set") and #4399.
+
+**Decision.** `.claude/settings.json` is unchanged. `.github/hooks/karta-repo.json` is the
+supported Windows path. `disableAllHooks` is not a fix, because it also turns off the karta gates.
+Documented in `docs/how-to/copilot-cli.md` (1258a05).
+
+|Acceptance check|Result|
+|-|-|
+|(1) gate decision lines for each commit attempt|done|
+|(2) a shell call (`echo ok`) is not denied|not met in a karta checkout, blocked by upstream #4001; the karta gates themselves pass|
+|(3) the `.claude/settings.json` error on Windows|documented|
+
+**Per-process cost on zbook.**
+
+|Process|Time|
+|-|-|
+|python|38 ms|
+|git|~80 ms|
+|guard hook|105 ms|
+|`pwsh -Command`|360 ms|
+
+The Defender exclusions had no measurable effect.
+
+**G3 Claude-side live run.** Temp consumer repo `C:\Users\Developer\src\temp\g3repo` with a
+committed `.karta/binders/test.json`. Its `.claude/settings.json` has a PreToolUse matcher
+`Edit|Write|Create|MultiEdit` with command
+`C:\Python314\python.exe <abs path>\hooks\scripts\guard_binder_immutability.py`: an absolute path,
+no `${…}`. Runs used `--deny-tool=shell`.
+
+|Check|Result|
+|-|-|
+|(a) `--self-test`, Windows Python|33/33|
+|(b) edit the committed binder|denied; hook stderr carries the guard's "committed binders are read-only" message; SHA-256 identical before and after; `git status` clean|
+|(c) create `.karta/binders/draft.json`|allowed; `?? .karta/binders/draft.json`|
+
+**Finding.** Copilot logged `Hook command failed with code 1 … (hook errored)`, not exit 2.
+PowerShell `-Command` flattens a native non-zero exit to 1, so the verdict reads as an error
+rather than a deny. The outcome is the same, because hooks fail closed. This is why every
+`powershell` entry must end with `exit $LASTEXITCODE` via `launch_hook.ps1`.
 
 ### Summary
 
