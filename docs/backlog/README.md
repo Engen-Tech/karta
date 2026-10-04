@@ -764,7 +764,7 @@ measurements, the source list, the per-host breakdown, the Go comparison, and th
 
 ---
 
-## 30. Copilot runs none of karta's guards, and three silent incompatibilities block a straight wiring — *Ready* (researched 2026-10-03)
+## 30. Copilot runs none of karta's guards, and three silent incompatibilities block a straight wiring — *Ready* (researched 2026-10-03; P0 spec in FINDINGS.md)
 
 **What.** `.github/plugin/plugin.json` sets `"hooks": {}`, so no karta guard runs under Copilot. Copilot CLI 1.0.92 now runs Claude-format plugin hooks with Claude-shaped payloads, so most of the gap is wiring. Three things break silently if the Claude hooks are wired as they are: exit 2 does not block Stop or SubagentStop on Copilot (only the JSON `block` decision does); file edits arrive keyed `path` instead of `file_path` (Windows PC) or as a bare apply_patch string (Linux), and the Edit-family guards wave both through; and PowerShell turns a guard's exit 2 into 1 unless the hook command ends with `exit $LASTEXITCODE`, which loses Stop blocks. A real Windows 11 PC run confirmed karta's launcher and guards work under Copilot once those are fixed. Twenty gaps in all, G1–G20, with priority, effort, and the Windows angle for each.
 
