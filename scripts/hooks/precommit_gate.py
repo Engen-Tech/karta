@@ -62,17 +62,17 @@ GATE_TIMEOUT = 100   # default seconds per gate; a hung gate is a failed gate, n
                      # hardware — a gate that legitimately needs longer gets an
                      # override below rather than a failure that reads as a hang.
 # validate_plugin's floor runs every gated script's own --self-test and every
-# tests/test_audit_*.py suite as subprocesses. Run serially that was 992s green on a
-# Windows dev machine (2026 zbook measurement) whose four other gates finish in
-# seconds; it now runs those children concurrently, so its wall time is bounded by
-# the slowest one (test_audit_remaining_reviewers.py, ~305s on that machine).
-# KARTA_VALIDATE_JOBS=1 restores the serial run, which does NOT fit this budget on
-# Windows. Overrides only ever RAISE the default, and the
-# invariant the old comment stated per-gate is now a sum: every gate's budget
-# together (4x100 + 450 = 850) must stay inside the hook's outer timeout — 900 in
-# .claude/settings.json and .codex/hooks.json — because the harness must never kill
-# this hook mid-run: a timed-out PreToolUse hook does not block.
-GATE_TIMEOUTS = {"validate_plugin": 450}
+# tests/test_audit_*.py suite as subprocesses. Measured on a Windows 8-CPU dev
+# machine (2026 zbook), whose four other gates finish in seconds: serial 992s green;
+# concurrent (the default, 8 workers; also 4) 440-490s. That parallel figure sat on
+# top of the old 450s budget, so the budget is 720 — real margin over the measured
+# worst case rather than a coin flip. KARTA_VALIDATE_JOBS=1 restores the serial run,
+# which does NOT fit this budget on Windows. Overrides only ever RAISE the default,
+# and the invariant is a sum: every gate's budget together (4x100 + 720 = 1120) must
+# stay inside the hook's outer timeout — 1200 in .claude/settings.json,
+# .codex/hooks.json and .github/hooks/karta-repo.json — because the harness must
+# never kill this hook mid-run: a timed-out PreToolUse hook does not block.
+GATE_TIMEOUTS = {"validate_plugin": 720}
 
 
 def _gate_timeout(name: str) -> int:
@@ -1617,23 +1617,26 @@ def _run_self_test() -> int:
 
     # --- gate budgets: overrides only raise, and the sum fits the outer timeout --
     check("timeout: the spawn-bound validator keeps its longer budget",
-          _gate_timeout("validate_plugin") == 450)
+          _gate_timeout("validate_plugin") == 720)
     check("timeout: every other gate gets the default",
           _gate_timeout("check_shared_copies") == GATE_TIMEOUT)
     check("timeout: overrides only ever raise the default, never lower it",
           all(v >= GATE_TIMEOUT for v in GATE_TIMEOUTS.values()))
     # The invariant is a SUM: if every gate hit its budget the hook must still
-    # finish inside the outer timeout both harnesses give it, because a hook the
+    # finish inside the outer timeout every harness gives it, because a hook the
     # harness kills mid-run does not block. Read from the committed configs so an
     # edit to either side re-arms this check rather than silently unbalancing them.
     budget_sum = sum(_gate_timeout(n) for n, _ in specs)
-    for cfg, needle in ((ROOT / ".claude/settings.json", "precommit_gate.py"),
-                        (ROOT / ".codex/hooks.json", "codex_precommit_gate.py")):
+    for cfg, needle, key, field in (
+            (ROOT / ".claude/settings.json", "precommit_gate.py", "timeout", "command"),
+            (ROOT / ".codex/hooks.json", "codex_precommit_gate.py", "timeout", "command"),
+            (ROOT / ".github/hooks/karta-repo.json", "/precommit_gate.py", "timeoutSec",
+             "bash")):
         try:
             hooks_conf = json.loads(cfg.read_text(encoding="utf-8", errors="replace"))
-            outer = min(h["timeout"] for grp in hooks_conf["hooks"].values()
+            outer = min(h[key] for grp in hooks_conf["hooks"].values()
                         for m in grp for h in m["hooks"]
-                        if needle in h.get("command", ""))
+                        if needle in h.get(field, ""))
         except (OSError, ValueError, KeyError, TypeError):
             outer = None
         check(f"timeout: gate budgets ({budget_sum}s) fit inside {cfg.name}'s "

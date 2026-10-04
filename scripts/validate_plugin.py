@@ -3375,6 +3375,15 @@ def _run_self_test(script: Path, errors: list[str]) -> None:
     errors.extend(started.result() if started is not None else _self_test_errors(script))
 
 
+# Per-script budgets for the child runs below. The --self-test budget is sized for
+# contention, not for a quiet machine: the slowest gated self-tests (the two
+# guard_delivery_stop.py copies and karta-deliver's merge_item.py) take ~80s each
+# serially on a Windows 8-CPU dev machine and overran a 120s budget once main()
+# ran them concurrently with the rest of the pool. The --help probe stays short.
+SELF_TEST_HELP_TIMEOUT = 120
+SELF_TEST_TIMEOUT = 300
+
+
 def _self_test_errors(script: Path) -> list[str]:
     """The --help probe and --self-test run for one script, as a list of errors (empty
     when it passes). Pure apart from the child processes, so it is safe on a thread."""
@@ -3382,7 +3391,7 @@ def _self_test_errors(script: Path) -> list[str]:
     rel = _rel
     try:
         helpp = subprocess.run([sys.executable, str(script), "--help"],
-                               capture_output=True, text=True, timeout=120,
+                               capture_output=True, text=True, timeout=SELF_TEST_HELP_TIMEOUT,
                                encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: could not probe --help ({e})")
@@ -3393,7 +3402,7 @@ def _self_test_errors(script: Path) -> list[str]:
         return errors
     try:
         proc = subprocess.run([sys.executable, str(script), "--self-test"],
-                              capture_output=True, text=True, timeout=120,
+                              capture_output=True, text=True, timeout=SELF_TEST_TIMEOUT,
                               encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: --self-test did not run ({e})")

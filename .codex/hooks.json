@@ -42,7 +42,7 @@
           {
             "type": "command",
             "command": "sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/codex_precommit_gate.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0'",
-            "timeout": 900,
+            "timeout": 1200,
             "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=(git -C ([Environment]::CurrentDirectory) rev-parse --show-toplevel 2>$null); if(!$r){exit 0}; $p=Join-Path $r '.codex-plugin/hooks/launch_hook.ps1'; if(!(Test-Path -LiteralPath $p)){exit 0}; & $p 'scripts/hooks/codex_precommit_gate.py' GitTop; exit $LASTEXITCODE\""
           }
         ]
