@@ -103,6 +103,10 @@ def _patch_writes(raw: str) -> list[dict]:
 def decide(payload: dict) -> tuple[int, str]:
     """Return (exit_code, stderr_message)."""
     tool_input = payload.get("tool_input")
+    if isinstance(tool_input, str) and tool_input.lstrip().startswith("*** Begin Patch"):
+        # Copilot gives PascalCase hooks the raw patch string, under Edit or Write.
+        tool_input = {"command": tool_input}
+        payload = {**payload, "tool_name": "apply_patch", "tool_input": tool_input}
     if payload.get("tool_name") == "apply_patch" and isinstance(tool_input, dict):
         raw = tool_input.get("command")
         if not isinstance(raw, str):
@@ -323,6 +327,19 @@ def _run_self_test() -> int:
             ("tool_input not a dict passes",
              {"hook_event_name": "PostToolUse", "tool_name": "Write", "cwd": cwd,
               "tool_input": "junk"}, 0, None),
+            # Copilot hands PascalCase hooks the raw patch string itself as tool_input.
+            ("Copilot raw patch string adding invalid pack denied",
+             {**codex("PreToolUse", "*** Add File: .karta/sme/broken.md", "+bad"),
+              "tool_name": "Edit",
+              "tool_input": "*** Begin Patch\n*** Add File: .karta/sme/broken.md"
+                            "\n+bad\n*** End Patch"}, 2, "frontmatter"),
+            ("Copilot raw patch string update reported from disk",
+             {**codex("PostToolUse"), "tool_name": "Edit",
+              "tool_input": "*** Begin Patch\n*** Update File: .karta/sme/broken.md"
+                            "\n@@\n+bad\n*** End Patch"}, 2, "frontmatter"),
+            ("patch path with backslash separators is checked",
+             codex("PreToolUse", "*** Add File: .karta\\sme\\broken.md", "+bad"),
+             2, "frontmatter"),
         ]
         crlf = codex("PreToolUse", "*** Add File: .karta/sme/terraform.md",
                      *("+" + line for line in _VALID_PACK.splitlines()))
