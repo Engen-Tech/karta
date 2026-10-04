@@ -1593,6 +1593,8 @@ def decide(payload, env, git, helper, config, read_file=_real_read,
 
 
 def hook_main(stdin_text: str, env, git, helper, config=None) -> tuple[int, str]:
+    if env.get("COPILOT_CLI") and env.get("KARTA_HOOK_SOURCE") != "copilot":
+        return 0, ""
     try:
         payload = json.loads(stdin_text)
     except (ValueError, TypeError):
@@ -2226,6 +2228,15 @@ def _run_self_test() -> int:
         raise RuntimeError("boom")
     code, _ = hook_main(json.dumps(_payload("git commit -m x")), {}, exploding, stale, CFG)
     check("git exception fails open", code == 0)
+
+    # Copilot runs this gate twice: the .claude/settings.json copy is a no-op there,
+    # the .github/hooks/karta-repo.json copy (KARTA_HOOK_SOURCE=copilot) decides.
+    hidden = json.dumps(_payload("env -S 'git commit -m x'"))
+    check("legacy copy under Copilot is a silent no-op",
+          hook_main(hidden, {"COPILOT_CLI": "1"}, exploding, stale, ON) == (0, ""))
+    check("Copilot manifest copy keeps the normal decision",
+          hook_main(hidden, {"COPILOT_CLI": "1", "KARTA_HOOK_SOURCE": "copilot"}, exploding, stale, ON)[0] == 2)
+    check("no COPILOT_CLI keeps the normal decision", hook_main(hidden, {}, exploding, stale, ON)[0] == 2)
     code, _, _ = run("ls -la", {}, helper_=stale)
     check("non-command allows", code == 0)
 
