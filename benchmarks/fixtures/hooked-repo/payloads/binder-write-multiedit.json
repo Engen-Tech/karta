@@ -1,0 +1,14 @@
+{
+ "cwd": "__FIXTURE__",
+ "hook_event_name": "PreToolUse",
+ "tool_input": {
+  "edits": [
+   {
+    "new_string": "\"slug\": \"edited\"",
+    "old_string": "\"slug\": \"hooked\""
+   }
+  ],
+  "file_path": ".karta/binders/hooked.json"
+ },
+ "tool_name": "MultiEdit"
+}

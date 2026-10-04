@@ -34,7 +34,9 @@ tracked baseline yet) the probe fails closed unless its own matrix reproduces
 the contract's seeded findings: the S1 dead-end with empty warnings, the S5
 vanishing corrupt binder, 0/4 forgeries detected with the forged done ref
 silencing the Stop-gate, P1 accepted-done badged PASSED, and the gate/engine
-ref-set disagreement.
+ref-set disagreement — or shows each one resolved (its case grades good, as
+every one does since the audit F13/F14 status fixes). Only a seed that is
+neither reproduced nor resolved fails the first run closed.
 
 On every run the full matrix is written to
 benchmarks/dark/results/<run-date>-status-truth.json (overwriting a same-date
@@ -186,8 +188,11 @@ def grade_case(target: Path, case: str, anchor: dict) -> dict:
         na = (state or {}).get("next_action") or {}
         command_nonnull = na.get("command") is not None
         warnings = (state or {}).get("warnings") or []
+        # What the surface says: its warnings, its errors (an unreadable binder is
+        # an error, never a warning) and the next action's own sentence.
+        said = [*warnings, *((state or {}).get("errors") or []), na.get("human")]
         rx = re.compile(anchor["warning_regex"], re.IGNORECASE)
-        warning_matched = any(rx.search(w) for w in warnings if isinstance(w, str))
+        warning_matched = any(rx.search(w) for w in said if isinstance(w, str))
         stop_exit = _stop_gate_exit(target, repo)
 
         badge_word = None
@@ -275,9 +280,19 @@ def build_matrix(target: Path, anchors: dict) -> dict:
 
 def seeded_findings(matrix: dict) -> tuple[list[dict], list[str]]:
     """The contract's named seeded reds observed in this matrix, plus the ids of
-    any named seed that is absent (the first-run fail-closed trigger)."""
+    any named seed that is absent (the first-run fail-closed trigger).
+
+    A seed whose case now grades good is RESOLVED, not missing: the audit F13/F14
+    status fixes closed every seeded red, and a fixed defect is the outcome the
+    seeds existed to drive. It is reported as an info finding. Only a seed that
+    is neither reproduced nor resolved — the case drifted into some third state —
+    still fails the first run closed."""
     findings: list[dict] = []
     missing: list[str] = []
+
+    def resolved(seed_id: str, why: str) -> None:
+        findings.append({"finding_id": f"resolved-{seed_id}", "severity": "info",
+                         "summary": f"seeded finding {seed_id} is resolved: {why}"})
 
     s1 = matrix["S1"]
     if (not s1["good"]) and (not s1["command_nonnull"]) and s1["warnings_count"] == 0:
@@ -285,6 +300,8 @@ def seeded_findings(matrix: dict) -> tuple[list[dict], list[str]]:
                          "summary": "S1 built-unmerged mid-wave: karta_next renders the "
                                     "dead-end fallback (null command, empty warnings) in the "
                                     "precise state the Stop-gate exists to catch"})
+    elif s1["good"]:
+        resolved("seed-S1-dead-end", "S1 now names a next action for the built-unmerged item")
     else:
         missing.append("seed-S1-dead-end")
 
@@ -293,6 +310,8 @@ def seeded_findings(matrix: dict) -> tuple[list[dict], list[str]]:
         findings.append({"finding_id": "seed-S5-corrupt-binder-vanishes", "severity": "warn",
                          "summary": "S5 corrupt/non-dict binder: karta_next crashes instead of "
                                     "naming the corrupt binder — the state vanishes from status"})
+    elif s5["good"] and not s5["engine_crash"]:
+        resolved("seed-S5-corrupt-binder-vanishes", "S5 now reports the corrupt binder by path")
     else:
         missing.append("seed-S5-corrupt-binder-vanishes")
 
@@ -302,6 +321,8 @@ def seeded_findings(matrix: dict) -> tuple[list[dict], list[str]]:
                          "summary": "0/4 forgeries detected: the forged done ref actively "
                                     "silences the Stop-gate's built-without-done check "
                                     "(F1 stop_gate_exit 0) and no surface warns"})
+    elif detected == len(F_CASES):
+        resolved("seed-F-forgeries-undetected", f"{detected}/{len(F_CASES)} forgeries detected")
     else:
         missing.append("seed-F-forgeries-undetected")
 
@@ -311,6 +332,9 @@ def seeded_findings(matrix: dict) -> tuple[list[dict], list[str]]:
                          "summary": "P1 accepted-done: karta_next surfaces plain 'done' and "
                                     "serve_status._STATE_META badges it PASSED — the waiver is "
                                     "invisible on the status surfaces"})
+    elif p1["good"]:
+        resolved("seed-P1-accepted-badged-PASSED",
+                 f"P1 derives as {p1.get('state_key')!r}, badged {p1.get('badge_word')!r}")
     else:
         missing.append("seed-P1-accepted-badged-PASSED")
 
@@ -321,7 +345,7 @@ def seeded_findings(matrix: dict) -> tuple[list[dict], list[str]]:
                                     "names the engine writes per integration-branch.md "
                                     f"(missing from gate: {', '.join(refset['missing_from_gate'])})"})
     else:
-        missing.append("seed-refset-disagreement")
+        resolved("seed-refset-disagreement", "REF_STATES equals the engine's ref names")
 
     findings.append({"finding_id": "card-step8-results-path-errata", "severity": "info",
                      "summary": "results are written to benchmarks/dark/results/<date>-status-truth.json "
@@ -486,11 +510,33 @@ def _run_self_test() -> int:
 
     try:
         cell = grade_case(target, "S1", doc["cases"]["S1"])
-        check("S1 grades not-actionable with Stop-gate exit 2 and anchor match",
-              cell["good"] is False and cell["stop_gate_exit"] == 2
-              and cell["anchor_match"] is True and cell["warnings_count"] == 0)
+        check("S1 grades actionable with Stop-gate exit 2 and anchor match",
+              cell["good"] is True and cell["stop_gate_exit"] == 2
+              and cell["anchor_match"] is True and cell["command_nonnull"] is True)
     except ProbeError as e:
-        check(f"S1 grades not-actionable with Stop-gate exit 2 and anchor match ({e})", False)
+        check(f"S1 grades actionable with Stop-gate exit 2 and anchor match ({e})", False)
+
+    # The seed rules, on synthetic matrices: the historic reds are reported as
+    # seeds, the fixed shapes as resolved, and a third state fails closed.
+    def cellm(**kw):
+        return {"good": False, "command_nonnull": False, "warnings_count": 0,
+                "engine_crash": False, "stop_gate_exit": 0, **kw}
+    historic = {c: cellm() for c in ALL_CASES}
+    historic["S5"] = cellm(engine_crash=True)
+    historic["P1"] = cellm(badge_word="PASSED")
+    historic[REFSET_ID] = {"good": False, "missing_from_gate": ["accepted"]}
+    found, missing = seeded_findings(historic)
+    check("historic reds reproduce every named seed",
+          missing == [] and sum(f["finding_id"].startswith("seed-") and "resolved" not in f["finding_id"]
+                                for f in found) == 5)
+    fixed = {c: cellm(good=True, command_nonnull=True) for c in ALL_CASES}
+    fixed[REFSET_ID] = {"good": True}
+    found, missing = seeded_findings(fixed)
+    check("fixed shapes report each seed as resolved, none missing",
+          missing == [] and sum(f["finding_id"].startswith("resolved-seed-") for f in found) == 5)
+    drift = dict(fixed, S1=cellm(warnings_count=3))
+    check("a seed neither reproduced nor resolved still fails the first run closed",
+          seeded_findings(drift)[1] == ["seed-S1-dead-end"])
 
     try:
         cell = grade_case(target, "P2", doc["cases"]["P2"])

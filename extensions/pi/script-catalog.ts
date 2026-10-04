@@ -10,6 +10,7 @@ export const KARTA_SCRIPT_PATHS = {
   deliverPreflight: "skills/karta-deliver/scripts/deliver_preflight.py",
   detectStack: "skills/karta-plan/scripts/detect_stack.py",
   diffCapture: "skills/karta-validate/scripts/diff_capture.py",
+  gateAttempts: "skills/karta-verify/scripts/gate_attempts.py",
   itemContext: "skills/karta-build/scripts/item_context.py",
   kartaNext: "skills/karta-status/scripts/karta_next.py",
   mergeItem: "skills/karta-deliver/scripts/merge_item.py",

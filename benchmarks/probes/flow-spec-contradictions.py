@@ -19,7 +19,8 @@ findings JSON into the gate probe JSON contract
 exits 0 whether pass or fail. If uv or the runner cannot run, it reports status "fail"
 (fail-closed).
 
-The ~7 seeded open findings are the baseline product, not failures. Per the binder's
+Open findings are the baseline product, not failures; the ~7 seeded findings the
+first baseline was built from are all resolved in code now (see SEEDED_FINDINGS). Per the binder's
 baseline-regression rule the adapter reports status "fail" only on regression against the
 last committed results file — a NEW open finding on the INTERSECTION of probe ids with
 that baseline (the card's intersection rule keeps the headline comparable as probes are
@@ -54,15 +55,14 @@ RUNNER = "benchmarks/flow/check_contradictions.py"
 IMPLEMENTED_CHECKS = ["pass1-ref-vocabulary", "pass2-hooks-events",
                       "pass3-promise-probes", "pass4-schema-validator-duals"]
 
-# The findings the first committed baseline must contain (the card's 2026-07-17 seed
-# observation). The probe fails closed when any is absent from its own first baseline.
-SEEDED_FINDINGS = (
-    "p1:dead-vocab:in-progress",
-    "p1:written-unread:accepted",
-    "p3:promise:between-waves-edit",
-    "p3:promise:missing-repair-path",
-    "p4:dual-disagree:shared-terms",
-    "p4:promise-uncaught:ui-fields-non-ui",
+# The original seeds are retired because the code now keeps the promises. The probe
+# no longer emits them on this tree; the historic list remains for the self-test's
+# fail-closed exercise.
+SEEDED_FINDINGS: tuple[str, ...] = ()
+HISTORIC_SEEDS = (
+    "p1:dead-vocab:in-progress", "p1:written-unread:accepted",
+    "p3:promise:between-waves-edit", "p3:promise:missing-repair-path",
+    "p4:dual-disagree:shared-terms", "p4:promise-uncaught:ui-fields-non-ui",
     "p4:orphan-schema:doc-gardner",
 )
 
@@ -238,19 +238,23 @@ def run_self_test(target: Path) -> int:
     check("pass 3 A1: the immutability guard denies the committed-binder payload (exit 2)",
           deny_exit == 2 and res_a1["state"] == "CONSISTENT")
 
-    # Pass 3 A2/A3 — the live seeded promise contradictions reproduce.
+    # Pass 3 A2/A3 — the once-seeded promise contradictions stay resolved (audit F12:
+    # the between-waves edit sentence is gone and a successor-binder repair path exists).
     a2 = cc.check_promise(target, next(p for p in promises["promises"] if p["id"] == "A2"), None)
     a3 = cc.check_promise(target, next(p for p in promises["promises"] if p["id"] == "A3"), None)
-    check("pass 3: A2 between-waves-edit and A3 missing-repair-path are open",
-          a2["state"] == "OPEN" and a2["finding"]["finding_id"] == "p3:promise:between-waves-edit"
-          and a3["state"] == "OPEN" and a3["finding"]["finding_id"] == "p3:promise:missing-repair-path")
+    check("pass 3: A2 between-waves-edit and A3 missing-repair-path are resolved",
+          a2["state"] == "CONSISTENT" and a3["state"] == "CONSISTENT")
 
-    # Pass 1 — the live seeded ref-vocabulary contradictions reproduce.
+    # Pass 1 — the once-seeded ref-vocabulary contradictions stay resolved (audit F13).
     p1 = {f["finding_id"] for f in cc.pass1(target)}
-    check("pass 1: dead `in-progress` vocab and `accepted`-missing-from-REF_STATES reproduce",
-          {"p1:dead-vocab:in-progress", "p1:written-unread:accepted"} <= p1)
+    check("pass 1: `in-progress` and `accepted` are both in the Stop-gate vocabulary",
+          not {"p1:dead-vocab:in-progress", "p1:written-unread:accepted"} & p1)
 
     # Adapter baseline regression — identical stays pass, a synthetic new finding fails.
+    # The adapter tests run against the historic seed set, so the fail-closed
+    # first-baseline rule stays exercised now that every live seed is retired.
+    global SEEDED_FINDINGS
+    live_seeds, SEEDED_FINDINGS = SEEDED_FINDINGS, HISTORIC_SEEDS
     synthetic = {"probe_set": ["pass1-ref-vocabulary", "A2", "A3", "p4:shared-terms",
                                "p4:ui-fields", "p4:doc-gardner"],
                  "probe_set_hash": "x",
@@ -279,6 +283,7 @@ def run_self_test(target: Path) -> int:
     full_first = assemble(synthetic, None, None)
     check("adapter: the first baseline with every seeded finding present passes",
           full_first["status"] == "pass")
+    SEEDED_FINDINGS = live_seeds
 
     # Gate contract shape (partial false, required keys, metrics vector).
     payload = full_first

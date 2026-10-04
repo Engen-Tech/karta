@@ -9,7 +9,7 @@ match: ["htmx", "htmx.org", "github.com/a-h/templ"]
 - Detect htmx in one helper: `r.Header.Get("HX-Request") == "true"`; branch full-page vs partial only through it.
 - Redirect through one helper: htmx request → `204` + `HX-Redirect` (full reload); else normal `http.Redirect` 3xx. Prefer `HX-Redirect` over `HX-Location` — HX-Location's follow-up fetch always sends `HX-Request: true`, corrupting partial/full branching.
 - Pin htmx-config (htmx 2.x keys) in the base layout meta tag: `historyRestoreAsHxRequest: false` (default true; mandatory when HX-Request gates partials), `historyCacheSize: 0`, `disableInheritance: true`, `includeIndicatorStyles: false`, explicit `responseHandling` (204 no-swap; 422 swap; `[45]..` swap into body; `...` swap), and a request `timeout`.
-- Use Go 1.22+ routing (`GET /{$}`, method-prefixed patterns) and `http.FileServerFS` over embedded assets; render templates to a buffer before writing status + body.
+- On Go 1.22+ (go.mod `go`), use its routing (`GET /{$}`, method-prefixed patterns) and `http.FileServerFS` over embedded assets. Render templates to a buffer before writing status + body.
 
 ## Don't
 - Don't answer an htmx request with a bare 3xx when a redirect is intended — htmx follows it invisibly and swaps the destination body into the target.
@@ -28,8 +28,8 @@ match: ["htmx", "htmx.org", "github.com/a-h/templ"]
 - [ ] htmx.1 — Every route that can serve an htmx fragment serves a full page for the same URL when `HX-Request` is absent.
 - [ ] htmx.2 — Every response whose body varies on `HX-Request` carries `Vary: HX-Request`.
 - [ ] htmx.3 — No handler sends a bare 3xx on an htmx-originated request; redirects go through the HX-Redirect/3xx-fallback helper.
-- [ ] htmx.4 — A diff adding or changing a branch on `HX-Request` ships with `historyRestoreAsHxRequest: false` pinned in the base layout htmx-config.
-- [ ] htmx.5 — A diff introducing htmx or touching htmx-config declares explicit `responseHandling` — 4xx/5xx visible (swap into body), 422 swap into target.
+- [ ] htmx.4 — A diff adding or changing a branch on `HX-Request` ships with `historyRestoreAsHxRequest: false` pinned in the base layout htmx-config (htmx 2.x key; on another major, that major's equivalent history-restore setting).
+- [ ] htmx.5 — A diff introducing htmx or touching htmx-config declares explicit `responseHandling` (htmx 2.x; on another major, its equivalent) — 4xx/5xx visible (swap into body), 422 swap into target.
 - [ ] htmx.6 — An htmx `<script>` the diff adds or changes is vendored and `defer`-loaded; no CDN htmx in changed templates.
 - [ ] htmx.7 — Changed templates declare hx-* attributes on the element itself — no reliance on attribute inheritance.
 - [ ] htmx.8 — A changed `.templ` text line with optional segments either (a) receives the full line as one pre-formatted view-model string (nil-handling in Go), or (b) when the no-segment output must stay byte-identical — an exact-output test asserts it, or the line sits in a whitespace-significant context (`pre`, `code`, `title`, `textarea`, attribute values) — is an exhaustive if/else branch chain of complete lines. In normal HTML flow an appended conditional segment is acceptable; templ's emitted space is harmless there.

@@ -234,6 +234,11 @@ Karta Watch: hub not running (spawn denied by sandbox) — revive it: uv run --s
   open the hub in a private window.
 - **IPv4 only.** The bind is `127.0.0.1`, not `::1`. If your browser resolves `localhost` to
   IPv6, use `http://127.0.0.1:<port>/` directly.
+- **The ephemeral page follows the same rules.** Started without the hub, `serve_status.py` prints
+  `http://127.0.0.1:<port>/?key=<token>` with a fresh token each time (or the one you pass with
+  `--key`). Every route except the static assets needs that key, and every route, assets
+  included, refuses a Host header other than `127.0.0.1:<port>` or `localhost:<port>`. If you
+  forward the port from a remote machine, forward it to the same port number.
 
 The hub is read-only end to end: every card derives fresh from git on each poll, and no web route
 can change anything — opt-in and opt-out exist only as the script flags above.

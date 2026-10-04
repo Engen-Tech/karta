@@ -1,10 +1,11 @@
 {
- "manifest_version": 1,
+ "manifest_version": 2,
  "seeded_from": "benchmarks/flow/seed-map-2026-07-17.json (hooks subsystem dark_areas)",
  "description": "Versioned (mutation-class, channel) enforcement manifest for the guard enforcement matrix (Family B). Each row is enforced, waived:<id>, bypass, or n/a; an unwaivered bypass row is a named, recorded finding \u2014 never an unspoken gap. The probe fails closed when a hooks/scripts/guard_*.py has no row here (anti-staleness).",
  "channels": [
   "write",
   "edit",
+  "multiedit",
   "notebookedit",
   "bash",
   "task",
@@ -19,7 +20,7 @@
    "status": "enforced",
    "guard": "guard_binder_immutability.py",
    "hook_event": "PreToolUse",
-   "note": "committed binders are read-only; Write matcher"
+   "note": "committed binders are read-only; Write matcher; the target is classified after normalizing and resolving it, so dot components and symlink aliases are denied too"
   },
   {
    "id": "binder-write:edit",
@@ -29,6 +30,15 @@
    "guard": "guard_binder_immutability.py",
    "hook_event": "PreToolUse",
    "note": "committed binders are read-only; Edit matcher"
+  },
+  {
+   "id": "binder-write:multiedit",
+   "mutation_class": "binder-write",
+   "channel": "multiedit",
+   "status": "enforced",
+   "guard": "guard_binder_immutability.py",
+   "hook_event": "PreToolUse",
+   "note": "committed binders are read-only; MultiEdit matcher (the guard reads tool_input.file_path, which MultiEdit carries like Edit)"
   },
   {
    "id": "binder-write:notebookedit",
@@ -64,7 +74,7 @@
    "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "bundled Codex twin ships in 2.24.0 (raw apply_patch parsing) but Codex trust-gates every bundled hook per definition \u2014 until the user reviews and trusts it, doctrine plus sandbox only"
+   "note": "bundled Codex twin (raw apply_patch parsing, alias-resolving classification) but Codex trust-gates every bundled hook per definition \u2014 until the user reviews and trusts it in /hooks, doctrine plus sandbox only"
   },
   {
    "id": "binder-write:terminal",
@@ -92,6 +102,15 @@
    "guard": "guard_pack_write.py",
    "hook_event": "PostToolUse",
    "note": "post-only and advisory \u2014 exit 2 feeds findings back, but a broken pack persists on disk until repaired (dark area: advisory correction)"
+  },
+  {
+   "id": "pack-write:multiedit",
+   "mutation_class": "pack-write",
+   "channel": "multiedit",
+   "status": "enforced",
+   "guard": "guard_pack_write.py",
+   "hook_event": "PostToolUse",
+   "note": "post-only, like Edit: a MultiEdit delta has no full content to pre-validate, so the file on disk is validated after the call and findings are fed back"
   },
   {
    "id": "pack-write:notebookedit",
@@ -157,6 +176,15 @@
    "note": "dispatching the auditor is a Task-tool act"
   },
   {
+   "id": "sme-dispatch:multiedit",
+   "mutation_class": "sme-dispatch",
+   "channel": "multiedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching the auditor is a Task-tool act"
+  },
+  {
    "id": "sme-dispatch:notebookedit",
    "mutation_class": "sme-dispatch",
    "channel": "notebookedit",
@@ -187,10 +215,10 @@
    "id": "sme-dispatch:codex",
    "mutation_class": "sme-dispatch",
    "channel": "codex",
-   "status": "n/a",
+   "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "Codex cannot register plugin subagents \u2014 the auditor does not exist there"
+   "note": "bundled Codex twin guard_auditor_dispatch.py runs on spawn_agent|Agent and fails closed on a recognized dispatch, but only after the user trusts it in /hooks, and recognition is scoped to payload identity fields (agent_type or a karta-bearing task name) \u2014 a bare plugin install's generic fallback dispatch names neither and passes unchecked"
   },
   {
    "id": "sme-dispatch:terminal",
@@ -218,6 +246,15 @@
    "guard": "guard_writer_confinement.py",
    "hook_event": "PreToolUse",
    "note": "kaizen writer confined to .karta/sme/ and .karta/kaizen.json"
+  },
+  {
+   "id": "kaizen-write:multiedit",
+   "mutation_class": "kaizen-write",
+   "channel": "multiedit",
+   "status": "enforced",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse",
+   "note": "kaizen MultiEdit is checked against its surface"
   },
   {
    "id": "kaizen-write:notebookedit",
@@ -253,7 +290,7 @@
    "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "doctrine on Codex: karta registers no kaizen/doc-gardner agent there, so no writer exists for a confinement hook to recognize (docs/how-to/codex.md)"
+   "note": "instruction-level on Codex: the repo checkout registers .codex/agents/karta-kaizen.toml (sandbox_mode workspace-write, which does not narrow writes to .karta/sme/) and a plugin install runs kaizen from bundled instructions, but no confinement hook exists there because a Codex PreToolUse payload carries no agent_type to recognize the writer by (docs/how-to/codex.md)"
   },
   {
    "id": "kaizen-write:terminal",
@@ -281,6 +318,15 @@
    "guard": "guard_writer_confinement.py",
    "hook_event": "PreToolUse",
    "note": "same surface as docgardner-write:write"
+  },
+  {
+   "id": "docgardner-write:multiedit",
+   "mutation_class": "docgardner-write",
+   "channel": "multiedit",
+   "status": "enforced",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse",
+   "note": "doc-gardner MultiEdit is checked against its surface"
   },
   {
    "id": "docgardner-write:notebookedit",
@@ -313,10 +359,10 @@
    "id": "docgardner-write:codex",
    "mutation_class": "docgardner-write",
    "channel": "codex",
-   "status": "waived:codex-no-registered-writer",
+   "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "doctrine on Codex: no registered doc-gardner agent exists there for a hook to recognize"
+   "note": "instruction-level on Codex: the repo checkout registers .codex/agents/karta-doc-gardner.toml (sandbox_mode workspace-write, which does not narrow writes to the prose-doc surface), but no confinement hook exists there because a Codex PreToolUse payload carries no agent_type to recognize the writer by"
   },
   {
    "id": "docgardner-write:terminal",
@@ -326,6 +372,78 @@
    "guard": null,
    "hook_event": null,
    "note": "doc-gardner is an agent construct \u2014 there is no terminal doc-gardner writer"
+  },
+  {
+   "id": "reviewer-write:write",
+   "channel": "write",
+   "status": "enforced",
+   "note": "gate reviewers (acceptance, safety, design; bare or plugin-qualified agent_type) are denied every Write \u2014 hook-enforced for this tool shape, not a sandbox",
+   "mutation_class": "reviewer-write",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse"
+  },
+  {
+   "id": "reviewer-write:edit",
+   "channel": "edit",
+   "status": "enforced",
+   "note": "gate reviewers are denied every Edit and MultiEdit (the matcher routes both)",
+   "mutation_class": "reviewer-write",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse"
+  },
+  {
+   "id": "reviewer-write:multiedit",
+   "mutation_class": "reviewer-write",
+   "channel": "multiedit",
+   "status": "enforced",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse",
+   "note": "a gate reviewer MultiEdit is denied"
+  },
+  {
+   "id": "reviewer-write:notebookedit",
+   "channel": "notebookedit",
+   "status": "enforced",
+   "note": "gate reviewers are denied every NotebookEdit",
+   "mutation_class": "reviewer-write",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse"
+  },
+  {
+   "id": "reviewer-write:bash",
+   "channel": "bash",
+   "status": "enforced",
+   "note": "gate-reviewer Bash is held to a fail-closed allowlist: every simple command must be a listed read-only tool (cat, grep, rg, ls, find without -exec/-delete, jq, sha256sum, read-only git subcommands, ...) joined only by ; && || | or newlines; compound syntax, expansion, wrappers, unlisted programs, paths as programs and redirects other than /dev/null are denied \u2014 git can still run a program the repository's own git config names",
+   "mutation_class": "reviewer-write",
+   "guard": "guard_writer_confinement.py",
+   "hook_event": "PreToolUse"
+  },
+  {
+   "id": "reviewer-write:task",
+   "mutation_class": "reviewer-write",
+   "channel": "task",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a reviewer's own writes surface as file-tool or Bash calls carrying its agent_type"
+  },
+  {
+   "id": "reviewer-write:codex",
+   "mutation_class": "reviewer-write",
+   "channel": "codex",
+   "status": "bypass",
+   "guard": null,
+   "hook_event": null,
+   "note": "no hook: Codex PreToolUse carries no agent_type. Registered .codex/agents reviewers are host-enforced read-only (sandbox_mode read-only) unless the parent's live overrides (/permissions, --yolo) are reapplied to the child \u2014 that override comes from the Codex docs, untested; the plugin fallback reviewer inherits the parent sandbox and is instruction-level"
+  },
+  {
+   "id": "reviewer-write:terminal",
+   "mutation_class": "reviewer-write",
+   "channel": "terminal",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a gate reviewer is an agent construct \u2014 there is no terminal reviewer"
   },
   {
    "id": "item-whiff:task",
@@ -349,6 +467,15 @@
    "id": "ref-forge:edit",
    "mutation_class": "ref-forge",
    "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "same as ref-forge:write"
+  },
+  {
+   "id": "ref-forge:multiedit",
+   "mutation_class": "ref-forge",
+   "channel": "multiedit",
    "status": "n/a",
    "guard": null,
    "hook_event": null,
@@ -388,7 +515,7 @@
    "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "no Codex hooks surface"
+   "note": "no guard on any host inspects git update-ref; Codex's shell hooks route only this repo's commit gate (codex_precommit_gate.py), which does not look at refs"
   },
   {
    "id": "ref-forge:terminal",
@@ -418,6 +545,15 @@
    "note": "a commit is not a file-tool call"
   },
   {
+   "id": "git-commit:multiedit",
+   "mutation_class": "git-commit",
+   "channel": "multiedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a commit is not a file-tool call"
+  },
+  {
    "id": "git-commit:notebookedit",
    "mutation_class": "git-commit",
    "channel": "notebookedit",
@@ -433,7 +569,7 @@
    "status": "waived:KARTA_SKIP_GATE",
    "guard": null,
    "hook_event": null,
-   "note": "enforced by this repo's project-settings commit gate (precommit_gate.py), not the plugin; KARTA_SKIP_GATE=1 is the documented per-command escape \u2014 self-serviceable by the gated agent and unaudited (dark area: escape hatch); detection is textual, so aliases and script-internal commits run zero gates"
+   "note": "enforced by this repo's project-settings commit gate (precommit_gate.py, including the release-evidence block), not the plugin, and only after the user approves the project hooks; KARTA_SKIP_GATE=1 is the documented per-command escape \u2014 self-serviceable by the gated agent and unaudited (dark area: escape hatch); detection is textual, so aliases and script-internal commits run zero gates"
   },
   {
    "id": "git-commit:task",
@@ -448,10 +584,10 @@
    "id": "git-commit:codex",
    "mutation_class": "git-commit",
    "channel": "codex",
-   "status": "bypass",
+   "status": "waived:KARTA_SKIP_GATE",
    "guard": null,
    "hook_event": null,
-   "note": "no commit gate on Codex \u2014 .codex/rules/karta.rules covers git push only"
+   "note": "this repo's .codex/hooks.json routes shell|Bash|unified_exec to scripts/hooks/codex_precommit_gate.py, which normalizes the Codex shell payload and delegates to precommit_gate.py \u2014 the same gate suite and release block as Claude Code, repo checkout only, live after the repo is trusted and the hook is trusted in /hooks; KARTA_SKIP_GATE=1 escapes it the same way; .codex/rules/karta.rules separately covers git push"
   },
   {
    "id": "git-commit:terminal",
@@ -481,6 +617,15 @@
    "note": "a merge is not a file-tool call"
   },
   {
+   "id": "integration-merge:multiedit",
+   "mutation_class": "integration-merge",
+   "channel": "multiedit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "a merge is not a file-tool call"
+  },
+  {
    "id": "integration-merge:notebookedit",
    "mutation_class": "integration-merge",
    "channel": "notebookedit",
@@ -496,7 +641,7 @@
    "status": "bypass",
    "guard": "guard_delivery_stop.py",
    "hook_event": "Stop",
-   "note": "merge-time has no matcher; guard_delivery_stop.py nudges once per (session, state) at session Stop \u2014 advisory block-once, fail-open (dark area: purely advisory in several real states) \u2014 so the mutation-time cell stays an unwaivered bypass"
+   "note": "the plugin has no merge-time matcher; guard_delivery_stop.py nudges once per (session, state) at session Stop \u2014 advisory block-once, fail-open \u2014 so the mutation-time cell stays an unwaivered bypass for consumers; in this repo only, roundtable_gate.py's landing gate blocks a git merge naming a karta/*/integration ref on the default branch unless KARTA_LANDING_APPROVED=1 prefixes it (project settings, Claude Code)"
   },
   {
    "id": "integration-merge:task",
@@ -514,7 +659,7 @@
    "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "Codex ships a Stop surface and the 2.24.0 bundle carries a Stop-gate twin, trust-gated per hook \u2014 until reviewed and trusted, doctrine only"
+   "note": "Codex ships a Stop surface and the bundle carries a Stop-gate twin, trust-gated per hook \u2014 until reviewed and trusted, doctrine only; this repo's landing gate (roundtable_gate.py) is wired in .claude/settings.json only, so a Codex merge of an integration branch meets no mutation-time gate"
   },
   {
    "id": "integration-merge:terminal",
@@ -538,6 +683,15 @@
    "id": "gate-dispatch:edit",
    "mutation_class": "gate-dispatch",
    "channel": "edit",
+   "status": "n/a",
+   "guard": null,
+   "hook_event": null,
+   "note": "dispatching a gate reviewer is a Task-tool act"
+  },
+  {
+   "id": "gate-dispatch:multiedit",
+   "mutation_class": "gate-dispatch",
+   "channel": "multiedit",
    "status": "n/a",
    "guard": null,
    "hook_event": null,
@@ -574,10 +728,10 @@
    "id": "gate-dispatch:codex",
    "mutation_class": "gate-dispatch",
    "channel": "codex",
-   "status": "n/a",
+   "status": "bypass",
    "guard": null,
    "hook_event": null,
-   "note": "Codex cannot register plugin subagents \u2014 the gate reviewers run as a read-only subagent karta-verify spawns, outside any hook surface"
+   "note": "bundled Codex twin guard_gate_dispatch.py runs on spawn_agent|Agent and fails closed on a recognized dispatch, but only after the user trusts it in /hooks, and recognition is scoped to payload identity fields \u2014 the plugin fallback reviewer spawned from karta-verify's bundled references/*.agent.md names neither field and passes unchecked"
   },
   {
    "id": "gate-dispatch:terminal",

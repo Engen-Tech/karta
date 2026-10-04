@@ -76,7 +76,7 @@ accepted_done() { # shared shape for S3 / P1 / P2: a human-waived accepted-done 
   write_binder "$BINDER_AB"
   local a_tip
   a_tip="$(item_branch a)"
-  merge_item a 'merge item-a
+  merge_item a 'Accept item a into integration [karta:item-a]
 
 Karta-Accepted: item-a
 Karta-Accept-Reason: bench fixture waiver — named unmet assertion waived by human'
@@ -90,7 +90,7 @@ delivered_with_leftovers() { # shared shape for S7 / S8: delivered + archived + 
   write_binder "$BINDER_A"
   local a_tip
   a_tip="$(item_branch a)"
-  merge_item a 'merge item-a'
+  merge_item a 'Merge item a into integration [karta:item-a]'
   ref a built "$a_tip"
   ref a done "$(g rev-parse HEAD)"
   archive_binder_on_integration
@@ -103,7 +103,7 @@ case "$CASE" in
     seed_repo
     write_binder "$BINDER_AB"
     a_tip="$(item_branch a)"
-    merge_item a 'merge item-a'
+    merge_item a 'Merge item a into integration [karta:item-a]'
     ref a built "$a_tip"
     ref a done "$(g rev-parse HEAD)"
     b_tip="$(item_branch b)"
@@ -114,7 +114,7 @@ case "$CASE" in
     seed_repo
     write_binder "$BINDER_A"
     a_tip="$(item_branch a)"
-    merge_item a 'merge item-a'
+    merge_item a 'Merge item a into integration [karta:item-a]'
     ref a built "$a_tip"
     ref a done "$(g rev-parse HEAD)"
     archive_binder_on_integration
@@ -160,7 +160,7 @@ case "$CASE" in
     seed_repo
     write_binder "$BINDER_AB"
     a_tip="$(item_branch a)"
-    merge_item a 'merge item-a'
+    merge_item a 'Merge item a into integration [karta:item-a]'
     ref a done "$(g rev-parse HEAD)"
     ref a accepted "$a_tip"
     g checkout -q main

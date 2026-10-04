@@ -91,6 +91,46 @@
         }
       }
     },
+    "shared_terms": {
+      "type": "array",
+      "description": "canonical strings several work items must render byte-identically; check_shared_terms.py enforces them on the assembled tree at deliver time. validate_binder.py additionally checks that entry ids are unique and that every listed item id names a work item",
+      "items": {
+        "type": "object",
+        "required": ["id", "canonical", "items"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "canonical": { "type": "string", "minLength": 1 },
+          "items": { "type": "array", "minItems": 2, "items": { "type": "string" } }
+        }
+      }
+    },
+    "supersedes": {
+      "type": "object",
+      "required": ["slug", "carried"],
+      "additionalProperties": false,
+      "description": "marks this binder as the successor of a partially delivered, committed binder (slug convention <predecessor>-r2, -r3). The predecessor stays immutable; see docs/how-to/binder-repair.md",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "the predecessor binder's slug; its refs/karta/<slug>/ refs and integration branch prove the carried work"
+        },
+        "carried": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "description": "ids of work items already delivered by the predecessor. Each must appear in this binder's work_items unchanged from the predecessor's plan and carry a done ref in the predecessor that passes provenance; deliver_preflight.py refuses the binder otherwise"
+        },
+        "dropped": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "description": "ids of predecessor items that are done but NOT carried: their merge is on the predecessor integration branch the successor starts from, so the successor must plan a work item that reverts or replaces that code. deliver_preflight.py halts on any predecessor done item that is neither carried nor dropped, and on a dropped id with no predecessor done ref"
+        }
+      }
+    },
     "work_items": {
       "type": "array",
       "minItems": 1,
@@ -148,7 +188,18 @@
           }
         },
         "oracle": { "$ref": "#/$defs/oracle" }
-      }
+      },
+      "if": {
+        "anyOf": [
+          { "required": ["component_map"] },
+          { "required": ["icon_map"] },
+          { "required": ["token_changes"] },
+          { "required": ["covers"] },
+          { "required": ["visual_check_waiver"] }
+        ]
+      },
+      "then": { "required": ["design_reference"] },
+      "description": "UI-only fields (component_map, icon_map, token_changes, covers, visual_check_waiver) are allowed only on an item with a UI surface, which the schema recognises by its design_reference (a view id, or 'none' for UI foundation work). An item without design_reference is a non-UI item and carries none of them"
     },
     "oracle": {
       "oneOf": [
