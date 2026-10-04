@@ -19,6 +19,11 @@ The Write-preventive / Edit-corrective asymmetry is deliberate: PreToolUse fires
 `Write` (deny before a malformed pack lands), PostToolUse on `Edit`|`Write` (diagnose
 a malformed pack the model just wrote).
 
+A string tool_input that starts with `*** Begin Patch` (Copilot hands PascalCase
+hooks the raw apply_patch body under Edit or Write) is parsed into its file ops and
+each is judged as the dict write it makes: Add File as a Write of its + lines,
+Update File as an Edit (Move to retargets; Delete File leaves nothing to judge).
+
 Any internal error fails open (exit 0): a missing/broken validator, a subprocess
 crash, or unparseable output must never break an unrelated tool call.
 
@@ -91,9 +96,61 @@ def _run_validator(validator: Path, pack_file: Path) -> tuple[int, str]:
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
+DIRECTIVE_RE = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$")
+
+
+def _as_patch_command(tool_input):
+    """Copilot gives PascalCase hooks the raw patch string as tool_input, under
+    tool_name Edit or Write. Wrap it so it takes the patch path."""
+    if isinstance(tool_input, str) and tool_input.lstrip().startswith("*** Begin Patch"):
+        return {"command": tool_input}
+    return tool_input
+
+
+def parse_patch_ops(text: str) -> list[dict]:
+    """apply_patch body -> [{path, content}] for each file the patch leaves behind.
+    Add File carries its full text (the + lines); Update File carries None, an
+    Edit-like delta. Move to retargets the current op; Delete File leaves no file.
+    Content lines are +/- prefixed, so text containing `*** Add File:` can never
+    spoof a directive."""
+    ops: list[dict] = []
+    cur: dict | None = None
+    for line in text.split("\n"):
+        line = line.rstrip("\r")
+        m = DIRECTIVE_RE.match(line)
+        if m:
+            # Windows models may spell patch paths with `\` separators.
+            kind, path = m.group(1), m.group(2).strip().replace("\\", "/")
+            if kind == "Move to":
+                if cur is not None:
+                    cur["path"] = path
+            elif kind == "Delete File":
+                cur = None
+            else:
+                cur = {"path": path, "content": "" if kind == "Add File" else None}
+                ops.append(cur)
+            continue
+        if cur is not None and cur["content"] is not None and line.startswith("+"):
+            cur["content"] += line[1:] + "\n"
+    return ops
+
+
 def decide(payload: dict) -> tuple[int, str]:
     """Return (exit_code, stderr_message)."""
-    tool_input = payload.get("tool_input")
+    tool_input = _as_patch_command(payload.get("tool_input"))
+    if isinstance(tool_input, dict) and isinstance(tool_input.get("command"), str) \
+            and tool_input["command"].lstrip().startswith("*** Begin Patch"):
+        # Judge each file the patch writes exactly as the dict write of that path.
+        findings = []
+        for op in parse_patch_ops(tool_input["command"]):
+            sub = dict(payload, tool_name="Edit", tool_input={"file_path": op["path"]})
+            if op["content"] is not None:
+                sub["tool_name"] = "Write"
+                sub["tool_input"]["content"] = op["content"]
+            code, msg = decide(sub)
+            if code:
+                findings.append(msg)
+        return (2, "\n\n".join(findings)) if findings else (0, "")
     target = tool_input.get("file_path") if isinstance(tool_input, dict) else None
     if not isinstance(target, str) and isinstance(tool_input, dict):
         # Copilot CLI spells the target `path` (Write {path, file_text}, Edit {path, ...}).
@@ -195,6 +252,10 @@ def _run_self_test() -> int:
             return {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": cwd,
                     "tool_input": {"path": path, "file_text": file_text}}
 
+        def patch_str(event: str, tool: str, *lines: str) -> dict:
+            return {"hook_event_name": event, "tool_name": tool, "cwd": cwd,
+                    "tool_input": "\n".join(("*** Begin Patch", *lines, "*** End Patch"))}
+
         cases = [
             ("pre-write valid pack passes",
              pre_write(".karta/sme/terraform.md", _VALID_PACK), 0, None),
@@ -229,6 +290,35 @@ def _run_self_test() -> int:
             ("tool_input not a dict passes",
              {"hook_event_name": "PostToolUse", "tool_name": "Write", "cwd": cwd,
               "tool_input": "junk"}, 0, None),
+            # Copilot hands PascalCase hooks the raw apply_patch body as a string
+            # tool_input, under Edit or Write — judged like the dict write it makes.
+            ("patch string adding an invalid pack is denied",
+             patch_str("PreToolUse", "Write", "*** Add File: .karta/sme/broken.md",
+                       "+no frontmatter"), 2, "frontmatter"),
+            ("patch string adding a valid pack passes",
+             patch_str("PreToolUse", "Write", "*** Add File: .karta/sme/terraform.md",
+                       *("+" + line for line in _VALID_PACK.splitlines())), 0, None),
+            ("patch string update of a committed invalid pack is reported",
+             patch_str("PostToolUse", "Edit", "*** Update File: .karta/sme/broken.md",
+                       "@@", "+bad"), 2, "frontmatter"),
+            ("patch string update outside the pack set passes",
+             patch_str("PostToolUse", "Edit", "*** Update File: docs/broken.md",
+                       "@@", "+bad"), 0, None),
+            ("patch string with backslash pack path is denied",
+             patch_str("PreToolUse", "Write", "*** Add File: .karta\\sme\\broken.md",
+                       "+bad"), 2, "frontmatter"),
+            ("patch string content cannot spoof a directive",
+             patch_str("PreToolUse", "Write", "*** Add File: notes.md",
+                       "+*** Add File: .karta/sme/broken.md", "+bad"), 0, None),
+            ("patch string move checks the destination pack",
+             patch_str("PostToolUse", "Edit", "*** Update File: notes.md",
+                       "*** Move to: .karta/sme/broken.md"), 2, "frontmatter"),
+            ("patch string deletion leaves no pack to judge",
+             patch_str("PostToolUse", "Edit", "*** Delete File: .karta/sme/broken.md"),
+             0, None),
+            ("non-patch string tool_input passes",
+             {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": cwd,
+              "tool_input": "just a string"}, 0, None),
         ]
         if os.name == "nt":
             # Spellings Windows resolves to a real pack while a literal match
