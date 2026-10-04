@@ -51,7 +51,9 @@ async function rpcCommands(cwd: string, agentDir: string): Promise<{
     let buffered = "";
     let settling = false;
     const extensionErrors: string[] = [];
-    const timer = setTimeout(() => finish(undefined, new Error(`RPC timeout: ${stderr}`)), 30_000);
+    // A freshly installed package can cold-start slowly on Windows-backed WSL
+    // checkouts; keep the fixture deadline above that startup cost.
+    const timer = setTimeout(() => finish(undefined, new Error(`RPC timeout: ${stderr}`)), 120_000);
 
     function finish(
       value?: { commands: RpcCommand[]; extensionErrors: string[] },

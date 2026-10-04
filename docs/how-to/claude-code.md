@@ -27,13 +27,14 @@ Invoke a skill explicitly by its namespaced name — `karta:karta-plan` — or j
 
 ## The acceptance gate runs automatically
 
-karta's behavioral gate (`karta-verify`) dispatches two read-only agents — `karta-acceptance-reviewer` and `karta-safety-auditor`. On Claude Code the plugin registers them as subagents, so the gate runs with no setup: `karta-verify` dispatches each by name, read-only, against the diff, and drives any kickback to `karta-build`. The visual gate (`karta-validate`) compares a running view against its design prototype the same way. You copy nothing and configure nothing.
+karta's behavioral gate (`karta-verify`) dispatches two read-only agents — `karta-acceptance-reviewer` and `karta-safety-auditor`. On Claude Code the plugin registers them as subagents, so the gate runs with no setup: `karta-verify` dispatches each by name against the diff and drives any kickback to `karta-build`. The reviewers get no edit tool, and `guard_writer_confinement.py` denies edit tools from all three gate reviewers and holds their shell to a fail-closed allowlist of read-only commands. A reviewer cannot run project code or the project's type-check; `karta-verify` runs the type-check through the build skill's runner and hands the acceptance reviewer its record. This is a pre-operation hook, not a sandbox: git may still run programs named by the repository's own configuration. Retry counts live in an attempt ledger under the Git directory, so resuming a session does not reset them. The visual gate (`karta-validate`) compares a running view against its design prototype in a fresh read-only session. You copy nothing and configure nothing.
 
 ## Notes
 
 - **Reloading.** Claude Code loads plugins at session start. After installing or updating, restart Claude Code (or start a new session) to pick up changes.
 - **Updating.** Re-add or update from `/plugin` to pull a newer version from the marketplace.
-- **Requirements.** Most skills need only `git` and your project's toolchain. `karta-validate` also needs [`uv`](https://docs.astral.sh/uv/), [`playwright-cli`](https://playwright.dev), and Chromium — see the [README](../../README.md#requirements) for the full per-skill list.
+- **Requirements.** Every install needs `git` 2.23 or newer, [`uv`](https://docs.astral.sh/uv/) on `PATH`, and Python 3.11 or newer. `karta-validate` also needs [`playwright-cli`](https://playwright.dev) and Chromium — see the [README](../../README.md#before-you-install) for the full list.
+- **Hooks must be able to start.** If a hook cannot start — `uv` missing, say — Claude Code treats it as a non-blocking error and the tool call proceeds unguarded. A `disableAllHooks` setting or managed `allowManagedHooksOnly` policy also stops plugin hooks. Check launchers with `python3 scripts/install_smoke.py`; it proves they start, not that every guard blocks correctly.
 
 ## For contributors
 

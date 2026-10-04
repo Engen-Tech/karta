@@ -7,16 +7,27 @@
 
 Zero dependencies (pure stdlib). The harness invokes this on every session Stop
 with the hook payload JSON on stdin. It inspects repo state only — never the
-transcript — for two dirty-delivery states across the live binders
+transcript — for three dirty-delivery states across the live binders
 (`.karta/binders/*.json` in the working tree or in HEAD, never `archive/`):
 
 - built-unmerged: some `refs/karta/<slug>/item-<id>/built` ref (found by ref
   glob, so an orphaned ref still counts) has no matching `done` and no matching
   `failed` — the serial merge queue never finished.
+- accepted-unmerged: an `accepted` ref has no valid `done` merge and no
+  `failed` ref — an accept that never completed.
 - complete-unarchived: the binder has at least one work item, every item has a
-  `done` ref, and the archive file `.karta/binders/archive/<slug>.json` is not
+  valid `done` ref, and the archive file `.karta/binders/archive/<slug>.json` is not
   committed anywhere it counts (HEAD, `refs/heads/karta/<slug>/integration`, or
   the default branch). On disk or staged but uncommitted does not count.
+
+A `done` ref counts only when it passes the provenance rules delivery applies
+on resume — commit markers over `<done>^1..<done>`, the accepted-state rules,
+and first-parent reachability on the integration branch — through the
+karta-status engine's done_verdicts (which loads the deliver skill's
+check_item_provenance.py). A forged or stray done ref therefore never silences
+built-unmerged, and a suspect done ref is a finding of its own even with
+no built or accepted ref beside it. When the engine cannot be found beside this plugin, done refs
+are trusted as present: the fail-open direction for a nudge.
 
 On a finding it blocks the stop (exit 2, one-paragraph reason on stderr naming
 each finding and its fix) at most once per (session, state): a fingerprint of
@@ -48,10 +59,11 @@ def _read_stdin_text() -> str:
 
 SENTINEL_NAME = "karta-stop-gate.json"
 SENTINEL_MAX_SESSIONS = 20
-# `evidence` is the capped oracle evidence record run_oracle.py writes per item; it is
-# tracked here as a standing state so the ref vocabulary and this gate agree, and it
-# changes no decision — the stranded/complete tests below name built/done/failed.
-REF_STATES = ("built", "done", "failed", "evidence")
+# The ref vocabulary the engine writes (skills/_shared/integration-branch.md),
+# kept equal to it so the gate and status read the same states. `evidence` (the
+# capped oracle evidence record) and `in-progress` change no decision; `accepted`
+# is checked below.
+REF_STATES = ("built", "done", "accepted", "failed", "evidence", "in-progress")
 
 BUILT_UNMERGED_MSG = (
     "binder {slug}: items {ids} carry built but no done — the serial merge queue "
@@ -59,6 +71,14 @@ BUILT_UNMERGED_MSG = (
     "its oracle against the current integration tip, merge FIFO, write the done "
     "ref; or tell the user plainly that the delivery is stopping mid-wave and "
     "how to resume.")
+ACCEPTED_UNMERGED_MSG = (
+    "binder {slug}: items {ids} carry an accepted ref but no valid done merge — "
+    "the accept did not complete. Re-enter karta-deliver's accept step "
+    "for each (it re-prompts the human), or tell the user plainly that the "
+    "accept is unfinished.")
+SUSPECT_DONE_MSG = (
+    "binder {slug}: the done ref of items {ids} fails delivery's provenance "
+    "check ({why}), so it is not counted as done.")
 COMPLETE_UNARCHIVED_MSG = (
     "binder {slug}: all items are done but the binder was never archived. Run "
     "the end-of-life step (deliver:archive / karta-build 9c-single): git mv it "
@@ -75,6 +95,50 @@ def _repo_root(cwd: str) -> str | None:
         return None
     r = _git(cwd, "rev-parse", "--show-toplevel")
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+STATUS_ENGINE_REL = Path("skills") / "karta-status" / "scripts" / "karta_next.py"
+
+
+def _status_engine():
+    """The karta-status engine, whose done_verdicts applies the same
+    provenance rules delivery uses on resume. Found beside this plugin's own
+    skills tree (walking up from this file, never a fixed depth), else under
+    CLAUDE_PLUGIN_ROOT. None when neither holds it — the guard then trusts done
+    refs as present, which is the fail-open direction for a Stop nudge."""
+    roots = [d for d in Path(__file__).resolve().parents]
+    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env:
+        roots.append(Path(env))
+    for root in roots:
+        script = root / STATUS_ENGINE_REL
+        if script.is_file():
+            try:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location(
+                    "karta_next_for_stop", script)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+            except Exception:  # noqa: BLE001
+                return None
+    return None
+
+
+def _done_verdicts(root: str, slug: str, item_ids: list[str]) -> dict[str, dict]:
+    """item -> {"suspect": [findings], ...} for the named items' done refs; empty
+    when the engine is unavailable (refs are then trusted as present)."""
+    if not item_ids:
+        return {}
+    engine = _status_engine()
+    if engine is None:
+        return {}
+    revs = _default_branch_revs(root)
+    default = revs[0][len("refs/heads/"):] if revs else "main"
+    try:
+        return engine.done_verdicts(Path(root), slug, item_ids, default) or {}
+    except Exception:  # noqa: BLE001 — fail open
+        return {}
 
 
 def _live_slugs(root: str) -> list[str]:
@@ -139,15 +203,31 @@ def _slug_ref_states(root: str, slug: str) -> dict[str, set[str]]:
 
 
 def _default_branch_revs(root: str) -> list[str]:
-    r = _git(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    """The default branch, resolved in karta-deliver's preflight
+    order so the Stop guard judges against the branch delivery used: git config
+    karta.defaultBranch (a local branch), the local origin/HEAD
+    symref, the only local non-karta/* branch, exactly one of
+    main/master. Offline; [] when nothing is unambiguous."""
+    def local(name: str) -> bool:
+        return _git(root, "rev-parse", "--verify", "--quiet",
+                    f"refs/heads/{name}^{{commit}}").returncode == 0
+
+    r = _git(root, "config", "--get", "karta.defaultBranch")
     if r.returncode == 0 and r.stdout.strip():
-        name = r.stdout.strip().rsplit("/", 1)[-1]
+        name = r.stdout.strip()
+        return [f"refs/heads/{name}"] if local(name) else []
+    r = _git(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    prefix = "refs/remotes/origin/"
+    if r.returncode == 0 and r.stdout.strip().startswith(prefix):
+        name = r.stdout.strip()[len(prefix):]
         return [f"refs/heads/{name}", f"refs/remotes/origin/{name}"]
-    for name in ("main", "master"):
-        ref = f"refs/heads/{name}"
-        if _git(root, "rev-parse", "--verify", "--quiet", ref).returncode == 0:
-            return [ref]
-    return []
+    r = _git(root, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    branches = [b.strip() for b in r.stdout.splitlines()
+                if b.strip() and not b.strip().startswith("karta/")]
+    if len(branches) == 1:
+        return [f"refs/heads/{branches[0]}"]
+    conventional = [b for b in ("main", "master") if b in branches]
+    return [f"refs/heads/{conventional[0]}"] if len(conventional) == 1 else []
 
 
 def _archive_committed(root: str, slug: str) -> bool:
@@ -225,13 +305,39 @@ def decide(payload: object) -> tuple[int, str]:
         if ids is None:
             continue  # unreadable/malformed binder — fail open for this slug
         states = _slug_ref_states(root, slug)
+        # A done ref counts only once it passes the provenance rules delivery
+        # applies on resume: a forged or stray done must never silence the
+        # built-without-done check. Every done ref is checked, including a bare
+        # one with no built or accepted ref beside it, and any suspect done is
+        # its own finding: a forged done is a dirty delivery whatever else the
+        # binder carries.
+        with_done = {i for i, st in states.items() if "done" in st}
+        needed = sorted(with_done)
+        verdicts = _done_verdicts(root, slug, needed)
+        suspect = sorted(i for i in needed if (verdicts.get(i) or {}).get("suspect"))
+
+        def done_ok(item: str) -> bool:
+            return item in with_done and item not in suspect
+
         stranded = sorted(item for item, st in states.items()
-                          if "built" in st and not st & {"done", "failed"})
+                          if "built" in st and "failed" not in st and not done_ok(item))
         if stranded:
             findings.append((slug, "built-unmerged", tuple(stranded)))
             messages.append(BUILT_UNMERGED_MSG.format(
                 slug=slug, ids=", ".join(stranded)))
-        if ids and all("done" in states.get(i, ()) for i in ids) \
+        unaccepted = sorted(item for item, st in states.items()
+                            if "accepted" in st and "failed" not in st
+                            and not done_ok(item))
+        if unaccepted:
+            findings.append((slug, "accepted-unmerged", tuple(unaccepted)))
+            messages.append(ACCEPTED_UNMERGED_MSG.format(
+                slug=slug, ids=", ".join(unaccepted)))
+        if suspect:
+            findings.append((slug, "suspect-done", tuple(suspect)))
+            messages.append(SUSPECT_DONE_MSG.format(
+                slug=slug, ids=", ".join(suspect),
+                why=verdicts[suspect[0]]["suspect"][0]))
+        if ids and all(done_ok(i) for i in ids) \
                 and not _archive_committed(root, slug):
             findings.append((slug, "complete-unarchived", tuple(sorted(ids))))
             messages.append(COMPLETE_UNARCHIVED_MSG.format(slug=slug))
@@ -297,6 +403,27 @@ def _run_self_test() -> int:
         head = git(repo, "rev-parse", "HEAD").stdout.strip()
         git(repo, "update-ref", f"refs/karta/{slug}/item-{item}/{state}", head)
 
+    def deliver(repo: Path, slug: str, item: str) -> None:
+        """Merge an item the way the merge queue does: a marked item commit on
+        its own branch off the integration tip, a --no-ff marked merge on the
+        integration branch, then built -> the item tip and done -> the merge.
+        A done ref that did not come from this shape fails provenance."""
+        here = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        integ = f"karta/{slug}/integration"
+        if git(repo, "rev-parse", "--verify", "--quiet", integ).returncode != 0:
+            git(repo, "branch", integ)
+        git(repo, "checkout", "-q", "-b", f"karta/{slug}/item-{item}", integ)
+        (repo / f"{slug}-{item}.txt").write_text(item + "\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", f"[karta:item-{item}] work")
+        set_ref(repo, slug, item, "built")
+        git(repo, "checkout", "-q", integ)
+        git(repo, "merge", "-q", "--no-ff", "-m",
+            f"Merge item {item} into integration [karta:item-{item}]",
+            f"karta/{slug}/item-{item}")
+        set_ref(repo, slug, item, "done")
+        git(repo, "checkout", "-q", here)
+
     def stop(repo_or_dir: Path, session: str = "s1", **over: object) -> dict:
         payload: dict = {"hook_event_name": "Stop", "session_id": session,
                          "cwd": str(repo_or_dir), "stop_hook_active": False}
@@ -307,8 +434,7 @@ def _run_self_test() -> int:
         """built-unmerged: item a merged, item b built with no done/failed."""
         repo = init_repo(td, name)
         write_binder(repo, "wip", ["a", "b"])
-        set_ref(repo, "wip", "a", "built")
-        set_ref(repo, "wip", "a", "done")
+        deliver(repo, "wip", "a")
         set_ref(repo, "wip", "b", "built")
         return repo
 
@@ -316,8 +442,7 @@ def _run_self_test() -> int:
         """all items done, nothing archived yet."""
         repo = init_repo(td, name)
         write_binder(repo, slug, ["a"])
-        set_ref(repo, slug, "a", "built")
-        set_ref(repo, slug, "a", "done")
+        deliver(repo, slug, "a")
         return repo
 
     with tempfile.TemporaryDirectory() as td:
@@ -339,7 +464,7 @@ def _run_self_test() -> int:
         # 3. in-flight binder, no built standing -> allow
         repo = init_repo(td, "inflight")
         write_binder(repo, "wip", ["a", "b"])
-        set_ref(repo, "wip", "a", "done")
+        deliver(repo, "wip", "a")
         check("in-flight binder with no built standing allows", stop(repo), 0)
 
         # 4. built-unmerged -> block naming slug + stranded items
@@ -363,14 +488,17 @@ def _run_self_test() -> int:
 
         # 7. complete-unarchived, integration branch exists, no archive -> block
         repo = complete_repo(td, "comp7")
-        git(repo, "branch", "karta/comp/integration")
         reason = check("complete-unarchived blocks (no archive anywhere)",
                        stop(repo), 2)
         flag("block reason names the slug and the archive fix",
              "binder comp" in reason and "never archived" in reason)
 
         # 8. complete-unarchived with no integration branch at all -> block
+        #    (landed and cleaned up: the done merge is on the default branch)
         repo = complete_repo(td, "comp8")
+        git(repo, "merge", "-q", "--no-ff", "-m", "land comp",
+            "karta/comp/integration")
+        git(repo, "branch", "-D", "karta/comp/integration")
         check("complete-unarchived blocks with no integration branch "
               "(missing branch is a negative, not an error)", stop(repo), 2)
 
@@ -383,7 +511,7 @@ def _run_self_test() -> int:
 
         # 10. archive committed on the integration branch only -> allow
         repo = complete_repo(td, "comp10")
-        git(repo, "checkout", "-q", "-b", "karta/comp/integration")
+        git(repo, "checkout", "-q", "karta/comp/integration")
         (repo / ".karta" / "binders" / "archive").mkdir()
         git(repo, "mv", ".karta/binders/comp.json",
             ".karta/binders/archive/comp.json")
@@ -416,7 +544,7 @@ def _run_self_test() -> int:
         # 13. two live binders with mixed findings -> one block covering both
         repo = dirty_repo(td, "mixed")
         write_binder(repo, "comp", ["a"])
-        set_ref(repo, "comp", "a", "done")
+        deliver(repo, "comp", "a")
         reason = check("two live binders with mixed findings block once",
                        stop(repo), 2)
         flag("one reason covers both findings",
@@ -452,6 +580,31 @@ def _run_self_test() -> int:
         check("new session + same state blocks once", stop(repo, session="s2"), 2)
         check("new session + same state allows on its second call",
               stop(repo, session="s2"), 0)
+
+        # provenance: a done ref only counts once delivery's own rules pass it
+        repo = init_repo(td, "forged")
+        write_binder(repo, "wip", ["a", "b"])
+        git(repo, "branch", "karta/wip/integration")
+        set_ref(repo, "wip", "a", "built")
+        set_ref(repo, "wip", "a", "done")   # forged: no merge, no marker
+        reason = check("a forged done ref beside built does not silence "
+                       "built-unmerged", stop(repo), 2)
+        flag("block reason names the suspect done ref",
+             "items a carry built" in reason and "fails delivery's provenance" in reason)
+        repo = init_repo(td, "acc")
+        write_binder(repo, "wip", ["a", "b"])
+        set_ref(repo, "wip", "a", "accepted")
+        reason = check("an accepted ref with no done merge blocks", stop(repo), 2)
+        flag("block reason names the unfinished accept",
+             "items a carry an accepted ref" in reason)
+        repo = init_repo(td, "bare")
+        write_binder(repo, "wip", ["a", "b", "c"])
+        deliver(repo, "wip", "a")
+        set_ref(repo, "wip", "b", "done")   # forged, with no built/accepted
+        reason = check("a bare forged done ref with no built beside it blocks",
+                       stop(repo), 2)
+        flag("block reason names the bare suspect done ref",
+             "done ref of items b fails delivery's provenance" in reason)
 
         # 20. malformed binder JSON -> allow (fail-open)
         repo = init_repo(td, "malformed")

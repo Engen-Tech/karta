@@ -9,9 +9,9 @@ Zero dependencies — stdlib `http.server` only. Derives state from the CWD's
 derives afresh; the git side of that derivation is one batched pass rather than a
 query per binder, and an unchanged poll costs a 304 with no body.
 
-  uv run --script serve_status.py                 # http://127.0.0.1:8765
+  uv run --script serve_status.py                 # http://127.0.0.1:8765/?key=<fresh token>
   uv run --script serve_status.py --port 9000     # a different port
-  uv run --script serve_status.py --key s3cret    # gate behind ?key=s3cret
+  uv run --script serve_status.py --key s3cret    # use your own token: ?key=s3cret
   uv run --script serve_status.py --hub           # the persistent multi-repo hub
   uv run --script serve_status.py --ensure        # revive the hub if needed (silent)
   uv run --script serve_status.py --opt-in        # persistent watch for this repo
@@ -25,6 +25,11 @@ Routes:
   GET /assets/<f>  the brand bytes, the vendored Vue and the vendored typefaces
                    (mascot.png, icon.png, vendor/vue.global.prod.js,
                    fonts/*.woff2) — same-origin only
+
+Ephemeral mode prints the working URL at startup, token included: every route
+but /assets/ requires ?key= (a fresh random token per start unless --key names
+one), and every route — assets too — requires the Host header to be exactly
+127.0.0.1:<port> or localhost:<port>, the same DNS-rebinding pin the hub uses.
 
 Hub mode (--hub) serves every opted-in repo from the per-user store instead of
 the CWD. `--ensure` revives it as a detached daemon when needed (the daemon
@@ -87,7 +92,7 @@ import time
 from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, quote
 
 try:                        # POSIX: the store lock rides fcntl.flock
     import fcntl
@@ -166,6 +171,8 @@ VERSION = "2.36.0"
 # ---------------------------------------------------------------------------
 
 STATE_FILENAME = "state.json"
+# done-ref provenance verdicts the hub's child derivations share (karta_next)
+PROVENANCE_CACHE_FILENAME = "provenance-cache.json"
 LOCK_FILENAME = "state.lock"
 TOKEN_FILENAME = "token"
 PORT_BASE = 8765
@@ -470,8 +477,8 @@ def _append_archived(state: dict, archived: list[dict]) -> dict:
         state["binders"].append({
             "slug": b["slug"], "after": [], "status": "merged", "is_next": False,
             "archived": True,
-            "items": {"total": len(items), "done": len(items), "built": 0, "failed": 0,
-                      "building": 0, "ready": 0, "blocked": 0,
+            "items": {"total": len(items), "done": len(items), "accepted": 0, "built": 0,
+                      "failed": 0, "building": 0, "ready": 0, "blocked": 0,
                       "detail": [{"id": it["id"], "status": "done"} for it in items]},
         })
     return state
@@ -598,7 +605,7 @@ def join_archived(detail_by_slug: dict, compact_entries: list) -> list[dict]:
             "slug": slug, "after": [], "status": "merged", "is_next": False,
             "archived": True, "title": None, "summary": None,
             "items": {"total": total, "done": total if done is None else int(done),
-                      "built": 0, "failed": 0, "building": 0, "ready": 0,
+                      "accepted": 0, "built": 0, "failed": 0, "building": 0, "ready": 0,
                       "blocked": 0, "detail": []},
         })
     return rows
@@ -789,11 +796,17 @@ def current_state() -> dict:
     and each binder its human title/summary/motivation, joined back to the
     binder definitions; archived (delivered) binders are appended as merged
     rows."""
-    binders = karta_next.load_binders()
+    binders, load_errors = karta_next.load_binders()
     archived = karta_next.load_archived_binders()
-    facts = karta_next.gather_git_facts(binders, karta_next._default_branch())
-    state = karta_next.derive_state(binders, facts,
-                                    frozenset(b["slug"] for b in archived))
+    default_branch = karta_next._default_branch()
+    facts = karta_next.gather_git_facts(binders, default_branch)
+    archived_slugs = frozenset(b["slug"] for b in archived)
+    # provenance of done refs, stray refs, deleted binders, post-landing
+    # leftovers — the same recovery facts the karta-status CLI reads
+    recovery = karta_next.gather_recovery_facts(binders, facts, default_branch,
+                                                            archived_slugs)
+    state = karta_next.derive_state(binders, facts, archived_slugs,
+                                                recovery=recovery, load_errors=load_errors)
     # archived first so a live binder wins the join over an archived namesake
     state = _enrich(_append_archived(state, archived), archived + binders)
     # the review block, read beside the binder load: two file reads per binder,
@@ -932,6 +945,11 @@ _ICONS: dict[str, list[tuple[str, dict]]] = {
 _STATE_META = {
     "done":     {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "check",    "word": "PASSED", "fill": "solid",
                  "border": "var(--line)",  "tint": "var(--green-soft)", "weight": "calm",   "edge": "solid"},
+    # merged under a human waiver: NOT a pass. It keeps the merged-green edge a
+    # delivered item has, but says ACCEPTED in the waiting hue and leaves the
+    # card untinted, so it can never be read as PASSED at a glance.
+    "accepted": {"color": "var(--wait)", "soft": "var(--wait-soft)", "badge": "check",   "word": "ACCEPTED", "fill": "outline",
+                 "border": "var(--wait)",  "tint": "none",             "weight": "calm",   "edge": "solid"},
     # the state the design forgot. Same hue as passed, inverted weight: the green
     # moves from the fill to the border, and the badge becomes a merge glyph.
     "built":    {"color": "var(--green)", "soft": "var(--green-soft)", "badge": "built",    "word": "BUILT",  "fill": "outline",
@@ -958,7 +976,7 @@ _STATE_META = {
 # and renders as a lie, which is exactly what happened to `built` while the
 # design had no card for it. The self-test compares the two sets, so adding a
 # state to the engine and forgetting its treatment fails here.
-_ENGINE_ITEM_STATES = ("done", "built", "building", "ready", "blocked", "failed")
+_ENGINE_ITEM_STATES = ("done", "accepted", "built", "building", "ready", "blocked", "failed")
 
 # The two token names the built state is NOT allowed to invent. It is expressed
 # with the palette the design already defines — a seventh hue beside six related
@@ -2397,6 +2415,13 @@ body{
 .detail__chip-id{ font-family:var(--mono); font-size:9.5px; }
 .detail__chip-word{ font-family:var(--mono); font-size:8.5px; font-weight:600; letter-spacing:0.5px; }
 
+/* the engine's warnings and errors, listed where the next action can point at them */
+.notices{ display:flex; flex-direction:column; gap:6px; margin:0 0 14px; }
+.notices__row{ margin:0; font-size:12.5px; line-height:1.5; color:var(--ink); overflow-wrap:anywhere; }
+.notices__kind{ font-family:var(--mono); font-size:9.5px; font-weight:600; letter-spacing:0.5px;
+  text-transform:uppercase; margin-right:8px; color:var(--wait); }
+.notices__row--error .notices__kind{ color:var(--halt); }
+
 /* empty state (no binders) */
 .empty{ text-align:center; padding:28px 0 34px; }
 .empty__mascot{ width:64px; height:64px; opacity:.85; margin-bottom:6px; }
@@ -2821,7 +2846,7 @@ def _rail_done(binder: dict) -> int:
     detail = items.get("detail") or []
     if not detail:
         return items.get("done") or 0
-    return sum(1 for it in detail if it.get("status") in ("done", "built"))
+    return sum(1 for it in detail if it.get("status") in ("done", "accepted", "built"))
 
 
 def _rail_halted(binder: dict) -> int:
@@ -2981,7 +3006,7 @@ BINDER_TOGGLE_LABEL_FMT = "wave detail for {title}"
 # the two queued states. It must name EVERY engine state: a state missing here
 # would be counted nowhere while its cards still render, so the row would total
 # less than the cards below it. The self-test compares the two sets.
-_COUNT_ORDER = ("building", "failed", "done", "built", "ready", "blocked")
+_COUNT_ORDER = ("building", "failed", "done", "accepted", "built", "ready", "blocked")
 
 # The lane a wave runs in. A step holding more than one run goes at once; a step
 # holding a single run goes in turn behind the step above it. The label is the
@@ -3283,9 +3308,13 @@ DETAIL_LABELS = {
     "estimate": "size",
     "ref": "git ref",
     "waiting": "waiting on",
+    "waiver": "waived because",
+    "carried": "delivered by",
 }
 # What a row says when the binder declared the field and left it empty.
 DETAIL_EMPTY_LABEL = "declared, but empty"
+# An accepted item whose merge trailer carried no readable reason.
+WAIVER_UNKNOWN = "no reason recorded on the merge"
 
 # The item's own git artifacts, spelled the way karta writes them. Formatting,
 # not derivation: the status the feed already carries says which one exists.
@@ -3294,7 +3323,7 @@ ITEM_MARKER_FMT = "refs/karta/{slug}/item-{id}/{marker}"
 # The three states that leave a marker ref behind. `building` has a branch and
 # no marker yet; ready and blocked have not touched git at all, so they get no row —
 # naming a ref that does not exist would be a page inventing a fact.
-ITEM_REF_MARKERS = ("done", "built", "failed")
+ITEM_REF_MARKERS = ("done", "accepted", "built", "failed")
 
 
 def _detail_declared(value) -> tuple[bool, bool]:
@@ -3372,6 +3401,16 @@ def item_detail(it: dict, slug: str, status_by_id: dict | None = None) -> list[d
             rows.append(_detail_row(key, kind, text=_detail_text(value), mono=mono))
 
     add("asserts", it.get("assertions"), "list")
+    # an accepted item merged with its assertion unmet: the human's reason, from
+    # the merge trailer, sits right under what it waived
+    if it.get("status") == "accepted":
+        rows.append(_detail_row("waiver", "text",
+                                text=it.get("waiver_reason") or WAIVER_UNKNOWN))
+    # a successor binder's carried item: done by the predecessor, whose refs hold
+    # its evidence — so the ref row names the predecessor's namespace too
+    owner = it.get("carried_from")
+    if owner:
+        rows.append(_detail_row("carried", "text", text=owner, mono=True))
     # an opted-out item states its reason INSTEAD of a command: it has no check
     # to run, and offering one would claim a check that is not happening.
     if otype == OPT_OUT_TYPE:
@@ -3381,7 +3420,7 @@ def item_detail(it: dict, slug: str, status_by_id: dict | None = None) -> list[d
     add("contract", it.get("contract"), "list")
     add("touches", it.get("touches"), "list", mono=True)
     add("estimate", it.get("estimate"), "text")
-    add("ref", item_ref(slug, it.get("id"), it.get("status")), "text", mono=True)
+    add("ref", item_ref(owner or slug, it.get("id"), it.get("status")), "text", mono=True)
 
     # blocked_by is DERIVED, not declared — the engine sets it only while
     # something is genuinely unmet — so an absent or empty one means "waiting on
@@ -3566,7 +3605,7 @@ function joinArchived(detailBySlug, entries) {
     rows.push({
       slug: slug, after: [], status: 'merged', is_next: false,
       archived: true, title: null, summary: null,
-      items: { total: total, done: done, built: 0, failed: 0, building: 0,
+      items: { total: total, done: done, accepted: 0, built: 0, failed: 0, building: 0,
                ready: 0, blocked: 0, detail: [] },
     });
   });
@@ -3706,7 +3745,7 @@ function metaFor(status) { return STATE_META[status] || STATE_META.ready; }
 function doneCountOf(b) {
   const d = (b.items && b.items.detail) || [];
   if (!d.length) return (b.items && b.items.done) || 0;
-  return d.filter(x => x.status === 'done' || x.status === 'built').length;
+  return d.filter(x => x.status === 'done' || x.status === 'accepted' || x.status === 'built').length;
 }
 // fallback headline for a binder authored before it carried a human `title`:
 // turn its kebab slug into Title Case ("note-tags-edit" -> "Note Tags Edit").
@@ -3976,6 +4015,15 @@ function itemDetail(it, slug, byId) {
   };
 
   add('asserts', it.assertions, 'list');
+  // an accepted item merged with its assertion unmet: the human's reason, from
+  // the merge trailer, sits right under what it waived
+  if (it.status === 'accepted') {
+    rows.push(detailRow('waiver', 'text', { text: it.waiver_reason || DETAIL.waiver_unknown }));
+  }
+  // a successor binder's carried item: done by the predecessor, whose refs hold
+  // its evidence — so the ref row names the predecessor's namespace too
+  const owner = it.carried_from;
+  if (owner) rows.push(detailRow('carried', 'text', { text: owner, mono: true }));
   // an opted-out item states its reason INSTEAD of a command: there is no check
   // to run, and offering one would claim a check that is not happening.
   if (otype === DETAIL.opt_out) add('unchecked', it.oracle_reason, 'text');
@@ -3983,7 +4031,7 @@ function itemDetail(it, slug, byId) {
   add('contract', it.contract, 'list');
   add('touches', it.touches, 'list', true);
   add('estimate', it.estimate, 'text');
-  add('ref', itemRef(slug, it.id, it.status), 'text', true);
+  add('ref', itemRef(owner || slug, it.id, it.status), 'text', true);
 
   // blocked_by is DERIVED, not declared — set only while something is genuinely
   // unmet — so nothing to wait on means no row, not a declared-empty marker.
@@ -4075,6 +4123,13 @@ const app = createApp({
     // band reads it. No fallback sentence is invented here — a feed that somehow
     // carried none renders an empty band rather than a second opinion.
     nextAction() { return this.state.next_action || {}; },
+    // the engine's errors then warnings, verbatim: the next action may tell the
+    // reader to check them, so they are always on the page when they exist
+    notices() {
+      const s = this.state || {};
+      return (s.errors || []).map(t => ({ kind: 'error', text: t }))
+        .concat((s.warnings || []).map(t => ({ kind: 'warning', text: t })));
+    },
     bandEyebrow() { return BAND.eyebrow; },
     // the band's copy control names itself with the server's key, so template
     // and handler agree on the affordance without a literal typed twice.
@@ -4532,6 +4587,10 @@ const app = createApp({
     </div>
   </section>
 
+  <section class="notices" data-kw-notices aria-label="warnings and errors" v-if="notices.length">
+    <p class="notices__row" :class="'notices__row--' + n.kind" v-for="(n, ni) in notices" :key="ni"><span class="notices__kind">{{ n.kind }}</span>{{ n.text }}</p>
+  </section>
+
   <template v-if="hasBinders">
     <section class="panel" data-kw-delivery-panel aria-label="delivery">
       <div class="panel__head">
@@ -4727,6 +4786,7 @@ def _build_app_js(state: dict, asset_qs: str = "", shell: dict | None = None) ->
         .replace("__DETAIL__", _inert_json({
             "labels": DETAIL_LABELS,
             "empty": DETAIL_EMPTY_LABEL,
+            "waiver_unknown": WAIVER_UNKNOWN,
             "opt_out": OPT_OUT_TYPE,
             "icon_fallback": ORACLE_ICON_FALLBACK,
             "branch_fmt": ITEM_BRANCH_FMT,
@@ -5034,7 +5094,8 @@ def _repo_card(slug: str, root: str, engine_result: dict | None,
         # the engine's calm all-merged derive (level "done") always gets the
         # CLEAR treatment — never blocked or error styling. The count clause
         # requires a non-empty binder set: an empty repo (0 == 0 vacuously)
-        # derives blocked in the engine and must never read CLEAR here.
+        # derives level "empty" in the engine (plan the first binder) and
+        # must never read CLEAR here.
         card["word"] = "CLEAR"
     else:
         card["word"] = "NEXT"
@@ -5500,8 +5561,8 @@ class _Handler(BaseHTTPRequestHandler):
         """Serve a state payload as the conditional feed both modes share.
 
         AUTHORISATION HAS ALREADY RUN at every call site — the ?key= token in
-        ephemeral mode, the Host pin AND the constant-time token comparison in
-        hub mode — so no unauthorised request ever reaches a tag. Keep that
+        ephemeral mode, plus the Host pin in both modes; the hub checks its
+        constant-time token comparison too — so no unauthorised request ever reaches a tag. Keep that
         order: a 304 is an answer about state, and a tag handed to a caller who
         could not have read the state is a state oracle.
 
@@ -5541,13 +5602,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
+    def _host_ok(self) -> bool:
+        host = self.headers.get("Host", "")
+        port = self.server.server_port
+        return host in (f"127.0.0.1:{port}", f"localhost:{port}")
+
     def _key_ok(self, qs: dict) -> bool:
         """Ephemeral mode's ?key= check.
 
-        No key configured is OPEN, deliberately: this mode binds loopback only
-        and the user starts it for their own session, so the open path is
-        written out rather than falling out of a comparison against None. When a
-        key IS set the comparison is constant-time, exactly as hub mode compares
+        A handler with no configured key is open for embedded/test use. The CLI
+        always configures a supplied or freshly generated token. When a key is set the comparison is constant-time, exactly as hub mode compares
         its token — the two are the same kind of secret over the same loopback
         socket, and they must not answer at different speeds."""
         if not self.required_key:
@@ -5563,6 +5627,9 @@ class _Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         path = parts.path
         qs = parse_qs(parts.query)
+
+        if not self._host_ok():
+            return self._text(403, "forbidden — host not allowed", "text/plain")
 
         # assets are public (the favicon/mascot/vendor JS must load even pre-auth).
         if path.startswith("/assets/"):
@@ -5651,11 +5718,6 @@ class _HubHandler(_Handler):
     def log_message(self, fmt: str, *args) -> None:
         self.server.hub_logger.info(
             _redact_key("%s %s" % (self.address_string(), fmt % args)))
-
-    def _host_ok(self) -> bool:
-        host = self.headers.get("Host", "")
-        port = self.server.server_port
-        return host in (f"127.0.0.1:{port}", f"localhost:{port}")
 
     def _hub_key_ok(self, qs: dict) -> bool:
         supplied = qs.get("key", [""])[0] or ""
@@ -6619,19 +6681,21 @@ def _hub_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
                  for d in _decls_for(_HUB_CSS, ".repo__arrow"))),
     ]
 
-    # an empty repo — no live binders, no archive — derives blocked in the
-    # engine; the card must agree (0 == 0 must never vacuously read CLEAR)
-    empty_state = {"repo": {"default_branch": "main"}, "binders": [],
-                   "next_action": {"level": "blocked", "command": None,
-                                   "human": "no binder is ready to run —"
-                                            " check the warnings/errors above"},
-                   "warnings": [], "errors": []}
+    # an empty repo — no live binders, no archive — derives level "empty" in
+    # the engine (plan the first binder); the card must agree: a NEXT card that
+    # names karta-plan, never a vacuous 0 == 0 CLEAR. The state comes
+    # from the engine's own derive so this fixture follows the engine.
+    empty_state = karta_next.derive_state(
+        [], {"default_branch": "main", "binders": {}})
     empty_card = _repo_card("s-empty", "/empty",
                             {"ok": True, "state": empty_state, "activity": None})
     checks += [
         ("landing: an empty repo (no live binders, no archive; engine derives"
-         " blocked) never renders the CLEAR chip",
-         empty_card["word"] != "CLEAR" and empty_card["word"] == "NEXT"
+         " 'empty') renders NEXT with the plan-first line, never CLEAR",
+         empty_state["next_action"]["level"] == "empty"
+         and empty_state["next_action"]["command"] == "karta-plan"
+         and empty_card["word"] == "NEXT"
+         and empty_card["next"] == karta_next.EMPTY_HUMAN
          and empty_card["counts"] == "0 binders · 0 delivered"),
     ]
 
@@ -7620,7 +7684,7 @@ def _archived_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         with in_dir(repo):
-            karta_next.gather_git_facts(karta_next.load_binders(), "main",
+            karta_next.gather_git_facts(karta_next.load_binders()[0], "main",
                                         runner=runner)
         return len(seen)
 
@@ -7798,6 +7862,14 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
         wildcard_unauthorised = hit(port, "/state.json",
                                     headers={"If-None-Match": "*"})
         authorised = hit(port, "/state.json?key=s3cret")
+        # the Host pin runs before the key: a rebinding page naming another
+        # host is refused even when it carries the right key
+        foreign_keyed = hit(port, "/state.json?key=s3cret",
+                            headers={"Host": f"untrusted.example:{port}"})
+        foreign_asset = hit(port, "/assets/mascot.png",
+                            headers={"Host": f"untrusted.example:{port}"})
+        localhost_keyed = hit(port, "/state.json?key=s3cret",
+                              headers={"Host": f"localhost:{port}"})
         # and with no key configured the route is open, by design
         _Handler.required_key = None
         open_bare = hit(port, "/state.json")
@@ -7878,6 +7950,13 @@ def _etag_self_test_checks(scratch: Path) -> list[tuple[str, bool]]:
          weak[0] == 304 and weak[1] == tag and weak[3] == b""
          and stale[0] == 200 and stale[3] == first[3]
          and weak_stale[0] == 200 and weak_stale[3] == first[3]),
+
+        # -- the Host pin both modes share --------------------------------------
+        ("ephemeral mode pins Host exactly as the hub does: another host name "
+         "is 403 with no ETag even carrying the right key, assets included, "
+         "while localhost:<port> with the key is served",
+         foreign_keyed[0] == 403 and foreign_keyed[1] is None
+         and foreign_asset[0] == 403 and localhost_keyed[0] == 200),
 
         # -- the ?key= gate the conditional handling sits behind ---------------
         ("ephemeral mode compares its key in constant time, the way hub mode "
@@ -9723,6 +9802,52 @@ def _c_delivered_and_built_share_green(ctx):
 
 # --- one card treatment per engine state, including the forgotten one --------
 
+@_covers("accepted-is-never-badged-passed", kind="behaviour",
+         breaks=[lambda c: {"state_meta": dict(
+             c["state_meta"],
+             accepted=dict(c["state_meta"]["accepted"], word=c["state_meta"]["done"]["word"]))},
+                 lambda c: {"state_meta": {k: v for k, v in c["state_meta"].items()
+                                           if k != "accepted"}},
+                 lambda c: {"item_detail": lambda it, slug, by=None: [
+                     r for r in c["item_detail"](it, slug, by) if r["key"] != "waiver"]}])
+def _c_accepted_never_passed(ctx):
+    """An item merged under a human waiver is not a pass. Its card says a word
+    that is not PASSED, is not filled with the passed tint, and its detail
+    carries the human's reason — the one the merge trailer recorded — directly
+    under the assertion it waived."""
+    sm = ctx["state_meta"]
+    acc, done = sm.get("accepted"), sm.get("done")
+    if not acc or not done or "accepted" not in ctx["engine_states"]:
+        return False
+    rows = ctx["item_detail"]({"id": "a", "status": "accepted", "oracle": "unit",
+                               "waiver_reason": "the human's reason"}, "s", {})
+    waiver = [r for r in rows if r["key"] == "waiver"]
+    return (acc["word"] != done["word"] and acc["tint"] != done["tint"]
+            and len(waiver) == 1 and waiver[0]["text"] == "the human's reason")
+
+
+@_covers("notices-list-engine-warnings-and-errors", kind="rendered",
+         hook="data-kw-notices",
+         breaks=[lambda c: _renamed(c, "data-kw-notices", "page"),
+                 lambda c: {"notices_accessor": "    notices() { return []; },"},
+                 lambda c: {"page": c["page"].replace(
+                     'v-if="notices.length"', 'v-if="false"', 1)}])
+def _c_notices_listed(ctx):
+    """The engine's errors and warnings are on the page whenever there are any:
+    the next action can tell the reader to resolve them, and a sentence pointing
+    at a list the page does not show is a dead end."""
+    page = ctx["page"]
+    tags = _tags_with(page, "data-kw-notices")
+    if len(tags) != 1:
+        return False
+    row = _attrs(_tag_after(page, tags[0]))
+    body = _subtree(page, tags[0])
+    acc = ctx["notices_accessor"]
+    return (_attrs(tags[0]).get("v-if") == "notices.length"
+            and row.get("v-for", "").endswith(" in notices") and "n.text" in body
+            and "s.errors" in acc and "s.warnings" in acc)
+
+
 @_covers("every-engine-state-has-a-card", kind="behaviour",
          breaks=[lambda c: {"state_meta": {k: v for k, v in c["state_meta"].items()
                                            if k != "built"}},
@@ -9730,17 +9855,17 @@ def _c_delivered_and_built_share_green(ctx):
                  lambda c: {"render": lambda s: c["render"](s).replace(
                      ':key="it.id"', ':key="wi"')}])
 def _c_every_engine_state_has_a_card(ctx):
-    """Six states in, six cards out. A binder carrying one item in each engine
-    state puts six rows on the page, every one of them resolving its own
+    """Seven states in, seven cards out. A binder carrying one item in each engine
+    state puts seven rows on the page, every one of them resolving its own
     metadata entry rather than falling through to the ready fallback — which is
     how `built` used to vanish. The loop that draws them filters nothing.
 
-    Source-level for the drawing: this reads the six rows off the state the page
-    inlines and reads the loop off the template. Nothing here runs Vue, so "six
+    Source-level for the drawing: this reads the seven rows off the state the page
+    inlines and reads the loop off the template. Nothing here runs Vue, so "seven
     cards are painted" is argued from the row count and an unfiltered keyed loop,
     not observed."""
     meta, states = ctx["state_meta"], ctx["engine_states"]
-    if set(meta) != set(states) or len(states) != 6:
+    if set(meta) != set(states) or len(states) != 7:
         return False
     detail = [{"id": "i-" + s, "status": s, "title": "Item " + s,
                "summary": "what " + s + " means"} for s in states]
@@ -14371,7 +14496,7 @@ def _c_item_detail_mirror(ctx):
     above drives is only evidence while the two really are one behaviour.
     Compared branch for branch: the same rows added under the same keys in the
     same order, the same undeclared / declared-empty split, the same opt-out
-    fork, the same ref derivation, the same blocker fallback, and each side
+    fork, the same carried-item row and ref owner, the same blocker fallback, and each side
     carrying the marker that names the other."""
     app = ctx["app_src"]
     marker = "// MIRROR: change together with item_detail() in serve_status.py"
@@ -14393,12 +14518,16 @@ def _c_item_detail_mirror(ctx):
     return ("if (!d[0]) return;" in js and "if (d[1])" in js
             and "DETAIL.empty" in js
             and "if (otype === DETAIL.opt_out)" in js
-            and "itemRef(slug, it.id, it.status)" in js
+            and "itemRef(owner || slug, it.id, it.status)" in js
+            and "const owner = it.carried_from;" in js
+            and "if (owner) rows.push(detailRow('carried', 'text', { text: owner, mono: true }));" in js
             and "STATE_META[byId[dep]] || STATE_META.blocked" in js
             and "if not declared:" in py and "if empty:" in py
             and "DETAIL_EMPTY_LABEL" in py
             and "if otype == OPT_OUT_TYPE:" in py
-            and 'item_ref(slug, it.get("id"), it.get("status"))' in py
+            and 'item_ref(owner or slug, it.get("id"), it.get("status"))' in py
+            and 'owner = it.get("carried_from")' in py
+            and 'rows.append(_detail_row("carried", "text", text=owner, mono=True))' in py
             and '_STATE_META.get(status_by_id.get(dep), _STATE_META["blocked"])' in py
             and "MIRROR: change together with itemDetail()" in py)
 
@@ -14614,7 +14743,7 @@ def _c_item_cards_key_on_id(ctx):
                      blocked=dict(c["state_meta"]["blocked"], edge="solid"))}])
 def _c_card_border_weight_role(ctx):
     """How loud a card is, as a WORD the metadata carries, not a pixel value in
-    a stylesheet: calm for passed, built, ready and waiting; urgent for the two
+    a stylesheet: calm for passed, accepted, built, ready and waiting; urgent for the two
     that want looking at now. Built resolves calm — an item awaiting merge is
     not an emergency. Waiting is calm with a dashed edge, which is a shape and
     so lives in the sheet, bound through the same metadata."""
@@ -14628,7 +14757,7 @@ def _c_card_border_weight_role(ctx):
     urgent = {k for k, m in sm.items() if m["weight"] == "urgent"}
     dashed = {k for k, m in sm.items() if m["edge"] == "dashed"}
     return (attrs.get(":data-kw-item-weight") == "it.weight"
-            and calm == {"done", "built", "ready", "blocked"}
+            and calm == {"done", "accepted", "built", "ready", "blocked"}
             and urgent == {"building", "failed"}
             and dashed == {"blocked"}
             and classes.get("item--urgent") == "it.urgent"
@@ -17532,6 +17661,7 @@ def _coverage_context() -> dict:
         "phase_defs": _PHASE_DEFS, "icons": _ICONS,
         "next_action_of": next_action_of,
         "next_action_accessor": _js_block(_APP_JS, "    nextAction() {"),
+        "notices_accessor": _js_block(_APP_JS, "    notices() {"),
         "shown_accessor": _js_block(_APP_JS, "    shown() {"),
         "render": lambda s: render_app_html(s, "dark", repo_name=repo_name),
         "render_themed": lambda s, t: render_app_html(s, t, repo_name=repo_name),
@@ -18122,7 +18252,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="karta-status live poll server")
     ap.add_argument("--port", type=int, default=None,
                     help="port to bind (default 8765; hub mode derives per user)")
-    ap.add_argument("--key", type=str, default=None, help="if set, require ?key=TOKEN")
+    ap.add_argument("--key", type=str, default=None, help="session token (default: generate a fresh random token)")
     ap.add_argument("--root", type=str, default=None,
                     help="repo root to serve or register during --ensure; default CWD")
     ap.add_argument("--hub", action="store_true",
@@ -18166,7 +18296,21 @@ def main() -> int:
         return _run_self_test()
 
     if args.print_state:
-        print(json.dumps(current_state()))
+        # the hub runs this once per repo per poll window; done-ref provenance
+        # verdicts are content-addressed, so they persist in the hub's own
+        # state dir (never the repo) and a later poll re-pays nothing
+        cache = resolve_state_dir() / PROVENANCE_CACHE_FILENAME
+        try:
+            karta_next.load_provenance_cache(cache.read_text(encoding="utf-8"))
+        except OSError:
+            pass
+        state = current_state()
+        if cache.parent.is_dir():
+            try:
+                _atomic_write(cache, karta_next.provenance_cache_text())
+            except OSError:
+                pass
+        print(json.dumps(state))
         return 0
 
     if args.ensure:
@@ -18186,13 +18330,12 @@ def main() -> int:
         os.chdir(args.root)
 
     port = args.port if args.port is not None else 8765
-    _Handler.required_key = args.key
+    _Handler.required_key = args.key or secrets.token_urlsafe(32)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
-    url = f"http://127.0.0.1:{port}/"
-    print(f"karta-status serving {url}")
-    print(f"  state:    {url}state.json")
-    if args.key:
-        print(f"  guarded:  append ?key={args.key}")
+    url = f"http://127.0.0.1:{httpd.server_port}/"
+    key_qs = "?key=" + quote(_Handler.required_key, safe="")
+    print(f"karta-status serving {url}{key_qs}", flush=True)
+    print(f"  state:    {url}state.json{key_qs}")
     print("  (Ctrl-C to stop; this is read-only and derives from git on every "
           "request)")
     try:

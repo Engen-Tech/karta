@@ -58,7 +58,9 @@ async function runMode(
     });
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    // Cold starts from Windows-backed WSL checkouts can spend well over 15 s
+    // loading the Pi CLI before the fixture provider sees its first request.
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
     child.stdin.end();
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -111,7 +113,7 @@ async function runRpc(
     let stderr = "";
     let buffered = "";
     let settled = false;
-    const timer = setTimeout(() => finish(new Error(`Pi RPC timeout: ${stderr}`)), 30_000);
+    const timer = setTimeout(() => finish(new Error(`Pi RPC timeout: ${stderr}`)), 120_000);
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
@@ -183,12 +185,13 @@ async function runPosixTui(
         KARTA_MODE_PROVIDER_URL: baseUrl,
         KARTA_MODE_PROVIDER_KEY: "fixture-key",
         KARTA_TUI_DONE_FILE: doneFile,
+        KARTA_TUI_TIMEOUT_SECONDS: "120",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), 35_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), 125_000);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk; });

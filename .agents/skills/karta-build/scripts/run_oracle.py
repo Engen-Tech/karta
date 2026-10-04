@@ -10,10 +10,22 @@ matching the binder's one-shell-string form. Judges success from the exit
 status plus an optional expected marker, and writes a capped JSON evidence
 record — command hash, resolved working directory, shell, environment
 fingerprint, exit status, expect result, AT MOST ONE KILOBYTE of decisive
-output (never the full log), and `tree_sha` — the git write-tree of the
+output (never the full log), and `tree_before_sha` / `tree_sha` — the git write-tree before and after the command in the
 resolved cwd's repository working tree, computed through a temporary index so
 untracked files count and the real index is never touched (null outside a
-repository). Downstream consumers read this record INSTEAD of raw logs.
+repository). A changed tree makes success false even if the command exits zero;
+prepare generated inputs first, then rerun the oracle on the stable tree.
+Downstream consumers read this record INSTEAD of raw logs.
+
+Output is captured as bytes and decoded as UTF-8 with errors="replace": a
+command that emits invalid UTF-8 (locale-encoded or binary output) still yields
+a record, `decisive_output.lossy` says a replacement happened anywhere in
+the stream, and `decisive_output.decode_error` names the first failure and its
+byte offset (null when the stream is valid UTF-8). The pipe is always drained to EOF, but only the first and last
+MAX_RETAINED_BYTES / 2 bytes are kept in memory, joined by a truncation marker
+(`decisive_output.stream_truncated`); `total_bytes` counts the whole stream.
+`--expect` is matched against the whole stream while it is read; `--expect-re`
+is matched against the retained head and tail only.
 
 With --attach-ref, the record is also written as a git blob and a ref is
 pointed at it, so it can be retrieved later without re-running anything. An
@@ -48,6 +60,9 @@ import time
 from pathlib import Path
 
 MAX_DECISIVE_BYTES = 1024
+# In-memory bound on captured output: half kept from the start, half from the end.
+MAX_RETAINED_BYTES = 1024 * 1024
+_READ_CHUNK = 64 * 1024
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -76,13 +91,130 @@ def _split_head_tail(combined: str, max_bytes: int) -> dict:
     remaining = max_bytes - len(head.encode("utf-8"))
     tail = ""
     if remaining > 0:
-        # Truncate from the end: find the largest suffix whose UTF-8 size fits.
-        for start in range(len(combined)):
-            candidate = combined[start:]
-            if len(candidate.encode("utf-8")) <= remaining:
-                tail = candidate
-                break
+        # The largest suffix whose UTF-8 size fits: cut the encoding from the
+        # end and drop the leading partial codepoint the cut can leave.
+        tail = combined.encode("utf-8")[-remaining:].decode("utf-8", "ignore")
     return {"total_bytes": total_bytes, "head": head, "tail": tail}
+
+
+class _BoundedCapture:
+    """Drains a byte stream while keeping only a bounded head and tail.
+
+    Also tracks, over the WHOLE stream, the byte count, whether strict UTF-8
+    decoding would fail, and whether an expected substring occurred — so
+    those facts stay exact even when the middle of the output is discarded.
+    """
+
+    def __init__(self, expect_substring: str | None, cap: int = MAX_RETAINED_BYTES) -> None:
+        import codecs
+        import threading
+        self._half = cap // 2
+        self._head = bytearray()
+        self._tail = bytearray()
+        self.total = 0
+        self.lossy = False
+        self.decode_error: str | None = None
+        self._strict = codecs.getincrementaldecoder("utf-8")("strict")
+        self._needle = expect_substring.encode("utf-8") if expect_substring else None
+        self._carry = b""
+        self.found = expect_substring == ""
+        self._lock = threading.Lock()
+
+    def feed(self, chunk: bytes) -> None:
+        with self._lock:
+            base = self.total
+            self.total += len(chunk)
+            if not self.lossy:
+                pending = len(self._strict.getstate()[0])
+                try:
+                    self._strict.decode(chunk)
+                except UnicodeDecodeError as exc:
+                    self.lossy = True
+                    self.decode_error = f"{exc.reason} at byte {base - pending + exc.start}"
+            if self._needle and not self.found:
+                window = self._carry + chunk
+                if self._needle in window:
+                    self.found = True
+                self._carry = window[-(len(self._needle) - 1):] if len(self._needle) > 1 else b""
+            room = self._half - len(self._head)
+            if room > 0:
+                self._head += chunk[:room]
+                chunk = chunk[room:]
+            if chunk:
+                self._tail += chunk
+                if len(self._tail) > self._half:
+                    del self._tail[:len(self._tail) - self._half]
+
+    def drain(self, stream) -> None:
+        """Read `stream` to EOF (run on a reader thread)."""
+        try:
+            while True:
+                chunk = stream.read1(_READ_CHUNK) if hasattr(stream, "read1") else stream.read(_READ_CHUNK)
+                if not chunk:
+                    break
+                self.feed(chunk)
+        except (OSError, ValueError):
+            pass
+
+    def finish(self) -> tuple[str, dict]:
+        """Decoded retained text plus the stream facts for the evidence record."""
+        with self._lock:
+            if not self.lossy:
+                pending = len(self._strict.getstate()[0])
+                try:
+                    self._strict.decode(b"", final=True)
+                except UnicodeDecodeError as exc:
+                    self.lossy = True
+                    self.decode_error = f"{exc.reason} at byte {self.total - pending + exc.start}"
+            head, tail = bytes(self._head), bytes(self._tail)
+            total = self.total
+            lossy = self.lossy
+            decode_error = self.decode_error
+        omitted = total - len(head) - len(tail)
+        if omitted > 0:
+            # Cut on codepoint boundaries so the cap alone never manufactures a
+            # replacement character: drop a trailing partial sequence from the
+            # head and leading continuation bytes from the tail.
+            head = _trim_partial_end(head)
+            tail = _trim_partial_start(tail)
+            text = (head.decode("utf-8", "replace")
+                    + f"\n[... {omitted} bytes omitted ...]\n"
+                    + tail.decode("utf-8", "replace"))
+        else:
+            text = (head + tail).decode("utf-8", "replace")
+        return text, {
+            "total_bytes": total,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "lossy": lossy,
+            "decode_error": decode_error,
+            "stream_truncated": omitted > 0,
+        }
+
+
+def _trim_partial_end(b: bytes) -> bytes:
+    for back in range(1, min(4, len(b)) + 1):
+        lead = b[-back]
+        if lead < 0x80:
+            return b
+        if lead >= 0xC0:
+            need = 2 if lead < 0xE0 else 3 if lead < 0xF0 else 4
+            return b if back >= need else b[:-back]
+    return b
+
+
+def _trim_partial_start(b: bytes) -> bytes:
+    i = 0
+    while i < min(3, len(b)) and 0x80 <= b[i] < 0xC0:
+        i += 1
+    return b[i:]
+
+
+def _start_reader(capture: _BoundedCapture, stream):
+    import threading
+    reader = threading.Thread(target=capture.drain, args=(stream,), daemon=True)
+    reader.start()
+    return reader
 
 
 def _env_fingerprint() -> dict:
@@ -263,7 +395,8 @@ _WINDOWS_GATE = (
 )
 
 
-def _run_windows(command: str, cwd: Path, timeout: float) -> tuple[str, int, bool]:
+def _run_windows(command: str, cwd: Path, timeout: float,
+                 capture: _BoundedCapture) -> tuple[int, bool]:
     shell = str(Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe")
     # /s strips precisely the outer pair. Do not apply CRT list quoting to the
     # shell command itself: that would corrupt embedded quotes and batch paths.
@@ -276,22 +409,27 @@ def _run_windows(command: str, cwd: Path, timeout: float) -> tuple[str, int, boo
             [sys.executable, "-I", "-S", "-c", _WINDOWS_GATE,
              shell_command, str(cwd)],
             cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True,
-            encoding="utf-8")
+            stderr=subprocess.STDOUT)
         try:
             job.assign(proc)
         except BaseException:
             # Still at the gate: no shell or descendants can have been started.
             proc.kill()
             raise
+        reader = _start_reader(capture, proc.stdout)
         try:
-            combined, _ = proc.communicate(input="G", timeout=timeout)
-            return combined, proc.returncode, False
+            proc.stdin.write(b"G")
+            proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=timeout)
+            reader.join()
+            return proc.returncode, False
         except subprocess.TimeoutExpired:
             job.terminate()
-            try:
-                combined, _ = proc.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
+            reader.join(timeout=10)
+            if reader.is_alive():
                 # A descendant survived the job kill and is holding the output
                 # pipe open. That is possible even with the assign-then-release
                 # protocol airtight: launching an MSIX app-execution alias (the
@@ -299,17 +437,16 @@ def _run_windows(command: str, cwd: Path, timeout: float) -> tuple[str, int, boo
                 # broker service, so it is never a child and never joins the
                 # job. Waiting for its EOF would block until IT exits — the
                 # unbounded stall this runner exists to prevent — so abandon
-                # the pipe: the timeout itself is the evidence, and partial
-                # output is not worth an unbounded wait. proc (the gate) is in
-                # the job and already dead; kill() is a no-op belt. The finally
-                # must not close the abandoned streams either: communicate()'s
-                # orphaned reader thread is still blocked in them, and close()
-                # would block right back until the survivor exits — the reader
-                # and the pipe are left to the interpreter's cleanup instead.
+                # the pipe: the timeout itself is the evidence, and whatever
+                # was captured so far is kept. proc (the gate) is in the job
+                # and already dead; kill() is a no-op belt. The finally must
+                # not close the abandoned streams either: the daemon reader
+                # thread is still blocked in them, and close() would block
+                # right back until the survivor exits — the reader and the
+                # pipe are left to the interpreter's cleanup instead.
                 abandoned = True
                 proc.kill()
-                return "", 1, True
-            return combined, 1, True
+            return 1, True
     finally:
         # Also reap descendants left behind by a shell that exited normally.
         job.close()
@@ -329,21 +466,24 @@ def run_oracle(
     timeout: float,
 ) -> dict:
     """Execute `command` through the platform shell in `cwd`, capturing combined
-    stdout+stderr, and build the twelve-key evidence record."""
+    stdout+stderr, and build the evidence record with pre/post tree identity."""
     resolved_cwd = cwd.resolve()
+    head_before = _head_sha(resolved_cwd)
+    tree_before = _tree_sha(resolved_cwd)
 
     timed_out = False
     exit_status: int
-    combined = ""
+    capture = _BoundedCapture(expect_substring)
+    launch_error: str | None = None
 
     # Run in its own process group so a --timeout expiry can kill the whole
     # child tree, not just the immediate `sh` — a hung oracle must never hang
     # the floor or the merge queue.
     if os.name == "nt":
         try:
-            combined, exit_status, timed_out = _run_windows(command, resolved_cwd, timeout)
+            exit_status, timed_out = _run_windows(command, resolved_cwd, timeout, capture)
         except OSError as e:
-            combined = f"failed to start command: {e}"
+            launch_error = f"failed to start command: {e}"
             exit_status = 2
     else:
         try:
@@ -352,36 +492,53 @@ def run_oracle(
                 cwd=str(resolved_cwd),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
                 preexec_fn=os.setsid,
-             encoding="utf-8")
+            )
         except OSError as e:
-            combined = f"failed to start command: {e}"
+            launch_error = f"failed to start command: {e}"
             exit_status = 2
             timed_out = False
         else:
+            reader = _start_reader(capture, proc.stdout)
+            # One budget covers the shell and the pipe drain: a descendant
+            # still writing (or holding the pipe) at the deadline is a hang,
+            # exactly as if the shell itself had not exited.
+            deadline = time.monotonic() + timeout
+            pipe_held = False
             try:
-                combined, _ = proc.communicate(timeout=timeout)
+                proc.wait(timeout=timeout)
                 exit_status = proc.returncode
+                reader.join(timeout=max(0.0, deadline - time.monotonic()))
+                pipe_held = reader.is_alive()
+                if pipe_held:
+                    timed_out = True
+                    exit_status = 1
             except subprocess.TimeoutExpired:
                 timed_out = True
-                try:
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    pass
-                try:
-                    combined, _ = proc.communicate(timeout=10)
-                except Exception:
-                    combined = combined or ""
                 exit_status = 1
+            # setsid made the shell's pid the group id. Kill the group on every
+            # path so no descendant outlives the run and changes the tree after
+            # the post-run hash (the Windows job object does the same).
+            with contextlib.suppress(ProcessLookupError, OSError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=10)
+            reader.join(timeout=10)
+            if not reader.is_alive():
+                proc.stdout.close()
+                if pipe_held:
+                    # Fed only once the reader has stopped: capture is not shared.
+                    capture.feed(b"\n[run_oracle: a descendant still held the output "
+                                 b"pipe at the timeout; process group killed]\n")
 
-    combined = combined or ""
+    if launch_error is not None:
+        capture.feed(launch_error.encode("utf-8"))
+    combined, stream_facts = capture.finish()
 
     expect: dict | None = None
     expect_ok = True
     if expect_substring is not None:
-        matched = expect_substring in combined
+        matched = capture.found
         expect = {"mode": "substring", "pattern": expect_substring, "matched": matched}
         expect_ok = matched
     elif expect_regex is not None:
@@ -390,7 +547,9 @@ def run_oracle(
         expect = {"mode": "regex", "pattern": expect_regex, "matched": matched}
         expect_ok = matched
 
-    success = (exit_status == 0) and expect_ok and not timed_out
+    tree_after = _tree_sha(resolved_cwd)
+    tree_changed = tree_before != tree_after
+    success = (exit_status == 0) and expect_ok and not timed_out and not tree_changed
 
     record = {
         "command": command,
@@ -400,11 +559,13 @@ def run_oracle(
         "env_fingerprint": _env_fingerprint(),
         "exit_status": exit_status,
         "expect": expect,
-        "decisive_output": _split_head_tail(combined, MAX_DECISIVE_BYTES),
+        "decisive_output": {**_split_head_tail(combined, MAX_DECISIVE_BYTES), **stream_facts},
         "success": success,
         "timed_out": timed_out,
-        "head_sha": _head_sha(resolved_cwd),
-        "tree_sha": _tree_sha(resolved_cwd),
+        "head_sha": head_before,
+        "tree_before_sha": tree_before,
+        "tree_sha": tree_after,
+        "tree_changed": tree_changed,
     }
     return record
 
@@ -523,13 +684,27 @@ def _run_self_test() -> int:
             f"total_bytes={o['total_bytes']} head+tail={head_tail_bytes}",
         )
 
-        # (f) the record carries exactly the twelve keys above
+        # (e2) invalid UTF-8 output is decoded with replacement, flagged, and
+        # still yields a record carrying the real exit status
+        rec_bytes = run_oracle(
+            python_command("import sys; sys.stdout.buffer.write(b'A\\xffB'); sys.exit(5)"),
+            tmp_root, None, None, 30)
+        ob = rec_bytes["decisive_output"]
+        check(
+            "non-UTF-8 output -> lossy record with exit status",
+            rec_bytes["exit_status"] == 5 and ob["lossy"] is True
+            and ob["head"] == "A�B" and ob["total_bytes"] == 3,
+            str(ob),
+        )
+        check("valid UTF-8 output is not lossy", rec_big["decisive_output"]["lossy"] is False)
+
+        # (f) the record carries the full pre/post identity contract
         expected_keys = {
             "command", "command_sha256", "cwd", "shell", "env_fingerprint",
             "exit_status", "expect", "decisive_output", "success", "timed_out",
-            "head_sha", "tree_sha",
+            "head_sha", "tree_sha", "tree_before_sha", "tree_changed",
         }
-        check("record has exactly twelve keys", set(rec) == expected_keys, str(sorted(rec)))
+        check("record has exactly fourteen keys", set(rec) == expected_keys, str(sorted(rec)))
 
         # (f-tree) tree_sha is null outside a git repository — tmp_root itself is a bare
         # tempdir, never git-initialized, so every record captured above already proves this;
@@ -880,6 +1055,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if record["timed_out"]:
         print(f"run_oracle: command timed out after {args.timeout}s", file=sys.stderr)
+    elif record["tree_changed"]:
+        print("run_oracle: command changed the source tree; prepare inputs first, then rerun the oracle", file=sys.stderr)
     elif not record["success"]:
         print(f"run_oracle: oracle failed (exit_status={record['exit_status']})", file=sys.stderr)
 

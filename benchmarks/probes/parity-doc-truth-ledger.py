@@ -91,7 +91,7 @@ TRAILING_LABEL_RE = re.compile(r"  `([a-z]+:[a-z]+(?::[a-z]+)?)`\s*$")
 INLINE_LABEL_RE = re.compile(r"`([a-z]+:[a-z]+(?::[a-z]+)?)`")
 ROOTS_ROW_RE = re.compile(r"^\|`([a-z]+)`\|`([^`]+)`\|\s*$")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
-TOOL_NAMES = {"Write", "Edit", "NotebookEdit", "Task", "Agent", "Read",
+TOOL_NAMES = {"Write", "Edit", "MultiEdit", "NotebookEdit", "Task", "Agent", "Read",
               "Bash", "Grep", "Glob", "WebFetch", "WebSearch"}
 SKIP_DIRS = {".git", ".worktrees", "__pycache__", "node_modules"}
 

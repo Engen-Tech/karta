@@ -13,8 +13,8 @@ build_fixture.sh) and runs every hooks/scripts/guard_*.py as a subprocess with
 cwd = the fixture repo, feeding the committed stdin payloads from
 benchmarks/fixtures/hooked-repo/payloads/ (any "cwd" value of "__FIXTURE__" is
 replaced with the fixture path at run time). Each row records {expected, actual},
-including the pinned known-gap rows (staged-not-committed passes; symlink alias
-passes; NotebookEdit-on-pack unmatched) and the fail-open (binder immutability,
+including the pinned known-gap rows (staged-not-committed passes;
+NotebookEdit-on-pack unmatched; the symlink-alias write is now denied) and the fail-open (binder immutability,
 Stop-gate) vs fail-closed (auditor dispatch, writer confinement) split. The probe
 never mutates the real repo: all guard invocations run inside the scratch fixture.
 
@@ -55,7 +55,7 @@ VECTOR = "flow-guard-enforcement-matrix"
 RESULTS_DIR = Path("benchmarks") / "flow" / "results"
 FIXTURE_DIR = Path("benchmarks") / "fixtures" / "hooked-repo"
 GUARD_TIMEOUT_S = 30
-HOOK_CHANNELS = {"write", "edit", "notebookedit", "task", "bash"}
+HOOK_CHANNELS = {"write", "edit", "multiedit", "notebookedit", "task", "bash"}
 IMPLEMENTED_CHECKS = ["family-a-guard-payload-matrix",
                       "family-b-mutation-surface-cross-check"]
 
@@ -67,6 +67,10 @@ FAMILY_A = (
     ("binder-guarded-write", "guard_binder_immutability.py",
      "binder-write-committed.json", 2, None,
      "a Write to a HEAD-committed binder is denied"),
+    ("binder-multiedit-write", "guard_binder_immutability.py",
+     "binder-write-multiedit.json", 2, None,
+     "a MultiEdit to a HEAD-committed binder is denied — the matcher routes "
+     "MultiEdit like Edit"),
     ("binder-benign-write", "guard_binder_immutability.py",
      "binder-write-benign.json", 0, None,
      "a Write to a non-binder file passes"),
@@ -74,12 +78,10 @@ FAMILY_A = (
      "binder-write-archived.json", 2, None,
      "a Write to a committed archived binder is denied"),
     ("binder-symlink-alias", "guard_binder_immutability.py",
-     "binder-write-symlink-alias.json", 2 if os.name == "nt" else 0,
-     None if os.name == "nt" else "symlink-alias",
-     ("Windows resolves the directory alias before matching, so the committed "
-      "binder write is denied" if os.name == "nt" else
-      "a write via a symlink alias dir escapes BINDER_RE — the path is matched as "
-      "the tool call names it, before any resolution")),
+     "binder-write-symlink-alias.json", 2, None,
+     "a write via a symlink alias dir is denied — the guard classifies the "
+     "resolved repository-relative target, not the spelling the tool call names "
+     "(audit F05; the POSIX escape this row used to pin is closed)"),
     ("binder-staged-not-committed", "guard_binder_immutability.py",
      "binder-write-staged-only.json", 0, "staged-not-committed",
      "a binder staged but not committed passes the HEAD-only check (ls-tree HEAD "
@@ -138,7 +140,9 @@ FAMILY_A = (
 # closed when any of these is absent from its own first baseline.
 SEEDED_FINDINGS = (
     "gap:staged-not-committed",
-    *(("gap:symlink-alias",) if os.name != "nt" else ()),
+    # gap:symlink-alias is retired as a seed: guard_binder_immutability.py now
+    # resolves the target before classifying it (audit F05), so the alias write
+    # is denied on every platform and the row above pins exit 2.
     "gap:notebookedit-on-pack",
     "bypass:binder-write:bash",
     "bypass:pack-write:bash",
@@ -149,9 +153,9 @@ SEEDED_FINDINGS = (
     "bypass:integration-merge:bash",
 )
 
-# This probe intentionally differs because the guard follows Windows aliases to
-# model what NTFS opens, while POSIX matches the spelling the tool supplied.
-PLATFORM_DEPENDENT_PROBES = {"binder-symlink-alias"}
+# Probes whose pinned exit legitimately differs by platform. Empty since the
+# binder guard resolves aliases on POSIX as well as Windows (audit F05).
+PLATFORM_DEPENDENT_PROBES: set[str] = set()
 
 
 # --- Family A ------------------------------------------------------------------

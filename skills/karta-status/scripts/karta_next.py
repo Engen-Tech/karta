@@ -18,7 +18,7 @@ Every real invocation also fires a fail-open, fire-and-forget `serve_status.py -
 (Karta Watch hub revival), and the human renders — footer/terminal, never --json — carry one
 nudge line when this repo is opted in but the hub is unreachable."""
 from __future__ import annotations
-import argparse, fnmatch, json, os, subprocess, sys, time
+import argparse, fnmatch, hashlib, json, os, subprocess, sys, time
 from pathlib import Path
 
 BINDERS_DIR = Path(".karta/binders")
@@ -48,17 +48,34 @@ def _topo_order(after: dict[str, list[str]]) -> list[str] | None:
     return out if len(out) == len(after) else None
 
 
-def _binder_status(item_ids: list[str], gb: dict) -> str:
+def _binder_status(item_ids: list[str], gb: dict, carried: frozenset[str] = frozenset()) -> str:
+    """`carried` items are done by a predecessor binder: they count toward
+    merged, but on their own they never make a successor in flight."""
     gitems = gb.get("items", {})
     if item_ids and all(gitems.get(i, {}).get("done_in_default") for i in item_ids):
         return "merged"
-    if gb.get("integration_exists") or any(gitems.get(i, {}).get("done") for i in item_ids):
+    if gb.get("integration_exists") or any(gitems.get(i, {}).get("done")
+                                           for i in item_ids if i not in carried):
         return "in_flight"
     return "not_started"
 
 
+def _supersedes(binder: dict) -> tuple[str, list[str]] | None:
+    """(predecessor slug, carried item ids) for a successor binder, else None.
+    The shape is validate_binder.py's; a malformed value reads as absent."""
+    sup = binder.get("supersedes")
+    if not isinstance(sup, dict) or not isinstance(sup.get("slug"), str):
+        return None
+    carried = sup.get("carried")
+    if not isinstance(carried, list) or not all(isinstance(c, str) for c in carried):
+        return None
+    return sup["slug"], carried
+
+
 def _item_status(deps: list[str], gi: dict, done_ids: set[str]) -> tuple[str, list[str]]:
-    if gi.get("done"):   return "done", []
+    # accepted-done is done with a human waiver: merged, but the named assertion
+    # was NOT met — never shown as a clean pass (skills/_shared/integration-branch.md)
+    if gi.get("done"):   return ("accepted" if gi.get("accepted") else "done"), []
     if gi.get("failed"): return "failed", []
     if gi.get("built"):  return "built", []
     if gi.get("branch"): return "building", []
@@ -66,12 +83,28 @@ def _item_status(deps: list[str], gi: dict, done_ids: set[str]) -> tuple[str, li
     return ("blocked", unmet) if unmet else ("ready", [])
 
 
+# Item states an item can end a derive in. `accepted` is the done-with-waiver
+# flavour; both count as complete for dependencies and progress.
+ITEM_STATES = ("done", "accepted", "built", "failed", "building", "ready", "blocked")
+COMPLETE_STATES = ("done", "accepted")
+
+
 def derive_state(binders: list[dict], git_facts: dict,
                  archived: frozenset[str] = frozenset(),
-                 surface_on_default: dict[str, bool | None] | None = None) -> dict:
+                 surface_on_default: dict[str, bool | None] | None = None,
+                 recovery: dict | None = None,
+                 load_errors: list[str] | None = None) -> dict:
+    """The derived state. `recovery` (gather_recovery_facts) carries the facts
+    that are not plain ref presence: each done ref's provenance verdict and
+    waiver reason, stray refs, deleted binders and post-landing leftovers.
+    Without it a done ref is trusted as present — the pure-derivation form the
+    self-test and the benchmarks drive. `load_errors` (load_binders) are binder
+    files that could not be read; they surface as errors, never vanish."""
     default_branch = git_facts.get("default_branch", "main")
     gfb = git_facts.get("binders", {})
     by_slug = {b["slug"]: b for b in binders}
+    rec = recovery or {}
+    rec_items = rec.get("items", {})
 
     # cross-binder graph: resolve `after`, collect warnings, topo-sort for the order.
     # A live binder wins over an archived namesake; an `after` naming an archived-only
@@ -91,7 +124,42 @@ def derive_state(binders: list[dict], git_facts: dict,
                 warnings.append(f"binder '{slug}' has a dangling after: '{ref}' (no such binder)")
         after[slug] = resolved
     order = _topo_order(after)
-    errors = [] if order is not None else ["cross-binder cycle in `after` — no run order exists"]
+    errors = list(load_errors or [])
+    if order is None:
+        errors.append("cross-binder cycle in `after` — no run order exists")
+    warnings.extend(rec.get("warnings", []))
+
+    # A done ref that failed delivery's provenance rules is not trusted: the
+    # item derives as if it had no done ref, and the reason is a warning.
+    def trusted_items(slug: str, item_ids, warn: bool) -> dict:
+        gitems = dict(gfb.get(slug, {}).get("items", {}))
+        prov = rec_items.get(slug, {})
+        for iid in item_ids:
+            gi = gitems.get(iid, {})
+            findings = (prov.get(iid) or {}).get("suspect")
+            if gi.get("done") and findings:
+                gitems[iid] = {**gi, "done": False, "done_in_default": False}
+                if warn:
+                    warnings.append(
+                        f"binder '{slug}' item '{iid}': its done ref is suspect and is not "
+                        f"trusted — {findings[0]}" + (f" (+{len(findings) - 1} more)"
+                                                      if len(findings) > 1 else "")
+                        + f"; karta-deliver {slug} re-checks it on resume")
+            elif warn and gi.get("accepted") and not gi.get("done"):
+                warnings.append(
+                    f"binder '{slug}' item '{iid}': an accepted ref with no done merge is "
+                    f"suspect — the accept did not complete, so status ignores it")
+        return gitems
+
+    # A successor binder (supersedes: {slug, carried}) repairs a partially
+    # delivered one. Its carried items were delivered by the predecessor, so
+    # their evidence is the predecessor's done refs under the same provenance
+    # rules; a live predecessor with a live successor is not open work.
+    superseded_by: dict[str, str] = {}
+    for slug, b in by_slug.items():
+        sup = _supersedes(b)
+        if sup and sup[0] in by_slug and sup[0] != slug:
+            superseded_by.setdefault(sup[0], slug)
 
     out_binders = []
     status_by_slug: dict[str, str] = {}
@@ -99,24 +167,51 @@ def derive_state(binders: list[dict], git_facts: dict,
         gb = gfb.get(slug, {})
         items = b.get("work_items", [])
         item_ids = [it["id"] for it in items]
-        status = _binder_status(item_ids, gb)
+        gitems = trusted_items(slug, item_ids, warn=True)
+        carried_from: dict[str, str] = {}
+        sup = _supersedes(b)
+        if sup and sup[0] != slug:
+            pred, carried = sup
+            pitems = trusted_items(pred, carried, warn=False)
+            for iid in carried:
+                pi = pitems.get(iid, {})
+                if iid in item_ids and pi.get("done"):
+                    gitems[iid] = {**gitems.get(iid, {}), "done": True,
+                                   "done_in_default": pi.get("done_in_default"),
+                                   "accepted": pi.get("accepted")}
+                    carried_from[iid] = pred
+                elif iid in item_ids:
+                    warnings.append(
+                        f"binder '{slug}' item '{iid}' is carried from '{pred}', but '{pred}' "
+                        f"has no trusted done ref for it — karta-deliver {slug} "
+                        f"halts at preflight until it does")
+        gb = {**gb, "items": gitems}
+        status = _binder_status(item_ids, gb, frozenset(carried_from))
         status_by_slug[slug] = status
 
-        gitems = gb.get("items", {})
         done_ids = {i for i in item_ids if gitems.get(i, {}).get("done")}
-        detail, counts = [], {k: 0 for k in
-                              ("done", "built", "failed", "building", "ready", "blocked")}
+        detail, counts = [], {k: 0 for k in ITEM_STATES}
         for it in items:
             st, blk = _item_status(it.get("depends_on", []), gitems.get(it["id"], {}), done_ids)
             counts[st] += 1
             entry = {"id": it["id"], "status": st}
             if blk:
                 entry["blocked_by"] = blk
+            owner = carried_from.get(it["id"])
+            if owner:
+                entry["carried_from"] = owner
+            if st == "accepted":
+                # the human's own words from the merge trailer; None when the
+                # derive had no provenance pass to read them
+                entry["waiver_reason"] = (rec_items.get(owner or slug, {}).get(it["id"])
+                                          or {}).get("waiver_reason")
             detail.append(entry)
         row = {
             "slug": slug, "after": after[slug], "status": status,
             "items": {"total": len(items), **counts, "detail": detail},
         }
+        if slug in superseded_by:
+            row["superseded_by"] = superseded_by[slug]
         # Finding 21: a not_started binder whose declared surface already exists
         # on the default branch was likely delivered by another hand. Flag it
         # (advisory only — never a state change) so the next action can say so.
@@ -127,12 +222,12 @@ def derive_state(binders: list[dict], git_facts: dict,
 
     # is_next: a not-started binder whose every `after` predecessor is merged
     for ob in out_binders:
-        ob["is_next"] = (ob["status"] == "not_started"
+        ob["is_next"] = (ob["status"] == "not_started" and not ob.get("superseded_by")
                          and all(status_by_slug.get(p) == "merged" for p in ob["after"]))
 
     order_view = order if order is not None else sorted(by_slug)
-    next_action = _next_action(out_binders, order_view, warnings, errors,
-                               archived, default_branch)
+    next_action = _next_action(out_binders, order_view, sorted(set(warnings)), errors,
+                               archived, default_branch, recovery=rec)
     return {
         "repo": {"default_branch": default_branch},
         "order": order,                      # None on cycle — derived, never stored
@@ -151,26 +246,91 @@ def _in_order(out_binders: list[dict], order_view: list[str]) -> list[dict]:
 # The calm end-state copy. One constant, shared by the derive and the self-test —
 # the hub landing renders next_action.human verbatim, so this string is contract.
 DONE_HUMAN = "all binders merged — nothing left to run"
+# A repo with no binder at all, live or archived, and nothing wrong: plan one.
+EMPTY_HUMAN = "no binders planned yet — plan the first one with karta-plan"
+# The landing sentence is the deliver skill's own report wording
+# (karta-deliver Phase 7): the branch is the user's to merge. Status
+# names that decision; it never runs it and never offers a command for it.
+LANDING_HUMAN = ("{slug}: every item is merged on karta/{slug}/integration. "
+                 "That branch holds the one assembled result to review. No PR is open. "
+                 "Review this branch and merge it yourself.")
+BLOCKED_HUMAN = "no binder is ready to run — resolve the warnings/errors this status lists"
+
+
+def _done_count(items: dict) -> int:
+    """Complete items: clean-done plus accepted-done (a waiver is still merged)."""
+    return sum(items.get(k, 0) or 0 for k in COMPLETE_STATES)
+
+
+def _cleanup_command(cleanup: dict) -> str | None:
+    """Remove leftover worktrees first (a branch checked out in one cannot be
+    deleted), then the branches. Both commands refuse unmerged or dirty
+    state on their own, so the suggestion cannot lose work."""
+    import shlex
+    parts = [f"git worktree remove {shlex.quote(p)}" for p in cleanup.get("worktrees", [])]
+    branches = cleanup.get("branches", [])
+    if branches:
+        parts.append("git branch -d " + " ".join(shlex.quote(b) for b in branches))
+    return " && ".join(parts) or None
 
 
 def _next_action(out_binders: list[dict], order_view: list[str], warnings: list[str],
                  errors: list[str], archived: frozenset[str] = frozenset(),
-                 default_branch: str = "main") -> dict:
+                 default_branch: str = "main", recovery: dict | None = None) -> dict:
     by_slug = {ob["slug"]: ob for ob in out_binders}
     ordered = [by_slug[s] for s in order_view if s in by_slug]
+    # a superseded predecessor's remaining work is delivered by its successor
+    active = [ob for ob in ordered if not ob.get("superseded_by")]
+    rec = recovery or {}
 
+    # 0) a binder file status cannot read: it would otherwise simply vanish
+    unreadable = [_load_error_path(e) for e in errors if e.startswith(LOAD_ERROR_PREFIX)]
+    if unreadable:
+        return {"level": "error", "command": None,
+                "human": ("repair or restore the unreadable binder file(s) "
+                          + ", ".join(unreadable)
+                          + " — status leaves them out until they parse as a binder")}
+    # 0b) a committed binder missing from the working tree
+    for d in rec.get("deleted", []):
+        slug = d["slug"]
+        if d.get("archive_pending"):
+            return {"level": "repair", "command": None,
+                    "human": (f"binder '{slug}' was moved to .karta/binders/archive/ "
+                              f"but the move is not committed — commit it on "
+                              f"karta/{slug}/integration (karta-deliver's "
+                              f"end-of-life step)")}
+        return {"level": "repair",
+                "command": (f"git restore --source=HEAD --staged --worktree -- "
+                            f".karta/binders/{slug}.json"),
+                "human": (f"binder '{slug}' is committed but missing from the working tree — "
+                          f"restore it, or commit its removal if that was deliberate")}
     # 1) an in-flight binder with a failed item — fix/rerun or re-plan
-    for ob in ordered:
+    for ob in active:
         if ob["status"] == "in_flight" and ob["items"]["failed"]:
             return {"level": "item", "command": f"karta-deliver {ob['slug']}",
                     "human": f"{ob['slug']} has a halted item — fix and re-run, or re-plan with karta-plan"}
-    # 2) an in-flight binder with work left (building/ready/blocked) — resume it
-    for ob in ordered:
-        if ob["status"] == "in_flight" and (ob["items"]["building"] or ob["items"]["ready"]
-                                            or ob["items"]["blocked"]):
-            done, total = ob["items"]["done"], ob["items"]["total"]
+    # 2) an in-flight binder with work left (building/ready/blocked, or built
+    #    items the merge queue never merged) — resume it
+    for ob in active:
+        it = ob["items"]
+        if ob["status"] == "in_flight" and (it["building"] or it["ready"] or it["blocked"]
+                                            or it.get("built")):
+            done, total = _done_count(it), it["total"]
+            if it.get("built") and not (it["building"] or it["ready"] or it["blocked"]):
+                built = [d["id"] for d in it["detail"] if d["status"] == "built"]
+                return {"level": "item", "command": f"karta-deliver {ob['slug']}",
+                        "human": (f"resume {ob['slug']}: item(s) {', '.join(built)} are built "
+                                  f"but not merged — the merge queue did not finish "
+                                  f"({done}/{total} done)")}
             return {"level": "item", "command": f"karta-deliver {ob['slug']}",
                     "human": f"resume {ob['slug']} ({done}/{total} done)"}
+    # 2b) every item merged on the integration branch, not yet on the default
+    #     branch — the landing is the human's decision, so no command
+    for ob in active:
+        it = ob["items"]
+        if ob["status"] == "in_flight" and it["total"] and _done_count(it) == it["total"]:
+            return {"level": "landing", "command": None,
+                    "human": LANDING_HUMAN.format(slug=ob["slug"])}
     # 3) no in-flight work — start the next not-started, unblocked binder.
     #    Exception (finding 21): if that binder's declared surface already sits
     #    on the default branch, re-delivering can only whiff on no-change — point
@@ -189,19 +349,35 @@ def _next_action(out_binders: list[dict], order_view: list[str], warnings: list[
             return {"level": "binder", "command": f"karta-deliver {ob['slug']}",
                     "human": f"start {ob['slug']} (its predecessors are merged)"}
     # 4) everything merged or archived (zero live binders included) on a clean
-    #    derive — done. Warnings/errors keep the blocked message so a dangling
-    #    edge or cycle is never papered over; an empty repo with no archive has
-    #    nothing delivered, so it stays on the blocked derive too.
+    #    derive — done, or cleanup when a landed binder left branches or
+    #    worktrees behind. Warnings/errors keep the blocked message so a
+    #    dangling edge or cycle is never papered over.
     if ((ordered or archived) and not warnings and not errors
             and all(ob["status"] == "merged" for ob in ordered)):
+        cleanup = rec.get("cleanup") or {}
+        command = _cleanup_command(cleanup)
+        if command:
+            slugs = ", ".join(cleanup.get("slugs", [])) or "a delivered binder"
+            return {"level": "cleanup", "command": command,
+                    "human": (f"everything is delivered — {slugs} left merged branches or "
+                              f"worktrees behind; remove them (git refuses to delete "
+                              f"anything unmerged or dirty)")}
         return {"level": "done", "command": None, "human": DONE_HUMAN}
-    # 5) work remains but nothing is runnable (blocked / cycle bottleneck)
+    # 5) nothing planned at all, and nothing wrong — plan the first binder
+    if not ordered and not archived and not warnings and not errors:
+        return {"level": "empty", "command": "karta-plan", "human": EMPTY_HUMAN}
+    # 6) work remains but nothing is runnable (blocked / cycle bottleneck)
+    if warnings or errors:
+        return {"level": "blocked", "command": None, "human": BLOCKED_HUMAN}
+    waiting = [f"{ob['slug']} waits on {', '.join(p for p in ob['after'] if by_slug.get(p, {}).get('status') != 'merged')}"
+               for ob in ordered if ob["status"] == "not_started" and not ob.get("is_next")]
     return {"level": "blocked", "command": None,
-            "human": "no binder is ready to run — check the warnings/errors above"}
+            "human": ("no binder is ready to run"
+                      + (" — " + "; ".join(waiting) + " (not yet merged)" if waiting else ""))}
 
 
 _GLYPH = {"merged": "✓", "in_flight": "●", "not_started": "○"}
-_ITEM_GLYPH = {"done": "✓", "built": "▣", "failed": "✗", "building": "◐",
+_ITEM_GLYPH = {"done": "✓", "accepted": "≈", "built": "▣", "failed": "✗", "building": "◐",
                "ready": "·", "blocked": "○"}
 
 
@@ -211,15 +387,22 @@ def render_terminal(state: dict) -> str:
         lines.append(f"  warning: {w}")
     for e in state["errors"]:
         lines.append(f"  error: {e}")
-    route = "   ".join(f"{b['slug']} {_GLYPH[b['status']]}" for b in state["binders"])
+    route = "   ".join(f"{b['slug']} {_GLYPH[b['status']]}"
+                       + (f" (superseded by {b['superseded_by']})" if b.get("superseded_by") else "")
+                       for b in state["binders"])
     lines.append(route or "(no binders planned yet)")
     for b in state["binders"]:
         if b["status"] == "in_flight":
             it = b["items"]
             lines.append("")
-            lines.append(f"{b['slug']}  (current binder)        {it['done']}/{it['total']} done")
+            lines.append(f"{b['slug']}  (current binder)        {_done_count(it)}/{it['total']} done")
             for d in it["detail"]:
                 tail = ("  needs " + ", ".join(d["blocked_by"])) if d.get("blocked_by") else ""
+                if d["status"] == "accepted":
+                    # a waiver is never a pass: say so, with the human's reason
+                    tail = "  (waived — " + (d.get("waiver_reason") or "reason not recorded") + ")"
+                if d.get("carried_from"):
+                    tail += f"  (delivered by {d['carried_from']})"
                 lines.append(f"   {_ITEM_GLYPH.get(d['status'], '?')} {d['id']}  {d['status']}{tail}")
     na = state["next_action"]
     lines.append("  " + "─" * 44)
@@ -230,7 +413,8 @@ def render_terminal(state: dict) -> str:
     return "\n".join(lines)
 
 
-# `built` shows as ▣ (committed, awaiting the orchestrator's merge); `building` as ◐.
+# `built` shows as ▣ (committed, awaiting the orchestrator's merge); `building` as ◐;
+# `accepted` as ≈ (merged under a human waiver — close to done, never the same).
 
 
 def render_footer(state: dict, slug: str) -> str:
@@ -239,8 +423,11 @@ def render_footer(state: dict, slug: str) -> str:
     head = ""
     if cur:
         it = cur["items"]
-        left = it["total"] - it["done"]
-        head = f"{slug} {it['done']}/{it['total']}" + (f" · {left} left" if left else " · complete")
+        done = _done_count(it)
+        left = it["total"] - done
+        head = f"{slug} {done}/{it['total']}" + (f" · {left} left" if left else " · complete")
+        if it.get("accepted"):
+            head += f" · {it['accepted']} waived"
     tip = f"▶ {na['command']}" if na["command"] else f"▶ {na['human']}"
     return "  ".join(x for x in (head, tip) if x)
 
@@ -408,13 +595,28 @@ def _git(*args: str) -> str:
 
 
 def _default_branch() -> str:
+    """Resolved in karta-deliver's preflight order, so status reads
+    the branch delivery used: git config karta.defaultBranch (a
+    local branch), the local origin/HEAD symref, the only local
+    non-karta/* branch, exactly one of main/master. Offline. Where
+    preflight would halt, status still renders and reports "main", whose
+    absence then reads as 'no surface information'."""
+    def local(name: str) -> bool:
+        return bool(_git("rev-parse", "--verify", "--quiet", f"refs/heads/{name}^{{commit}}").strip())
+
+    configured = _git("config", "--get", "karta.defaultBranch").strip()
+    if configured:
+        return configured if local(configured) else "main"
     head = _git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD").strip()
-    if head:
-        return head.rsplit("/", 1)[-1]
-    for cand in ("main", "master"):
-        if _git("rev-parse", "--verify", "--quiet", cand).strip():
-            return cand
-    return "main"
+    if head.startswith("refs/remotes/origin/"):
+        return head[len("refs/remotes/origin/"):]
+    branches = [b.strip() for b in _git("for-each-ref", "--format=%(refname:short)",
+                                        "refs/heads/").splitlines()
+                if b.strip() and not b.strip().startswith("karta/")]
+    if len(branches) == 1:
+        return branches[0]
+    conventional = [b for b in ("main", "master") if b in branches]
+    return conventional[0] if len(conventional) == 1 else "main"
 
 
 def default_branch_paths(default_branch: str, runner=None) -> frozenset[str] | None:
@@ -483,15 +685,62 @@ def _surface_hints(binders: list[dict], git_facts: dict, archived: frozenset[str
     return {b["slug"]: _binder_surface_on_default(b, tree) for b in binders}
 
 
-def load_binders(binders_dir: Path = BINDERS_DIR) -> list[dict]:
-    out = []
+LOAD_ERROR_PREFIX = "binder file "
+
+
+def _load_error(path: Path, why: str) -> str:
+    return (f"{LOAD_ERROR_PREFIX}{path.as_posix()} is unreadable: {why} — "
+            "status leaves it out until it is repaired")
+
+
+def _load_error_path(error: str) -> str:
+    return error[len(LOAD_ERROR_PREFIX):].split(" is unreadable:", 1)[0]
+
+
+def _binder_shape_error(doc) -> str | None:
+    """The minimal shape derive_state indexes, or why this document is not it.
+    Structural only — full validation belongs to validate_binder.py."""
+    if not isinstance(doc, dict):
+        return f"not a JSON object (got {type(doc).__name__})"
+    if not isinstance(doc.get("slug"), str) or not doc["slug"].strip():
+        return "no string `slug`"
+    items = doc.get("work_items", [])
+    if not isinstance(items, list):
+        return "`work_items` is not a list"
+    for n, it in enumerate(items):
+        if not isinstance(it, dict) or not isinstance(it.get("id"), str):
+            return f"work_items[{n}] has no string `id`"
+        if not isinstance(it.get("depends_on", []) or [], list):
+            return f"work_items[{n}].depends_on is not a list"
+    after = doc.get("after", []) or []
+    if not isinstance(after, list) or not all(isinstance(a, str) for a in after):
+        return "`after` is not a list of slugs"
+    return None
+
+
+def load_binders(binders_dir: Path = BINDERS_DIR) -> tuple[list[dict], list[str]]:
+    """(binders, errors): every live binder that has the shape the derivation
+    reads, plus one error per file that does not — unreadable, not JSON, or
+    JSON that is not a binder object. A bad file is reported, never skipped
+    silently and never handed on to crash derive_state."""
+    out: list[dict] = []
+    errors: list[str] = []
     if binders_dir.is_dir():
         for p in sorted(binders_dir.glob("*.json")):
             try:
-                out.append(json.loads(p.read_text(encoding="utf-8")))
-            except (OSError, json.JSONDecodeError):
+                doc = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError) as e:
+                errors.append(_load_error(p, f"{type(e).__name__}: {e}"[:160]))
                 continue
-    return out
+            except json.JSONDecodeError as e:
+                errors.append(_load_error(p, f"not valid JSON ({e.msg}, line {e.lineno})"))
+                continue
+            why = _binder_shape_error(doc)
+            if why:
+                errors.append(_load_error(p, why))
+                continue
+            out.append(doc)
+    return out, errors
 
 
 def load_archived_binders(archive_dir: Path = ARCHIVE_DIR) -> list[dict]:
@@ -529,7 +778,7 @@ def _for_each_ref(args: list[str], runner=None) -> tuple[list[str], bool]:
 def gather_git_facts(binders: list[dict], default_branch: str, runner=None) -> dict:
     """Three whole-namespace ref queries answer every binder's and item's git
     facts at once, however many binders or items exist:
-      1. every refs/karta/ marker leaf (done/built/failed), one for-each-ref
+      1. every refs/karta/ marker leaf (done/built/failed/accepted), one for-each-ref
       2. every refs/heads/karta/ branch (integration + per-item), one for-each-ref
       3. the refs/karta/ subset reachable from default_branch — replacing the
          old per-done-item `merge-base --is-ancestor` exit-code probe; git
@@ -559,6 +808,16 @@ def gather_git_facts(binders: list[dict], default_branch: str, runner=None) -> d
     merged_set = set(merged) if merged_ok else None
 
     facts = {"default_branch": default_branch, "binders": {}}
+    # a successor's carried items are proven by its predecessor's refs; gather
+    # them too when the predecessor is no longer a live binder
+    live = {b.get("slug") for b in binders}
+    extra: dict[str, set[str]] = {}
+    for b in binders:
+        sup = _supersedes(b)
+        if sup and sup[0] not in live:
+            extra.setdefault(sup[0], set()).update(sup[1])
+    binders = list(binders) + [{"slug": p, "work_items": [{"id": i} for i in sorted(ids)]}
+                               for p, ids in sorted(extra.items())]
     for b in binders:
         slug = b["slug"]
         item_ids = [it["id"] for it in b.get("work_items", [])]
@@ -581,11 +840,257 @@ def gather_git_facts(binders: list[dict], default_branch: str, runner=None) -> d
                 "done_in_default": done_in_default,
                 "built": None if marker_set is None else f"{base}/built" in marker_set,
                 "failed": None if marker_set is None else f"{base}/failed" in marker_set,
+                "accepted": None if marker_set is None else f"{base}/accepted" in marker_set,
                 "branch": (None if branch_set is None else
                           f"refs/heads/karta/{slug}/item-{i}" in branch_set),
             }
         facts["binders"][slug] = {"integration_exists": integration, "items": items}
     return facts
+
+
+# ---------------------------------------------------------------------------
+# Recovery facts: what plain ref presence cannot say. A done ref is trusted
+# only after the provenance rules delivery itself applies on resume
+# (karta-deliver's deliver_preflight done_provenance):
+# check_item_provenance.py's commit markers over <done>^1..<done>, its
+# --check-accepted rules, and first-parent reachability of the done merge on
+# karta/<slug>/integration. The checker is the deliver skill's own
+# script, loaded from the sibling skill directory the way karta-build's
+# item_context.py loads it — one implementation of the rule, not a copy.
+# ---------------------------------------------------------------------------
+
+PROVENANCE_SCRIPT = (Path(__file__).resolve().parent.parent.parent
+                     / "karta-deliver" / "scripts" / "check_item_provenance.py")
+_PROVENANCE_MODULE: object = None          # None = not tried; False = unavailable
+_PROVENANCE_CACHE: dict[str, dict] = {}    # verdicts keyed by every sha they read
+_CHAIN_CACHE: dict[str, frozenset[str]] = {}
+_CACHE_MAX = 2048
+_ACCEPT_REASON = "Karta-Accept-Reason"
+
+
+def _load_provenance():
+    """The deliver skill's check_item_provenance module, or None when the
+    sibling skill is not installed beside this one."""
+    global _PROVENANCE_MODULE
+    if _PROVENANCE_MODULE is None:
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "karta_item_provenance", PROVENANCE_SCRIPT)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _PROVENANCE_MODULE = mod
+        except Exception:                                      # noqa: BLE001
+            _PROVENANCE_MODULE = False
+    return _PROVENANCE_MODULE or None
+
+
+def _git_rc(*args: str, repo: Path | None = None) -> tuple[int, str]:
+    cmd = ["git", *(["-C", str(repo)] if repo is not None else []), *args]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    except OSError:
+        return 1, ""
+    return p.returncode, p.stdout
+
+
+def _first_parent(tip: str, repo: Path | None = None) -> frozenset[str]:
+    chain = _CHAIN_CACHE.get(tip)
+    if chain is None:
+        rc, out = _git_rc("rev-list", "--first-parent", tip, repo=repo)
+        chain = frozenset(out.split()) if rc == 0 else frozenset()
+        if len(_CHAIN_CACHE) > 64:
+            _CHAIN_CACHE.clear()
+        _CHAIN_CACHE[tip] = chain
+    return chain
+
+
+def done_provenance(slug: str, item_id: str, refs: dict[str, str],
+                    default_branch: str, prov=None, repo: Path | None = None) -> dict:
+    """{"suspect": [findings], "waiver_reason": str | None} for one done ref,
+    judged by delivery's resume rules. `refs` maps refname -> object id for the
+    karta namespaces. An empty `suspect` list means trusted.
+
+    When the integration branch is gone (a landed delivery cleaned up), the
+    reachability half cannot be asked; the done merge must then be merged into
+    the default branch, and the marker check still runs. An accepted ref is
+    never trusted without the integration branch to prove it against.
+
+    Verdicts are cached by every object id they depend on, so a Watch poll
+    re-pays nothing while git has not moved."""
+    prov = prov or _load_provenance()
+    base = f"refs/karta/{slug}/item-{item_id}"
+    done, accepted = refs.get(f"{base}/done"), refs.get(f"{base}/accepted")
+    integ = refs.get(f"refs/heads/karta/{slug}/integration")
+    scope = tuple(sorted(kv for kv in refs.items()
+                         if kv[0].startswith((f"refs/karta/{slug}/",
+                                              f"refs/heads/karta/{slug}/"))))
+    default_tip = (_git_rc("rev-parse", "--verify", "--quiet", default_branch,
+                           repo=repo)[1].strip() if integ is None else None)
+    key = hashlib.sha256(json.dumps([slug, item_id, done, accepted, integ, scope,
+                                     default_tip]).encode("utf-8")).hexdigest()
+    hit = _PROVENANCE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    findings: list[str] = []
+    reason = None
+    where = repo if repo is not None else Path(".")
+    try:
+        findings += prov.check_markers(where, item_id, f"{done}^1..{done}")
+        if integ is not None:
+            if done not in _first_parent(integ, repo):
+                findings.append(f"the done merge {done[:12]} is not first-parent-reachable "
+                                f"on karta/{slug}/integration")
+            findings += prov.check_accepted(where, slug, item_id)
+        else:
+            if _git_rc("merge-base", "--is-ancestor", done, default_branch, repo=repo)[0] != 0:
+                findings.append(f"there is no karta/{slug}/integration branch to "
+                                f"check the done merge against, and it is not merged into "
+                                f"{default_branch}")
+            if accepted:
+                findings.append("the accepted ref cannot be checked without the "
+                                "integration branch")
+        if accepted and not findings:
+            msg = _git_rc("log", "-1", "--format=%B", done, repo=repo)[1]
+            vals = [ln.strip()[len(_ACCEPT_REASON) + 1:].strip() for ln in msg.splitlines()
+                    if ln.strip().startswith(_ACCEPT_REASON + ":")]
+            reason = vals[0] if vals else None
+    except prov.GitError as e:
+        findings.append(f"git could not read it ({str(e)[:160]})")
+    verdict = {"suspect": findings, "waiver_reason": reason}
+    if len(_PROVENANCE_CACHE) > _CACHE_MAX:
+        _PROVENANCE_CACHE.clear()
+    _PROVENANCE_CACHE[key] = verdict
+    return verdict
+
+
+def load_provenance_cache(text: str) -> None:
+    """Seed the verdict cache from provenance_cache_text() output. A verdict is
+    keyed by every object id it read, so a cached one can never describe a
+    different git state. Malformed input is ignored, entry by entry."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return
+    if not isinstance(doc, dict):
+        return
+    for k, v in list(doc.items())[-_CACHE_MAX:]:
+        if (isinstance(v, dict) and isinstance(v.get("suspect"), list)
+                and all(isinstance(f, str) for f in v["suspect"])
+                and (v.get("waiver_reason") is None or isinstance(v["waiver_reason"], str))):
+            _PROVENANCE_CACHE[k] = {"suspect": v["suspect"],
+                                    "waiver_reason": v.get("waiver_reason")}
+
+
+def provenance_cache_text() -> str:
+    """The verdict cache as JSON, for a caller that keeps it between processes
+    (the Watch hub's per-repo child derivations)."""
+    return json.dumps(dict(list(_PROVENANCE_CACHE.items())[-_CACHE_MAX:]))
+
+
+def done_verdicts(repo: Path, slug: str, item_ids: list[str],
+                  default_branch: str) -> dict[str, dict] | None:
+    """done_provenance for each named item of one binder that carries a done
+    ref, read from the repository at `repo`. None when the provenance checker
+    is unavailable, so a caller can say it trusted refs alone. This is the one
+    entry point the delivery Stop guard shares with status."""
+    prov = _load_provenance()
+    if prov is None:
+        return None
+    rc, out = _git_rc("for-each-ref", "--format=%(refname) %(objectname)",
+                      f"refs/karta/{slug}/", f"refs/heads/karta/{slug}/",
+                      repo=repo)
+    refs = dict(line.rsplit(" ", 1) for line in out.splitlines() if " " in line) if rc == 0 else {}
+    return {i: done_provenance(slug, i, refs, default_branch, prov, repo=repo)
+            for i in item_ids if f"refs/karta/{slug}/item-{i}/done" in refs}
+
+
+def gather_recovery_facts(binders: list[dict], git_facts: dict, default_branch: str,
+                          archived: frozenset[str] = frozenset(),
+                          binders_dir: Path = BINDERS_DIR) -> dict:
+    """Facts for the states plain ref presence cannot tell apart. Read-only.
+
+      items     {slug: {item: done_provenance verdict}} for every done ref
+      warnings  stray item refs, and a missing provenance checker
+      deleted   live binders committed in HEAD but gone from the working tree
+      cleanup   merged branches / mounted worktrees a landed binder left behind
+
+    Fail-soft: a git call that fails contributes nothing, never an exception."""
+    import re
+    rec: dict = {"items": {}, "warnings": [], "deleted": [],
+                 "cleanup": {"slugs": [], "worktrees": [], "branches": []}}
+    lines, ok = _for_each_ref(["--format=%(refname) %(objectname)",
+                               "refs/karta/", "refs/heads/karta/"])
+    refs = dict(line.rsplit(" ", 1) for line in lines if " " in line) if ok else {}
+    live = {b["slug"]: {it["id"] for it in b.get("work_items", [])} for b in binders}
+
+    # stray refs: an item namespace under a live binder the binder never declared
+    item_ref = re.compile(r"^refs/karta/([^/]+)/item-(.+)/([^/]+)$")
+    for ref in sorted(refs):
+        m = item_ref.match(ref)
+        if m and m.group(1) in live and m.group(2) not in live[m.group(1)]:
+            rec["warnings"].append(
+                f"binder '{m.group(1)}' has a {m.group(3)} ref for item '{m.group(2)}', which "
+                f"is not in the binder — suspect, and status ignores it ({ref})")
+
+    # provenance of every done ref the facts report
+    gfb = git_facts.get("binders", {})
+    checked = {slug: set(ids) for slug, ids in live.items()}
+    for b in binders:
+        sup = _supersedes(b)
+        if sup and sup[0] != b["slug"]:
+            checked.setdefault(sup[0], set()).update(sup[1])
+    done_items = [(slug, iid) for slug, ids in checked.items() for iid in sorted(ids)
+                  if gfb.get(slug, {}).get("items", {}).get(iid, {}).get("done")
+                  and f"refs/karta/{slug}/item-{iid}/done" in refs]
+    prov = _load_provenance() if done_items else None
+    if done_items and prov is None:
+        rec["warnings"].append(
+            "done refs were not provenance-checked — the deliver skill's "
+            f"{PROVENANCE_SCRIPT.name} is not installed beside this one, so "
+            "completion is read from refs alone")
+    for slug, iid in (done_items if prov is not None else []):
+        rec["items"].setdefault(slug, {})[iid] = done_provenance(
+            slug, iid, refs, default_branch, prov)
+
+    # a committed live binder deleted from the working tree (or a crash between
+    # the end-of-life `git mv` and its commit)
+    rc, out = _git_rc("ls-tree", "--name-only", "HEAD", binders_dir.as_posix() + "/")
+    if rc == 0:
+        for name in out.splitlines():
+            fname = name.rsplit("/", 1)[-1]
+            if not fname.endswith(".json") or (binders_dir / fname).exists():
+                continue
+            slug = fname[:-len(".json")]
+            pending = (binders_dir / "archive" / fname).exists()
+            rec["deleted"].append({"slug": slug, "archive_pending": pending})
+            rec["warnings"].append(
+                f"binder '{slug}' is committed in HEAD but deleted from the working tree"
+                + (" (moved to archive/, move not committed)" if pending else "")
+                + " — status cannot see its items")
+
+    # leftovers of landed binders: branches merged into the default branch, and
+    # worktrees still mounted on them. Refs under refs/karta/ stay —
+    # the deliver skill keeps a delivered run's refs on purpose.
+    gone = sorted(s for s in archived if s not in live)
+    if gone:
+        merged, _ = _for_each_ref(["--format=%(refname)", f"--merged={default_branch}",
+                                   "refs/heads/karta/"])
+        leftover = [r[len("refs/heads/"):] for r in merged if r.split("/")[3] in gone]
+        rc, out = _git_rc("worktree", "list", "--porcelain")
+        entries: list[dict] = []
+        for block in (out.split("\n\n") if rc == 0 else []):
+            entry = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
+            if entry.get("worktree"):
+                entries.append(entry)
+        main_branch = entries[0].get("branch", "") if entries else ""
+        wts = [e["worktree"] for e in entries[1:]
+               if e.get("branch", "")[len("refs/heads/"):] in leftover]
+        leftover = [b for b in leftover if "refs/heads/" + b != main_branch]
+        if leftover or wts:
+            rec["cleanup"] = {"slugs": sorted({b.split("/")[1] for b in leftover}) or gone,
+                              "worktrees": wts, "branches": leftover}
+    return rec
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +1125,7 @@ def _reference_git_facts(binders: list[dict], default_branch: str) -> dict:
                 "done_in_default": done_in_default,
                 "built": f"{base}/built" in refs,
                 "failed": f"{base}/failed" in refs,
+                "accepted": f"{base}/accepted" in refs,
                 "branch": branch,
             }
         facts["binders"][slug] = {"integration_exists": integration, "items": items}
@@ -1296,8 +1802,7 @@ def _run_self_test() -> int:
                    all_archived["next_action"] == done_action))
     checks.append(("genuinely blocked (cycle) derive is unchanged",
                    cyc["next_action"] == {"level": "blocked", "command": None,
-                                          "human": "no binder is ready to run — "
-                                                   "check the warnings/errors above"}))
+                                          "human": BLOCKED_HUMAN}))
     warn_merged = derive_state(
         [{"slug": "wm", "after": ["ghost"], "motivation": "x", "scope": {"included": ["x"]},
           "work_items": [{"id": "a", "title": "A", "oracle": {"type": "unit"}}]}],
@@ -1306,9 +1811,60 @@ def _run_self_test() -> int:
     checks.append(("all merged but a dangling-after warning -> still blocked, never done",
                    warn_merged["warnings"] != []
                    and warn_merged["next_action"]["level"] == "blocked"))
-    checks.append(("no binders and no archive -> unchanged blocked derive",
-                   derive_state([], {"default_branch": "main", "binders": {}})
-                   ["next_action"]["level"] == "blocked"))
+    empty = derive_state([], {"default_branch": "main", "binders": {}})["next_action"]
+    checks.append(("no binders and no archive -> the empty state points at planning, "
+                   "never at warnings that are not there",
+                   empty == {"level": "empty", "command": "karta-plan",
+                             "human": EMPTY_HUMAN}
+                   and "warnings" not in empty["human"]))
+
+    # accepted-done is its own state (never a clean pass) and counts as complete
+    one = {"slug": "w", "motivation": "x", "scope": {"included": ["x"]},
+           "work_items": [{"id": "a", "title": "A", "oracle": {"type": "unit"}},
+                          {"id": "b", "title": "B", "depends_on": ["a"],
+                           "oracle": {"type": "unit"}}]}
+    acc = derive_state([one], {"default_branch": "main", "binders": {"w": {
+        "integration_exists": True, "items": {
+            "a": {"done": True, "accepted": True, "done_in_default": False},
+            "b": {}}}}},
+        recovery={"items": {"w": {"a": {"suspect": [], "waiver_reason": "why"}}}})
+    a_row = acc["binders"][0]["items"]["detail"][0]
+    b_row = acc["binders"][0]["items"]["detail"][1]
+    checks.append(("accepted-done derives 'accepted' with the waiver reason, and "
+                   "unblocks its dependents like done",
+                   a_row == {"id": "a", "status": "accepted", "waiver_reason": "why"}
+                   and acc["binders"][0]["items"]["accepted"] == 1
+                   and acc["binders"][0]["items"]["done"] == 0
+                   and b_row["status"] == "ready"
+                   and "waived — why" in render_terminal(acc)))
+    # a suspect done ref is not trusted: the item derives without it + a warning
+    sus = derive_state([one], {"default_branch": "main", "binders": {"w": {
+        "integration_exists": True, "items": {
+            "a": {"done": True, "built": True, "done_in_default": False}, "b": {}}}}},
+        recovery={"items": {"w": {"a": {"suspect": ["forged"], "waiver_reason": None}}}})
+    checks.append(("a suspect done ref is ignored with a warning, and the built item "
+                   "it hid resumes the merge queue",
+                   sus["binders"][0]["items"]["detail"][0]["status"] == "built"
+                   and any("suspect" in w and "forged" in w for w in sus["warnings"])
+                   and sus["next_action"]["command"] == "karta-deliver w"))
+    land = derive_state([one], {"default_branch": "main", "binders": {"w": {
+        "integration_exists": True, "items": {
+            "a": {"done": True, "done_in_default": False},
+            "b": {"done": True, "done_in_default": False}}}}})
+    checks.append(("every item merged on integration, not on main -> the human "
+                   "landing decision, with no command",
+                   land["next_action"] == {"level": "landing", "command": None,
+                                           "human": LANDING_HUMAN.format(slug="w")}))
+    bad = derive_state([], {"default_branch": "main", "binders": {}},
+                       load_errors=[_load_error(Path("x/b.json"), "not a JSON object")])
+    checks.append(("a binder load error is an error and names the file in the next action",
+                   bad["errors"] and bad["next_action"]["level"] == "error"
+                   and "x/b.json" in bad["next_action"]["human"]))
+    checks.append(("shape check: a non-object and an id-less item are errors, a "
+                   "minimal binder is not",
+                   _binder_shape_error(["x"]) is not None
+                   and _binder_shape_error({"slug": "s", "work_items": [{}]}) is not None
+                   and _binder_shape_error({"slug": "s", "work_items": []}) is None))
 
     # surface-on-default hint (finding 21): a not_started binder whose declared
     # touches all already exist on the default branch is flagged, and the next
@@ -1412,12 +1968,14 @@ def main() -> int:
     if args.self_test:
         return _run_self_test()
     _fire_ensure()  # every real engine touch revives the watch hub — fail-open
-    binders = load_binders()
+    binders, load_errors = load_binders()
     archived = frozenset(b["slug"] for b in load_archived_binders())
     default_branch = _default_branch()
     git_facts = gather_git_facts(binders, default_branch)
     surface = _surface_hints(binders, git_facts, archived, default_branch)
-    state = derive_state(binders, git_facts, archived, surface_on_default=surface)
+    recovery = gather_recovery_facts(binders, git_facts, default_branch, archived)
+    state = derive_state(binders, git_facts, archived, surface_on_default=surface,
+                         recovery=recovery, load_errors=load_errors)
     if args.json:
         print(json.dumps(state, indent=2))  # never altered by the watch surface
     else:

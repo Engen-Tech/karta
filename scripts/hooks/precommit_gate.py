@@ -24,8 +24,11 @@ Release block (version-bump gate): when the detected `git commit` would change
 the plugin version in .claude-plugin/plugin.json, the commit is additionally
 refused unless a green full-gate file (benchmarks/results/gate/<date>-gate.json,
 never a *.partial.json — subset runs do not count) whose plugin_version equals the
-new version and whose karta_sha equals this commit's parent HEAD is staged in the
-same commit. Missing, red, partial-only, malformed, version- or sha-mismatched, or
+new version and whose karta_sha equals this commit's parent HEAD is included in the
+same commit. The selected index/worktree/HEAD bytes, not a working-file fallback,
+are judged. source_sha256 must match the prospective source tree and source_stable
+must be true; generated benchmark result directories are excluded from that hash.
+Missing, red, partial-only, malformed, version- or sha-mismatched, or
 unstaged gate files block with exit 2 naming the exact fix (the run_gate command,
 or `git add`) plus the KARTA_SKIP_GATE=1 escape hatch. Version detection is git
 plumbing only — a diff is never parsed — and version-read failures leave the block
@@ -40,7 +43,7 @@ Zero dependencies (pure stdlib), so every invocation form behaves identically:
   uv run --script precommit_gate.py --self-test   # also fine — no deps
 """
 from __future__ import annotations
-import argparse, fnmatch, json, re, shlex, subprocess, sys
+import argparse, fnmatch, importlib.util, json, re, shlex, subprocess, sys
 from pathlib import Path
 
 def _read_stdin_text() -> str:
@@ -79,6 +82,7 @@ SKIP_VAR = "KARTA_SKIP_GATE"
 PLUGIN_JSON = ".claude-plugin/plugin.json"
 GATE_RESULTS_REL = "benchmarks/results/gate"
 RUN_GATE_CMD = "python3 benchmarks/gate/run_gate.py"
+RELEASE_INVENTORY_REL = "benchmarks/gate/release-required.json"
 
 # `git commit` detection: split chained commands conservatively on &&, ||, ;, |
 # and newlines, then match a word-boundary `git ... commit` where anything
@@ -1004,47 +1008,6 @@ def _json_version(text: str) -> str | None:
         return None
 
 
-def commit_reads_worktree(command: str) -> bool:
-    """True when the commit records WORKING-TREE content of plugin.json rather than
-    the staged blob: a `-a`/`--all` commit (including combined short flags like
-    `-am`) or a commit carrying a pathspec. Falls closed toward the working tree on
-    unparseable quoting — a false working-tree read is a safe over-arm, an escapable
-    block; a missed `-a` would let a bump ship un-gated."""
-    seg = next((s for s in _SPLIT_RE.split(command) if _COMMIT_RE.search(s)), command)
-    try:
-        tokens = shlex.split(seg)
-    except ValueError:
-        return bool(re.search(r"(?:^|\s)(?:--all|-[A-Za-z]*a[A-Za-z]*)(?:\s|$)", seg))
-    if "commit" not in tokens:
-        return False
-    rest = tokens[tokens.index("commit") + 1:]
-    value_long = {"--message", "--reuse-message", "--reedit-message", "--file",
-                  "--author", "--date", "--template", "--fixup", "--squash",
-                  "--cleanup", "--pathspec-from-file"}
-    value_short = set("mCcFt")  # short opts that consume the next token as their value
-    i = 0
-    while i < len(rest):
-        tok = rest[i]
-        if tok == "--":                         # everything after -- is a pathspec
-            return i + 1 < len(rest)
-        if tok.startswith("--"):
-            if tok.split("=", 1)[0] == "--all":
-                return True
-            if tok in value_long:
-                i += 2
-                continue
-            i += 1
-            continue
-        if tok.startswith("-") and len(tok) > 1:  # short-flag cluster
-            letters = tok[1:]
-            if "a" in letters:
-                return True
-            i += 2 if letters[-1] in value_short else 1
-            continue
-        return True                              # a bare token after commit = pathspec
-    return False
-
-
 def _new_version(command: str, git, root: Path, worktree_mode: bool) -> str | None:
     """The plugin version the commit would record: working tree under -a/pathspec,
     else the staged blob. None when it cannot be read (block stays disarmed)."""
@@ -1057,37 +1020,68 @@ def _new_version(command: str, git, root: Path, worktree_mode: bool) -> str | No
     return _json_version(out) if code == 0 else None
 
 
-def _staged_paths(git) -> list[str]:
-    code, out = git(["diff", "--cached", "--name-only"])
-    return [ln.strip() for ln in out.splitlines() if ln.strip()] if code == 0 else []
-
-
 def _release_block(command: str, git, root: Path) -> str | None:
     """A deny reason when a version bump lacks its green staged gate file, else None
     (not a bump, or the gate is present and green). Never raises on git/JSON errors —
     an undeterminable version leaves the block disarmed."""
-    worktree_mode = commit_reads_worktree(command)
     code, head_blob = git(["show", f"HEAD:{PLUGIN_JSON}"])
     old = _json_version(head_blob) if code == 0 else None
-    new = _new_version(command, git, root, worktree_mode)
-    if old is None or new is None or old == new:
+    # Avoid imposing the release command grammar on ordinary non-version commits.
+    candidates = {_new_version(command, git, root, mode) for mode in (False, True)}
+    if old is None or not any(v is not None and v != old for v in candidates):
         return None  # not a version bump (or undeterminable) — block not armed
 
+    spec = importlib.util.spec_from_file_location("release_evidence", Path(__file__).parents[1] / "release_evidence.py")
+    evidence = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(evidence)
+    try:
+        sources = evidence.commit_sources(command, git, root)
+        _, version_blob = sources.read(PLUGIN_JSON)
+        new = _json_version(version_blob) if version_blob is not None else None
+        if new is None or new == old:
+            return None
+        source_hash = evidence.committed_fingerprint(root, sources)
+    except (ValueError, OSError, subprocess.SubprocessError) as e:
+        return f"Commit blocked by the release gate: cannot determine the committed content ({e}). Use a plain git commit with explicit -a/-m options or stage the release files first."
+
+    # Coverage is judged against the inventory and spec in the content being
+    # committed. A missing or undecided inventory means no result can authorize.
+    try:
+        inventory = _committed_json(sources, evidence.INVENTORY_REL)
+        spec = _committed_json(sources, evidence.SPEC_REL)
+        spec_ids = [v.get("id") for v in spec.get("vectors", []) if isinstance(v, dict)] \
+            if isinstance(spec, dict) else []
+        inventory_problems = evidence.inventory_problems(inventory, spec_ids)
+    except ValueError as e:
+        inventory_problems = [str(e)]
+    if inventory_problems:
+        return (f"Commit blocked by the release gate: this commit bumps the plugin version to "
+                f"{new}, and the release inventory {evidence.INVENTORY_REL} in the committed "
+                f"content does not decide every vector in {evidence.SPEC_REL}: "
+                f"{'; '.join(inventory_problems)}. Give each vector an explicit decision "
+                f"(required, or not required with a written reason), stage it, re-run "
+                f"`{RUN_GATE_CMD}`, and stage the new result.{_escape()}")
+
     head_sha = (git(["rev-parse", "HEAD"])[1] or "").strip()
-    staged = set(_staged_paths(git))
     gate_dir = root / GATE_RESULTS_REL
-    files = sorted(gate_dir.glob("*-gate.json")) if gate_dir.is_dir() else []
+    paths = {p.relative_to(root).as_posix() for p in gate_dir.glob("*-gate.json")}
+    for args in (["ls-files", "--", GATE_RESULTS_REL],
+                 ["ls-tree", "-r", "--name-only", "HEAD", "--", GATE_RESULTS_REL]):
+        code, listed = git(args)
+        if code == 0:
+            paths.update(p for p in listed.splitlines() if p.endswith("-gate.json"))
     has_partial = bool(list(gate_dir.glob("*-gate.partial.json"))) if gate_dir.is_dir() else False
 
-    # Classify every full gate file; the first full green+match+staged file allows.
+    # Classify every full gate file; the first green, complete, matching, staged file allows.
     seen: dict[str, str] = {}  # kind -> a relevant path for the reason
-    for p in files:
-        # git's forward-slash spelling, so `rel in staged` is a path-identity test
-        # on Windows too — str() would yield backslashes there and a staged green
-        # gate file would read as unstaged.
-        rel = p.relative_to(root).as_posix()
+    details: dict[str, list[str]] = {}  # kind -> the named problems for the reason
+    for rel in sorted(paths):
         try:
-            data = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+            source, blob = sources.read(rel)
+            if source in ("HEAD", "absent") or blob is None:
+                seen.setdefault("unstaged", rel)
+                continue
+            data = json.loads(blob)
         except (OSError, ValueError):
             seen.setdefault("malformed", rel)
             continue
@@ -1097,40 +1091,79 @@ def _release_block(command: str, git, root: Path) -> str | None:
         if data.get("plugin_version") != new:
             seen.setdefault("version", rel)
             continue
-        if data.get("karta_sha", "").strip() != head_sha:
+        if data.get("karta_sha") != head_sha:
             seen.setdefault("sha", rel)
             continue
-        summary = data.get("summary")
-        green = (isinstance(summary, dict)
-                 and summary.get("fail") == 0 and summary.get("error") == 0)
-        if not green:
+        if data.get("source_stable") is not True or data.get("source_sha256") != source_hash:
+            seen.setdefault("source", rel)
+            continue
+        structure = evidence.result_problems(data)
+        if structure:
+            seen.setdefault("structure", rel)
+            details.setdefault("structure", structure)
+            continue
+        summary = data["summary"]
+        if summary["fail"] or summary["error"]:
             seen.setdefault("red", rel)
             continue
-        committed = rel in staged or (worktree_mode and p.is_file())
-        if committed:
-            return None  # green full-gate file for this bump, staged — allow
-        seen.setdefault("unstaged", rel)
+        coverage = evidence.coverage_problems(data, inventory)
+        if coverage:
+            seen.setdefault("coverage", rel)
+            details.setdefault("coverage", coverage)
+            continue
+        return None  # green, complete, and bound to the source this commit records
 
-    return _release_reason(new, head_sha, seen, has_partial)
+    return _release_reason(new, head_sha, seen, has_partial, details)
 
 
-def _release_reason(new: str, head_sha: str, seen: dict[str, str], has_partial: bool) -> str:
+def _committed_json(sources, rel: str):
+    """Parse `rel` as git will commit it; absent or unreadable is a ValueError."""
+    source, blob = sources.read(rel)
+    if source == "absent" or blob is None:
+        raise ValueError(f"{rel} is absent from the committed content")
+    try:
+        return json.loads(blob)
+    except ValueError as e:
+        raise ValueError(f"{rel} is not valid JSON ({e})") from e
+
+
+def _escape() -> str:
+    return f" For an intentional bypass, prefix the command with {SKIP_VAR}=1 (documented escape hatch)."
+
+
+def _release_reason(new: str, head_sha: str, seen: dict[str, str], has_partial: bool,
+                    details: dict[str, list[str]] | None = None) -> str:
     """The most actionable deny reason for an armed-but-unsatisfied release block.
     Ordered from closest-to-done (just `git add`) to nothing-there (run the gate)."""
     short = head_sha[:9] or "HEAD"
     head = (f"Commit blocked by the release gate: this commit bumps the plugin version "
             f"to {new}, which requires a green full-gate file for this exact tree "
-            f"(plugin_version {new}, karta_sha {short}, fail=0 error=0), staged into the "
-            f"same commit.")
-    escape = f" For an intentional bypass, prefix the command with {SKIP_VAR}=1 (documented escape hatch)."
+            f"(plugin_version {new}, karta_sha {short}, fail=0 error=0, every required "
+            f"vector in {RELEASE_INVENTORY_REL} PASS), staged into the same commit.")
+    escape = _escape()
+    details = details or {}
     rerun = (f" Edit the version, run `{RUN_GATE_CMD}` on this tree (it records the current "
              f"HEAD sha), then `git add` the dated gate file and commit it with the bump.")
     if "unstaged" in seen:
-        return (f"{head} A matching green gate file exists but is not staged: run "
-                f"`git add {seen['unstaged']}` and commit it together with the version bump.{escape}")
+        return (f"{head} The gate file is absent from the selected commit content: run "
+                f"`git add {seen['unstaged']}` and include it in the commit's pathspec, if any.{escape}")
+    if "source" in seen:
+        return (f"{head} The gate file {seen['source']} lacks a stable source_sha256 matching "
+                f"the source bytes this commit will record. Re-run `{RUN_GATE_CMD}` on that source "
+                f"and stage the new evidence. Generated benchmark results are excluded from the source fingerprint.{escape}")
+    if "structure" in seen:
+        return (f"{head} The gate file {seen['structure']} does not have the result structure "
+                f"`{RUN_GATE_CMD}` writes, so its summary cannot be trusted: "
+                f"{'; '.join(details.get('structure', []))}. Re-run the gate and stage the new "
+                f"result.{escape}")
     if "red" in seen:
         return (f"{head} The gate file {seen['red']} matches but is red (fail/error > 0); a red "
                 f"gate blocks the release. Fix the failing vectors and re-run `{RUN_GATE_CMD}`.{escape}")
+    if "coverage" in seen:
+        return (f"{head} The gate file {seen['coverage']} is green but does not cover the release "
+                f"inventory {RELEASE_INVENTORY_REL}: {'; '.join(details.get('coverage', []))}. "
+                f"Make those vectors PASS with full coverage (or record a justified decision in "
+                f"the inventory), re-run `{RUN_GATE_CMD}`, and stage the new result.{escape}")
     if "sha" in seen:
         return (f"{head} A green gate file for {new} exists but its karta_sha does not match "
                 f"this commit's parent HEAD {short} — the gate must run on the pre-bump tree at "
@@ -1598,35 +1631,82 @@ def _run_self_test() -> int:
     import tempfile, shutil
     tmp_roots: list[str] = []
 
-    def gate_doc(version, sha, *, fail=0, error=0, only=None):
-        return {"schema_version": 1, "run_date": "2026-07-18", "karta_sha": sha,
-                "plugin_version": version, "strict": False, "only": only, "vectors": [],
-                "summary": {"total": 24, "pass": 2, "fail": fail, "error": error, "skipped": 22}}
+    fixture_spec = {"vectors": [{"id": "core"}, {"id": "live"}, {"id": "later"}]}
+    fixture_inventory = {"schema_version": 1, "vectors": [
+        {"id": "core", "required": True, "partial_allowed": False},
+        {"id": "live", "required": True, "partial_allowed": True,
+         "partial_reason": "live-agent phase deferred"},
+        {"id": "later", "required": False, "not_required": "unimplemented",
+         "reason": "no probe yet"}]}
+
+    def vec(vid, status="PASS", partial=False, findings=0):
+        found = [{"finding_id": f"{vid}-{i}", "severity": "info", "summary": "known"}
+                 for i in range(findings)]
+        return {"id": vid, "status": status,
+                "partial": partial if status in ("PASS", "FAIL") else None,
+                "implemented_checks": [], "findings_count": len(found), "findings": found,
+                "known_open_count": len(found) if status == "PASS" else None,
+                "metrics": {}, "detail": ""}
+
+    def gate_doc(version, sha, *, fail=0, error=0, only=None, rows=None):
+        if rows is None:
+            rows = [vec("core", "FAIL" if fail else "PASS"),
+                    vec("live", "ERROR" if error else "PASS", partial=True, findings=1),
+                    vec("later", "SKIPPED")]
+        counts = {k: sum(1 for row in rows if row["status"] == k.upper())
+                  for k in ("pass", "fail", "error", "skipped")}
+        known = sum(row["known_open_count"] or 0 for row in rows)
+        return {"schema_version": 2, "run_date": "2026-07-18", "karta_sha": sha,
+                "plugin_version": version, "strict": False, "only": only, "vectors": rows,
+                "summary": {"total": len(rows), **counts, "known_open": known,
+                            "regression_health": "red" if counts["fail"] or counts["error"] else "green"}}
 
     def mk_repo(*, head_ver, staged_ver=None, worktree_ver=None, head_sha="p" * 40,
-                gate_files=(), staged_paths=(), partials=()):
+                gate_files=(), staged_paths=(), partials=(), inventory=True):
         root = Path(tempfile.mkdtemp(prefix="pcg-rel-"))
         tmp_roots.append(str(root))
         (root / ".claude-plugin").mkdir(parents=True)
+        def run(*args):
+            p = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8")
+            if p.returncode:
+                raise RuntimeError(p.stderr)
+            return p.stdout
+        run("init", "-q")
+        run("config", "user.name", "Release fixture")
+        run("config", "user.email", "fixture@example.invalid")
+        run("config", "core.autocrlf", "false")
+        (root / PLUGIN_JSON).write_text(json.dumps({"version": head_ver}), encoding="utf-8")
+        (root / "benchmarks" / "gate").mkdir(parents=True)
+        (root / "benchmarks" / "bench-spec.json").write_text(json.dumps(fixture_spec), encoding="utf-8")
+        if inventory:
+            (root / RELEASE_INVENTORY_REL).write_text(json.dumps(fixture_inventory), encoding="utf-8")
+        run("add", "-A")
+        run("commit", "-qm", "fixture")
         wt = worktree_ver if worktree_ver is not None else (
             staged_ver if staged_ver is not None else head_ver)
+        (root / PLUGIN_JSON).write_text(json.dumps({"version": staged_ver if staged_ver is not None else head_ver}), encoding="utf-8")
+        run("add", PLUGIN_JSON)
         (root / PLUGIN_JSON).write_text(json.dumps({"version": wt}), encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("fixture_evidence", Path(__file__).parents[1] / "release_evidence.py")
+        evidence = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(evidence)
+        source_hash = evidence.working_fingerprint(root)
         gdir = root / GATE_RESULTS_REL
         gdir.mkdir(parents=True)
         for name, content in gate_files:
+            if isinstance(content, dict):
+                content = dict(content, source_sha256=source_hash, source_stable=True)
             (gdir / name).write_text(content if isinstance(content, str) else json.dumps(content), encoding="utf-8")
         for name in partials:
             (gdir / name).write_text(json.dumps(gate_doc(head_ver, head_sha, only=["one-vector"])), encoding="utf-8")
-        sver = staged_ver if staged_ver is not None else head_ver
+        for path in staged_paths:
+            if path != PLUGIN_JSON:
+                run("add", path)
 
         def git(args):
-            if args[:1] == ["show"]:
-                return (0, json.dumps({"version": head_ver if args[1].startswith("HEAD:") else sver}))
             if args[:2] == ["rev-parse", "HEAD"]:
                 return (0, head_sha)
-            if args[:1] == ["diff"]:
-                return (0, "\n".join(staged_paths))
-            return (1, "")
+            return _real_git(root, args)
         return root, git
 
     SHA = "a" * 40
@@ -1695,11 +1775,11 @@ def _run_self_test() -> int:
     code, _ = decide(_payload('git commit -am "bump"'), {}, green, stub_gates, git=git, root=root)
     check("git commit -am arms the block from working-tree content", code == 2)
 
-    # under -a, a green gate file present in the working tree counts as committed -> allow
+    # -a updates tracked paths only; an untracked green file cannot authorize it.
     root, git = mk_repo(head_ver="2.21.0", worktree_ver="2.22.0", staged_ver="2.21.0", head_sha=SHA,
                         gate_files=[(GATE, gate_doc("2.22.0", SHA))], staged_paths=[])
     code, _ = decide(_payload('git commit -am "bump"'), {}, green, stub_gates, git=git, root=root)
-    check("under -a a green gate file present in the tree counts as committed", code == 0)
+    check("under -a an untracked green gate file does not count as committed", code == 2)
 
     # a pathspec commit also records working-tree content and arms the block
     root, git = mk_repo(head_ver="2.21.0", worktree_ver="2.22.0", staged_ver="2.21.0", head_sha=SHA)
@@ -1707,20 +1787,43 @@ def _run_self_test() -> int:
                      {}, green, stub_gates, git=git, root=root)
     check("pathspec commit arms the block from working-tree content", code == 2)
 
+    # --- release coverage against the committed inventory (audit F17) ---
+    def bump_with(rows=None, **kw):
+        root, git = mk_repo(head_ver="2.21.0", staged_ver="2.22.0", head_sha=SHA,
+                            gate_files=[(GATE, gate_doc("2.22.0", SHA, rows=rows))],
+                            staged_paths=[GATE_REL], **kw)
+        return decide(_payload('git commit -m "bump"'), {}, green, stub_gates, git=git, root=root)
+
+    code, reason = bump_with(inventory=False)
+    check("coverage: an inventory absent from the commit blocks, naming it",
+          code == 2 and RELEASE_INVENTORY_REL in reason and "absent" in reason)
+    code, reason = bump_with([vec("core", "SKIPPED"), vec("live", partial=True), vec("later", "SKIPPED")])
+    check("coverage: a SKIPPED required vector blocks, naming it",
+          code == 2 and "required vector core is SKIPPED" in reason)
+    code, reason = bump_with([vec("live"), vec("later", "SKIPPED")])
+    check("coverage: a missing required vector blocks, naming it",
+          code == 2 and "required vector core has no result" in reason)
+    code, reason = bump_with([vec("core", partial=True), vec("live"), vec("later", "SKIPPED")])
+    check("coverage: partial coverage without a recorded justification blocks",
+          code == 2 and "core reported partial coverage" in reason)
+    code, _ = bump_with([vec("core"), vec("live", partial=True, findings=3), vec("later", "SKIPPED")])
+    check("coverage: justified partial and known-open findings still allow", code == 0)
+    lying = gate_doc("2.22.0", SHA, rows=[vec("core", "FAIL"), vec("live"), vec("later", "SKIPPED")])
+    lying["summary"].update({"fail": 0, "pass": 2, "regression_health": "green"})
+    root, git = mk_repo(head_ver="2.21.0", staged_ver="2.22.0", head_sha=SHA,
+                        gate_files=[(GATE, lying)], staged_paths=[GATE_REL])
+    code, reason = decide(_payload('git commit -m "bump"'), {}, green, stub_gates, git=git, root=root)
+    check("coverage: a summary that disagrees with its rows blocks as malformed structure",
+          code == 2 and "summary.fail" in reason)
+    code, reason = bump_with([vec("core"), vec("live"), vec("later", "SKIPPED"), vec("extra")])
+    check("coverage: a result vector with no inventory decision blocks",
+          code == 2 and "extra has no release decision" in reason)
+
     # KARTA_SKIP_GATE=1 still bypasses everything, even an armed version bump
     root, git = mk_repo(head_ver="2.21.0", staged_ver="2.22.0", head_sha=SHA)
     code, _ = decide(_payload('KARTA_SKIP_GATE=1 git commit -m "bump"'), {}, must_not_run,
                      stub_gates, git=git, root=root)
     check("KARTA_SKIP_GATE=1 skips even an armed version bump", code == 0)
-
-    # working-tree detector unit checks
-    check("detector: -m is staged mode", commit_reads_worktree('git commit -m "x"') is False)
-    check("detector: -am is working-tree mode", commit_reads_worktree('git commit -am "x"') is True)
-    check("detector: --all is working-tree mode", commit_reads_worktree("git commit --all") is True)
-    check("detector: pathspec is working-tree mode",
-          commit_reads_worktree("git commit path/to/file -m x") is True)
-    check("detector: --amend alone is staged mode",
-          commit_reads_worktree("git commit --amend --no-edit") is False)
 
     for r in tmp_roots:
         shutil.rmtree(r, ignore_errors=True)

@@ -422,6 +422,12 @@ def cmd_merge(args: argparse.Namespace) -> int:
     moved, dirty = _state_after(repo, branch, merge_commit or "")
     if not record.get("success"):
         step = "tip-moved" if moved else "revalidation"
+        if (not moved and dirty and record.get("tree_changed")
+                and record.get("exit_status") == 0 and not record.get("timed_out")
+                and (record.get("expect") or {}).get("matched", True)):
+            # The runner now rejects source mutation itself. Preserve the merge
+            # protocol's existing diagnostic and unwind behavior for that case.
+            step = "dirty-after-oracle"
         _forced_unwind(repo, slug, pre_tip)
         return halt(step)
     if moved:

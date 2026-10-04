@@ -1729,7 +1729,11 @@ def _check_design_serving_rig(errors: list[str], fixture_root: Path, script: Pat
     committed fixture on a loopback port, request it with ?theme=light, and
     confirm HTTP 200 with the fixture's one binder actually rendered in the
     body. A wrong --root, a malformed fixture, or a page that stops serving
-    then fails here instead of at the last item that needs it."""
+    then fails here instead of at the last item that needs it. Ephemeral Watch
+    requires ?key= on every page request (audit F10), so the rig names its own
+    token with --key and requests the keyed URL, as a user following the
+    printed URL does."""
+    import secrets
     import socket
     import time
     import urllib.error
@@ -1741,11 +1745,13 @@ def _check_design_serving_rig(errors: list[str], fixture_root: Path, script: Pat
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
+    key = secrets.token_hex(16)  # hex: never starts with "-", never needs quoting
     proc = subprocess.Popen(
-        [sys.executable, str(script), "--root", str(fixture_root), "--port", str(port)],
+        [sys.executable, str(script), "--root", str(fixture_root), "--port", str(port),
+         "--key", key],
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8")
     try:
-        url = f"http://127.0.0.1:{port}/?theme=light"
+        url = f"http://127.0.0.1:{port}/?theme=light&key={key}"
         body = None
         last_err: Exception | None = None
         deadline = time.monotonic() + timeout
@@ -2573,7 +2579,8 @@ def _self_test() -> int:
         # at item one — so it ships with the pages that make it fail: one
         # that never answers, one that answers 200 without the fixture's
         # binder in the body, and a missing script. `serve_status.py` is
-        # never started here; each stand-in takes the same --root/--port.
+        # never started here; each stand-in takes the same --root/--port/--key
+        # and, like ephemeral Watch, refuses a request without that key.
         rig_dir = Path(td) / "rig"
         rig_dir.mkdir()
 
@@ -2583,11 +2590,15 @@ def _self_test() -> int:
                 "import argparse, http.server\n"
                 "p = argparse.ArgumentParser()\n"
                 "p.add_argument('--root'); p.add_argument('--port', type=int)\n"
+                "p.add_argument('--key')\n"
                 "a = p.parse_args()\n"
                 f"BODY = {body_expr}\n"
                 "class H(http.server.BaseHTTPRequestHandler):\n"
                 "    def do_GET(self):\n"
                 "        b = BODY.encode()\n"
+                "        # like ephemeral Watch: no matching ?key=, no page\n"
+                "        if not a.key or ('key=' + a.key) not in self.path:\n"
+                "            self.send_response(403); self.end_headers(); return\n"
                 "        self.send_response(200)\n"
                 "        self.send_header('Content-Length', str(len(b)))\n"
                 "        self.end_headers()\n"
@@ -3325,6 +3336,27 @@ def main() -> int:
         print("  - embedded --self-test fixtures failed")
         return 1
     errors = check()
+    # These real-Git and loopback-HTTP fixtures guard the 2026-09-22 audit's
+    # findings (evidence identity, guard boundaries, status, oracle, release
+    # coverage). Keep them in the normal floor so a green projection check cannot
+    # silently replace behavioral coverage of the controls they exercise. Every
+    # tests/test_audit_*.py runs, so a new regression suite joins by its name.
+    env = _utf8_python_env()
+    env.pop("AUDIT_SOURCE_ROOT", None)
+    suites = sorted((ROOT / "tests").glob("test_audit_*.py"))
+    if not any(p.name == "test_audit_priority_fixes.py" for p in suites):
+        errors.append("tests/test_audit_priority_fixes.py: missing from the audit regression floor")
+    for suite in suites:
+        name = suite.relative_to(ROOT).as_posix()
+        try:
+            regression = subprocess.run(
+                [sys.executable, str(suite)],
+                capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
+            if regression.returncode:
+                tail = "; ".join((regression.stdout + regression.stderr).splitlines()[-8:])
+                errors.append(f"{name}: audit regressions failed: {tail}")
+        except (OSError, subprocess.TimeoutExpired) as e:
+            errors.append(f"{name}: audit regressions could not run: {e}")
     if errors:
         print("PLUGIN INTEGRITY: FAIL")
         for e in errors:

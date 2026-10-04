@@ -23,7 +23,7 @@ def main() -> int:
     output = bytearray()
     sent_exit = False
     done_file = os.environ.get("KARTA_TUI_DONE_FILE")
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + float(os.environ.get("KARTA_TUI_TIMEOUT_SECONDS", "30"))
     status = 1
     try:
         while time.monotonic() < deadline:

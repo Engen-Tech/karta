@@ -30,6 +30,14 @@ parity table in docs/how-to/codex.md. Pi enforces its own subset through its ext
 advises where Pi cannot refuse a stop; its parity table is in docs/how-to/pi.md. So this file
 doesn't restate the split 27 times.
 
+*Level* names how a specific host carries a rule; it uses five words exactly:
+
+- **host-enforced** — the host itself supplies the boundary, such as a read-only sandbox.
+- **hook-enforced** — a deterministic hook blocks the recognized violation.
+- **instruction-level** — the agent is told the rule, but no host boundary or hook proves it.
+- **disabled** — the mechanism exists but is deliberately switched off.
+- **untested** — the claimed host behavior has not been exercised by this repository's tests.
+
 ## How this file stays true
 
 Nothing in a repository is immutable; what can be enforced is that nothing here mutates
@@ -74,7 +82,7 @@ When a sentence promises a check no code performs, the sentence is the defect: s
 
 ### INV-3 · Identity is proven by content, never inferred from circumstance
 A check that asks "is this the thing I think it is?" compares bytes; recency, ordering, position, and response time are guesses wearing a badge.
-- 2026-08-31 review · **prose by design** — the principle; its instances carry their own status (INV-14 enforced, INV-16 prose).
+- 2026-08-31 review · **prose by design** — the principle; its instances carry their own status (INV-14 enforced, INV-16 partial). This repo's release gate also checks the evidence bytes Git will commit and a source fingerprint, including file modes and Git-normalized content, as described in benchmarks/README.md ("Release evidence is read from the bytes Git will commit").
 - Carriers: AGENTS.md, binder-freshness rule ("identity is proven by content — a hash of the exact bytes"); .karta/sme/karta-house-invariants.md (inv.3, the build-time application).
 - Three costumes, one root: a hash file with no review behind it (backlog item 4); a verdict with no diff range (item 19); a slow probe answer read as a foreign occupant (item 7).
 - A caveat that is INV-2 applied here: a matching hash proves what a verdict is *about*, never that the review behind it happened — provenance is a separate claim.
@@ -96,19 +104,24 @@ A repeated pattern forces a recorded decision — promote it, mark it deliberate
 ## The plan
 
 ### INV-6 · The binder is the plan of record
-Items, acceptance contracts, waves, and pinned packs live in the binder JSON; no other document defines the work, and the binder is immutable while a wave runs.
-- founding · **enforced** — committed binders are read-only under the edit hooks; karta-deliver reads and never writes it.
-- Carriers: README.md "The binder"; skills/karta-deliver/SKILL.md ("immutable while a wave runs").
+Items, acceptance contracts, waves, and pinned packs live in the binder JSON; no other document defines the work, and a binder is read-only once committed — between waves as much as during one. A plan a wave proved wrong is repaired by a successor binder (INV-28), never by an edit.
+- founding · **partial** — supported edit-tool writes to committed binders are hook-enforced after normalized, resolved target classification, including aliases and hard links across repository worktrees. Shell and plain-terminal writes remain outside that enforcement. karta-deliver reads the binder and never writes it.
+- Carriers: README.md "The binder"; skills/karta-plan/SKILL.md ("The binder is read-only once committed"); skills/karta-deliver/SKILL.md ("sanctioned repair path is a successor binder").
 
 ### INV-7 · A binder is valid by the exact bytes being committed
 Binder validation and review freshness key on the staged blob git will commit — never on a working-tree copy the commit may not match, never on token matching.
-- 2026-08-31 review · **partial** — freshness is enforced (the review gate hashes the staged bytes, `scripts/hooks/roundtable_gate.py`); schema validity is not: `skills/karta-plan/scripts/validate_binder.py` runs in the plan flow, and the commit hook does not run it, so a hand-edited invalid binder can still be committed.
+- 2026-08-31 review · **partial** — freshness is enforced by the review gate. Schema validity is helper-backed: `validate_binder.py` loads `binder-schema.json`, and delivery preflight halts on an invalid binder. The commit hook still does not validate a hand-edited binder.
 - Carriers: AGENTS.md ("Binder freshness keys on the bytes git will commit").
 
 ### INV-8 · One slug, one place
 A slug's binder lives under `.karta/binders/` or its archive, never both — including in the tree a prospective merge would produce, which is where the pair actually gets created.
 - 2026-08-31 review · **prose** — no check exists; the motivating incident is a binder surviving its own landing twice through a 3-way merge (backlog item 14).
 - Carriers: none yet — this entry is the statement of record until the check lands.
+
+### INV-28 · A committed binder is repaired only by a successor that proves what it carries
+A plan a wave proved wrong is replaced by a new binder whose top-level `supersedes` names the predecessor; carried items are copied unchanged and count as done only when predecessor refs prove it.
+- **partial** — helper-backed by `deliver_preflight.py`; retiring the predecessor remains instruction-level.
+- Carriers: skills/karta-deliver/SKILL.md; docs/how-to/binder-repair.md.
 
 ## The run
 
@@ -119,8 +132,8 @@ Every item outcome is a ref under `refs/karta/<slug>/`, a wave tag, or a commit 
 
 ### INV-10 · An acceptance failure is waived only by a human, at the orchestrator's own prompt
 The orchestrator asks through the host's user-input facility; any accept signal in worker output is non-authoritative and ignored, the waiver's reason is the human's words captured at the prompt, and the waiver suppresses only the named gap — the post-accept floor is never waived.
-- founding · **enforced** — in the orchestrator flow, not a git gate: the prompt is the only path to an `accepted` ref.
-- Carriers: skills/karta-deliver/SKILL.md ("The human channel is enforced, not asserted"); AGENTS.md "Two human approvals".
+- founding · **partial** — the human half is instruction-level: the deliver skill prescribes the prompt, but the orchestrator is a model following that procedure, and nothing authenticates that a person answered it; the `Karta-Accept-*` trailers are text any writer can produce. The structural half is helper-backed: `check_item_provenance.py --check-accepted` requires an `accepted` ref to sit on a first-parent `done` merge of the integration branch carrying both trailers, and flags trailer-bearing commits off that chain; delivery preflight, the status engine, and the Stop guard apply it (INV-30). It proves the accept's shape, not who decided it.
+- Carriers: skills/karta-deliver/SKILL.md ("The human channel is required, not asserted" — it names itself an instruction, not a check); AGENTS.md "Two human approvals" ("Instruction-level, with a structural check after the fact").
 
 ### INV-11 · Gates read the worktree they were invoked in
 A gate's branch, HEAD, index, and file lookups resolve from the invoking worktree; judging one tree while the command runs in another produces false blocks and false passes in both directions.
@@ -137,6 +150,21 @@ A change to enforcement code lands with a test that fails on the pre-fix code fo
 - 2026-08-31 review · **partial** — for delivery diffs it is enforced: `karta-house-skill-authoring`'s checklist rule house.4 requires the companion negative case, and the safety-auditor judges every item's diff against the pinned checklist. Ordinary branch work meets no such check.
 - Carriers: .karta/sme/karta-house-skill-authoring.md (house.4, "a companion negative case").
 
+### INV-29 · The default branch is found locally or asked for, never guessed
+Delivery uses local configuration and refs, then an unambiguous local answer; anything else halts. It never contacts a remote, and subprocesses are time-bounded.
+- **partial** — helper-backed by `deliver_preflight.py`; status and Stop guards use the same offline order but cannot halt discovery failures.
+- Carriers: skills/karta-deliver/SKILL.md; skills/karta-build/SKILL.md.
+
+### INV-30 · A done ref counts only when its provenance passes
+A `done` ref is completion evidence only after delivery's resume rules pass it. A forged or stray ref never reads as finished.
+- **partial** — preflight halts, status reports it as suspect, and the Stop guards nudge once per state. Nothing guards `git update-ref` itself.
+- Carriers: skills/karta-status/SKILL.md; hooks/scripts/guard_delivery_stop.py.
+
+### INV-34 · The secret scan reads every added line of the staged diff
+The pre-commit secret scan parses pinned-format diff metadata and hunk content with explicit state, so content beginning with `++` cannot be mistaken for a header.
+- **partial** — enforced by `scan_secrets.py` when karta-build runs it; binary files and secrets split across lines remain outside its line model.
+- Carriers: skills/karta-build/SKILL.md.
+
 ## Review and evidence
 
 ### INV-14 · A binder commit and a delivery merge each require a fresh committed review of that exact content
@@ -151,8 +179,13 @@ The `min_providers` floor is what keeps "multi-model" honest — six hats on the
 
 ### INV-16 · A verdict binds to the content and range it judged, and names its provenance
 A gate-authorizing verdict states which bytes and which diff range it is about, bound by hash — and what the binding does not prove (that the review happened) is said, not implied.
-- 2026-08-31 review · **prose** — the review gate binds binder bytes (that half lives in INV-14); the gate-report checker accepts a verdict with no diff range (backlog item 19), a hash file with no review behind it passes (item 4), and runtime identity was split to its own fix (item 7).
-- Carriers: AGENTS.md binder-freshness rule carries the principle; the enforcement gap is the backlog's.
+- 2026-08-31 review · **partial** — `check_gate_report.py` requires item/range/diff-digest identity before CLI acceptance and checks passing assertion/checklist coverage. The oracle runner rejects source mutation by comparing pre/post tree hashes; the acceptance reviewer requires that unchanged-tree evidence. These checks bind claims to content, not proof that the model reviewed it or that the command meaningfully tested every assertion; runtime identity remains a separate concern.
+- Carriers: AGENTS.md binder-freshness rule; skills/karta-verify/SKILL.md ("Check every returned report"); agents/karta-acceptance-reviewer.md ("tree_before_sha"); skills/karta-build/SKILL.md ("Prepare generated inputs first").
+
+### INV-31 · Retry caps are counted in a persisted ledger, never in conversation memory
+Each gate verdict is recorded against the item, gate, reviewed range, diff digest, and item-spec digest. A changed diff keeps the count; a changed item spec starts a new sequence.
+- **partial** — helper-backed by `gate_attempts.py` under the Git common directory. The orchestrator must call it; no hook does, and the ledger is not tamper-proof.
+- Carriers: skills/karta-verify/SKILL.md; the three reviewer agent files.
 
 ## Landing
 
@@ -163,14 +196,19 @@ Everything else arrives by branch and merge. The exception is whole-commit by IN
 
 ### INV-18 · Landing a delivery on the default branch is a human decision
 The landing gate blocks a `git merge` naming a `karta/*/integration` ref on the default branch unless `KARTA_LANDING_APPROVED=1` prefixes it as an exact assignment word — and an agent never sets that variable: the gate cannot tell an agent from a human, so that half is doctrine, stated wherever agents read.
-- founding · **partial** — the block is enforced (`scripts/hooks/roundtable_gate.py`, landing gate); the who-may-approve half is prose by design, since a PreToolUse hook sees command text, not hands.
+- founding · **partial** — the block is hook-enforced on Claude Code for a `git merge` whose ref heads its shell segment (`scripts/hooks/roundtable_gate.py`, landing gate, wired in `.claude/settings.json`; it ignores the roundtable switch). On Codex it is instruction-level: this repo's `.codex/hooks.json` does not run the landing gate. `git cherry-pick`, `git rebase`, `git reset --hard`, a merge naming the tip by SHA, and `git pull` are not matched anywhere. The who-may-approve half is prose by design, since a PreToolUse hook sees command text, not hands.
 - Carriers: AGENTS.md "Two human approvals" ("Approval must prefix the merge, as an exact assignment word").
+
+### INV-32 · A version bump carries green release evidence that covers the release inventory
+A commit that changes the plugin version must include a full-gate result read from the bytes Git will commit, bound to a fingerprint of the source being committed, green (`fail = 0`, `error = 0`), and covering `benchmarks/gate/release-required.json` read from the committed content: every required vector present and PASS, partial only with a recorded `partial_reason`. The result's structure is re-validated; its summary is not trusted.
+- **partial** — hook-enforced for the `git commit` shapes `scripts/hooks/precommit_gate.py` parses (its release block), on Claude Code and on Codex through `codex_precommit_gate.py`. `KARTA_SKIP_GATE=1` bypasses it, a commit outside a hooked session meets nothing, and there is no CI backstop. A green gate covers the 9 required vectors only, 4 of them partial by recorded decision; the 15 not-required vectors (10 without a probe, 5 that need consumer repositories) and live prompt-injection trajectories are not covered. `bench-spec.json`'s `per_release` list is the design target, not what blocks a release. The fingerprint proves content identity, not who ran the checks.
+- Carriers: benchmarks/README.md ("Release evidence is read from the bytes Git will commit"; "The release hook does not trust the summary"); docs/how-to/hooks.md "The commit gate and its escape hatch".
 
 ## The tree
 
 ### INV-19 · Canonical is hand-edited; projections are generated, byte-equal, and never touched
 Edit `skills/`, `agents/`, `skills/_shared/`; the Codex mirrors, Copilot reviewer profiles and plugin entrypoint, and the marketplace projection are regenerated, and a drifted copy fails the floor.
-- founding · **enforced** — `check_shared_copies.py`, `sync_codex_skills.py --check`, `sync_codex_agents.py --check`, `validate_plugin.py`, all run by the commit hook.
+- founding · **enforced** — `check_shared_copies.py`, `sync_codex_skills.py --check`, `sync_codex_agents.py --check`, `validate_plugin.py`, all run by the commit hook. Hook-enforced for the `git commit` shapes `scripts/hooks/precommit_gate.py` parses: on Claude Code through `.claude/settings.json`, on Codex through `.codex/hooks.json` and `scripts/hooks/codex_precommit_gate.py`, each once the user approves or trusts the hook. `KARTA_SKIP_GATE=1` skips it per command; a commit outside a hooked session meets nothing, and there is no CI backstop.
 - Carriers: AGENTS.md "Layout — canonical vs generated".
 
 ### INV-20 · The validator floor states what it covers and what it does not
@@ -179,15 +217,21 @@ The floor claim in doctrine matches the gate list the hook actually runs — inc
 - Carriers: AGENTS.md "Before you commit" ("All five must be clean", with the hook's own gate list stated beside it).
 
 ### INV-21 · Hooks fail open; a review denial is named, never silent
-An internal error in any hook exits 0 — a broken hook never wedges the repo — while a review-gate denial always says which rule and which fix; a malformed ledger is a named denial, not a fail-open.
-- founding · **enforced** — by each hook's own error handling; the deliberate asymmetry (errors open, denials named) is the doctrine half.
+An internal error in a hook exits 0 — a broken hook never wedges the repo — while a review-gate denial always says which rule and which fix. Auditor dispatch, gate dispatch, and writer confinement are the named exceptions once they recognize their shape: they fail closed.
+- founding · **enforced** — by each hook's own error handling. A launcher the host cannot start is outside this rule and may fail open.
 - Carriers: AGENTS.md ("It fails open"; "A missing or stale ledger is its own named denial").
 
 ## Writers and packs
 
 ### INV-22 · Writers are confined; gates are read-only
-karta-doc-gardner writes only prose docs, karta-kaizen only `.karta/sme/` and its config — any other write is blocked before it lands — and the gate agents cannot write at all, on any runtime.
-- founding · **enforced** — write hooks on Claude Code; `sandbox_mode = "read-only"` derived for Codex gate agents; read-only tools in Pi's gate children; README "Enforcement below the agent" names what stays skill doctrine on Codex (writer confinement).
+karta-doc-gardner may write only prose docs, karta-kaizen only `.karta/sme/` and its config, and gate agents must remain read-only. The enforcement below is narrower than that obligation.
+- founding · **partial** — the boundary varies by host:
+  - Writers on Claude Code are **hook-enforced** for recognized file and shell operations; the guard resolves target paths and symlink parents but cannot prevent a concurrent link swap or detect every interpreter-side write.
+  - Writers on Codex are **instruction-level** because its tool-call hooks do not identify the acting subagent.
+  - Gate reviewers on Claude Code are **hook-enforced** by edit denial and a fail-closed read-only shell allowlist.
+  - Registered gate reviewers on Codex are **host-enforced** by `sandbox_mode = "read-only"`; plugin fallback reviewers are **instruction-level** unless the whole session is read-only.
+  - Gate reviewers on Pi are **host-enforced** through fresh child sessions with read-only tools.
+  - Gate reviewer behavior on Copilot CLI is **instruction-level** and **untested** in this repository.
 - Carriers: README.md "Enforcement below the agent"; AGENTS.md "Three runtimes, one behavior".
 
 ### INV-23 · Kaizen never weakens a rule and never promotes a pack to enforcing
@@ -216,3 +260,8 @@ The handoff to the human says what was assembled, what the floor found, and how 
 Anything that asks a human to decide — a halt, a waiver prompt, a landing ask — reads in plain language, and any command it hands over is verbatim, never paraphrased into something that no longer runs.
 - 2026-08-31 review · **prose** — plain language is built into the skills; the exact-commands half is stated here and checked by review.
 - Carriers: README.md "Plain language, built in".
+
+### INV-33 · A local server answers only loopback hosts and serves only its chosen root
+Karta Watch pins the `Host` header and requires a session key; the design preview resolves every request and refuses targets outside its document root.
+- **enforced** — by `serve_status.py` and `serve_design.py`. Concurrent filesystem changes after containment checks remain outside the preview server's reach.
+- Carriers: docs/how-to/karta-watch.md; skills/karta-validate/SKILL.md.

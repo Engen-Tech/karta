@@ -35,7 +35,15 @@ The only other keys the validator accepts are the composition keys — `extends`
 
 `skills/karta-plan/scripts/detect_stack.py` scans your repo's manifests — `package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json` — and emits two lists: dependency names and languages (`python`, `javascript/node`, `go`, `rust`, `ruby`, `php`). A pack applies when one of its `match` tokens **equals** (case-insensitive, whole token) a name on either list. There is no substring or free-prose guessing: `match: ["fastapi"]` fires on the `fastapi` dependency and on nothing else. A pack you want everywhere uses `always: true` instead.
 
+The same output carries a third field, `versions`, that never affects matching. It maps each dependency to the version specifiers your manifests declare for it, as written, plus the `go` and `python` toolchain pins. These are declared ranges, not lockfile resolutions; a dependency declared without a version has no entry, and a monorepo that declares it twice lists both. Version-aware rules read it.
+
 Matching sees only manifests, so a stack the manifests can't see never auto-matches. The canonical case is `go-htmx`: the pack itself mandates vendoring htmx as a static file, which leaves no manifest trace — a Go app with vendored htmx and stdlib templates matches only via a `github.com/a-h/templ` require or an `htmx.org` entry in `package.json`. To opt in anyway, copy the built-in to `.karta/sme/go-htmx.md` and replace its `match` line with `always: true` — your overlay wins by name (the same escape works for any manifest-invisible stack). A project pack with `extends: go-htmx` plus `always: true` reaches the same result while keeping upstream updates.
+
+## Writing rules that depend on a version or a project style
+
+Frameworks change their defaults, and they support more than one way to build. A rule should require a behavior, then say which versions or styles it applies to — never assume every project is on the newest version or uses one style. The built-ins follow this: Angular's OnPush and standalone rules account for the versions where those became defaults; Vue's SFC and TypeScript rules apply only to those project styles; and the htmx and FastAPI packs name the major-version assumptions behind their configuration rules.
+
+When `versions` cannot settle the version, a rule's explicit form passes on every version it covers. Nothing feeds `versions` to the gate mechanically: the reviewer reads the project's manifests, or runs `detect_stack.py`, to decide which branch of a rule applies.
 
 ## Where a local copy stands against the original
 
