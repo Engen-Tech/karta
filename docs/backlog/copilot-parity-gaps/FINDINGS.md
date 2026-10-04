@@ -212,6 +212,10 @@ Execution order within each tier. Done: G13.
 Six changes make karta's guards run and block under Copilot on Linux and Windows. Work them in this
 order. Source for every fact below is the gap sections and the probes in this doc.
 
+**Windows PowerShell test gate.** No P0 gap is Done until its acceptance checks have passed on the
+Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispatched through the
+`powershell` entry. Linux `copilot -p` and `--self-test` runs are necessary but not sufficient.
+
 ### G3: Patch-string input
 
 - **Change.** Add one shared normalizer to the Edit-family guards (`guard_binder_immutability.py`,
@@ -223,7 +227,7 @@ order. Source for every fact below is the gap sections and the probes in this do
   `*** Update File:` string on a committed binder are denied; the same on an untracked draft is
   allowed; a patch path with `\` separators matches.
 - **Depends on.** None.
-- **Done when.** Every Edit-family guard denies a patch-string edit of a committed binder.
+- **Done when.** Every Edit-family guard denies a patch-string edit of a committed binder; passes on zbook via PowerShell.
 
 ### G16: `path` and `file_text` keys
 
@@ -235,7 +239,7 @@ order. Source for every fact below is the gap sections and the probes in this do
   cases still pass.
 - **Depends on.** G3 (shares the normalizer).
 - **Done when.** The Windows PC result (guard allowed a committed-binder edit) reproduces as a
-  deny in `--self-test`.
+  deny in `--self-test`; passes on zbook via PowerShell.
 
 ### G2: Stop, SubagentStop, PostToolUse signaling
 
@@ -249,7 +253,7 @@ order. Source for every fact below is the gap sections and the probes in this do
   `"decision":"block"` on stdout and exit 0 or 2; a clean payload yields no block. A PostToolUse
   finding yields `additionalContext`. A test asserts stdout parses as a single JSON object.
 - **Depends on.** None for the scripts; G1 for the live run.
-- **Done when.** A Stop block from the delivery guard continues the Copilot session.
+- **Done when.** A Stop block from the delivery guard continues the Copilot session; passes on zbook via PowerShell.
 
 ### G1: Native hooks file
 
@@ -273,7 +277,7 @@ order. Source for every fact below is the gap sections and the probes in this do
     draft binder is allowed. SessionStart and Stop hooks fire.
   - Linux: the same run with `copilot -p`.
 - **Depends on.** G16 and G17.
-- **Done when.** The smoke test passes on Linux and on the zbook.
+- **Done when.** The smoke test passes on Linux and on the zbook; passes on zbook via PowerShell.
 
 ### G17: Explicit exit code
 
@@ -283,7 +287,7 @@ order. Source for every fact below is the gap sections and the probes in this do
   zbook, a guard that exits 2 reaches Copilot as 2 (pwsh propagates it), and a Stop guard printing
   `{"decision":"block"}` blocks.
 - **Depends on.** None.
-- **Done when.** No entry can report 1 where the guard exited 2.
+- **Done when.** No entry can report 1 where the guard exited 2; passes on zbook via PowerShell.
 
 ### G4: Repo gates
 
@@ -297,18 +301,18 @@ order. Source for every fact below is the gap sections and the probes in this do
   gates once and is not denied by a `uv` start failure. Linux: the gates run once.
 - **Depends on.** G1.
 - **Done when.** A Windows contributor can run Copilot in a karta checkout without every shell
-  call failing closed.
+  call failing closed; passes on zbook via PowerShell.
 
 ### Summary
 
 |Gap|Files|Acceptance check|Depends on|
 |-|-|-|-|
-|G3|`hooks/scripts/` and `.codex-plugin/hooks/scripts/` Edit-family guards|`--self-test`: patch strings, `\` paths|none|
-|G16|same normalizer|`--self-test`: `{path, file_text}`, `{path, old_str, new_str}`|G3|
-|G2|`.codex-plugin/hooks/scripts/` Stop, SubagentStop, pack-write guards|`--self-test`: one JSON object, `"decision":"block"`|none (live run: G1)|
-|G1|`.github/plugin/hooks.json`, `.github/plugin/plugin.json`, `tests/test_codex_gate_models.py`|zbook and Linux `copilot -p` smoke test|G16, G17|
-|G17|`.github/plugin/hooks.json`, manifest test|exit 2 reaches Copilot as 2; Stop block works|none|
-|G4|`.github/hooks/karta-repo.json`, `.claude/settings.json`|gates run once, no `uv` denial on the zbook|G1|
+|G3|`hooks/scripts/` and `.codex-plugin/hooks/scripts/` Edit-family guards|`--self-test`: patch strings, `\` paths; patch-string cases denied through the `powershell` entry on zbook|none|
+|G16|same normalizer|`--self-test` cases pass; `{path, file_text}` and `{path, old_str, new_str}` edits denied on zbook via PowerShell|G3|
+|G2|`.codex-plugin/hooks/scripts/` Stop, SubagentStop, pack-write guards|`--self-test`: one JSON object, `"decision":"block"`; Stop `{"decision":"block"}` continues the Copilot session on zbook|none (live run: G1)|
+|G1|`.github/plugin/hooks.json`, `.github/plugin/plugin.json`, `tests/test_codex_gate_models.py`|smoke test on zbook (tracked `.karta/binders/test.json` edit denied and unchanged, untracked draft allowed, SessionStart and Stop fire) and on Linux `copilot -p`|G16, G17|
+|G17|`.github/plugin/hooks.json`, manifest test|exit 2 arrives as 2 from pwsh on zbook; Stop block works|none|
+|G4|`.github/hooks/karta-repo.json`, `.claude/settings.json`|repo gates run once under Copilot via PowerShell on zbook with no `uv` denial|G1|
 
 ### G1 (P0) — No hooks wired for Copilot
 
@@ -603,8 +607,8 @@ Same sequence as the [Priority order](#priority-order).
 
 1. P0: G3, G16, G2, G1, G17, G4. Scripts first, testable on Linux; then the native hooks file and
    the G13 unit tests; then the repo gates. Details in the [P0 specification](#p0-specification).
-2. Repeat the Windows run with the fixes in place (G13 smoke test, G20 bench). Only then mark
-   guards "Enforced" in the doc (G14).
+2. Windows (zbook, PowerShell) run: required before any P0 gap is marked done, and before guards
+   are marked "Enforced" in the doc (G14). Includes the G13 smoke test and G20 bench.
 3. P1: G18, G5, G6, G7, G14, G19. G8 when a user wants the cloud agent.
 4. P2: G20, G12, G9, G10, G11, G15.
 
