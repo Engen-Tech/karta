@@ -788,7 +788,7 @@ measurements, the source list, the per-host breakdown, the Go comparison, and th
 
 ---
 
-## 32. the commit gate leaves Python cache files that fail its own next run: *Ready* (filed 2026-10-04)
+## 32. the commit gate leaves Python cache files that fail its own next run: *FIXED 2026-10-04*
 
 **What.** `expected_install_projection()` in `scripts/sync_codex_skills.py` (lines 203-206) walks `.codex-plugin/` and takes every file. The four other walks in that file skip build artifacts through `_is_artifact()` (lines 194, 209, 222, 237); this one does not. So a `__pycache__/*.pyc` under `.codex-plugin/` counts as a file the install projection `plugins/karta/.codex-plugin/` must hold, while `install_projection_files()` filters the same kind of file out of what it finds there. `sync_codex_skills.py --check` compares the two sets (lines 414-418) and reports the cache file as `missing from install projection`. The commit gate plants those files itself. Its `validate_plugin` step runs the `tests/test_audit_*.py` suites, their `load` helper (`tests/test_audit_priority_fixes.py:23`) imports guard scripts as modules, at least one of the loaded scripts is a Codex copy (`tests/test_audit_remaining_fixes.py:21` loads `.codex-plugin/hooks/scripts/guard_binder_immutability.py`), and the gate's interpreter writes bytecode next to what it imports. `scripts/hooks/precommit_gate.py` runs `sync_codex_skills --check` second and `validate_plugin` fourth, so the run that plants the files passes and the next run fails.
 
@@ -796,9 +796,7 @@ measurements, the source list, the per-host breakdown, the Go comparison, and th
 
 **Reproduce.** Verified 2026-10-04 on Linux at `f12650d`, with the interpreter the gate uses (uv Python 3.14.3). With no cache files, `sync_codex_skills.py --check` exits 0. `validate_plugin.py` then passes (231 s here) and leaves `guard_binder_immutability.cpython-314.pyc` and `guard_delivery_stop.cpython-314.pyc` in `.codex-plugin/hooks/scripts/__pycache__/`. The same `--check` now exits 1 and names both files. Deleting the directory returns it to exit 0.
 
-**Fix.** Add `and not _is_artifact(f)` to the walk at `scripts/sync_codex_skills.py:204`, plus a self-test case that puts a `.pyc` under `.codex-plugin/` and expects a clean check. Also consider `sys.dont_write_bytecode = True` in the tests' `load` helper, so the suites stop writing into the shipped tree.
-
-**Until then.** Delete `.codex-plugin/hooks/scripts/__pycache__/` before each commit.
+**Fix.** `expected_install_projection()` now skips build artifacts through `_is_artifact()`, like the other walks. A `--self-test` drill puts a `.pyc` under `__pycache__/` in the synthetic `.codex-plugin/` and expects a clean check; it fails without the filter. Verified on the real tree with uv Python 3.14.3: after `validate_plugin.py` leaves its two cache files, `sync_codex_skills.py --check` still exits 0. Not done: `sys.dont_write_bytecode = True` in the tests' `load` helper, which would stop the suites writing into the shipped tree at all.
 
 ---
 
