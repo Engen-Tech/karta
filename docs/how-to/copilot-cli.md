@@ -61,8 +61,17 @@ See [GitHub's model and effort reference](https://docs.github.com/en/copilot/ref
 
 This integration supplies the shared skills and these two native reviewers.
 It does not certify full Copilot parity with the Claude, Codex, or Pi integrations.
-The Copilot entrypoint declares an empty hook configuration so the CLI does not
-load the incompatible Claude hook manifest by convention.
+The Copilot entrypoint declares its own hook manifest, `.github/plugin/hooks.json`,
+so the CLI does not load the incompatible Claude hook manifest by convention. That
+manifest runs the Codex guard twins in `.codex-plugin/hooks/scripts/`: binder
+immutability, pack-write validation, the two dispatch inspectors, the delivery
+Stop gate, the SubagentStop whiff advisory, and the SessionStart status summary.
+A blocking guard exits 2 with its reason on stderr. The Stop, SubagentStop, and
+PostToolUse guards also write the JSON Copilot reads on stdout: the Stop and
+SubagentStop guards print one `{"decision": "block", "reason": ...}`
+line, and a PostToolUse pack-validation failure prints one
+`{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ...}}`
+line that carries the findings to the model.
 The known gaps, including what blocks wiring karta's guards on Copilot and on
 Windows, are listed in
 [the Copilot parity gap analysis](../backlog/copilot-parity-gaps/FINDINGS.md).
@@ -70,7 +79,7 @@ Windows, are listed in
 The profiles retain read, search, and shell (`execute`) tools for inspecting the
 actual diff. They expose no editing tool, and their prompts forbid writes. Shell
 access is still controlled by Copilot's host permissions, and no Karta
-hook runs on Copilot, so a shell write by a reviewer is stopped only by its
+hook confines the reviewers on Copilot, so a shell write by a reviewer is stopped only by its
 instructions or by what you allow in Copilot's permission prompts: read-only is
 instruction-level here, not an OS-enforced sandbox. This was not exercised against
 a live Copilot session. The existing acceptance assertions, safety checks, and retry
