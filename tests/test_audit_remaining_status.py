@@ -162,7 +162,7 @@ def stop(guard: Path, repo: Repo, session: str = "s1") -> tuple[int, str]:
 
 class Case(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-status-fix-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-status-fix-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
 

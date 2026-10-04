@@ -38,7 +38,7 @@ def py(source: str) -> str:
 
 class OracleCase(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-oracle-fix-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-oracle-fix-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 

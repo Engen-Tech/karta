@@ -76,7 +76,7 @@ def windows_control_skip(command, runnable, why):
 
 class GitRepo(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-reviewer-fix-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-reviewer-fix-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.repos = 0
         self.fresh_repo()
@@ -965,7 +965,7 @@ class CodexReadOnlySandbox(unittest.TestCase):
             self.skipTest("codex CLI not installed")
 
     def test_read_only_profile_denies_a_harmless_write(self):
-        with tempfile.TemporaryDirectory(prefix="gpt-codex-ro-") as d:
+        with tempfile.TemporaryDirectory(prefix="gpt-codex-ro-", ignore_cleanup_errors=True) as d:
             p = self.run_in(":read-only", d)
             if "panicked" in p.stderr or "No such file" in p.stderr:
                 self.skipTest("codex sandbox cannot start here: " + p.stderr[-300:])
@@ -973,7 +973,7 @@ class CodexReadOnlySandbox(unittest.TestCase):
             self.assertFalse((Path(d) / "probe").exists())
 
     def test_workspace_profile_positive_control_writes(self):
-        with tempfile.TemporaryDirectory(prefix="gpt-codex-ww-") as d:
+        with tempfile.TemporaryDirectory(prefix="gpt-codex-ww-", ignore_cleanup_errors=True) as d:
             p = self.run_in(":workspace", d)
             if p.returncode != 0:
                 self.skipTest("codex workspace sandbox cannot start here: " + p.stderr[-300:])
