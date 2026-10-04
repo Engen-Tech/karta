@@ -671,6 +671,9 @@ PowerShell `-Command` flattens a native non-zero exit to 1, so the verdict reads
 rather than a deny. The outcome is the same, because hooks fail closed. This is why every
 `powershell` entry must end with `exit $LASTEXITCODE` via `launch_hook.ps1`.
 
+**Provenance.** The orchestrator ran this acceptance itself and recorded it in aa66970 and
+695d93d. The item was closed by operator accept-waiver on 2026-10-04.
+
 ### Summary
 
 |Gap|Files|Acceptance check|Depends on|
