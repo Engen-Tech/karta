@@ -365,7 +365,7 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 |G1|No hooks wired for Copilot|Done, verified on zbook via PowerShell 2026-10-03|M|needs a `powershell` launcher|
 |G2|Stop, SubagentStop, and PostToolUse guards signal with exit 2|P0|S|same fix on both|
 |G3|Edit guards ignore patch-string `tool_input`|Done, verified on zbook via PowerShell 2026-10-03|S|`\` separators in patch paths; the PC sent dicts in one run and a patch string under `Edit` in another|
-|G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|Done, verified on zbook via PowerShell 2026-10-04|S|errored on the runner; `uv` could not start from a hook on the PC|
+|G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|Done on the karta gates, verified on zbook via PowerShell 2026-10-04; shell calls in a karta checkout stay blocked upstream by copilot-cli#4001|S|errored on the runner; `uv` could not start from a hook on the PC|
 |G5|SessionStart status uses Claude output conventions|P1|S|none|
 |G6|Three of five agents have no Copilot profile|P1|S|none|
 |G7|Writer confinement has no Copilot writer to recognize|P1|M|Bash parser must also read PowerShell|
@@ -680,7 +680,7 @@ rather than a deny. The outcome is the same, because hooks fail closed. This is 
 |G2|`.codex-plugin/hooks/scripts/` Stop, SubagentStop, pack-write guards|`--self-test`: one JSON object, `"decision":"block"`; Stop `{"decision":"block"}` continues the Copilot session on zbook|none (live run: G1)|
 |G1|`.github/plugin/hooks.json`, `.github/plugin/plugin.json`, `tests/test_codex_gate_models.py`|smoke test on zbook (tracked `.karta/binders/test.json` edit denied and unchanged, untracked draft allowed, SessionStart and Stop fire) and on Linux `copilot -p`|G16, G17|
 |G17|`.github/plugin/hooks.json`, manifest test|exit 2 arrives as 2 from pwsh on zbook; Stop block works|none|
-|G4|`.github/hooks/karta-repo.json`, `.claude/settings.json`|repo gates run once under Copilot via PowerShell on zbook with no `uv` denial|G1|
+|G4|`.github/hooks/karta-repo.json`, `.claude/settings.json`|repo gates run once under Copilot via PowerShell on zbook through `.github/hooks/karta-repo.json`, the supported Windows path; the `.claude/settings.json` `uv` denial is an upstream Copilot CLI defect (#4001), not a karta acceptance failure|G1|
 
 ### G1 (done) — No hooks wired for Copilot: verified on zbook via PowerShell 2026-10-03
 
@@ -777,6 +777,11 @@ Claude file firing a second time under Copilot. Two options: make its `command` 
 shells, or tell Copilot users to set `disableAllHooks` for that source. Pick one and test it on
 Windows (G13). Also note that a hook timeout fails **open** on Copilot, unlike Claude, so a gate
 that runs past its timeout lets the commit through.
+
+**Done when.** Both gates pass under Copilot via PowerShell on zbook through
+`.github/hooks/karta-repo.json`, the supported Windows path. The remaining `.claude/settings.json`
+`uv` denial is an upstream Copilot CLI defect (#4001); see
+[G4 acceptance on zbook](#g4-acceptance-on-zbook-2026-10-04).
 
 ### G5 (P1) — SessionStart status uses Claude output conventions
 
