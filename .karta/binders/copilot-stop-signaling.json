@@ -1,0 +1,105 @@
+{
+  "slug": "copilot-stop-signaling",
+  "title": "Copilot: Stop/SubagentStop block JSON is tested, and the pack guard feeds PostToolUse findings back through additionalContext",
+  "summary": "Lock in the stdout JSON decision the Codex Stop and SubagentStop twins already emit with a dedicated test, and give the Codex pack guard a Copilot-readable PostToolUse channel (hookSpecificOutput.additionalContext) so a malformed pack is fed back to the model instead of landing as a warning Copilot ignores.",
+  "motivation": "FINDINGS.md G2 (P0). Copilot treats exit 2 as a warning on every event except preToolUse, permissionRequest and postToolUseFailure; a Stop or PostToolUse guard that relies on exit 2 alone does nothing. The Stop twins (guard_delivery_stop.py, guard_subagent_whiff.py) already print {\"decision\":\"block\",\"reason\":...} and exit 2, but no test outside their own --self-test pins that stdout shape, so a refactor could drop it silently. guard_pack_write.py has no stdout channel at all on PostToolUse, so under Copilot a broken stack pack is written and the model moves on.",
+  "scope": {
+    "included": [
+      "tests/test_copilot_stop_signaling.py: for both Stop twins, a blocking payload yields exactly one JSON object on stdout with decision=block and a non-empty reason, exit 2; a clean payload yields empty stdout and exit 0; the plugins/karta/.codex-plugin mirror behaves identically",
+      ".codex-plugin/hooks/scripts/guard_pack_write.py (and its mirror): on PostToolUse findings, print one JSON object {\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":<findings>}} on stdout, keep the findings on stderr and exit 2; PreToolUse deny path unchanged",
+      "--self-test cases in guard_pack_write.py for the new stdout shape"
+    ],
+    "excluded": [
+      "Claude-side hooks/scripts/* (Claude Code reads exit 2 + stderr natively)",
+      "G4 repo gates (.claude/settings.json / .github/hooks) — separate binder copilot-repo-gates",
+      "Any change to the Copilot plugin manifest .github/plugin/hooks.json",
+      "Live Windows acceptance (covered by the copilot-repo-gates zbook item, which also exercises this binder's outputs)"
+    ]
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-invariants"
+  ],
+  "token_manifest": null,
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      },
+      {
+        "name": "git",
+        "version": ">=2.30"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "g2-stop-signaling-tests",
+      "title": "A unittest pins the stdout JSON block decision of guard_delivery_stop.py and guard_subagent_whiff.py",
+      "summary": "Add tests/test_copilot_stop_signaling.py so the Copilot-visible stdout contract of both Codex Stop twins is checked by the repo test suite, not only by each script's --self-test.",
+      "estimate": "S",
+      "depends_on": [],
+      "design_reference": "none",
+      "touches": [
+        "tests/test_copilot_stop_signaling.py"
+      ],
+      "contract": "CREATE tests/test_copilot_stop_signaling.py (unittest, stdlib only, follows tests/test_copilot_hooks_manifest.py style). For each of .codex-plugin/hooks/scripts/guard_delivery_stop.py and .codex-plugin/hooks/scripts/guard_subagent_whiff.py, and for each one's mirror under plugins/karta/.codex-plugin/hooks/scripts/: (1) BLOCK: run the script as a subprocess (python3 <script>, env CLAUDE_PLUGIN_ROOT=repo root, cwd=a temp git fixture) with a payload that the script's own fixtures treat as blocking — reuse the fixture-building helper each script already exposes for its --self-test (load the module via importlib.util.spec_from_file_location and call that helper) rather than inventing a second fixture; assert returncode == 2, stdout.strip() parses as exactly one JSON object (json.loads succeeds on the whole stripped stdout, and stdout has exactly one non-empty line), obj['decision'] == 'block', obj['reason'] is a non-empty str. (2) CLEAN: a payload the script treats as clean yields returncode 0 and stdout.strip() == ''. (3) STOP_HOOK_ACTIVE: a blocking payload with 'stop_hook_active': true still returns a well-formed JSON object on stdout (Copilot stops forcing continuation after 8 blocks; the guard must not emit malformed output then). If a script has no reusable fixture helper, build the minimal git fixture inline and say so in a comment. No new dependencies.",
+      "surface": {
+        "flagged": false,
+        "signals": [
+          "contract:the-stdout-json-shape-is-the-copilot-stop-hook-interface-and-this-test-is-its-only-cross-script-pin"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "python3 -m unittest tests.test_copilot_stop_signaling passes with at least 8 tests (2 scripts x 2 copies x block/clean) and prints OK",
+          "the four Python gates stay clean: validate_plugin.py --self-test ends in PLUGIN INTEGRITY: PASS"
+        ],
+        "command": "sh -c 'set -e; python3 -m unittest -v tests.test_copilot_stop_signaling 2>&1 | tee /tmp/g2-stop.log; grep -q \"^OK\" /tmp/g2-stop.log; python3 -c \"import re;t=open(\\\"/tmp/g2-stop.log\\\").read();m=re.search(r\\\"Ran (\\\\d+) tests\\\",t);assert m and int(m.group(1))>=8,t[-300:]\"; uv run scripts/validate_plugin.py --self-test'",
+        "expect": "PLUGIN INTEGRITY: PASS"
+      }
+    },
+    {
+      "id": "g2-pack-guard-additional-context",
+      "title": "guard_pack_write.py (Codex twin) feeds PostToolUse findings back through hookSpecificOutput.additionalContext",
+      "summary": "On a PostToolUse validator failure, the Codex pack guard prints one JSON object with hookSpecificOutput.additionalContext carrying the findings, alongside the existing stderr message and exit 2, so Copilot injects the findings into the model's context.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "touches": [
+        ".codex-plugin/hooks/scripts/guard_pack_write.py",
+        "plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py"
+      ],
+      "contract": "EDIT .codex-plugin/hooks/scripts/guard_pack_write.py; keep it a single stdlib-only file. In main(): when decide() returns code 2 AND the payload's hook_event_name is 'PostToolUse', print to stdout exactly one line: json.dumps({\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": reason}}) and keep printing reason to stderr and returning 2. When hook_event_name is 'PreToolUse' and code is 2, stdout stays empty (Copilot honors exit 2 as deny there; a stdout object would be redundant). Clean path (code 0) prints nothing. The fail-open except branch is unchanged. ADD --self-test cases: (a) PostToolUse findings -> stdout parses as one JSON object with hookSpecificOutput.hookEventName == 'PostToolUse' and additionalContext == the stderr reason; (b) PreToolUse deny -> stdout empty; (c) clean -> stdout empty. Update the module docstring's PostToolUse bullet to name the additionalContext channel. Then make plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py byte-identical (cp), as scripts/check_shared_copies.py requires. Do not touch the Claude-side hooks/scripts/guard_pack_write.py.",
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:this-is-an-enforcement-guard-and-its-stdout-is-parsed-by-copilot-so-a-second-line-or-a-non-json-byte-breaks-the-channel",
+          "shared-copy:plugins/karta/.codex-plugin-mirror-must-stay-byte-identical"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "assertions": [
+          "guard_pack_write.py --self-test exits zero and its N/N summary parses, N at least 3 more than before the change",
+          "POSITIVE CONTROL: a PostToolUse payload naming a malformed pack file inside a temp fixture exits 2, stderr names the pack, and stdout is exactly one JSON object whose hookSpecificOutput.additionalContext equals the stderr text",
+          "a PreToolUse Write payload with the same malformed content exits 2 with empty stdout",
+          "scripts/check_shared_copies.py --self-test passes (mirror byte-identical)",
+          "validate_plugin.py --self-test ends in PLUGIN INTEGRITY: PASS"
+        ],
+        "command": "sh -c 'set -e; T=.codex-plugin/hooks/scripts/guard_pack_write.py; CLAUDE_PLUGIN_ROOT=\"$PWD\" python3 \"$T\" --self-test; cmp \"$T\" plugins/karta/.codex-plugin/hooks/scripts/guard_pack_write.py; python3 scripts/check_shared_copies.py --self-test; uv run scripts/validate_plugin.py --self-test'",
+        "expect": "PLUGIN INTEGRITY: PASS"
+      }
+    }
+  ]
+}

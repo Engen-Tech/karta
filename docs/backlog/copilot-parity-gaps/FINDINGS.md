@@ -2,7 +2,8 @@
 
 Subject: what karta ships for GitHub Copilot (CLI and cloud agent) against what Copilot can now do,
 with Windows treated as a first-class host. Baseline commit `0dc65d9`. Researched 2026-10-03
-against Copilot CLI **1.0.92** (changelog head: 1.0.91, 2026-10-01).
+against Copilot CLI **1.0.92** (changelog head: 1.0.91, 2026-10-01). Status last updated
+2026-10-04 at main `f12650d`.
 
 Method:
 
@@ -179,14 +180,25 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 
 Execution order within each tier. Done: G13, G3, G16, G17, G1.
 
-**P0**
+**Landed on main.** G1, G16, G17 and the Codex side of G3 landed in `d18a7aa` (2026-10-03). The
+Claude side of G3 landed in `f12650d` (2026-10-04) through binder
+`copilot-patch-input-claude-guards`: `hooks/scripts/guard_pack_write.py` and
+`guard_binder_immutability.py` judge a patch-string `tool_input`, with self-tests, and
+`docs/how-to/hooks.md` describes the behaviour. The archived binder is in
+`.karta/binders/archive/`. Still owed from that delivery: a live Claude-side guard run under
+Copilot on zbook, folded into G4's acceptance.
 
-1. G3 — Patch-string `tool_input`
-2. G16 — `path` and `file_text` payload keys
-3. G2 — Stop, SubagentStop, PostToolUse signaling
-4. G1 — Native hooks file for Copilot
-5. G17 — Explicit `exit $LASTEXITCODE`
-6. G4 — Repo `.claude/settings.json` gates
+**P0 — remaining**
+
+1. G2 — Stop, SubagentStop, PostToolUse signaling
+2. G4 — Repo `.claude/settings.json` gates
+
+**P0 — done**
+
+- G3 — Patch-string `tool_input`
+- G16 — `path` and `file_text` payload keys
+- G1 — Native hooks file for Copilot
+- G17 — Explicit `exit $LASTEXITCODE`
 
 **P1**
 
@@ -659,8 +671,9 @@ backlog entry 29.
 
 Same sequence as the [Priority order](#priority-order).
 
-1. P0: G3, G16, G2, G1, G17, G4. Scripts first, testable on Linux; then the native hooks file and
-   the G13 unit tests; then the repo gates. Details in the [P0 specification](#p0-specification).
+1. P0 remaining: G2, then G4. G3, G16, G1 and G17 are done and on main (`f12650d`). G2 is
+   script-only and testable on Linux first; G4 needs the live zbook run and carries the owed
+   Claude-side guard check. Details in the [P0 specification](#p0-specification).
 2. Windows (zbook, PowerShell) run: required before any P0 gap is marked done, and before guards
    are marked "Enforced" in the doc (G14). Includes the G13 smoke test and G20 bench.
 3. P1: G18, G5, G6, G7, G14, G19. G8 when a user wants the cloud agent.

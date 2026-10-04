@@ -1,0 +1,143 @@
+{
+  "slug": "copilot-repo-gates",
+  "title": "Copilot: karta's repo commit gates run once, in both shells, from a native .github/hooks manifest",
+  "summary": "Add .github/hooks/karta-repo.json so Copilot runs precommit_gate.py and roundtable_gate.py through bash and PowerShell entries, make both gates skip themselves when Copilot invokes them from the legacy .claude/settings.json source so they do not fire twice, and prove it with a live PowerShell run on the zbook.",
+  "motivation": "FINDINGS.md G4 (P0). Copilot reads .claude/settings.json as a repo hook source and also any .github/hooks/*.json. A Linux probe on 2026-10-04 (/home/dev/g4probe) confirmed both sources fire on the same shell call with tool_name 'Bash' and a string command, and that COPILOT_CLI=1 and COPILOT_PROJECT_DIR are set in the hook env. On Windows the .claude/settings.json command is copied to PowerShell and uv could not start from a hook on the zbook, so every shell call in a karta checkout can be denied. The gates need a native manifest that works in both shells and a way to run once.\n\nProbe facts: Copilot PreToolUse payload for its shell tool: tool_name 'Bash', tool_input {command: str, description, mode, initial_wait}; precommit_gate.py and roundtable_gate.py already accept this shape unchanged; Copilot hook env includes COPILOT_CLI=1, COPILOT_PROJECT_DIR and CLAUDE_PROJECT_DIR (both = repo path), and the native hooks schema accepts a per-entry env map (zbook probe 2026-10-03); Native schema entries need bash AND powershell; on Windows only powershell runs; {{project_dir}} is not expanded, $env:COPILOT_PROJECT_DIR is; every powershell entry ends with '; exit $LASTEXITCODE'; A hook timeout fails OPEN on Copilot (unlike Claude Code); Both gates are '# /// script' stdlib-only files, so plain python3 runs them; .codex-plugin/hooks/launch_hook.ps1 <script> GitTop already resolves a real CPython and the git top level on Windows.",
+  "scope": {
+    "included": [
+      "scripts/hooks/precommit_gate.py and scripts/hooks/roundtable_gate.py: exit 0 with no output when env COPILOT_CLI is set and env KARTA_HOOK_SOURCE is not 'copilot' (the legacy .claude/settings.json path under Copilot)",
+      ".github/hooks/karta-repo.json: native-schema PreToolUse Bash entries for both gates with bash + powershell commands, env KARTA_HOOK_SOURCE=copilot, timeoutSec 900/600",
+      "tests/test_copilot_repo_hooks_manifest.py covering the new manifest (both shells, env set, exit $LASTEXITCODE, no {{ templates, no uv)",
+      "docs/how-to/copilot-cli.md and docs/how-to/hooks.md: one short paragraph each on the repo gates under Copilot and the fail-open timeout",
+      "Live zbook acceptance run (flagged; on explicit request)"
+    ],
+    "excluded": [
+      ".claude/settings.json stays as is (Claude Code path unchanged)",
+      "Any change to gate decision logic beyond the short-circuit",
+      "Policy-level disableAllHooks (documented only if the zbook run shows the Claude entry still errors under PowerShell)",
+      "G2 Stop/PostToolUse signaling (binder copilot-stop-signaling)"
+    ]
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-invariants"
+  ],
+  "token_manifest": null,
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      },
+      {
+        "name": "git",
+        "version": ">=2.30"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "g4-gate-copilot-short-circuit",
+      "title": "Both repo gates run once under Copilot: the legacy .claude/settings.json invocation exits 0 when KARTA_HOOK_SOURCE is not 'copilot'",
+      "summary": "Add a single env check to hook_main() in precommit_gate.py and roundtable_gate.py so the copy of the gate that Copilot launches from .claude/settings.json is a silent no-op, leaving the .github/hooks/karta-repo.json copy as the one that decides.",
+      "estimate": "S",
+      "depends_on": [],
+      "design_reference": "none",
+      "touches": [
+        "scripts/hooks/precommit_gate.py",
+        "scripts/hooks/roundtable_gate.py",
+        "tests/test_copilot_gate_short_circuit.py"
+      ],
+      "contract": "EDIT hook_main(stdin_text, env, ...) in both gates: as the first statement, if env.get('COPILOT_CLI') and env.get('KARTA_HOOK_SOURCE') != 'copilot': return 0, ''. Put it in hook_main (which already receives env) not main(), so it is unit-testable with a dict. Nothing else in either gate changes. Under Claude Code COPILOT_CLI is unset so behavior is identical. ADD a --self-test case in each gate: env {'COPILOT_CLI':'1'} with a committing payload -> (0, ''); env {'COPILOT_CLI':'1','KARTA_HOOK_SOURCE':'copilot'} -> the gate's normal decision; env {} -> normal decision. CREATE tests/test_copilot_gate_short_circuit.py (unittest, stdlib) that imports both modules by path and asserts the three env cases for each, using a payload that each gate's own self-test treats as a blocking git commit (reuse its fixture helper if one exists, else a stub runner/git callable that returns the blocking state).",
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:a-wrong-short-circuit-silently-disables-the-commit-gate-under-copilot",
+          "contract:KARTA_HOOK_SOURCE-is-a-new-env-name-shared-with-the-manifest-item"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "python3 -m unittest tests.test_copilot_gate_short_circuit prints OK with at least 6 tests",
+          "both gates' --self-test exit zero and their N/N summaries parse",
+          "validate_plugin.py --self-test ends in PLUGIN INTEGRITY: PASS"
+        ],
+        "command": "sh -c 'set -e; python3 -m unittest -v tests.test_copilot_gate_short_circuit 2>&1 | tee /tmp/g4-sc.log; grep -q \"^OK\" /tmp/g4-sc.log; python3 scripts/hooks/precommit_gate.py --self-test; python3 scripts/hooks/roundtable_gate.py --self-test; uv run scripts/validate_plugin.py --self-test'",
+        "expect": "PLUGIN INTEGRITY: PASS"
+      }
+    },
+    {
+      "id": "g4-repo-hooks-manifest",
+      "title": ".github/hooks/karta-repo.json runs both repo gates from bash and PowerShell with KARTA_HOOK_SOURCE=copilot",
+      "summary": "Create the native-schema repo hooks manifest for the two commit gates, with a test that pins both-shell coverage, the env marker, explicit PowerShell exit codes and no uv or template placeholders, plus a short docs note.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "touches": [
+        ".github/hooks/karta-repo.json",
+        "tests/test_copilot_repo_hooks_manifest.py",
+        "docs/how-to/copilot-cli.md",
+        "docs/how-to/hooks.md"
+      ],
+      "contract": "CREATE .github/hooks/karta-repo.json: {\"version\":1,\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[<precommit entry>,<roundtable entry>]}]}}. Each entry: type 'command'; env {\"KARTA_HOOK_SOURCE\":\"copilot\"}; timeoutSec 900 for precommit_gate.py and 600 for roundtable_gate.py; bash = sh -c 'r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"; g=\"$r/scripts/hooks/<gate>.py\"; [ -n \"$r\" ] && [ -f \"$g\" ] && exec python3 \"$g\"; exit 0' (fail-open launcher, same posture as .codex/hooks.json); powershell = & \"$env:COPILOT_PROJECT_DIR\\.codex-plugin\\hooks\\launch_hook.ps1\" \"scripts/hooks/<gate>.py\" GitTop; exit $LASTEXITCODE. No uv anywhere; no {{...}} placeholders. Add a top-level \"description\" string naming the two gates and the once-only rule (KARTA_HOOK_SOURCE). CREATE tests/test_copilot_repo_hooks_manifest.py modeled on tests/test_copilot_hooks_manifest.py: valid JSON with version 1; exactly one PreToolUse group with matcher 'Bash'; both gate scripts named in both bash and powershell fields; every entry has env.KARTA_HOOK_SOURCE == 'copilot', a timeoutSec, powershell ending in '; exit $LASTEXITCODE', no '{{' in either field, no 'uv ' in either field; the referenced scripts exist. DOCS: in docs/how-to/copilot-cli.md add one paragraph under the hooks/plugin section saying the repo gates run from .github/hooks/karta-repo.json, that the .claude/settings.json copies are no-ops under Copilot via KARTA_HOOK_SOURCE, and that a timeout fails open on Copilot; in docs/how-to/hooks.md add one sentence pointing at that paragraph. Keep both docs additions under 120 words total.",
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "contract:the-native-hooks-schema-and-env-field-are-owned-by-copilot-cli-and-grounded-by-the-zbook-and-linux-probes",
+          "sensitive:the-powershell-entry-cannot-be-run-on-linux-so-its-correctness-rests-on-the-zbook-item"
+        ]
+      },
+      "oracle": {
+        "type": "unit",
+        "assertions": [
+          "python3 -m unittest tests.test_copilot_repo_hooks_manifest prints OK",
+          "LIVE LINUX: in a trusted temp clone of the worktree, copilot -p 'run: git commit --allow-empty -m probe' with --allow-all-tools reaches precommit_gate.py exactly once (the gate's decision text appears once in the log dir) \u2014 the executor records the count in the item notes if copilot is on PATH, else states it was skipped",
+          "validate_plugin.py --self-test ends in PLUGIN INTEGRITY: PASS"
+        ],
+        "command": "sh -c 'set -e; python3 -m unittest -v tests.test_copilot_repo_hooks_manifest 2>&1 | tee /tmp/g4-mf.log; grep -q \"^OK\" /tmp/g4-mf.log; python3 -c \"import json;json.load(open(\\\".github/hooks/karta-repo.json\\\"))\"; uv run scripts/validate_plugin.py --self-test'",
+        "expect": "PLUGIN INTEGRITY: PASS"
+      }
+    },
+    {
+      "id": "g4-zbook-acceptance",
+      "title": "Live PowerShell run on the zbook: the commit gate fires once from karta-repo.json and the .claude/settings.json entry does not deny shell calls",
+      "summary": "Run Copilot CLI in the zbook karta checkout on main after the other items merge, confirm the gate decision appears once per commit attempt, confirm an ordinary shell call is not denied by the legacy Claude entry, and record the outcome in FINDINGS.md G4; also run the owed G3 Claude-side live check in the same session.",
+      "estimate": "S",
+      "depends_on": [
+        "g4-gate-copilot-short-circuit",
+        "g4-repo-hooks-manifest"
+      ],
+      "design_reference": "none",
+      "touches": [
+        "docs/backlog/copilot-parity-gaps/FINDINGS.md"
+      ],
+      "contract": "RUN ONLY ON EXPLICIT REQUEST (needs ssh to the zbook: ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519_karta-win -o BatchMode=yes Developer@100.71.47.15; checkout C:\\Users\\Developer\\src\\karta; pwsh 7.6.6; C:\\Python314\\python.exe; Copilot CLI 1.0.92-3). Steps: git pull --ff-only main; run copilot -p 'Run the shell command: git commit --allow-empty -m probe' --allow-all-tools --no-ask-user --log-dir <dir> --log-level all; then copilot -p 'Run the shell command: echo ok' with the same flags. Record: (1) how many times a gate decision line appears per commit attempt (expected 1); (2) whether the echo call was denied (expected not); (3) if the .claude/settings.json entry still errors under PowerShell and denies, record it and add the disableAllHooks note to docs/how-to/copilot-cli.md as the documented workaround. Also perform the G3 owed check: in a consumer-style temp repo on the zbook, a .claude/settings.json routing Edit|Write to hooks/scripts/guard_binder_immutability.py, confirm a patch-string edit of a committed binder is denied. Write results into FINDINGS.md G4 (and G3 live-check line) as plain fact lines with the date.",
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "external:needs-live-ssh-to-zbook-and-a-copilot-login-there",
+          "sensitive:this-is-the-only-check-that-runs-the-powershell-entries"
+        ]
+      },
+      "oracle": {
+        "type": "e2e",
+        "assertions": [
+          "zbook log dir shows the precommit gate decision exactly once per commit attempt",
+          "the plain echo shell call is allowed",
+          "FINDINGS.md G4 section carries a dated result line"
+        ],
+        "command": "sh -c 'grep -q \"zbook\" docs/backlog/copilot-parity-gaps/FINDINGS.md && grep -A40 \"### G4\" docs/backlog/copilot-parity-gaps/FINDINGS.md | grep -qi \"2026-\" && echo G4-ZBOOK-RECORDED'",
+        "expect": "G4-ZBOOK-RECORDED"
+      }
+    }
+  ]
+}
