@@ -90,3 +90,12 @@ run `uv run scripts/sync_codex_agents.py` and `uv run scripts/sync_codex_skills.
 The first generator also derives the Copilot plugin version from the Claude
 manifest. Its `--check` mode and the plugin validator detect projection drift.
 Run `python3 tests/test_codex_gate_models.py` for model propagation regressions.
+
+### Hook environment
+
+Copilot CLI runs the repo hooks in `.github/hooks/karta-repo.json` with
+`GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.bareRepository` and
+`GIT_CONFIG_VALUE_0=explicit` in their environment. This setting only limits
+which bare repositories git will open, so the commit gates allow it. They still
+deny any other `GIT_CONFIG_*` injection, a malformed or missing pair, and
+`GIT_CONFIG_PARAMETERS`.
