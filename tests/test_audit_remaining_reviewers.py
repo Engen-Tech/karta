@@ -752,6 +752,57 @@ class ReviewerWriteProtection(GitRepo):
         self.assertEqual(0, p.returncode, p.stdout[-2000:])
 
 
+def _load_guard():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("guard_writer_confinement_under_test", GUARD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class ReviewerWindowsPaths(unittest.TestCase):
+    """On Windows the harness shell is PowerShell or cmd, where a backslash is an
+    ordinary character; a reviewer's `git -C C:\\...` must keep its path."""
+
+    def setUp(self):
+        self.guard = _load_guard()
+
+    def words(self, command, literal):
+        commands, err = self.guard._reviewer_lex(command, literal_backslash=literal)
+        self.assertIsNone(err)
+        return [[self.guard._plain(w) for w in c["words"]] for c in commands]
+
+    def test_windows_lexer_keeps_backslashes(self):
+        path = r"C:\Users\Developer\src\temp\x\same-repo-wt"
+        self.assertEqual(self.words(f"git -C {path} diff HEAD~0", True),
+                         [["git", "-C", path, "diff", "HEAD~0"]])
+        self.assertEqual(self.words(f'git -C "{path}" status', True),
+                         [["git", "-C", path, "status"]])
+        self.assertEqual(self.words("git log C:\\", True), [["git", "log", "C:\\"]])
+
+    def test_windows_lexer_still_refuses_expansion(self):
+        for cmd in ("git -C $env:TEMP diff", "git -C `whoami` diff", 'git -C "a$b" diff'):
+            with self.subTest(cmd=cmd):
+                _, err = self.guard._reviewer_lex(cmd, literal_backslash=True)
+                self.assertIsNotNone(err)
+
+    def test_posix_lexer_is_unchanged(self):
+        self.assertEqual(self.words(r"git -C C:\Users\x diff", False),
+                         [["git", "-C", "C:Users" "x", "diff"]])
+        _, err = self.guard._reviewer_lex("git log \\", literal_backslash=False)
+        self.assertEqual(err, "a trailing backslash")
+
+    def test_path_key_folds_case_and_separators_on_windows(self):
+        import ntpath
+        import posixpath
+        key = self.guard._path_key
+        self.assertEqual(key("C:/Users/Developer/wt", ntpath),
+                         key(r"c:\users\developer\wt", ntpath))
+        self.assertEqual(key("C:/Users/Developer/wt/", ntpath),
+                         key(r"C:\Users\Developer\wt", ntpath))
+        self.assertNotEqual(key("/tmp/Repo", posixpath), key("/tmp/repo", posixpath))
+
+
 class ReviewerHookRouting(unittest.TestCase):
     """hooks.json must route every reviewer write tool to the guard."""
 
