@@ -553,7 +553,8 @@ def _analyze(command: str, cwd: object, depth: int = 0) -> tuple[list[str], list
     return targets, ambiguities
 
 
-def _reviewer_lex(command: str) -> tuple[list[dict], str | None]:
+def _reviewer_lex(command: str,
+                  literal_backslash: bool | None = None) -> tuple[list[dict], str | None]:
     """Split a reviewer's command into simple commands, or name what stops that.
 
     A deliberately small shell reader for the allowlist: plain words with single
@@ -563,7 +564,13 @@ def _reviewer_lex(command: str) -> tuple[list[dict], str | None]:
     background jobs, `|&`, case separators — returns a reason instead, because the
     reader does not model it; so does a `#` comment, since whether one starts depends on
     the shell's options. Each word keeps a per-character quoted flag so glob and
-    brace characters are judged only where the shell would expand them."""
+    brace characters are judged only where the shell would expand them.
+
+    On Windows (`literal_backslash` defaults to `os.name == "nt"`) the harness runs
+    the command through PowerShell or cmd, where a backslash is an ordinary character,
+    so `C:\\Users\\x` stays one path. Backticks and `$` are still refused."""
+    if literal_backslash is None:
+        literal_backslash = os.name == "nt"
     commands: list[dict] = [{"words": [], "redirs": []}]
     n = len(command)
     i = 0
@@ -593,14 +600,15 @@ def _reviewer_lex(command: str) -> tuple[list[dict], str | None]:
                     if ch in "$`":
                         return chars, i, (f"`{ch}` inside double quotes expands to text "
                                           "this check cannot see")
-                    if ch == "\\" and i + 1 < n and command[i + 1] in '$`"\\\n':
+                    if (ch == "\\" and not literal_backslash and i + 1 < n
+                            and command[i + 1] in '$`"\\\n'):
                         if command[i + 1] != "\n":
                             chars.append((command[i + 1], True))
                         i += 2
                         continue
                     chars.append((ch, True))
                     i += 1
-            elif c == "\\":
+            elif c == "\\" and not literal_backslash:
                 if i + 1 >= n:
                     return chars, i, "a trailing backslash"
                 if command[i + 1] != "\n":
@@ -620,7 +628,8 @@ def _reviewer_lex(command: str) -> tuple[list[dict], str | None]:
         if c in " \t":
             i += 1
             continue
-        if c == "\\" and i + 1 < n and command[i + 1] == "\n":
+        if (c == "\\" and not literal_backslash and i + 1 < n
+                and command[i + 1] == "\n"):
             i += 2  # line continuation
             continue
         if c == "#":
@@ -715,6 +724,13 @@ def _flag_words(args: list[str]) -> list[str]:
     return out
 
 
+def _path_key(path: str, pathmod=os.path) -> str:
+    """A comparison key for a resolved directory: on Windows, drive-letter case, letter
+    case and `/` versus `\\` do not name a different directory (`git worktree list`
+    prints `C:/...`). On POSIX this is the path itself."""
+    return pathmod.normcase(pathmod.normpath(path))
+
+
 def _reviewer_roots(cwd: object) -> list[str]:
     """Where a reviewer's `git -C` may point: the working directory itself and the top
     level of every worktree of its repository — never a directory below one, which may
@@ -749,7 +765,7 @@ def _reviewer_git(args: list[str], cwd: object) -> str | None:
                 return f"`git -C {d}` cannot be resolved against the working directory"
             # git applies each `-C` relative to the one before it.
             base = os.path.realpath(d if _isabs(d) else os.path.join(base or roots[0], d))
-            if base not in roots:
+            if _path_key(base) not in {_path_key(r) for r in roots}:
                 return (f"`git -C {d}` is outside the working directory and the top "
                         "levels of this repository's worktrees (a directory below one may "
                         "be another repository with its own config)")
@@ -1341,7 +1357,26 @@ def _run_self_test() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
         failures += 0 if ok else 1
 
-    total = len(cases)
+    # Windows harness shells (PowerShell, cmd) treat a backslash as a plain character.
+    import ntpath
+    win = r"C:\Users\x\wt"
+    lexed, err = _reviewer_lex(f"git -C {win} diff", literal_backslash=True)
+    pure = [
+        ("reviewer lexer keeps a Windows path whole on nt",
+         err is None and [_plain(w) for w in lexed[0]["words"]] == ["git", "-C", win, "diff"]),
+        ("reviewer lexer on nt still refuses `$` and backticks",
+         all(_reviewer_lex(c, literal_backslash=True)[1]
+             for c in ("git -C $env:TEMP diff", "git -C `x` diff"))),
+        ("reviewer lexer on POSIX still treats a backslash as an escape",
+         _reviewer_lex("git log \\", literal_backslash=False)[1] == "a trailing backslash"),
+        ("worktree containment folds case and separators on Windows",
+         _path_key("C:/Users/X/wt", ntpath) == _path_key(r"c:\users\x\wt", ntpath)),
+    ]
+    for name, ok in pure:
+        print(f"[{'PASS' if ok else 'FAIL'}] {name}")
+        failures += 0 if ok else 1
+
+    total = len(cases) + len(pure)
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 

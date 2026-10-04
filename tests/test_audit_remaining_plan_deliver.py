@@ -69,7 +69,7 @@ print("VALID" if not errs else "INVALID " + "; ".join(e.message for e in errs))
 
 class SchemaAgreement(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-f11-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-f11-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
 
@@ -196,7 +196,7 @@ class SchemaAgreement(unittest.TestCase):
 
 class RepoCase(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-pd-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-pd-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
         self.root = self.base / "repo"

@@ -13,7 +13,7 @@
             "env": {
               "KARTA_HOOK_SOURCE": "copilot"
             },
-            "timeoutSec": 900
+            "timeoutSec": 1200
           },
           {
             "type": "command",

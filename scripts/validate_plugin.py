@@ -6,10 +6,18 @@
 
 Usage:
   uv run scripts/validate_plugin.py --self-test   # check this repo, exit 0/1
+
+Concurrency: every gated script's --self-test and every tests/test_audit_*.py suite
+is an independent child process, so they run on a thread pool while check() does
+its in-process work; errors are still reported in the serial order. The pool size
+is min(8, max(2, os.cpu_count())); set KARTA_VALIDATE_JOBS=<int> to override it,
+and KARTA_VALIDATE_JOBS=1 to restore the fully serial path.
 """
 from __future__ import annotations
 import argparse, ast, json, os, re, shlex, subprocess, sys, tomllib
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
@@ -2285,6 +2293,81 @@ def _self_test() -> int:
             total += 1
             failures += 0 if ok else 1
 
+        # The child pool must not reorder errors. The first script and the first suite
+        # are the slowest, so a pool that reported in completion order would put them
+        # last; the run with KARTA_VALIDATE_JOBS=1 is the serial reference.
+        (rst / "slow_bad.py").write_text(
+            "import argparse,sys,time\n"
+            "p=argparse.ArgumentParser();p.add_argument('--self-test',action='store_true')\n"
+            "a=p.parse_args()\n"
+            "time.sleep(1.5 if a.self_test else 0)\n"
+            "sys.exit(1 if a.self_test else 0)\n", encoding="utf-8")
+        order_scripts = [rst / "slow_bad.py", rst / "missing.py", rst / "good.py", rst / "bad.py"]
+        (rst / "suite_a_slow.py").write_text(
+            "import sys,time\ntime.sleep(1.5)\nprint('suite a broke')\nsys.exit(1)\n", encoding="utf-8")
+        (rst / "suite_b.py").write_text("print('suite b broke')\nraise SystemExit(1)\n", encoding="utf-8")
+        (rst / "suite_c.py").write_text("print('ok')\n", encoding="utf-8")
+        order_suites = [rst / "suite_a_slow.py", rst / "suite_b.py", rst / "suite_c.py"]
+
+        def _ordered_run(jobs_env: str | None) -> tuple[list[str], int]:
+            saved = os.environ.get("KARTA_VALIDATE_JOBS")
+            if jobs_env is None:
+                os.environ.pop("KARTA_VALIDATE_JOBS", None)
+            else:
+                os.environ["KARTA_VALIDATE_JOBS"] = jobs_env
+            pool = _child_pool()
+            try:
+                suite_results = [_deferred(pool, _run_audit_suite, s, _utf8_python_env())
+                                 for s in order_suites]
+                _prefetch_self_tests(pool, order_scripts)
+                started = len(_PREFETCHED)
+                errs: list[str] = []
+                for s in order_scripts:
+                    _run_self_test(s, errs)
+                for result in suite_results:
+                    errs.extend(result())
+                return errs, started
+            finally:
+                _close_child_pool(pool)
+                if saved is None:
+                    os.environ.pop("KARTA_VALIDATE_JOBS", None)
+                else:
+                    os.environ["KARTA_VALIDATE_JOBS"] = saved
+
+        serial_errs, serial_started = _ordered_run("1")
+        parallel_errs, parallel_started = _ordered_run(None)
+        ok = (serial_started == 0 and parallel_started == len(order_scripts)
+              and len(serial_errs) == 5 and parallel_errs == serial_errs
+              and "slow_bad.py: --self-test failed" in serial_errs[0]
+              and "suite_a_slow.py: audit regressions failed" in serial_errs[3])
+        print(f"[{'PASS' if ok else 'FAIL'}] child pool: parallel errors match the serial "
+              f"(KARTA_VALIDATE_JOBS=1) order" + ("" if ok else
+              f" — serial {serial_errs!r} ({serial_started} started), "
+              f"parallel {parallel_errs!r} ({parallel_started} started)"))
+        total += 1
+        failures += 0 if ok else 1
+
+        saved = os.environ.get("KARTA_VALIDATE_JOBS")
+        try:
+            jobs_seen = []
+            for v in ("1", "3", "0", "nope", None):
+                if v is None:
+                    os.environ.pop("KARTA_VALIDATE_JOBS", None)
+                else:
+                    os.environ["KARTA_VALIDATE_JOBS"] = v
+                jobs_seen.append(_validate_jobs())
+        finally:
+            if saved is None:
+                os.environ.pop("KARTA_VALIDATE_JOBS", None)
+            else:
+                os.environ["KARTA_VALIDATE_JOBS"] = saved
+        default_jobs = min(8, max(2, os.cpu_count() or 2))
+        ok = jobs_seen == [1, 3, 1, default_jobs, default_jobs]
+        print(f"[{'PASS' if ok else 'FAIL'}] KARTA_VALIDATE_JOBS: int override, clamp to 1, "
+              f"default min(8, max(2, cpus))" + ("" if ok else f" — got {jobs_seen!r}"))
+        total += 1
+        failures += 0 if ok else 1
+
         # The vendored fonts: a synthetic repo shape with the canonical tree and
         # both Codex mirrors, then one deliberately broken copy per rule. Font
         # drift is invisible in a diff, so each rule is driven against a known-bad
@@ -3211,41 +3294,124 @@ def _self_test() -> int:
     return 1 if failures else 0
 
 
+def _validate_jobs() -> int:
+    """Worker count for the child-process pool: KARTA_VALIDATE_JOBS when it is an int
+    (clamped to >= 1; 1 means serial), else min(8, max(2, cpu_count))."""
+    raw = os.environ.get("KARTA_VALIDATE_JOBS", "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return min(8, max(2, os.cpu_count() or 2))
+
+
+def _child_pool() -> ThreadPoolExecutor | None:
+    """The pool the independent child processes share, or None on the serial path.
+    Threads suffice: each task only waits on a subprocess."""
+    jobs = _validate_jobs()
+    return ThreadPoolExecutor(max_workers=jobs) if jobs > 1 else None
+
+
+# Self-tests already started on the pool, keyed by resolved script path. _run_self_test
+# consumes an entry in place of running the script inline, so check() appends each
+# script's errors exactly where — and in exactly the order — the serial path would.
+_PREFETCHED: dict[Path, Future] = {}
+
+
+def _prefetch_self_tests(pool: ThreadPoolExecutor | None, scripts: list[Path]) -> None:
+    """Start each script's --help probe + --self-test pair on the pool (no-op if serial)."""
+    if pool is None:
+        return
+    for script in scripts:
+        key = script.resolve()
+        if key not in _PREFETCHED:
+            _PREFETCHED[key] = pool.submit(_self_test_errors, script)
+
+
+def _close_child_pool(pool: ThreadPoolExecutor | None) -> None:
+    _PREFETCHED.clear()
+    if pool is not None:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
+def _deferred(pool: ThreadPoolExecutor | None, fn: Callable[..., list[str]],
+              *args) -> Callable[[], list[str]]:
+    """fn(*args) started now on the pool, or run lazily (serially) when there is none;
+    either way the returned thunk yields its error list when the caller asks for it."""
+    if pool is None:
+        return lambda: fn(*args)
+    return pool.submit(fn, *args).result
+
+
+def _self_test_targets() -> list[Path]:
+    """Every script check() hands to _run_self_test, in the order it does so. A script
+    missing here still runs (inline) — this list only decides what starts early."""
+    scripts = sorted((HOOKS / "scripts").glob("*.py")) if (HOOKS / "scripts").is_dir() else []
+    scripts += sorted((ROOT / ".codex-plugin/hooks/scripts").glob("*.py"))
+    scripts += sorted(SKILLS.glob("*/scripts/*.py"))
+    scripts.append(ROOT / "scripts" / "check_fact_traces.py")
+    return scripts
+
+
+def _rel(p: Path) -> str:
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return p.name
+
+
 def _run_self_test(script: Path, errors: list[str]) -> None:
     """Run `<script> --self-test` and append a reported error on failure. Shared by the
     hooks/scripts and skills/*/scripts passes so both self-test their fixtures identically.
+    When main() already started this script on the child pool, its result is taken
+    from there instead of running it again.
 
     The floor assumes every gated script exposes --self-test, so that invariant is enforced,
     not narrated: a script whose --help does not list --self-test is a distinct, named failure
     ('does not expose --self-test') — never mistaken for a self-test that ran and failed, and
     never a silent pass behind argparse's generic 'unrecognized arguments' exit."""
-    def rel(p: Path) -> str:
-        try:
-            return str(p.relative_to(ROOT))
-        except ValueError:
-            return p.name
+    started = _PREFETCHED.pop(script.resolve(), None)
+    errors.extend(started.result() if started is not None else _self_test_errors(script))
+
+
+# Per-script budgets for the child runs below. The --self-test budget is sized for
+# contention, not for a quiet machine: the slowest gated self-tests (the two
+# guard_delivery_stop.py copies and karta-deliver's merge_item.py) take ~80s each
+# serially on a Windows 8-CPU dev machine and overran a 120s budget once main()
+# ran them concurrently with the rest of the pool. The --help probe stays short.
+SELF_TEST_HELP_TIMEOUT = 120
+SELF_TEST_TIMEOUT = 300
+
+
+def _self_test_errors(script: Path) -> list[str]:
+    """The --help probe and --self-test run for one script, as a list of errors (empty
+    when it passes). Pure apart from the child processes, so it is safe on a thread."""
+    errors: list[str] = []
+    rel = _rel
     try:
         helpp = subprocess.run([sys.executable, str(script), "--help"],
-                               capture_output=True, text=True, timeout=120,
+                               capture_output=True, text=True, timeout=SELF_TEST_HELP_TIMEOUT,
                                encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: could not probe --help ({e})")
-        return
+        return errors
     if "--self-test" not in ((helpp.stdout or "") + (helpp.stderr or "")):
         errors.append(f"{rel(script)}: does not expose --self-test "
                       f"(the validator floor self-tests every gated script; add a --self-test mode)")
-        return
+        return errors
     try:
         proc = subprocess.run([sys.executable, str(script), "--self-test"],
-                              capture_output=True, text=True, timeout=120,
+                              capture_output=True, text=True, timeout=SELF_TEST_TIMEOUT,
                               encoding="utf-8", env=_utf8_python_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         errors.append(f"{rel(script)}: --self-test did not run ({e})")
-        return
+        return errors
     if proc.returncode != 0:
         output = (proc.stdout or "") + (proc.stderr or "")
         tail = "; ".join(output.strip().splitlines()[-3:])
         errors.append(f"{rel(script)}: --self-test failed ({tail})")
+    return errors
 
 
 def _check_fact_traces(errors: list[str], binders_dir: Path | None = None) -> None:
@@ -3335,28 +3501,23 @@ def main() -> int:
         print("PLUGIN INTEGRITY: FAIL")
         print("  - embedded --self-test fixtures failed")
         return 1
-    errors = check()
-    # These real-Git and loopback-HTTP fixtures guard the 2026-09-22 audit's
-    # findings (evidence identity, guard boundaries, status, oracle, release
-    # coverage). Keep them in the normal floor so a green projection check cannot
-    # silently replace behavioral coverage of the controls they exercise. Every
-    # tests/test_audit_*.py runs, so a new regression suite joins by its name.
+    # The audit suites (the slowest children) and every gated script's self-test start
+    # now on the child pool, so they overlap each other and check()'s in-process work.
+    # Results are consumed in the serial order, so the error list is order-identical.
     env = _utf8_python_env()
     env.pop("AUDIT_SOURCE_ROOT", None)
     suites = sorted((ROOT / "tests").glob("test_audit_*.py"))
-    if not any(p.name == "test_audit_priority_fixes.py" for p in suites):
-        errors.append("tests/test_audit_priority_fixes.py: missing from the audit regression floor")
-    for suite in suites:
-        name = suite.relative_to(ROOT).as_posix()
-        try:
-            regression = subprocess.run(
-                [sys.executable, str(suite)],
-                capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
-            if regression.returncode:
-                tail = "; ".join((regression.stdout + regression.stderr).splitlines()[-8:])
-                errors.append(f"{name}: audit regressions failed: {tail}")
-        except (OSError, subprocess.TimeoutExpired) as e:
-            errors.append(f"{name}: audit regressions could not run: {e}")
+    pool = _child_pool()
+    try:
+        suite_results = [_deferred(pool, _run_audit_suite, suite, env) for suite in suites]
+        _prefetch_self_tests(pool, _self_test_targets())
+        errors = check()
+        if not any(p.name == "test_audit_priority_fixes.py" for p in suites):
+            errors.append("tests/test_audit_priority_fixes.py: missing from the audit regression floor")
+        for result in suite_results:
+            errors.extend(result())
+    finally:
+        _close_child_pool(pool)
     if errors:
         print("PLUGIN INTEGRITY: FAIL")
         for e in errors:
@@ -3364,6 +3525,31 @@ def main() -> int:
         return 1
     print("PLUGIN INTEGRITY: PASS")
     return 0
+
+
+def _run_audit_suite(suite: Path, env: dict[str, str]) -> list[str]:
+    """Run one tests/test_audit_*.py suite; its errors (empty when it passes).
+
+    These real-Git and loopback-HTTP fixtures guard the 2026-09-22 audit's
+    findings (evidence identity, guard boundaries, status, oracle, release
+    coverage). main() keeps them in the normal floor so a green projection check
+    cannot silently replace behavioral coverage of the controls they exercise.
+    Every tests/test_audit_*.py runs, so a new regression suite joins by its name."""
+    try:
+        name = suite.relative_to(ROOT).as_posix()
+    except ValueError:
+        name = suite.name  # a self-test fixture suite outside the repo
+    errors: list[str] = []
+    try:
+        regression = subprocess.run(
+            [sys.executable, str(suite)],
+            capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
+        if regression.returncode:
+            tail = "; ".join((regression.stdout + regression.stderr).splitlines()[-8:])
+            errors.append(f"{name}: audit regressions failed: {tail}")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        errors.append(f"{name}: audit regressions could not run: {e}")
+    return errors
 
 
 if __name__ == "__main__":

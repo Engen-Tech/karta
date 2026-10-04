@@ -108,7 +108,7 @@ def row(vid, status="PASS", partial=False, findings=0):
 
 class ReleaseRepo(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-release-cov-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="gpt-release-cov-", ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.git("init", "-q")
@@ -301,7 +301,7 @@ class InstallSmoke(unittest.TestCase):
         self.assertTrue(all(c["ok"] for c in report["checks"]))
 
     def test_manifest_pointing_at_missing_script_fails(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             root = plugin_copy(Path(td))
             (root / "hooks/scripts/guard_pack_write.py").unlink()
             p = smoke("--plugin-root", str(root))
@@ -309,7 +309,7 @@ class InstallSmoke(unittest.TestCase):
             self.assertIn("guard_pack_write.py", p.stdout)
 
     def test_codex_missing_script_is_caught_despite_fail_open_launcher(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             root = plugin_copy(Path(td))
             (root / ".codex-plugin/hooks/scripts/guard_delivery_stop.py").unlink()
             p = smoke("--plugin-root", str(root))
@@ -317,7 +317,7 @@ class InstallSmoke(unittest.TestCase):
             self.assertIn("guard_delivery_stop.py", p.stdout)
 
     def test_guard_failing_on_benign_payload_fails(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             root = plugin_copy(Path(td))
             (root / "hooks/scripts/guard_subagent_whiff.py").write_text(
                 "# /// script\n# requires-python = \">=3.11\"\n# dependencies = []\n# ///\n"

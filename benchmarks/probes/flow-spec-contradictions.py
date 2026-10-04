@@ -69,6 +69,9 @@ HISTORIC_SEEDS = (
 
 # --- runner invocation ---------------------------------------------------------
 
+UV_INTERPRETER_FAILURES = ("Failed to inspect Python interpreter", "No interpreter found",
+                           "os error 448")
+
 def _run_runner(target: Path) -> tuple[dict | None, str]:
     """Run the uv/jsonschema runner into a temp file; return (evidence, error)."""
     with tempfile.TemporaryDirectory() as td:
@@ -80,10 +83,19 @@ def _run_runner(target: Path) -> tuple[dict | None, str]:
                                   text=True, timeout=110)
         except FileNotFoundError:
             return None, "uv not found on PATH (host toolchain missing)"
+        except OSError as e:
+            # e.g. WinError 448 on an untrusted WinGet uv.exe link.
+            return None, f"uv could not be launched: {e} (host toolchain missing)"
         except subprocess.TimeoutExpired:
             return None, "runner timed out"
         if proc.returncode != 0:
-            tail = "; ".join((proc.stdout + proc.stderr).strip().splitlines()[-3:])
+            combined = proc.stdout + proc.stderr
+            tail = "; ".join(combined.strip().splitlines()[-3:])
+            # uv ran but cannot use any interpreter (e.g. WinError 448 on a managed
+            # python.exe behind an untrusted mount point): a host gap, not a finding.
+            if any(m in combined for m in UV_INTERPRETER_FAILURES):
+                return None, (f"uv cannot resolve a Python interpreter: {tail} "
+                              "(host toolchain missing)")
             return None, f"runner exit {proc.returncode}: {tail}"
         try:
             return json.loads(out.read_text()), ""
