@@ -30,6 +30,9 @@ GUARD = ROOT / "hooks/scripts/guard_writer_confinement.py"
 LEDGER = ROOT / "skills/karta-verify/scripts/gate_attempts.py"
 REVIEWERS = ("karta-acceptance-reviewer", "karta-safety-auditor",
              "karta-design-reviewer")
+# Every reviewer in both spellings the harness sends: the bare name and the plugin's.
+SPELLINGS = tuple(t for name in REVIEWERS for t in (name, "karta:" + name))
+PLUGIN_SPELLINGS = tuple("karta:" + name for name in REVIEWERS)
 
 WINDOWS = os.name == "nt"
 POWERSHELL = "PowerShell"      # needs PowerShell (any version), not cmd
@@ -123,7 +126,9 @@ class ReviewerWriteProtection(GitRepo):
         return p.returncode, p.stderr
 
     def snapshot(self):
-        """Everything a reviewer must not change: files, index entries, refs, stashes."""
+        """Everything a reviewer must not change: files, index entries, refs, stashes,
+        HEAD and the repository config. Refs and config are read from .git directly so
+        a snapshot costs one Git process."""
         h = hashlib.sha256()
         for p in sorted(self.root.rglob("*")):
             rel = p.relative_to(self.root).as_posix()
@@ -135,17 +140,52 @@ class ReviewerWriteProtection(GitRepo):
             elif p.is_file():
                 h.update(p.read_bytes())
             h.update(oct(p.lstat().st_mode).encode("utf-8"))
-        for args in (("ls-files", "-s"), ("for-each-ref",), ("stash", "list"), ("config", "--local", "--list")):
-            h.update(self.git(*args).encode("utf-8"))
+        git_dir = self.root / ".git"
+        meta = [git_dir / name for name in ("HEAD", "config", "packed-refs")]
+        meta += sorted(git_dir.glob("refs/**/*")) + sorted(git_dir.glob("reftable/*"))
+        for p in meta:
+            h.update(p.relative_to(git_dir).as_posix().encode("utf-8") + b"\0")
+            if p.is_file():
+                h.update(p.read_bytes())
+        h.update(self.git("ls-files", "-s").encode("utf-8"))
         return h.hexdigest()
+
+    def run_as_harness(self, command):
+        shell = windows_shell() if WINDOWS else ["bash", "-c"]
+        subprocess.run([*shell, command], cwd=self.root, capture_output=True, timeout=60)
 
     def harness_bash(self, agent_type, command):
         """Run the hook; when it allows, execute the command as the harness would."""
         code, reason = self.hook(agent_type, "Bash", {"command": command, "description": "fixture"})
         if code == 0:
-            shell = windows_shell() if WINDOWS else ["bash", "-c"]
-            subprocess.run([*shell, command], cwd=self.root, capture_output=True, timeout=60)
+            self.run_as_harness(command)
         return code, reason
+
+    def assert_reviewer_bash(self, commands, want, agent_types, check=lambda reason: None):
+        """Assert the hook's verdict on each command for every agent type, then do what
+        the harness would: run a command the hook allowed, and show the repository is
+        unchanged.
+
+        The command is the same for every agent type, so an allowed one runs once. A
+        denied one never runs, so the tree is snapshotted again only after a command
+        ran and once at the end; each comparison is against the last snapshot."""
+        before = self.snapshot()
+        for command in commands:
+            allowed = False
+            for agent_type in agent_types:
+                with self.subTest(agent=agent_type, command=command):
+                    code, reason = self.hook(agent_type, "Bash",
+                                             {"command": command, "description": "fixture"})
+                    allowed = allowed or code == 0
+                    self.assertEqual(want, code, f"{command}: {reason}")
+                    check(reason)
+            if allowed:
+                self.run_as_harness(command)
+                with self.subTest(command=command):
+                    after, before = before, self.snapshot()
+                    self.assertEqual(after, before, f"repository changed: {command}")
+        with self.subTest(command="(after every probe)"):
+            self.assertEqual(before, self.snapshot())
 
     def skip_control_on_windows(self, command, runnable, why):
         reason = windows_control_skip(command, runnable, why)
@@ -256,14 +296,8 @@ class ReviewerWriteProtection(GitRepo):
                         self.assertIn("read-only", reason)
 
     def test_write_shaped_bash_denied_and_nothing_changes(self):
-        for command in self.WRITE_SHAPES:
-            for name in REVIEWERS:
-                with self.subTest(agent=name, command=command):
-                    before = self.snapshot()
-                    code, reason = self.harness_bash("karta:" + name, command)
-                    self.assertEqual(2, code, reason)
-                    self.assertTrue(reason.startswith("karta: "))
-                    self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash(self.WRITE_SHAPES, 2, PLUGIN_SPELLINGS,
+                                  lambda reason: self.assertTrue(reason.startswith("karta: ")))
 
     # `git -c` only reads here; it is denied because a config override can name a program.
     NOT_A_WRITE_BY_ITSELF = ("git -c core.pager=cat log -1",)
@@ -287,13 +321,7 @@ class ReviewerWriteProtection(GitRepo):
                 self.assertNotEqual(before, self.snapshot(), f"positive control did not write: {command}")
 
     def test_read_only_bash_allowed_for_reviewers(self):
-        for command in self.READ_SHAPES:
-            for name in REVIEWERS:
-                with self.subTest(agent=name, command=command):
-                    before = self.snapshot()
-                    code, reason = self.harness_bash(name, command)
-                    self.assertEqual(0, code, reason)
-                    self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash(self.READ_SHAPES, 0, REVIEWERS)
 
     # Script execution: every shape runs a committed script that writes `leaked.txt`.
     SCRIPT_SHAPES = (
@@ -336,16 +364,9 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_script_execution_denied_for_reviewers_and_nothing_changes(self):
         self.script_repo()
-        for template in self.SCRIPT_SHAPES:
-            command = template.format(root=self.root)
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash([t.format(root=self.root) for t in self.SCRIPT_SHAPES], 2,
+                                  SPELLINGS,
+                                  lambda reason: self.assertTrue(reason.startswith("karta: ")))
 
     # Shapes whose write depends on the host's interactive start-up, not on tool.sh.
     SCRIPT_CONTROL_SKIP = ("bash -i -c 'true'",)
@@ -437,15 +458,9 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_prompted_reads_still_pass_for_reviewers(self):
         self.script_repo()
-        for template in self.PROMPTED_READS:
-            command = template.format(root=self.root, range="HEAD~1..HEAD")
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(0, code, reason)
-                        self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash(
+            [t.format(root=self.root, range="HEAD~1..HEAD") for t in self.PROMPTED_READS], 0,
+            SPELLINGS)
 
     def test_git_c_into_a_linked_worktree_passes_and_elsewhere_is_denied(self):
         self.script_repo()
@@ -485,16 +500,11 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_printf_is_denied_in_every_spelling_and_nothing_changes(self):
         self.printf_repo()
-        for command in self.PRINTF_SHAPES + self.PRINTF_PLAIN:
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertIn("`printf`", reason)
-                        self.assertEqual(before, self.snapshot())
+
+        def check(reason):
+            self.assertTrue(reason.startswith("karta: "))
+            self.assertIn("`printf`", reason)
+        self.assert_reviewer_bash(self.PRINTF_SHAPES + self.PRINTF_PLAIN, 2, SPELLINGS, check)
 
     def test_printf_shapes_really_run_a_program_for_the_main_thread(self):
         for command in self.PRINTF_SHAPES:
@@ -539,17 +549,13 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_git_c_into_a_nested_repository_is_denied_and_nothing_changes(self):
         sub = self.nested_repo()
-        for template in self.NESTED_SHAPES:
-            command = template.format(root=self.root, sub=sub)
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertEqual(before, self.snapshot())
-                        self.assertFalse((sub / "leaked.txt").exists())
+
+        def check(reason):
+            self.assertTrue(reason.startswith("karta: "))
+            self.assertFalse((sub / "leaked.txt").exists())
+        self.assert_reviewer_bash([t.format(root=self.root, sub=sub) for t in self.NESTED_SHAPES],
+                                  2, SPELLINGS, check)
+        self.assertFalse((sub / "leaked.txt").exists())
 
     def test_git_c_into_a_nested_repository_really_runs_its_driver_for_the_main_thread(self):
         for template in ("git -C sub diff", "git -C . -C sub diff"):
@@ -565,14 +571,8 @@ class ReviewerWriteProtection(GitRepo):
         for command in (f"git -C {other} diff HEAD~0", f"git -C {self.root} diff",
                         "git -C . diff", f"git -C {other}/ status --short",
                         f"git -C {self.root} -C {other} log -1 --oneline"):
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(0, code, reason)
-                        self.assertEqual(before, self.snapshot())
-                        self.assertFalse((sub / "leaked.txt").exists())
+            self.assert_reviewer_bash([command], 0, SPELLINGS)
+            self.assertFalse((sub / "leaked.txt").exists())
 
     # Commands the old deny list let through that the allowlist now refuses: none of
     # them is in a reviewer prompt, and each either runs a program, reads a script, or
@@ -624,15 +624,11 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_commands_outside_the_allowlist_are_denied(self):
         self.script_repo()
-        for command in self.NOW_DENIED:
-            for name in REVIEWERS:
-                with self.subTest(agent=name, command=command):
-                    before = self.snapshot()
-                    code, reason = self.harness_bash(name, command)
-                    self.assertEqual(2, code, f"allowed: {command}")
-                    self.assertTrue(reason.startswith("karta: "))
-                    self.assertIn("read-only", reason)
-                    self.assertEqual(before, self.snapshot())
+
+        def check(reason):
+            self.assertTrue(reason.startswith("karta: "))
+            self.assertIn("read-only", reason)
+        self.assert_reviewer_bash(self.NOW_DENIED, 2, REVIEWERS, check)
 
     # The independent verifier's probes against the old deny list, rebuilt. Every one
     # writes (or runs a committed script that writes) when the main thread runs it,
@@ -747,16 +743,9 @@ class ReviewerWriteProtection(GitRepo):
 
     def test_verifier_probes_denied_for_every_reviewer_and_nothing_changes(self):
         self.probe_repo()
-        for template in self.VERIFIER_PROBES:
-            command = template.format(root=self.root)
-            for name in REVIEWERS:
-                for agent_type in (name, "karta:" + name):
-                    with self.subTest(agent=agent_type, command=command):
-                        before = self.snapshot()
-                        code, reason = self.harness_bash(agent_type, command)
-                        self.assertEqual(2, code, f"allowed: {command}")
-                        self.assertTrue(reason.startswith("karta: "))
-                        self.assertEqual(before, self.snapshot())
+        self.assert_reviewer_bash([t.format(root=self.root) for t in self.VERIFIER_PROBES], 2,
+                                  SPELLINGS,
+                                  lambda reason: self.assertTrue(reason.startswith("karta: ")))
 
     def test_verifier_probes_really_write_for_the_main_thread(self):
         for template in self.VERIFIER_PROBES:
