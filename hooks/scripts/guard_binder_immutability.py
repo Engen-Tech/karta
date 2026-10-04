@@ -36,6 +36,7 @@ def _read_stdin_text() -> str:
     return data.decode("utf-8") if isinstance(data, bytes) else data
 
 BINDER_RE = re.compile(r"(?:^|/)\.karta/binders/(?:archive/)?[^/]+\.json$")
+DIRECTIVE_RE = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$")
 
 
 def _os_spelling(path: str, cwd: str) -> str:
@@ -112,6 +113,41 @@ def _committed_binder(path: str, cwd: str, tracked) -> bool:
             or _hardlinked_binder(path, cwd))
 
 
+def _as_patch_command(tool_input):
+    """Copilot gives PascalCase hooks the raw patch string as tool_input, under
+    tool_name Edit or Write (Codex sends it as apply_patch). Wrap it so it takes
+    the patch path; any other string passes through unchanged."""
+    if isinstance(tool_input, str) and tool_input.lstrip().startswith("*** Begin Patch"):
+        return {"command": tool_input}
+    return tool_input
+
+
+def parse_patch_ops(text: str) -> list[dict]:
+    """apply_patch body -> [{op, path, move_to, changed}]. `changed` is True when
+    the op carries content hunks (+/- lines); a pure rename has none. Content
+    lines are +/- prefixed, so a file whose text contains `*** Update File:` can
+    never spoof a directive. Kept in step with the Codex twin by hand."""
+    ops: list[dict] = []
+    cur: dict | None = None
+    for line in text.splitlines():
+        m = DIRECTIVE_RE.match(line)
+        if m:
+            # Windows models may spell patch paths with `\` separators.
+            kind, path = m.group(1), m.group(2).strip().replace("\\", "/")
+            if kind == "Move to":
+                if cur is not None:
+                    cur["move_to"] = path
+            else:
+                cur = {"op": kind, "path": path, "move_to": None, "changed": False}
+                ops.append(cur)
+            continue
+        if line.startswith("*** "):
+            continue  # Begin Patch / End Patch / End of File markers
+        if cur is not None and line.startswith(("+", "-")):
+            cur["changed"] = True
+    return ops
+
+
 def _target_path(tool_input: dict) -> str | None:
     # `path` is the Copilot CLI spelling (Write {path, file_text}, Edit {path,
     # old_str, new_str}); without it every Copilot edit reads as targetless.
@@ -141,14 +177,21 @@ def _tracked_in_head(path: str, cwd: str) -> bool:
 
 def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     """Return (exit_code, stderr_reason). `tracked` is injectable for the self-test."""
-    tool_input = payload.get("tool_input")
+    tool_input = _as_patch_command(payload.get("tool_input"))
     if not isinstance(tool_input, dict):
         return 0, ""
-    target = _target_path(tool_input)
     cwd = payload.get("cwd") or os.getcwd()
+    target = _target_path(tool_input)
+    if target:
+        targets = [target]
+    else:
+        # A patch body: judge every path an op touches, move targets included,
+        # by the same committed-binder rule as a direct file_path edit.
+        raw = tool_input.get("command")
+        ops = parse_patch_ops(raw) if isinstance(raw, str) else []
+        targets = [p for op in ops for p in (op["path"], op["move_to"]) if p]
+    target = next((t for t in targets if _committed_binder(t, cwd, tracked)), None)
     if not target:
-        return 0, ""
-    if not _committed_binder(target, cwd, tracked):
         return 0, ""  # untracked draft — plan-time binder writing is allowed
     return 2, (
         f"karta: committed binders are read-only. '{target}' already exists in HEAD, and a "
@@ -206,9 +249,23 @@ def _run_self_test() -> int:
          pre("Edit", path=".karta/binders/draft.json", old_str="a", new_str="b"),
          untracked, 0),
         ("no target path passes", pre("Write", content="x"), tracked, 0),
-        ("tool_input not a dict passes",
+        ("non-patch string tool_input passes",
          {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": "junk"},
          tracked, 0),
+        ("patch-string Delete File of tracked binder denied",
+         {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": "/tmp",
+          "tool_input": "*** Begin Patch\n*** Delete File: .karta/binders/x.json\n*** End Patch"},
+         tracked, 2),
+        ("patch-string directive inside file content cannot spoof an op",
+         {"hook_event_name": "PreToolUse", "tool_name": "Edit", "cwd": "/tmp",
+          "tool_input": "*** Begin Patch\n*** Update File: src/app.py\n@@\n"
+                        "+*** Update File: .karta/binders/x.json\n*** End Patch"},
+         tracked, 0),
+        ("patch-string Move to over a tracked binder denied",
+         {"hook_event_name": "PreToolUse", "tool_name": "Edit", "cwd": "/tmp",
+          "tool_input": "*** Begin Patch\n*** Update File: notes.json\n"
+                        "*** Move to: .karta/binders/x.json\n*** End Patch"},
+         tracked, 2),
     ]
     if os.name == "nt":
         # The spellings Windows resolves to the protected file while a literal
@@ -282,6 +339,37 @@ def _run_self_test() -> int:
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {code}")
             failures += 0 if ok else 1
 
+        # A string tool_input carrying an apply_patch body (Copilot sends it under
+        # Edit or Write) runs end to end through main() in a child process.
+        def hook(tool_input, tool: str = "Edit") -> subprocess.CompletedProcess:
+            payload = {"hook_event_name": "PreToolUse", "tool_name": tool,
+                       "cwd": str(repo), "tool_input": tool_input}
+            return subprocess.run([sys.executable, os.path.abspath(__file__)],
+                                  input=json.dumps(payload), capture_output=True,
+                                  text=True, encoding="utf-8")
+
+        def update(rel: str) -> str:
+            return f"*** Begin Patch\n*** Update File: {rel}\n@@\n-{{}}\n+{{\"x\":1}}\n*** End Patch\n"
+
+        committed = ".karta/binders/committed.json"
+        main_cases = [
+            ("main: patch-string Add File over committed binder denied",
+             hook(f"*** Begin Patch\n*** Add File: {committed}\n+{{}}\n*** End Patch", "Write"), 2),
+            ("main: patch-string Update File of committed binder denied",
+             hook(update(committed)), 2),
+            ("main: patch-string Update File of untracked draft passes",
+             hook(update(".karta/binders/draft.json")), 0),
+            ("main: backslash-spelled patch path on committed binder denied",
+             hook(update(".karta\\binders\\committed.json")), 2),
+            ("main: non-patch string tool_input passes", hook("just a string"), 0),
+        ]
+        for name, proc, want in main_cases:
+            ok = (proc.returncode == want and not proc.stdout.strip()
+                  and (want == 0) == (proc.stderr == "")
+                  and (want == 0 or "committed.json" in proc.stderr))
+            print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit {proc.returncode}")
+            failures += 0 if ok else 1
+
     # The denial has to name the withdrawal path, or a rejected plan tempts the
     # reader into a history rewrite instead.
     _, reason = decide(pre("Write", file_path=".karta/binders/checkout.json", content="{}"),
@@ -290,7 +378,7 @@ def _run_self_test() -> int:
     print(f"[{'PASS' if msg_ok else 'FAIL'}] denial names the withdrawal path")
     failures += 0 if msg_ok else 1
 
-    total = len(cases) + len(git_cases) + 1
+    total = len(cases) + len(git_cases) + len(main_cases) + 1
     print(f"\n{total - failures}/{total} checks passed")
     return 1 if failures else 0
 

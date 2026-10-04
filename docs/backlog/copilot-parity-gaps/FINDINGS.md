@@ -228,6 +228,15 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
   allowed; a patch path with `\` separators matches.
 - **Depends on.** None.
 - **Done when.** Every Edit-family guard denies a patch-string edit of a committed binder; passes on zbook via PowerShell.
+  - Codex side: the `.codex-plugin/hooks/scripts/` twins (`guard_binder_immutability.py`,
+    `guard_pack_write.py`) were verified live on zbook via PowerShell on 2026-10-03.
+  - Claude side: `hooks/scripts/guard_binder_immutability.py` and
+    `hooks/scripts/guard_pack_write.py` now read a patch-string `tool_input`, deny patch-string
+    edits of committed binders and pack files, and normalize `\` paths. They are verified by each
+    script's `--self-test` under Windows Python on zbook, run from `C:\Users\Developer\src\karta`:
+    `C:\Python314\python.exe hooks\scripts\guard_binder_immutability.py --self-test` and
+    `C:\Python314\python.exe hooks\scripts\guard_pack_write.py --self-test`.
+  - The live Claude-side run under Copilot is owed to G4's acceptance.
 
 ### G16: `path` and `file_text` keys — Done, verified on zbook via PowerShell 2026-10-03
 
@@ -299,6 +308,9 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
   Windows.
 - **Acceptance.** Under Copilot in a trusted karta checkout on the zbook, a shell call runs the
   gates once and is not denied by a `uv` start failure. Linux: the gates run once.
+  With a consumer repo's `.claude/settings.json` routing `Edit|Write` to
+  `hooks/scripts/guard_binder_immutability.py` under Copilot on zbook, a patch-string edit of a
+  committed binder is denied.
 - **Depends on.** G1.
 - **Done when.** A Windows contributor can run Copilot in a karta checkout without every shell
   call failing closed; passes on zbook via PowerShell.
@@ -314,8 +326,8 @@ a `powershell` entry; each `powershell` entry calls `launch_hook.ps1` and ends w
 `{"command": <string>}`, whatever `tool_name` is, and read `\` separators in patch paths
 (`guard_pack_write.py` no longer requires `tool_name == "apply_patch"`). The binder guard already
 read `path`. No guard needs `old_str`/`new_str` content: the pack guard skips PreToolUse `Edit`
-and reads PostToolUse results from disk. The Claude originals in `hooks/scripts/` are unchanged;
-Copilot runs only the Codex twins.
+and reads PostToolUse results from disk. The Claude originals in `hooks/scripts/` later got the
+same patch-string handling (see G3); Copilot runs only the Codex twins.
 
 **New finding.** With the `-p` default model (gpt-6-luna) on 1.0.92-3, an edit of an existing file
 arrived as `tool_name: "Edit"` with `tool_input` set to the raw `*** Begin Patch` string. Before
@@ -410,10 +422,10 @@ exactly one JSON object [hooks-ref], so check that no guard prints anything else
 
 ### G3 (done) — Edit guards ignore patch-string `tool_input`: verified on zbook via PowerShell 2026-10-03
 
-**Now.** `hooks/scripts/guard_binder_immutability.py:89` and `guard_pack_write.py:97` treat a
-non-dict `tool_input` as nothing to check and allow it. The Codex twins parse patches, but only
-from `tool_input["command"]` (`.codex-plugin/hooks/scripts/guard_binder_immutability.py:153`,
-`guard_pack_write.py:106`, which also requires `tool_name == "apply_patch"`).
+**Before the fix.** `hooks/scripts/guard_binder_immutability.py` and `guard_pack_write.py` treated a
+non-dict `tool_input` as nothing to check and allowed it. The Codex twins parsed patches, but only
+from `tool_input["command"]` (`.codex-plugin/hooks/scripts/guard_pack_write.py` also required
+`tool_name == "apply_patch"`).
 
 **Copilot does.** With the default model, a file create arrived as `tool_name: "Edit"` and
 `tool_input: "*** Begin Patch\n*** Add File: b.txt\n+x\n*** End Patch\n"` (probed on Linux). On
