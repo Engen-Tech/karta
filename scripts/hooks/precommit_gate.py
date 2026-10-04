@@ -61,9 +61,13 @@ GATE_TIMEOUT = 100   # default seconds per gate; a hung gate is a failed gate, n
                      # stall. The budget exists to catch a hang, never to rank
                      # hardware — a gate that legitimately needs longer gets an
                      # override below rather than a failure that reads as a hang.
-# validate_plugin's floor runs every gated script's own --self-test as a subprocess,
-# so its cost is process spawns: ~200s green on a Windows dev machine whose four
-# other gates finish in seconds. Overrides only ever RAISE the default, and the
+# validate_plugin's floor runs every gated script's own --self-test and every
+# tests/test_audit_*.py suite as subprocesses. Run serially that was 992s green on a
+# Windows dev machine (2026 zbook measurement) whose four other gates finish in
+# seconds; it now runs those children concurrently, so its wall time is bounded by
+# the slowest one (test_audit_remaining_reviewers.py, ~305s on that machine).
+# KARTA_VALIDATE_JOBS=1 restores the serial run, which does NOT fit this budget on
+# Windows. Overrides only ever RAISE the default, and the
 # invariant the old comment stated per-gate is now a sum: every gate's budget
 # together (4x100 + 450 = 850) must stay inside the hook's outer timeout — 900 in
 # .claude/settings.json and .codex/hooks.json — because the harness must never kill
