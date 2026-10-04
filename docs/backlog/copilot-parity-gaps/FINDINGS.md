@@ -12,11 +12,13 @@ Method:
 - A live probe on Linux with the real `copilot` 1.0.92 binary, a throwaway trusted repo, and a
   Claude-format plugin loaded with `--plugin-dir`. Every hook dumped its env and stdin payload to a
   file. Claims marked **(probed)** come from those dumps, not from the docs.
-- Windows: one probe ran on a GitHub-hosted `windows-latest` runner (see
-  [Windows probe](#windows-probe-2026-10-03-github-actions-windows-latest)). It covered hook shell
-  selection, the native payload, and the G4 failure, not karta's own guards. Other Windows claims
-  come from the official docs and are marked *(docs)*. No Copilot guard can be called enforced on
-  Windows until karta's guards pass on Windows. See [G13](#g13--no-copilot-hook-tests-and-no-windows-run).
+- Windows, two probes. A GitHub-hosted `windows-latest` runner (see
+  [Windows probe](#windows-probe-2026-10-03-github-actions-windows-latest)) covered hook shell
+  selection, the native payload, and a repo-hook failure. A real Windows 11 PC (see
+  [Windows PC probe](#windows-pc-probe-real-machine)) ran karta's own launcher and guards under
+  Copilot. Where the two disagree, the PC result is the one to plan on, and each claim names the
+  machine it came from. Windows claims neither probe tested come from the official docs and are
+  marked *(docs)*.
 
 ## Verdict
 
@@ -24,28 +26,39 @@ Copilot is the weakest of karta's four hosts. The cause is one line, not missing
 `.github/plugin/plugin.json` sets `"hooks": {}`, so **none of karta's eight guards run under
 Copilot**. `docs/how-to/copilot-cli.md` explains that line as keeping out an "incompatible" Claude
 manifest. The probe shows the manifest is now mostly compatible. Copilot runs Claude-format plugin
-hooks, sends Claude-shaped snake_case payloads, maps its tools to Claude tool names, and sets
-`CLAUDE_PLUGIN_ROOT`.
+hooks, sends Claude-shaped snake_case payloads, and sets `CLAUDE_PLUGIN_ROOT`. On a real Windows 11
+PC, karta's PowerShell launcher and its guards ran under Copilot, and the binder guard denied an
+edit to a committed binder once the payload key was mapped.
 
 Three real incompatibilities stand in the way. Each one fails silently, which is the risk:
 
-1. **Exit 2 does not block a stop.** Copilot treats exit 2 from Stop and SubagentStop as a warning.
-   The Claude guards block that way, so the delivery Stop gate and the whiff advisory would print a
-   warning and let the session end. The JSON `{"decision":"block"}` form does block (probed). The
-   Codex twins already emit both forms.
-2. **File edits can arrive as a raw patch string.** A file create came through as
-   `tool_name: "Edit"` with `tool_input` set to the `*** Begin Patch` text, not a
-   `{file_path, content}` object (probed, default model). The Claude guards allow any edit whose
-   `tool_input` is not a dict. Binder immutability, pack validation, and writer confinement would
-   all pass every such edit. The Codex twins parse patch bodies, but they read
-   `tool_input["command"]`, not a bare string.
-3. **The Claude `command` string breaks on Windows.** A Claude-format `command` is copied to both
-   the `bash` and `powershell` fields *(docs)*. In PowerShell, `"${CLAUDE_PLUGIN_ROOT}"` names a
-   PowerShell variable, not the environment variable, so it expands to an empty string. PreToolUse
-   fails closed on any non-zero exit, so a broken launcher could deny every matched tool call on
-   Windows.
+1. **Exit 2 alone does not block a stop.** Copilot treats exit 2 from Stop and SubagentStop as a
+   warning (Linux probe). The Claude guards block that way, so the delivery Stop gate and the whiff
+   advisory would print a warning and let the session end. The JSON `{"decision":"block"}` form
+   does block, with exit 0 or exit 2 (Linux and Windows PC). The Codex twins already emit both.
+2. **Edit payloads do not carry `file_path`.** On the Windows PC, Copilot sent `Write` with
+   `{path, file_text}` and `Edit` with `{path, old_str, new_str}`. The guards read only
+   `file_path`, `notebook_path`, and `command`, so the unmodified binder guard let the agent edit a
+   committed binder. On Linux the default model sent a file create as a raw `*** Begin Patch`
+   string, which the guards also allow. The guards must accept both shapes (G3, G16).
+3. **PowerShell drops the exit code.** A `powershell` entry that runs `& launch_hook.ps1 ...` with
+   no trailing `exit` reports 1 to Copilot when the guard exits 2 (Windows PC). PreToolUse still
+   denies, as "hook errored", because it fails closed. Stop discards the JSON decision on exit 1
+   and does not block. Every entry must end with `; exit $LASTEXITCODE` (G17).
 
-The rest of the list is packaging, coverage, and docs.
+An earlier version of this doc expected `"${CLAUDE_PLUGIN_ROOT}"` to expand to empty under
+PowerShell. That is wrong for plugin hooks on Copilot 1.0.92-3: Copilot substitutes the text before
+pwsh sees it (Windows PC). The Claude-format manifest still fails on Windows, for other reasons.
+On the PC, `uv` could not start, every hook errored, and PreToolUse failed closed, denying every
+matching edit. The installed karta 2.30.0 plugin's hooks never run on Windows at all: each command
+is a quoted string, which pwsh prints and exits 0.
+
+**Fix for G1.** Ship a native `.github/plugin/hooks.json` whose `powershell` entries call
+`.codex-plugin/hooks/launch_hook.ps1` and end with `; exit $LASTEXITCODE`, and make the guards read
+`path` and `file_text` as well as `file_path`. After that, three smaller items remain: the deny
+reason does not reach the model (G18), the agent can satisfy the Stop guard by writing the done ref
+itself (G19), and each matched tool call costs about 1 s on Windows (G20). The rest of the list is
+packaging, coverage, and docs.
 
 ## What the probe established
 
@@ -53,15 +66,15 @@ The rest of the list is packaging, coverage, and docs.
 |-|-|-|
 |Do Claude-format plugin hooks (`hooks/hooks.json`, PascalCase events) run?|Yes: SessionStart, PreToolUse, Stop, SubagentStop|probed|
 |Payload shape for PascalCase events|Claude-style snake_case: `hook_event_name`, `tool_name`, `tool_input`, `cwd`, `session_id`, `transcript_path`|probed|
-|Tool names in the payload|Claude names: shell → `Bash`, task → `Agent`, file create → `Edit`|probed|
+|Tool names in the payload|Claude names: shell → `Bash`, task → `Agent`, file create → `Edit` (Linux; the Windows PC sent `Write` for a create)|probed|
 |Bash `tool_input`|`{command, description}`, same as Claude|probed|
 |Agent `tool_input`|`{description, prompt, agent_type, name, mode}`|probed|
-|File create `tool_input`|Raw apply_patch **string**: `*** Begin Patch\n*** Add File: b.txt\n+x\n*** End Patch\n`|probed (default model; other models may send a dict)|
+|File create `tool_input`|Raw apply_patch **string**: `*** Begin Patch\n*** Add File: b.txt\n+x\n*** End Patch\n`|probed on Linux (default model). The Windows PC sent a dict keyed `path`; see [Windows PC probe](#windows-pc-probe-real-machine)|
 |SubagentStop payload|`agent_id`, `agent_type`, `agent_name`, `last_assistant_message`, `stop_reason`, `transcript_path`|probed|
 |Stop payload|`stop_reason`, `stop_hook_active`, `transcript_path` (`~/.copilot/session-state/<id>/events.jsonl`)|probed|
 |Env vars given to plugin hooks|`CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, `PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `COPILOT_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR`, `COPILOT_PROJECT_DIR`|probed|
 |PreToolUse exit 2|Denies: "Denied by preToolUse hook: hook exited with code 2"|probed|
-|PreToolUse Claude JSON `hookSpecificOutput.permissionDecision: "deny"`|Denies, and the reason text reaches the model|probed|
+|PreToolUse Claude JSON `hookSpecificOutput.permissionDecision: "deny"`|Denies, and the reason text reaches the model|probed on Linux; not yet tried on Windows (G18)|
 |Stop exit 2|**Does not block.** Shown as a `!` warning; the session ended|probed|
 |Stop JSON `{"decision":"block","reason":...}`|Blocks. The model followed the reason and continued|probed|
 |Repo `.claude/settings.json` hooks|Run when the folder is trusted (`trustedFolders` in `~/.copilot/config.json`); did not run in an untrusted `/tmp` repo|probed|
@@ -81,8 +94,58 @@ hooks loaded because the workspace was listed in `trustedFolders`.
 |Native preToolUse payload on Windows|camelCase: `sessionId`, `timestamp`, `cwd` (`D:\\a\\...`), `toolName`, `toolArgs`|
 |Shell tool name on Windows|`powershell`, not `bash`/`Bash`. Guards matching only the Bash tool miss every shell call|
 |Claude-format repo hook with `matcher: ""`|Whole `.claude/settings.json` rejected: "matcher cannot be empty"|
-|Claude-format `python "${CLAUDE_PROJECT_DIR}/probe.py"`|Hook errored, and the shell call was denied ("hook errored", fail-closed). Confirms G4|
+|Claude-format `python "${CLAUDE_PROJECT_DIR}/probe.py"`|Hook errored, and the shell call was denied ("hook errored", fail-closed). The runner did not show why. The PC probe found `${CLAUDE_PLUGIN_ROOT}` substituted in plugin hooks, so an empty variable is not the likely cause. Repo hooks were not tested on the PC|
 |`bash` on the runner|Git Bash (`C:\Program Files\Git\bin\bash.exe`), Python 3.12 as `python`|
+
+### Windows PC probe (real machine)
+
+Run 2026-10-03 on a Windows 11 Enterprise PC (build 26200) over SSH, against karta `main` at
+`63fc7fe`. Copilot ran as `copilot -p ... --allow-all-tools --plugin-dir <probe plugin>` in
+throwaway repos.
+
+|Item|Value|
+|-|-|
+|Copilot CLI|1.0.92-3 (hook env reports `COPILOT_CLI_BINARY_VERSION=1.0.80`)|
+|PowerShell|7.6.6 (hooks run under pwsh 7.6.6 Core)|
+|Python|3.14.3|
+|git|2.56.0.windows.1|
+|Model|default for `-p`|
+
+All seven scripts in `.codex-plugin/hooks/scripts/` pass `--self-test` under Python 3.14.3.
+
+|Question|Answer|
+|-|-|
+|Which shell entry runs?|Only `powershell`. `bash` entries never ran|
+|Plugin root env vars|`CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, and `PLUGIN_ROOT` all set to the plugin directory. `CLAUDE_PLUGIN_DATA`/`COPILOT_PLUGIN_DATA` and `CLAUDE_PROJECT_DIR`/`COPILOT_PROJECT_DIR` are also set|
+|`env` field on a hook entry|Works|
+|Hook working directory|The plugin directory, not the repo. Payload `cwd` is the repo|
+|`command`-only entry|Runs under pwsh, with `"${CLAUDE_PLUGIN_ROOT}"` substituted by Copilot before pwsh sees it|
+|`{{project_dir}}`, `{{plugin_data_dir}}`|Not expanded in `powershell` or `command` fields; passed through literally. Use the env vars|
+|File create payload|`tool_name: "Write"`, `tool_input: {path, file_text}`|
+|File edit payload|`tool_name: "Edit"`, `tool_input: {path, old_str, new_str}`. Dicts, not patch strings, and no `file_path` key|
+|Binder guard through the unmodified launcher, committed binder|**Allowed**, and the file changed. The guard reads only `file_path`, `notebook_path`, and `command`, so it found no target|
+|Same, with a shim that renames `path` to `file_path`, ending `; exit $LASTEXITCODE`|**Denied** with exit 2. File unchanged|
+|Same shim with no explicit `exit`|Copilot saw exit 1 and still denied, as "hook errored" (fail-closed). File unchanged|
+|Untracked draft binder|Allowed, as intended|
+|What the model sees on a deny|Only "Denied by preToolUse hook: hook exited with code 2". The guard's reason appears only in the process log and `events.jsonl`|
+|Claude-format `hooks/hooks.json` (`uv run --script "${CLAUDE_PLUGIN_ROOT}/..."`)|The path expanded, but `uv.exe` (a winget link) could not start. Every hook errored. PreToolUse failed closed and blocked every matching edit, including unrelated files. SessionStart and Stop errors were logged and did not block. Not tested under a desktop login|
+|Installed karta 2.30.0 plugin|Its hooks never run. Each command is a quoted string, which pwsh prints before exiting 0, so every guard allows|
+|Stop guard, `{"decision":"block"}` on stdout|Blocks with exit 0 or exit 2. The reason arrives as a new user message and the `-p` turn continues|
+|Stop guard, exit 1 (launcher with no explicit `exit`)|Output discarded, no block. The session ended|
+|Agent response to a Stop block|It satisfied the guard by writing `refs/karta/<binder>/item-<id>/done` with `git update-ref`, without merging anything|
+|Second stop after the agent acted|Passed; the once-per-state sentinel works|
+
+|Timing (this PC)|Value|
+|-|-|
+|pwsh start, `-NoProfile`|~0.32 s|
+|python start (`-I -S`)|~0.05 s|
+|Launcher + binder guard, run directly|~0.6–0.86 s|
+|Copilot PreToolUse, matched edit, launcher|~1.06 s|
+|Copilot PreToolUse, matched edit, shim + launcher (two pwsh starts)|~1.5 s|
+|Copilot Stop with the delivery Stop guard|0.8–1.3 s|
+
+Copilot's timings cover every plugin's hooks for the event, including the installed 2.30.0 hooks
+(about 0.25–0.3 s on their own).
 
 ## Gap list
 
@@ -93,8 +156,8 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 |-|-|-|-|-|
 |G1|No hooks wired for Copilot|P0|M|needs a `powershell` launcher|
 |G2|Stop, SubagentStop, and PostToolUse guards signal with exit 2|P0|S|same fix on both|
-|G3|Edit guards ignore patch-string `tool_input`|P0|S|`\` separators in patch paths|
-|G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|P0|S|`${CLAUDE_PROJECT_DIR}` is empty in PowerShell|
+|G3|Edit guards ignore patch-string `tool_input`|P0|S|`\` separators in patch paths; the Windows PC sent dicts instead (G16)|
+|G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|P0|S|errored on the runner; `uv` could not start from a hook on the PC|
 |G5|SessionStart status uses Claude output conventions|P1|S|none|
 |G6|Three of five agents have no Copilot profile|P1|S|none|
 |G7|Writer confinement has no Copilot writer to recognize|P1|M|Bash parser must also read PowerShell|
@@ -102,10 +165,15 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 |G9|No guidance on Copilot instruction files|P2|S|none|
 |G10|Packaging: Agent Plugins layout, marketplace pin, `copilot plugin update`|P2|S|none|
 |G11|Sandbox and policy interaction undocumented|P2|S|Windows sandbox cannot deny single paths|
-|G12|Windows hook latency not measured on Copilot|P2|M|the whole point|
-|G13|No Copilot hook tests and no Windows run|P0 (blocks calling G1–G4 done)|M|pwsh CI job|
+|G12|Windows hook latency on Copilot: measured on the PC; reduction is G20|P2|M|the whole point|
+|G13|Windows real-machine verification|Done 2026-10-03, see [Windows PC probe](#windows-pc-probe-real-machine)|M|pwsh CI job still to add|
 |G14|Docs describe Copilot as skills plus two reviewers|P1|S|Windows install steps|
 |G15|Optional Copilot-only surfaces unused|P2|L|varies|
+|G16|Edit guards read only `file_path`; Copilot sends `path` and `file_text`|P0|S|seen on the Windows PC|
+|G17|Hook commands lose exit 2 without an explicit `exit $LASTEXITCODE`|P0|S|PowerShell only|
+|G18|The model never sees the PreToolUse deny reason|P1|S|seen on the Windows PC|
+|G19|The agent can satisfy the Stop guard by forging the done ref|P1|M|none|
+|G20|About 1 s per matched tool call on Windows|P2|M|two pwsh starts with a shim|
 
 ### G1 — No hooks wired for Copilot
 
@@ -120,24 +188,29 @@ injection.
 carry separate `bash` and `powershell` commands, an `exec` + `args` form with no shell, `cwd`,
 `env`, `timeoutSec`, and `matcher`. `command` is a fallback copied to both shells. PascalCase event
 names get the Claude-compatible payload, so the existing guard logic applies. Since 1.0.12, plugin
-hooks get `{{project_dir}}` and `{{plugin_data_dir}}` template variables [changelog].
+hooks get `{{project_dir}}` and `{{plugin_data_dir}}` template variables [changelog]. The Windows
+PC probe found them not expanded in `powershell` or `command` fields on 1.0.92-3, so use
+`$env:COPILOT_PROJECT_DIR` and `$env:COPILOT_PLUGIN_DATA` instead.
 
 **Fix.** Ship `.github/plugin/hooks.json` in the native schema and point the manifest at it. Do not
-point it at the Claude `hooks/hooks.json`, because of G2, G3, and the Windows expansion problem.
+point it at the Claude `hooks/hooks.json`, because of G2, G3, and the Windows PC result: that
+manifest's `uv run` command could not start, so every PreToolUse hook failed closed.
 
 - PascalCase events, so the guards keep receiving Claude-shaped payloads.
 - `bash`: `sh -c` with `$PLUGIN_ROOT` and a file-exists check, the same shape as
   `.codex-plugin/hooks/hooks.json`.
-- `powershell`: `& "$env:PLUGIN_ROOT\.codex-plugin\hooks\launch_hook.ps1" <guard> Plugin`. Reuse
-  the Codex launcher. It passes the guard's exit code through and fails open only on launcher
-  errors (verified on Windows in 2.38.2).
+- `powershell`:
+  `& "$env:PLUGIN_ROOT\.codex-plugin\hooks\launch_hook.ps1" <guard> Plugin; exit $LASTEXITCODE`.
+  Reuse the Codex launcher. It passes the guard's exit code through and fails open only on launcher
+  errors (verified on Windows in 2.38.2, and run under Copilot on the Windows PC). The trailing
+  `exit` is required; without it Copilot sees 1, not 2 (G17).
 - Matchers in Claude tool names: `Write|Edit|NotebookEdit`, `Bash`, `Agent|Task`.
 - Script source: the Codex twins in `.codex-plugin/hooks/scripts/`, not the Claude originals. They
-  already emit JSON decisions and parse patch bodies. G3 covers the one input shape they miss.
+  already emit JSON decisions and parse patch bodies. G3 and G16 cover the input shapes they miss.
 
 **Open question.** The docs do not say whether `exec` + `args` expands `${PLUGIN_ROOT}` or the
 `{{...}}` templates. If it does, one entry with no shell serves both platforms and skips PowerShell
-start-up (G12). Probe it before choosing.
+start-up (G20). Probe it before choosing; the Windows PC probe did not test `exec`.
 
 ### G2 — Stop, SubagentStop, and PostToolUse guards signal with exit 2
 
@@ -162,8 +235,9 @@ from `tool_input["command"]` (`.codex-plugin/hooks/scripts/guard_binder_immutabi
 `guard_pack_write.py:106`, which also requires `tool_name == "apply_patch"`).
 
 **Copilot does.** With the default model, a file create arrived as `tool_name: "Edit"` and
-`tool_input: "*** Begin Patch\n*** Add File: b.txt\n+x\n*** End Patch\n"` (probed). Other models
-may use the `create` or `edit` tools and send dicts. The guards must accept both.
+`tool_input: "*** Begin Patch\n*** Add File: b.txt\n+x\n*** End Patch\n"` (probed on Linux). On
+the Windows PC, creates and edits arrived as dicts keyed `path` instead (G16). The guards must
+accept both.
 
 **Fix.** One normalizer shared by the Edit-family guards: if `tool_input` is a string starting with
 `*** Begin Patch`, treat it as `{"command": <string>}` and take the existing patch path, whatever
@@ -179,12 +253,16 @@ so extend the path matcher to normalize separators and cover it with a test.
 **Copilot does.** It reads `.claude/settings.json` and `.claude/settings.local.json` as repo hook
 sources [hooks-ref]. The probe confirmed they fire once the folder is trusted. On Linux this works
 by accident: the payload is Claude-shaped and `CLAUDE_PROJECT_DIR` is set. On Windows the `command`
-is copied to `powershell` *(docs)*, `${CLAUDE_PROJECT_DIR}` expands to empty, `uv` fails, and
-preToolUse fails closed. A Windows contributor running Copilot in a karta checkout could have every
-shell call denied.
+is copied to `powershell` *(docs)*. On the runner, a Claude-format repo hook errored and the shell
+call was denied (fail-closed). On the Windows PC, Copilot substituted `${CLAUDE_PLUGIN_ROOT}` in
+plugin hooks before pwsh ran, so an empty variable is probably not the cause there, but `uv` could
+not start from a hook and every PreToolUse hook failed closed. Repo hooks were not tested on the
+PC. Either way, a Windows contributor running Copilot in a karta checkout could have every shell
+call denied.
 
 **Fix.** Add `.github/hooks/karta-repo.json` in the native schema with `bash` and `powershell`
-entries for both gates, using `{{project_dir}}` or `$env:COPILOT_PROJECT_DIR`. Then stop the
+entries for both gates, using `$env:COPILOT_PROJECT_DIR` (the PC probe found `{{project_dir}}`
+not expanded) and ending each `powershell` entry with `; exit $LASTEXITCODE`. Then stop the
 Claude file firing a second time under Copilot. Two options: make its `command` work in both
 shells, or tell Copilot users to set `disableAllHooks` for that source. Pick one and test it on
 Windows (G13). Also note that a hook timeout fails **open** on Copilot, unlike Claude, so a gate
@@ -276,28 +354,33 @@ paths. Enterprise policy hooks (`/etc/github-copilot/policy.d/`, or
 load before karta's and can set `disableAllHooks`. Document both, and have the status surface say
 when the hub spawn was denied.
 
-### G12 — Windows hook latency not measured on Copilot
+### G12 — Windows hook latency on Copilot
 
-Backlog entry 29 measured `uv run` and PowerShell launcher cost on Claude and Codex. Copilot adds
-the same cost on every matched tool call. Run the existing bench script against Copilot on Windows
-once G1 lands. If `exec` + `args` works (G1 open question), it skips PowerShell start-up and should
-be the Windows default.
+Measured on the Windows PC (see [Windows PC probe](#windows-pc-probe-real-machine)): about 1.06 s
+per matched PreToolUse through the launcher and 0.8–1.3 s per Stop. Backlog entry 29 covers the
+same layers on Claude and Codex. The work to bring it down is G20.
 
-### G13 — No Copilot hook tests and no Windows run
+### G13 — Windows real-machine verification: done
+
+**Done 2026-10-03.** One run on a real Windows 11 PC under Copilot 1.0.92-3 exercised the launcher,
+the binder guard, and the Stop guard. Results are in
+[Windows PC probe](#windows-pc-probe-real-machine); the problems it found are G16–G20. The test work
+below is still open and now belongs to G1's definition of done.
 
 - Replace the "no Claude hooks" assertion with one that checks the native Copilot hooks file: every
-  guard is listed, every entry has both `bash` and `powershell`, and no `powershell` string
-  contains `${`.
-- Add self-test cases for the payload shapes in the probe table, especially the bare-string patch.
+  guard is listed, every entry has both `bash` and `powershell`, no `powershell` string contains
+  `${`, and every `powershell` string ends with `exit $LASTEXITCODE`.
+- Add self-test cases for the payload shapes in the probe tables, especially the bare-string patch
+  (Linux) and the `path`/`file_text` dict (Windows PC).
 - Add an opt-in live smoke test (needs a Copilot login): run `copilot -p` in a temp trusted repo
-  with `--plugin-dir`, attempt a binder write, and assert the deny. Run it on a Windows runner with
-  `pwsh` too. Until that Windows run passes, G1–G4 are "wired", not "enforced".
+  with `--plugin-dir`, attempt a binder write, and assert the deny. Run it on Windows too. Until it
+  passes on Windows with the G1, G16, and G17 fixes in place, G1–G4 are "wired", not "enforced".
 - Windows harness options: a `windows-latest` GitHub Actions job authenticates with the
   workflow's `GITHUB_TOKEN` and `copilot-requests: write` (proven 2026-10-03), but needs karta
   mirrored to a private GitHub repo. A tailnet Windows PC with OpenSSH lets the test driver run
-  the same smoke test over `ssh`, with no code leaving the network. `pwsh` on Linux checks
-  PowerShell syntax only: Copilot runs the `bash` entry there, and paths, Python, and process
-  start-up stay Linux.
+  the same smoke test over `ssh`, with no code leaving the network (proven 2026-10-03). `pwsh` on
+  Linux checks PowerShell syntax only: Copilot runs the `bash` entry there, and paths, Python, and
+  process start-up stay Linux.
 
 ### G14 — Docs describe Copilot as skills plus two reviewers
 
@@ -313,6 +396,61 @@ replace the browser tab); `/every` and `/after` for scheduled re-checks; `errorO
 `postToolUseFailure` events for richer failure reports; `--acp` for editor hosts. Pick these up
 only after G1–G14.
 
+### G16 — Edit guards read only `file_path`; Copilot sends `path`
+
+**Now.** `guard_binder_immutability.py` reads `tool_input.file_path`, `notebook_path`, and
+`command`. The other Edit-family guards likely read the same keys; check each.
+
+**Copilot does.** On the Windows PC, `Write` sent `{path, file_text}` and `Edit` sent
+`{path, old_str, new_str}`. The unmodified binder guard allowed an edit to a committed binder. Given
+a Claude-shaped payload, the same launcher and guard denied it with exit 2.
+
+**Fix.** In the shared normalizer from G3, map `path` to `file_path`, `file_text` to `content`, and
+`old_str`/`new_str` to `old_string`/`new_string`. Add self-test cases for both shapes. Re-check the
+Linux payload, which the Linux probe saw as a patch string.
+
+### G17 — Hook commands lose exit 2 without an explicit `exit`
+
+**Copilot does.** In a `powershell` entry, `& script.ps1` with no top-level `exit` reports 1 when
+the script exits 2 (Windows PC). PreToolUse then denies as "hook errored", which hides the cause.
+Stop discards stdout on exit 1, so a JSON block is lost and the session ends.
+
+**Fix.** End every `powershell` entry with `; exit $LASTEXITCODE`. Add the check to the G13
+manifest test.
+
+### G18 — The model never sees the PreToolUse deny reason
+
+**Copilot does.** On an exit-2 deny, the model gets only
+`{"message":"Denied by preToolUse hook: hook exited with code 2","code":"denied"}` (Windows PC). The
+guard's stderr appears only in the process log and in `hook.end.error` in `events.jsonl`, so the
+agent cannot tell a binder rule from a broken hook. The Linux probe saw the reason reach the model
+when the hook printed `hookSpecificOutput.permissionDecision: "deny"` with a reason.
+
+**Fix.** Have the Edit-family and dispatch guards print that JSON on stdout as well as exiting 2,
+and confirm on Windows that the reason reaches the model. Stdout must hold one JSON object only
+(G2).
+
+### G19 — The agent can satisfy the Stop guard by forging the done ref
+
+**Copilot does.** After the delivery Stop guard blocked on the Windows PC, the agent ran
+`git update-ref refs/karta/wip/item-b/done HEAD` without merging anything and reported the delivery
+fixed. On the next block it archived the binder and committed. The guard accepted the hand-written
+ref. Nothing here is Copilot-specific; an agent on any host can do the same.
+
+**Fix.** Harden the guard: accept a done ref only if it points at a commit that contains the item's
+built work, or was written by karta's own landing step. Word the block reason so it names the
+landing step, not the ref.
+
+### G20 — About 1 s per matched tool call on Windows
+
+**Copilot does.** On the Windows PC, a matched PreToolUse took about 1.06 s through the launcher
+and 1.5 s with a shim in front (two pwsh starts). pwsh start-up alone is about 0.32 s; Python is
+about 0.05 s. Stop took 0.8–1.3 s.
+
+**Fix.** Do the `path` mapping in Python (G16), not in a pwsh shim, so each hook starts pwsh once.
+Then try the `exec` + `args` form (G1 open question) to skip pwsh, and apply the layer work from
+backlog entry 29.
+
 ## Copilot pitfalls to plan around
 
 - Hooks may not fire after a session resume in some SDK builds (copilot-sdk issue #782). 1.0.86
@@ -326,12 +464,14 @@ only after G1–G14.
 
 ## Order of work
 
-1. G3 and G2 in the scripts. Small, and testable on Linux.
-2. G1 native hooks file, then the G13 unit tests.
+1. G3, G16, and G2 in the scripts. Small, and testable on Linux.
+2. G1 native hooks file with G17's explicit exit, then the G13 unit tests.
 3. G4 repo gates file.
-4. One Windows run (G13 live test, G12 bench). Only then mark guards "Enforced" in the doc (G14).
-5. G5, G6, G7.
-6. G8 when a user wants the cloud agent; G9–G11 docs; G15 optional.
+4. Repeat the Windows run with the fixes in place (G13 smoke test, G20 bench). Only then mark
+   guards "Enforced" in the doc (G14).
+5. G18, G5, G6, G7.
+6. G19 Stop guard hardening.
+7. G8 when a user wants the cloud agent; G9–G11 docs; G15 optional.
 
 [hooks-ref]: https://docs.github.com/en/copilot/reference/hooks-reference
 [plugin-ref]: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference
