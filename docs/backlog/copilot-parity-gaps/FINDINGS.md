@@ -228,6 +228,15 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
   allowed; a patch path with `\` separators matches.
 - **Depends on.** None.
 - **Done when.** Every Edit-family guard denies a patch-string edit of a committed binder; passes on zbook via PowerShell.
+  - Codex side: the `.codex-plugin/hooks/scripts/` twins (`guard_binder_immutability.py`,
+    `guard_pack_write.py`) were verified live on zbook via PowerShell on 2026-10-03.
+  - Claude side: `hooks/scripts/guard_binder_immutability.py` and
+    `hooks/scripts/guard_pack_write.py` now read a patch-string `tool_input`, deny patch-string
+    edits of committed binders and pack files, and normalize `\` paths. They are verified by each
+    script's `--self-test` under Windows Python on zbook, run from `C:\Users\Developer\src\karta`:
+    `C:\Python314\python.exe hooks\scripts\guard_binder_immutability.py --self-test` and
+    `C:\Python314\python.exe hooks\scripts\guard_pack_write.py --self-test`.
+  - The live Claude-side run under Copilot is owed to G4's acceptance.
 
 ### G16: `path` and `file_text` keys — Done, verified on zbook via PowerShell 2026-10-03
 
@@ -299,6 +308,9 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
   Windows.
 - **Acceptance.** Under Copilot in a trusted karta checkout on the zbook, a shell call runs the
   gates once and is not denied by a `uv` start failure. Linux: the gates run once.
+  With a consumer repo's `.claude/settings.json` routing `Edit|Write` to
+  `hooks/scripts/guard_binder_immutability.py` under Copilot on zbook, a patch-string edit of a
+  committed binder is denied.
 - **Depends on.** G1.
 - **Done when.** A Windows contributor can run Copilot in a karta checkout without every shell
   call failing closed; passes on zbook via PowerShell.
