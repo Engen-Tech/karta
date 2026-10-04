@@ -148,14 +148,15 @@ def projections() -> dict[Path, str]:
     out[ROOT / "skills/karta-verify/references/codex-gate-models.json"] = (
         json.dumps(gate_models, indent=2, sort_keys=True) + "\n")
     source_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
-    # Explicit empty hooks prevent auto-loading the incompatible Claude hooks.
+    # The explicit pointer to Copilot's native hooks manifest still prevents
+    # auto-loading the incompatible root hooks/hooks.json.
     copilot_manifest = {
         "name": source_manifest["name"],
         "version": source_manifest["version"],
         "description": "Karta skills with acceptance and safety reviewers for Claude or GPT in Copilot CLI.",
         "agents": "./.github/agents/",
         "skills": "./skills/",
-        "hooks": {},
+        "hooks": "./.github/plugin/hooks.json",
     }
     out[ROOT / ".github/plugin/plugin.json"] = json.dumps(copilot_manifest, indent=2) + "\n"
     return out

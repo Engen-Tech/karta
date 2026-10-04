@@ -143,7 +143,9 @@ def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     cwd = payload.get("cwd") or os.getcwd()
 
     # Claude-shaped fallback: a direct file_path write, should a Codex build send one.
-    for key in ("file_path", "notebook_path"):
+    # `path` is the Copilot CLI spelling (Write {path, file_text}, Edit {path,
+    # old_str, new_str}): this script also serves Copilot's plugin hooks.
+    for key in ("file_path", "notebook_path", "path"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
             if BINDER_RE.search(_os_spelling(val, cwd)) and tracked(val, cwd):
@@ -251,6 +253,24 @@ def _run_self_test() -> int:
         ("Claude-shaped file_path payload on untracked draft passes",
          {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
           "tool_input": {"file_path": ".karta/binders/new.json", "content": "{}"}},
+         untracked, 0),
+        ("Copilot Edit {path, old_str, new_str} on tracked binder denied",
+         {"hook_event_name": "PreToolUse", "tool_name": "Edit", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/checkout.json",
+                         "old_str": "a", "new_str": "b"}},
+         tracked, 2),
+        ("Copilot Write {path, file_text} on tracked binder denied",
+         {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/checkout.json", "file_text": "{}"}},
+         tracked, 2),
+        ("Copilot Write {path, file_text} on untracked draft passes",
+         {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/draft.json", "file_text": "{}"}},
+         untracked, 0),
+        ("Copilot Edit {path, old_str, new_str} on untracked draft passes",
+         {"hook_event_name": "PreToolUse", "tool_name": "Edit", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/draft.json",
+                         "old_str": "a", "new_str": "b"}},
          untracked, 0),
         ("no command and no file_path passes",
          {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": "/tmp",

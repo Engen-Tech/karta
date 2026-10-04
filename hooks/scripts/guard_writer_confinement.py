@@ -435,13 +435,15 @@ def decide(payload: object) -> tuple[int, str]:
     tool_input = payload.get("tool_input")
     if payload.get("tool_name") == "Bash":
         return _decide_bash(writer, conf, tool_input, payload.get("cwd"))
-    targets = ([tool_input[k] for k in ("file_path", "notebook_path") if k in tool_input]
+    # `path` is the Copilot CLI spelling (Write {path, file_text}, Edit {path, ...}).
+    targets = ([tool_input[k] for k in ("file_path", "notebook_path", "path")
+                if k in tool_input]
                if isinstance(tool_input, dict) else [])
     if not targets or not all(isinstance(t, str) for t in targets):
         return 2, (
             f"karta: '{writer}' is the {conf['label']} writer and this call carries "
             "no verifiable write target (tool_input.file_path / "
-            "tool_input.notebook_path missing or not a string) — an unverifiable "
+            "tool_input.notebook_path / tool_input.path missing or not a string) — an unverifiable "
             f"write from a confined writer is denied, not waved through. "
             f"{conf['doctrine']}; every {conf['label']} write must name a path inside "
             "that surface.")
@@ -508,6 +510,10 @@ def _run_self_test() -> int:
              notebook_path="notebooks/scratch.ipynb"), 2, "notebooks/scratch.ipynb"),
         ("tool_input not a dict denied (unverifiable — fail-closed)",
          pre("karta-kaizen", tool_input="junk"), 2, "no verifiable"),
+        ("Copilot Write {path, file_text} inside the surface allowed",
+         pre("karta-kaizen", path=".karta/sme/python.md", file_text="x"), 0, None),
+        ("Copilot Write {path, file_text} outside the surface denied",
+         pre("karta-kaizen", path="skills/x/SKILL.md", file_text="x"), 2, "skills/x/SKILL.md"),
         ("non-string file_path denied (unverifiable)",
          pre("karta-kaizen", file_path=42, content="x"), 2, "no verifiable"),
         ("karta-kaizen-v2 writing anywhere passes (not an exact match)",

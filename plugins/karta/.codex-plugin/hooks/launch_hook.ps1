@@ -160,4 +160,9 @@ $env:PYTHONUTF8 = '1'
 # security verdict.
 $ErrorActionPreference = 'Continue'
 & $interpreter.Exe @($interpreter.Pre) $target
+# Copilot CLI invokes this launcher as
+#   powershell -Command "& launch_hook.ps1 ...; exit $LASTEXITCODE"
+# and -Command reports 1 when a nested script exits 2, so it is the caller's
+# trailing `exit $LASTEXITCODE` that carries a guard's 2 out. Codex's
+# commandWindows uses -File, which passes this exit code through unchanged.
 exit $LASTEXITCODE
