@@ -80,6 +80,9 @@ def _run_runner(target: Path) -> tuple[dict | None, str]:
                                   text=True, timeout=110)
         except FileNotFoundError:
             return None, "uv not found on PATH (host toolchain missing)"
+        except OSError as e:
+            # e.g. WinError 448 on an untrusted WinGet uv.exe link.
+            return None, f"uv could not be launched: {e} (host toolchain missing)"
         except subprocess.TimeoutExpired:
             return None, "runner timed out"
         if proc.returncode != 0:

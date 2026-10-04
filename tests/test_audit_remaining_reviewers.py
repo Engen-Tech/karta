@@ -106,7 +106,12 @@ class ReviewerWriteProtection(GitRepo):
         if code == 0:
             if os.name == "nt":
                 # Claude Code's Bash tool runs commands through Git Bash on Windows.
-                git_bash = shutil.which("bash")
+                # Prefer Git Bash over WSL's System32\bash.exe, which is very slow.
+                git = shutil.which("git")
+                roots = [Path(git).resolve().parent.parent] if git else []
+                roots.append(Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git")
+                found = [b for r in roots for b in (r / "bin/bash.exe", r / "usr/bin/bash.exe") if b.is_file()]
+                git_bash = str(found[0]) if found else shutil.which("bash")
                 if git_bash is None:
                     self.skipTest("Git Bash not installed")
                 subprocess.run([git_bash, "-c", command], cwd=self.root,

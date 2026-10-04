@@ -551,7 +551,8 @@ class RecoveryNextSteps(Case):
         na = status_json(r)["next_action"]
         self.assertEqual(na["level"], "cleanup")
         self.assertIn("git worktree remove", na["command"])
-        self.assertIn(str(wt), na["command"])
+        # git worktree list reports forward slashes on Windows.
+        self.assertTrue(str(wt) in na["command"] or wt.as_posix() in na["command"], na["command"])
 
     def test_landed_and_clean_is_calm_done(self):
         r = self.repo()

@@ -244,6 +244,8 @@ class FlowProbesAgreeWithCode(unittest.TestCase):
         probe = load("inventory_contra_probe", "benchmarks/probes/flow-spec-contradictions.py")
         os.environ.setdefault("UV_CACHE_DIR", str(Path(tempfile.gettempdir()) / "gpt-inventory-uv"))
         current, err = probe._run_runner(ROOT)
+        if current is None and "host toolchain missing" in err:
+            self.skipTest(err)
         self.assertIsNotNone(current, err)
         result = probe.assemble(current, None, None)
         missing = [f["finding_id"] for f in result["findings"]
