@@ -1,0 +1,137 @@
+{
+  "slug": "copilot-patch-input-claude-guards",
+  "title": "The Claude-side Edit guards stop a Copilot patch-string edit of a committed binder",
+  "summary": "Copilot CLI can hand a PreToolUse hook the raw apply_patch text as a string tool_input under tool_name Edit or Write. The Codex-twin guards in .codex-plugin/hooks/scripts/ already parse that string and deny a patch that touches a committed binder or a pack (G3, verified on zbook); the Claude-side guards in hooks/scripts/ still treat any non-dict tool_input as allow, so the same edit slips through wherever a consumer repo's .claude/settings.json routes Copilot to them. Port the patch handling to the two Claude-side scripts, with self-tests, and correct FINDINGS.md so G3 is marked done for both sides and the live Windows run of the Claude-side path is owed to G4.",
+  "motivation": "FINDINGS.md G3 requires the patch-string normalizer in both hooks/scripts/ and .codex-plugin/hooks/scripts/, but only the Codex twins got it; the G3 row reads Done while half its spec is unmet.",
+  "scope": {
+    "included": [
+      "hooks/scripts/guard_binder_immutability.py: parse a string tool_input that starts with *** Begin Patch, deny when a patch op touches a committed binder, allow an untracked draft, accept \\ in patch paths",
+      "hooks/scripts/guard_pack_write.py: the same for pack files",
+      "--self-test cases in each script for the four G3 acceptance checks",
+      "FINDINGS.md G3 section and gap table: both sides done; Claude-side live Windows run recorded as a G4 acceptance check"
+    ],
+    "excluded": [
+      "any change to the Codex twins or the plugins/karta projection (already done and verified)",
+      "a shared normalizer module imported by all four guards (each guard stays single-file stdlib so any hook launcher on Windows can run it)",
+      "G4 itself: a consumer repo .github/hooks manifest or .claude/settings.json adaptation",
+      "G2 Stop-hook blocking",
+      "live Copilot run of the Claude-side scripts on zbook (needs the G4 consumer-repo route; deferred there)"
+    ]
+  },
+  "sme": [
+    "karta-house-minimalism",
+    "karta-house-invariants"
+  ],
+  "token_manifest": null,
+  "env_contract": {
+    "command": "uv run scripts/validate_plugin.py --self-test",
+    "supports_isolation": true,
+    "isolation_params": [],
+    "cwd": "."
+  },
+  "runtime_contract": {
+    "runtimes": [
+      {
+        "name": "python",
+        "version": ">=3.11",
+        "manager": "uv"
+      },
+      {
+        "name": "git",
+        "version": ">=2.30"
+      }
+    ],
+    "on_unavailable": "halt"
+  },
+  "work_items": [
+    {
+      "id": "binder-guard-patch-input",
+      "title": "guard_binder_immutability.py (Claude side) denies a patch-string edit of a committed binder",
+      "summary": "Port the Codex twin's patch handling into hooks/scripts/guard_binder_immutability.py so a string tool_input carrying an apply_patch body is parsed and judged like a dict edit.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "touches": [
+        "hooks/scripts/guard_binder_immutability.py"
+      ],
+      "contract": "EDIT hooks/scripts/guard_binder_immutability.py only. Keep it a single stdlib-only file; no new imports from other repo modules. (1) NORMALIZE: when payload['tool_input'] is a str whose lstrip() starts with '*** Begin Patch', treat it as {'command': <string>} regardless of tool_name (Copilot sends Edit or Write; Codex sends apply_patch). A str tool_input that is not a patch still passes, as today. (2) PARSE: copy parse_patch_ops and DIRECTIVE_RE from .codex-plugin/hooks/scripts/guard_binder_immutability.py verbatim in behavior: directives '*** Add File:', '*** Update File:', '*** Delete File:', '*** Move to:'; every patch path has '\\\\' replaced by '/'; content lines are +/- prefixed so a directive-looking line inside file content cannot spoof an op. (3) JUDGE: for each op, resolve the path against payload cwd and apply the script's existing committed-binder rule: a path under .karta/binders/ (not archive/) that is a blob in HEAD of its repo is denied; a path that is not tracked in HEAD (an untracked draft) is allowed; paths outside the binder directory are ignored. Reuse the existing helpers for 'is this a committed binder' rather than adding a second notion; add a _tracked_in_head(path, cwd) helper modeled on the Codex twin only if the existing helpers need an absolute path first. A denied patch exits 2 with the script's existing deny message on stderr naming the binder path; an allowed one exits 0 with no stdout. (4) FAIL-OPEN posture unchanged: unreadable payload, non-git cwd, or any internal error exits 0. (5) SELF-TEST: extend --self-test with at least these cases, each exercised through the real main() against a temp git repo fixture: a bare '*** Add File: .karta/binders/x.json' string on a committed x.json is denied (exit 2); an '*** Update File:' string on a committed binder is denied; the same Update string on an untracked draft binder is allowed; a patch path spelled '.karta\\\\binders\\\\x.json' on a committed x.json is denied (the \\\\ path matches); a non-patch string tool_input still passes. Replace the current 'tool_input not a dict passes' case so it asserts the non-patch string specifically. The summary line stays in the exact form 'N/N checks passed' with N at least 27 (today 22). (6) No change to hooks/hooks.json: the Claude hook manifest already routes Edit|Write|MultiEdit to this script.",
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:this-is-an-enforcement-guard-so-an-over-broad-parse-would-deny-ordinary-edits-and-an-under-broad-one-lets-a-committed-binder-change",
+          "contract:the-patch-string-shape-is-an-external-interface-owned-by-copilot-cli-and-codex-apply-patch-and-is-grounded-only-by-the-zbook-probe-of-2026-10-03"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "assertions": [
+          "the script's own --self-test exits zero and its N/N summary parses with N at least 27",
+          "POSITIVE CONTROL on a purpose-built git fixture: a string tool_input '*** Begin Patch\\n*** Update File: .karta/binders/probe-k9.json\\n@@\\n-a\\n+b\\n*** End Patch' under tool_name Edit against a committed probe-k9.json exits 2 and names the binder on stderr",
+          "the same patch string against an untracked probe-k9.json exits 0 with empty stdout",
+          "the committed-binder denial also fires when the patch path is spelled with backslashes",
+          "a non-patch string tool_input exits 0",
+          "the four Python gates stay clean: validate_plugin.py --self-test ends in PLUGIN INTEGRITY: PASS"
+        ],
+        "command": "sh -c 'set -e; T=hooks/scripts/guard_binder_immutability.py; OUT=$(CLAUDE_PLUGIN_ROOT=\"$PWD\" python3 \"$T\" --self-test); python3 -c \"import re,sys; m=re.search(r\\\"(\\\\d+)/(\\\\d+) checks passed\\\", sys.argv[1]); assert m and m.group(1)==m.group(2) and int(m.group(1))>=27, (\\\"self-test summary missing or under-floor\\\", sys.argv[1][-200:])\" \"$OUT\"; python3 - <<\\PY\nimport json, os, shutil, subprocess, tempfile\nT = os.path.abspath(\"hooks/scripts/guard_binder_immutability.py\")\ng = tempfile.mkdtemp()\nenv = {**os.environ, \"GIT_AUTHOR_NAME\": \"t\", \"GIT_AUTHOR_EMAIL\": \"t@t\", \"GIT_COMMITTER_NAME\": \"t\", \"GIT_COMMITTER_EMAIL\": \"t@t\"}\ndef git(*a): subprocess.run([\"git\", \"-C\", g, *a], check=True, capture_output=True, env=env)\ndef run(ti, name=\"Edit\"):\n    return subprocess.run([\"python3\", T], input=json.dumps({\"hook_event_name\": \"PreToolUse\", \"tool_name\": name, \"cwd\": g, \"tool_input\": ti}), capture_output=True, text=True, env=env)\ngit(\"init\", \"-q\")\nos.makedirs(os.path.join(g, \".karta\", \"binders\"))\nb = os.path.join(g, \".karta\", \"binders\", \"probe-k9.json\")\nopen(b, \"w\").write(\"{}\")\ngit(\"add\", \"-A\"); git(\"commit\", \"-qm\", \"seed\")\npatch = \"*** Begin Patch\\n*** Update File: .karta/binders/probe-k9.json\\n@@\\n-{}\\n+{\\\"x\\\":1}\\n*** End Patch\\n\"\nr = run(patch)\nassert r.returncode == 2 and \"probe-k9.json\" in r.stderr, (\"committed binder patch must be denied\", r.returncode, r.stderr)\nr = run(patch.replace(\".karta/binders/\", \".karta\\\\\\\\binders\\\\\\\\\"), \"Write\")\nassert r.returncode == 2, (\"backslash patch path must still match\", r.returncode, r.stderr)\nr = run(\"just a string\")\nassert r.returncode == 0 and not r.stdout.strip(), (\"non-patch string must pass\", r.returncode)\ngit(\"rm\", \"-q\", \"--cached\", \".karta/binders/probe-k9.json\"); git(\"commit\", \"-qm\", \"untrack\")\nr = run(patch)\nassert r.returncode == 0 and not r.stdout.strip(), (\"untracked draft patch must pass\", r.returncode, r.stderr)\nshutil.rmtree(g, ignore_errors=True)\nprint(\"BINDER-GUARD-PATCH-OK\")\nPY\nuv run scripts/validate_plugin.py --self-test'"
+      }
+    },
+    {
+      "id": "pack-guard-patch-input",
+      "title": "guard_pack_write.py (Claude side) denies a patch-string write into a pack",
+      "summary": "Port the Codex twin's patch handling into hooks/scripts/guard_pack_write.py so a string tool_input carrying an apply_patch body is parsed and judged like a dict write.",
+      "estimate": "M",
+      "depends_on": [],
+      "design_reference": "none",
+      "touches": [
+        "hooks/scripts/guard_pack_write.py"
+      ],
+      "contract": "EDIT hooks/scripts/guard_pack_write.py only. Keep it a single stdlib-only file. (1) NORMALIZE and (2) PARSE exactly as in binder-guard-patch-input: a str tool_input starting '*** Begin Patch' (after lstrip) becomes a patch command whatever tool_name is; parse_patch_ops with the same four directives, '\\\\'-to-'/' on paths, +/- content lines unable to spoof a directive. Copy the behavior from .codex-plugin/hooks/scripts/guard_pack_write.py. (3) JUDGE: for each op whose path resolves (against payload cwd) to a file this script already protects, apply the script's existing rule exactly as it applies to a dict write of that path; for an Add File or Update File op the content to inspect is the patch's + lines for that op, so any content-based check the script performs on dict writes runs over the same bytes. Ops on paths outside the protected set are ignored. Deny exits 2 with the existing message on stderr; allow exits 0 with no stdout. (4) FAIL-OPEN posture unchanged. (5) SELF-TEST: extend --self-test with at least: an '*** Add File:' string targeting a protected pack path is denied; an '*** Update File:' string on a committed pack is denied; the same Update string on a path the script does not protect is allowed; a protected path spelled with '\\\\' separators is denied; a non-patch string tool_input still passes. Summary line stays 'N/N checks passed' with N at least 19 (today 14). (6) No manifest change.",
+      "surface": {
+        "flagged": true,
+        "signals": [
+          "sensitive:this-is-an-enforcement-guard-so-an-over-broad-parse-would-deny-ordinary-edits-and-an-under-broad-one-lets-a-pack-write-through",
+          "contract:the-patch-string-shape-is-an-external-interface-owned-by-copilot-cli-and-codex-apply-patch-and-is-grounded-only-by-the-zbook-probe-of-2026-10-03"
+        ]
+      },
+      "oracle": {
+        "type": "integration",
+        "assertions": [
+          "the script's own --self-test exits zero and its N/N summary parses with N at least 19",
+          "the script contains the '*** Begin Patch' sentinel and a '--self-test' entry point",
+          "a non-patch string tool_input against the repo root exits 0 with empty stdout",
+          "validate_plugin.py --self-test ends in PLUGIN INTEGRITY: PASS"
+        ],
+        "command": "sh -c 'set -e; T=hooks/scripts/guard_pack_write.py; grep -qF -- \"*** Begin Patch\" \"$T\"; grep -qF -- \"--self-test\" \"$T\"; OUT=$(CLAUDE_PLUGIN_ROOT=\"$PWD\" python3 \"$T\" --self-test); python3 -c \"import re,sys; m=re.search(r\\\"(\\\\d+)/(\\\\d+) checks passed\\\", sys.argv[1]); assert m and m.group(1)==m.group(2) and int(m.group(1))>=19, (\\\"self-test summary missing or under-floor\\\", sys.argv[1][-200:])\" \"$OUT\"; R=$(printf \"%s\" \"{\\\"hook_event_name\\\":\\\"PreToolUse\\\",\\\"tool_name\\\":\\\"Write\\\",\\\"cwd\\\":\\\"$PWD\\\",\\\"tool_input\\\":\\\"just a string\\\"}\" | CLAUDE_PLUGIN_ROOT=\"$PWD\" python3 \"$T\"); test -z \"$R\"; uv run scripts/validate_plugin.py --self-test'"
+      }
+    },
+    {
+      "id": "findings-g3-both-sides",
+      "title": "FINDINGS.md says G3 is done on both sides and owes its Windows live run to G4",
+      "summary": "Correct the G3 record so it matches what shipped: Codex side verified live on zbook, Claude side verified by Windows Python self-test, live Claude-side run listed under G4 acceptance.",
+      "estimate": "S",
+      "depends_on": [
+        "binder-guard-patch-input",
+        "pack-guard-patch-input"
+      ],
+      "design_reference": "none",
+      "touches": [
+        "docs/backlog/copilot-parity-gaps/FINDINGS.md"
+      ],
+      "contract": "EDIT docs/backlog/copilot-parity-gaps/FINDINGS.md only. (1) In the G3 section (heading 'G3: Patch-string input'), under 'Done when', state plainly that the Codex twins were verified live on zbook via PowerShell on 2026-10-03 and that the hooks/scripts/ twins are verified by running each script's --self-test under Windows Python on zbook; name the exact commands. (2) Add one acceptance check to the G4 section: with a consumer repo .claude/settings.json routing Edit|Write to hooks/scripts/guard_binder_immutability.py under Copilot on zbook, a patch-string edit of a committed binder is denied. (3) Do not touch the gap table row, the priority list, or any other gap's text. Keep the file's existing heading levels and table style (|-|-| separators, no padded hyphens). No agent attribution anywhere.",
+      "surface": {
+        "flagged": false,
+        "signals": []
+      },
+      "oracle": {
+        "type": "smoke",
+        "assertions": [
+          "the G3 section names both hooks/scripts/ guard scripts and the phrase '--self-test'",
+          "the G4 section mentions guard_binder_immutability.py",
+          "no padded table separator (|---|) was introduced",
+          "no agent attribution strings appear in the file"
+        ],
+        "command": "sh -c 'set -e; F=docs/backlog/copilot-parity-gaps/FINDINGS.md; S=$(awk \"/^### G3:/{p=1} /^### G16:/{p=0} p\" \"$F\"); echo \"$S\" | grep -qF \"hooks/scripts/guard_binder_immutability.py\"; echo \"$S\" | grep -qF \"hooks/scripts/guard_pack_write.py\"; echo \"$S\" | grep -qF -- \"--self-test\"; awk \"/^### G4:/{p=1;print;next} /^### /{p=0} p\" \"$F\" | grep -qF \"guard_binder_immutability.py\"; ! grep -qE \"\\\\|-{3,}\\\\|\" \"$F\"; ! grep -qiE \"co-authored-by|generated with|claude code\" \"$F\"; echo FINDINGS-G3-OK'"
+      }
+    }
+  ]
+}
