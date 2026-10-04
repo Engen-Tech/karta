@@ -764,13 +764,13 @@ measurements, the source list, the per-host breakdown, the Go comparison, and th
 
 ---
 
-## 30. Copilot runs none of karta's guards, and three silent incompatibilities block a straight wiring — *Ready* (researched 2026-10-03; P0 spec in FINDINGS.md)
+## 30. Copilot runs none of karta's guards, and three silent incompatibilities block a straight wiring — *In progress: G1, G3, G16, G17 done, verified on zbook via PowerShell 2026-10-03; G2, G4 and later open*
 
 **What.** `.github/plugin/plugin.json` sets `"hooks": {}`, so no karta guard runs under Copilot. Copilot CLI 1.0.92 now runs Claude-format plugin hooks with Claude-shaped payloads, so most of the gap is wiring. Three things break silently if the Claude hooks are wired as they are: exit 2 does not block Stop or SubagentStop on Copilot (only the JSON `block` decision does); file edits arrive keyed `path` instead of `file_path` (Windows PC) or as a bare apply_patch string (Linux), and the Edit-family guards wave both through; and PowerShell turns a guard's exit 2 into 1 unless the hook command ends with `exit $LASTEXITCODE`, which loses Stop blocks. A real Windows 11 PC run confirmed karta's launcher and guards work under Copilot once those are fixed. Twenty gaps in all, G1–G20, with priority, effort, and the Windows angle for each.
 
-**Why it is not done.** Research only. One real Windows PC probe has run; no guard can be called enforced there until the fixes land and that run is repeated.
+**Status.** `.github/plugin/hooks.json` now wires every guard for Copilot with `bash` and `powershell` entries, and the Codex twin guards accept patch-string edits. On the Windows PC, an edit of a committed binder was denied with exit 2 and left unchanged, an untracked draft was allowed, and SessionStart and Stop hooks ran. Still open: a live Stop block check (G2), the repo gates (G4), and the P1/P2 gaps.
 
-**Unblock path.** Follow the order of work in the findings: fix G3, G16, and G2 in the Codex twin scripts, ship a native `.github/plugin/hooks.json` with separate `bash` and `powershell` entries ending in `exit $LASTEXITCODE` (G1, G17), add `.github/hooks/` for the repo gates (G4), then repeat the Windows smoke test and latency bench (G13, G20) before updating `docs/how-to/copilot-cli.md` (G14).
+**Unblock path.** Check a live Stop block on zbook (G2), add `.github/hooks/` for the repo gates (G4), run the latency bench (G20), then update `docs/how-to/copilot-cli.md` (G14).
 
 **Evidence.** [`copilot-parity-gaps/FINDINGS.md`](copilot-parity-gaps/FINDINGS.md): probe tables from live Copilot CLI runs on Linux, a Windows runner, and a Windows PC, the gap list, and citations to the official hooks and plugin references and the CLI changelog.
 
