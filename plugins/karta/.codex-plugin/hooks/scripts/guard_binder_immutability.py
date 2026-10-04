@@ -125,6 +125,14 @@ def _committed_binder(path: str, cwd: str, tracked) -> bool:
             or _hardlinked_binder(path, cwd))
 
 
+def _as_patch_command(tool_input):
+    """Copilot gives PascalCase hooks the raw patch string as tool_input, under
+    tool_name Edit or Write. Wrap it so it takes the apply_patch path."""
+    if isinstance(tool_input, str) and tool_input.lstrip().startswith("*** Begin Patch"):
+        return {"command": tool_input}
+    return tool_input
+
+
 def parse_patch_ops(text: str) -> list[dict]:
     """apply_patch body -> [{op, path, move_to, changed}]. `changed` is True when
     the op carries content hunks (+/- lines); a pure rename has none. Content
@@ -135,7 +143,8 @@ def parse_patch_ops(text: str) -> list[dict]:
     for line in text.splitlines():
         m = DIRECTIVE_RE.match(line)
         if m:
-            kind, path = m.group(1), m.group(2).strip()
+            # Windows models may spell patch paths with `\` separators.
+            kind, path = m.group(1), m.group(2).strip().replace("\\", "/")
             if kind == "Move to":
                 if cur is not None:
                     cur["move_to"] = path
@@ -190,13 +199,15 @@ def _deny(path: str, what: str) -> tuple[int, str]:
 
 def decide(payload: dict, tracked=_tracked_in_head) -> tuple[int, str]:
     """Return (exit_code, stderr_reason). `tracked` is injectable for the self-test."""
-    tool_input = payload.get("tool_input")
+    tool_input = _as_patch_command(payload.get("tool_input"))
     if not isinstance(tool_input, dict):
         return 0, ""
     cwd = payload.get("cwd") or os.getcwd()
 
     # Claude-shaped fallback: a direct file_path write, should a Codex build send one.
-    for key in ("file_path", "notebook_path"):
+    # `path` is the Copilot CLI spelling (Write {path, file_text}, Edit {path,
+    # old_str, new_str}): this script also serves Copilot's plugin hooks.
+    for key in ("file_path", "notebook_path", "path"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
             if _committed_binder(val, cwd, tracked):
@@ -305,6 +316,42 @@ def _run_self_test() -> int:
          {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
           "tool_input": {"file_path": ".karta/binders/new.json", "content": "{}"}},
          untracked, 0),
+        ("Copilot Edit {path, old_str, new_str} on tracked binder denied",
+         {"hook_event_name": "PreToolUse", "tool_name": "Edit", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/checkout.json",
+                         "old_str": "a", "new_str": "b"}},
+         tracked, 2),
+        ("Copilot Write {path, file_text} on tracked binder denied",
+         {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/checkout.json", "file_text": "{}"}},
+         tracked, 2),
+        ("Copilot Write {path, file_text} on untracked draft passes",
+         {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/draft.json", "file_text": "{}"}},
+         untracked, 0),
+        ("Copilot Edit {path, old_str, new_str} on untracked draft passes",
+         {"hook_event_name": "PreToolUse", "tool_name": "Edit", "cwd": "/tmp",
+          "tool_input": {"path": ".karta/binders/draft.json",
+                         "old_str": "a", "new_str": "b"}},
+         untracked, 0),
+        # Copilot hands PascalCase hooks the raw patch string itself as tool_input,
+        # under tool_name Edit or Write (seen on the Windows PC, 2026-10-03).
+        ("Copilot raw patch string updating tracked binder denied",
+         {**patch("*** Update File: .karta/binders/checkout.json", "@@", "-a", "+b"),
+          "tool_name": "Edit",
+          "tool_input": "*** Begin Patch\n*** Update File: .karta/binders/checkout.json"
+                        "\n@@\n-a\n+b\n*** End Patch"}, tracked, 2),
+        ("Copilot raw patch string re-adding tracked binder denied",
+         {**patch(), "tool_name": "Write",
+          "tool_input": "*** Begin Patch\n*** Add File: .karta/binders/checkout.json"
+                        "\n+{}\n*** End Patch\n"}, tracked, 2),
+        ("Copilot raw patch string on untracked draft passes",
+         {**patch(), "tool_name": "Edit",
+          "tool_input": "*** Begin Patch\n*** Update File: .karta/binders/draft.json"
+                        "\n@@\n+x\n*** End Patch"}, untracked, 0),
+        ("patch path with backslash separators denied on tracked binder",
+         patch("*** Update File: .karta\\binders\\checkout.json", "@@", "-a", "+b"),
+         tracked, 2),
         ("no command and no file_path passes",
          {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": "/tmp",
           "tool_input": {}}, tracked, 0),

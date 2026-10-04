@@ -113,7 +113,9 @@ def _committed_binder(path: str, cwd: str, tracked) -> bool:
 
 
 def _target_path(tool_input: dict) -> str | None:
-    for key in ("file_path", "notebook_path"):
+    # `path` is the Copilot CLI spelling (Write {path, file_text}, Edit {path,
+    # old_str, new_str}); without it every Copilot edit reads as targetless.
+    for key in ("file_path", "notebook_path", "path"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
             return val
@@ -193,6 +195,16 @@ def _run_self_test() -> int:
          pre("Write", file_path=".karta/binders/archive/new.json", content="{}"), untracked, 0),
         ("deeper subdir under binders passes (only archive/ is a binder home)",
          pre("Write", file_path=".karta/binders/archive/nested/x.json", content="{}"), tracked, 0),
+        ("Copilot Write {path, file_text} on tracked binder denied",
+         pre("Write", path=".karta/binders/checkout.json", file_text="{}"), tracked, 2),
+        ("Copilot Edit {path, old_str, new_str} on tracked binder denied",
+         pre("Edit", path=".karta/binders/checkout.json", old_str="a", new_str="b"),
+         tracked, 2),
+        ("Copilot Write {path, file_text} on untracked draft passes",
+         pre("Write", path=".karta/binders/draft.json", file_text="{}"), untracked, 0),
+        ("Copilot Edit {path, old_str, new_str} on untracked draft passes",
+         pre("Edit", path=".karta/binders/draft.json", old_str="a", new_str="b"),
+         untracked, 0),
         ("no target path passes", pre("Write", content="x"), tracked, 0),
         ("tool_input not a dict passes",
          {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": "junk"},

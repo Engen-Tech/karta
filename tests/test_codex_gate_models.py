@@ -97,12 +97,12 @@ class GateModelsTest(unittest.TestCase):
             canonical, _ = sync.parse_agent((self.root / f"agents/{name}.md").read_text(encoding="utf-8"))
             self.assertEqual(canonical["model"], "opus")
 
-    def test_copilot_plugin_selects_native_profiles_and_no_claude_hooks(self):
+    def test_copilot_plugin_selects_native_profiles_and_native_hooks(self):
         artifacts = sync.projections()
         manifest = json.loads(artifacts[self.root / ".github/plugin/plugin.json"])
         self.assertEqual(manifest["name"], "karta")
         self.assertEqual(manifest["version"], "9.8.7")
-        self.assertEqual(manifest["hooks"], {})
+        self.assertEqual(manifest["hooks"], "./.github/plugin/hooks.json")
         for name in ("karta-acceptance-reviewer", "karta-safety-auditor"):
             self.assertIn(self.root / manifest["agents"] / f"{name}.agent.md", artifacts)
 

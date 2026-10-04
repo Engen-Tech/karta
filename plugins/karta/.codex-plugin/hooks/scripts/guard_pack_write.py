@@ -103,6 +103,10 @@ def _patch_writes(raw: str) -> list[dict]:
 def decide(payload: dict) -> tuple[int, str]:
     """Return (exit_code, stderr_message)."""
     tool_input = payload.get("tool_input")
+    if isinstance(tool_input, str) and tool_input.lstrip().startswith("*** Begin Patch"):
+        # Copilot gives PascalCase hooks the raw patch string, under Edit or Write.
+        tool_input = {"command": tool_input}
+        payload = {**payload, "tool_name": "apply_patch", "tool_input": tool_input}
     if payload.get("tool_name") == "apply_patch" and isinstance(tool_input, dict):
         raw = tool_input.get("command")
         if not isinstance(raw, str):
@@ -115,6 +119,9 @@ def decide(payload: dict) -> tuple[int, str]:
                 findings.append(reason)
         return (2, "\n\n".join(findings)) if findings else (0, "")
     target = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not isinstance(target, str) and isinstance(tool_input, dict):
+        # Copilot CLI spells the target `path` (Write {path, file_text}, Edit {path, ...}).
+        target = tool_input.get("path")
     if not isinstance(target, str):
         return 0, ""
     cwd = payload.get("cwd") or os.getcwd()
@@ -146,6 +153,8 @@ def decide(payload: dict) -> tuple[int, str]:
         if payload.get("tool_name") != "Write":
             return 0, ""  # an Edit delta has no full content to validate; PostToolUse covers it
         content = tool_input.get("content")
+        if content is None:
+            content = tool_input.get("file_text")  # Copilot CLI's Write spelling
         if not isinstance(content, str):
             return 0, ""
         with tempfile.TemporaryDirectory() as td:
@@ -238,6 +247,11 @@ def _run_self_test() -> int:
             return {"hook_event_name": "PostToolUse", "tool_name": tool, "cwd": cwd,
                     "tool_input": {"file_path": path}, "tool_response": {"success": True}}
 
+        def copilot_write(path: str, file_text: str) -> dict:
+            # Copilot CLI spells Write as {path, file_text}.
+            return {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": cwd,
+                    "tool_input": {"path": path, "file_text": file_text}}
+
         def codex(event: str, *lines: str) -> dict:
             return {"hook_event_name": event, "tool_name": "apply_patch", "cwd": cwd,
                     "tool_input": {"command": "\n".join(
@@ -302,9 +316,30 @@ def _run_self_test() -> int:
              post("Edit", ".karta/sme/broken.md"), 2, "frontmatter"),
             ("post on missing file passes",
              post("Write", ".karta/sme/ghost.md"), 0, None),
+            ("Copilot pre-write {path, file_text} invalid pack denied",
+             copilot_write(".karta/sme/terraform.md", _INVALID_PACK), 2, "frontmatter"),
+            ("Copilot pre-write {path, file_text} valid pack passes",
+             copilot_write(".karta/sme/terraform.md", _VALID_PACK), 0, None),
+            ("Copilot post-edit {path} invalid pack on disk feeds back",
+             {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": cwd,
+              "tool_input": {"path": ".karta/sme/broken.md", "old_str": "a", "new_str": "b"},
+              "tool_response": {"success": True}}, 2, "frontmatter"),
             ("tool_input not a dict passes",
              {"hook_event_name": "PostToolUse", "tool_name": "Write", "cwd": cwd,
               "tool_input": "junk"}, 0, None),
+            # Copilot hands PascalCase hooks the raw patch string itself as tool_input.
+            ("Copilot raw patch string adding invalid pack denied",
+             {**codex("PreToolUse", "*** Add File: .karta/sme/broken.md", "+bad"),
+              "tool_name": "Edit",
+              "tool_input": "*** Begin Patch\n*** Add File: .karta/sme/broken.md"
+                            "\n+bad\n*** End Patch"}, 2, "frontmatter"),
+            ("Copilot raw patch string update reported from disk",
+             {**codex("PostToolUse"), "tool_name": "Edit",
+              "tool_input": "*** Begin Patch\n*** Update File: .karta/sme/broken.md"
+                            "\n@@\n+bad\n*** End Patch"}, 2, "frontmatter"),
+            ("patch path with backslash separators is checked",
+             codex("PreToolUse", "*** Add File: .karta\\sme\\broken.md", "+bad"),
+             2, "frontmatter"),
         ]
         crlf = codex("PreToolUse", "*** Add File: .karta/sme/terraform.md",
                      *("+" + line for line in _VALID_PACK.splitlines()))

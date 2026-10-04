@@ -154,9 +154,9 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 
 |#|Gap|Priority|Effort|Windows angle|
 |-|-|-|-|-|
-|G1|No hooks wired for Copilot|P0|M|needs a `powershell` launcher|
+|G1|No hooks wired for Copilot|Done, verified on zbook via PowerShell 2026-10-03|M|needs a `powershell` launcher|
 |G2|Stop, SubagentStop, and PostToolUse guards signal with exit 2|P0|S|same fix on both|
-|G3|Edit guards ignore patch-string `tool_input`|P0|S|`\` separators in patch paths; the Windows PC sent dicts instead (G16)|
+|G3|Edit guards ignore patch-string `tool_input`|Done, verified on zbook via PowerShell 2026-10-03|S|`\` separators in patch paths; the PC sent dicts in one run and a patch string under `Edit` in another|
 |G4|Repo `.claude/settings.json` gates fire under Copilot, unadapted|P0|S|errored on the runner; `uv` could not start from a hook on the PC|
 |G5|SessionStart status uses Claude output conventions|P1|S|none|
 |G6|Three of five agents have no Copilot profile|P1|S|none|
@@ -169,15 +169,15 @@ missing. **P2** = useful, not urgent. Effort: S under a day, M a few days, L a w
 |G13|Windows real-machine verification|Done 2026-10-03, see [Windows PC probe](#windows-pc-probe-real-machine)|M|pwsh CI job still to add|
 |G14|Docs describe Copilot as skills plus two reviewers|P1|S|Windows install steps|
 |G15|Optional Copilot-only surfaces unused|P2|L|varies|
-|G16|Edit guards read only `file_path`; Copilot sends `path` and `file_text`|P0|S|seen on the Windows PC|
-|G17|Hook commands lose exit 2 without an explicit `exit $LASTEXITCODE`|P0|S|PowerShell only|
+|G16|Edit guards read only `file_path`; Copilot sends `path` and `file_text`|Done, verified on zbook via PowerShell 2026-10-03|S|seen on the Windows PC|
+|G17|Hook commands lose exit 2 without an explicit `exit $LASTEXITCODE`|Done, verified on zbook via PowerShell 2026-10-03|S|PowerShell only|
 |G18|The model never sees the PreToolUse deny reason|P1|S|seen on the Windows PC|
 |G19|The agent can satisfy the Stop guard by forging the done ref|P1|M|none|
 |G20|About 1 s per matched tool call on Windows|P2|M|two pwsh starts with a shim|
 
 ### Priority order
 
-Execution order within each tier. Done: G13.
+Execution order within each tier. Done: G13, G3, G16, G17, G1.
 
 **P0**
 
@@ -216,7 +216,7 @@ order. Source for every fact below is the gap sections and the probes in this do
 Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispatched through the
 `powershell` entry. Linux `copilot -p` and `--self-test` runs are necessary but not sufficient.
 
-### G3: Patch-string input
+### G3: Patch-string input — Done, verified on zbook via PowerShell 2026-10-03
 
 - **Change.** Add one shared normalizer to the Edit-family guards (`guard_binder_immutability.py`,
   `guard_pack_write.py`) in both `hooks/scripts/` and `.codex-plugin/hooks/scripts/`. A string
@@ -229,7 +229,7 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
 - **Depends on.** None.
 - **Done when.** Every Edit-family guard denies a patch-string edit of a committed binder; passes on zbook via PowerShell.
 
-### G16: `path` and `file_text` keys
+### G16: `path` and `file_text` keys — Done, verified on zbook via PowerShell 2026-10-03
 
 - **Change.** In the same normalizer, map `path` to `file_path`, `file_text` to `content`, and
   `old_str`/`new_str` to `old_string`/`new_string`. Check each Edit-family guard for other keys it
@@ -255,7 +255,7 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
 - **Depends on.** None for the scripts; G1 for the live run.
 - **Done when.** A Stop block from the delivery guard continues the Copilot session; passes on zbook via PowerShell.
 
-### G1: Native hooks file
+### G1: Native hooks file — Done, verified on zbook via PowerShell 2026-10-03
 
 - **Change.**
   - Add `.github/plugin/hooks.json`: `{"version": 1, "hooks": {...}}`, PascalCase events
@@ -279,7 +279,7 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
 - **Depends on.** G16 and G17.
 - **Done when.** The smoke test passes on Linux and on the zbook; passes on zbook via PowerShell.
 
-### G17: Explicit exit code
+### G17: Explicit exit code — Done, verified on zbook via PowerShell 2026-10-03
 
 - **Change.** Every `powershell` entry in `hooks.json` ends with `; exit $LASTEXITCODE`. Add the
   check to the manifest test. `launch_hook.ps1` already passes the guard's code through.
@@ -303,6 +303,45 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
 - **Done when.** A Windows contributor can run Copilot in a karta checkout without every shell
   call failing closed; passes on zbook via PowerShell.
 
+### PowerShell verification on zbook (2026-10-03)
+
+**What shipped.** `.github/plugin/hooks.json` in the native schema, pointed at by
+`.github/plugin/plugin.json`. Every guard in `.codex-plugin/hooks/scripts` has a `bash` entry and
+a `powershell` entry; each `powershell` entry calls `launch_hook.ps1` and ends with
+`exit $LASTEXITCODE`. `tests/test_copilot_hooks_manifest.py` checks all of that, and that no
+`powershell` command contains `${`. The Codex twins of `guard_binder_immutability.py` and
+`guard_pack_write.py` now wrap a string `tool_input` that starts with `*** Begin Patch` as
+`{"command": <string>}`, whatever `tool_name` is, and read `\` separators in patch paths
+(`guard_pack_write.py` no longer requires `tool_name == "apply_patch"`). The binder guard already
+read `path`. No guard needs `old_str`/`new_str` content: the pack guard skips PreToolUse `Edit`
+and reads PostToolUse results from disk. The Claude originals in `hooks/scripts/` are unchanged;
+Copilot runs only the Codex twins.
+
+**New finding.** With the `-p` default model (gpt-6-luna) on 1.0.92-3, an edit of an existing file
+arrived as `tool_name: "Edit"` with `tool_input` set to the raw `*** Begin Patch` string. Before
+the G3 fix, the binder guard allowed it and the committed binder was changed.
+
+**Setup.** Copilot 1.0.92-3, pwsh 7.6.6, Python 3.14.3. Old `karta@karta` 2.30.0 uninstalled, its
+GitHub marketplace removed, and the 2.38.4 branch build added as a local marketplace
+(`copilot plugin marketplace add C:\Users\Developer\karta-probe\karta-2.38.4`,
+`copilot plugin install karta@karta`). Test repo: fresh `git init` with a committed
+`.karta/binders/test.json`. Each run: `copilot -p "<prompt>" --allow-all-tools --deny-tool=shell
+--no-ask-user --log-dir <dir> --log-level all`, from `pwsh -NoProfile -File probe5.ps1`.
+
+|Check|Result|
+|-|-|
+|(a) every guard `--self-test`, Windows Python|all 15 pass, e.g. `.codex-plugin` binder 39/39, pack write 39/39, writer confinement 151/151|
+|(b) edit the committed binder|`Denied by preToolUse hook: hook exited with code 2`; SHA-256 `01337E9F…592E5E` before and after; `git status` empty|
+|(c) create an untracked draft binder|allowed; `?? .karta/binders/draft.json`|
+|(d) SessionStart and Stop fire|session `events.jsonl`: `sessionStart success=True`, `preToolUse`, `postToolUse`, `agentStop success=True`; process log: `[hook stdout] <karta-status>`|
+
+Exit 2 arrived as 2, not as "hook errored" (G17). Linux: all self-tests, the manifest test, and
+the full suite pass.
+
+**Not verified on zbook.** A live Stop `{"decision":"block"}` continuing a session (G2, and G17's
+Stop half); a dict-shaped `{path, old_str, new_str}` edit live (this model sent patch strings, so
+the dict path is covered by self-tests only); Linux `copilot -p`.
+
 ### Summary
 
 |Gap|Files|Acceptance check|Depends on|
@@ -314,7 +353,10 @@ Windows PC `zbook`, with Copilot CLI run through PowerShell/pwsh and hooks dispa
 |G17|`.github/plugin/hooks.json`, manifest test|exit 2 arrives as 2 from pwsh on zbook; Stop block works|none|
 |G4|`.github/hooks/karta-repo.json`, `.claude/settings.json`|repo gates run once under Copilot via PowerShell on zbook with no `uv` denial|G1|
 
-### G1 (P0) — No hooks wired for Copilot
+### G1 (done) — No hooks wired for Copilot: verified on zbook via PowerShell 2026-10-03
+
+See [PowerShell verification on zbook](#powershell-verification-on-zbook-2026-10-03) for what
+shipped and the outputs. The section below is the original research.
 
 **Now.** `.github/plugin/plugin.json` has `"hooks": {}`. The test
 `test_copilot_plugin_selects_native_profiles_and_no_claude_hooks`
@@ -366,7 +408,7 @@ row and sets `stop_hook_active` in the payload [hooks-ref].
 pack findings, emit `hookSpecificOutput.additionalContext` so the model sees them. Stdout must hold
 exactly one JSON object [hooks-ref], so check that no guard prints anything else to stdout.
 
-### G3 (P0) — Edit guards ignore patch-string `tool_input`
+### G3 (done) — Edit guards ignore patch-string `tool_input`: verified on zbook via PowerShell 2026-10-03
 
 **Now.** `hooks/scripts/guard_binder_immutability.py:89` and `guard_pack_write.py:97` treat a
 non-dict `tool_input` as nothing to check and allow it. The Codex twins parse patches, but only
@@ -535,7 +577,7 @@ replace the browser tab); `/every` and `/after` for scheduled re-checks; `errorO
 `postToolUseFailure` events for richer failure reports; `--acp` for editor hosts. Pick these up
 only after G1–G14.
 
-### G16 (P0) — Edit guards read only `file_path`; Copilot sends `path`
+### G16 (done) — Edit guards read only `file_path`; Copilot sends `path`: verified on zbook via PowerShell 2026-10-03
 
 **Now.** `guard_binder_immutability.py` reads `tool_input.file_path`, `notebook_path`, and
 `command`. The other Edit-family guards likely read the same keys; check each.
@@ -548,7 +590,7 @@ a Claude-shaped payload, the same launcher and guard denied it with exit 2.
 `old_str`/`new_str` to `old_string`/`new_string`. Add self-test cases for both shapes. Re-check the
 Linux payload, which the Linux probe saw as a patch string.
 
-### G17 (P0) — Hook commands lose exit 2 without an explicit `exit`
+### G17 (done) — Hook commands lose exit 2 without an explicit `exit`: verified on zbook via PowerShell 2026-10-03
 
 **Copilot does.** In a `powershell` entry, `& script.ps1` with no top-level `exit` reports 1 when
 the script exits 2 (Windows PC). PreToolUse then denies as "hook errored", which hides the cause.
