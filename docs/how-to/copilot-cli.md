@@ -67,6 +67,12 @@ The known gaps, including what blocks wiring karta's guards on Copilot and on
 Windows, are listed in
 [the Copilot parity gap analysis](../backlog/copilot-parity-gaps/FINDINGS.md).
 
+In this checkout, the repo commit gates (`precommit_gate.py` and
+`roundtable_gate.py`) run on Copilot from `.github/hooks/karta-repo.json`. That
+manifest sets `KARTA_HOOK_SOURCE=copilot`, so the copies in `.claude/settings.json`
+do nothing under Copilot and each gate runs once. On Copilot, a gate that times
+out lets the command through.
+
 The profiles retain read, search, and shell (`execute`) tools for inspecting the
 actual diff. They expose no editing tool, and their prompts forbid writes. Shell
 access is still controlled by Copilot's host permissions, and no Karta
