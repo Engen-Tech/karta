@@ -71,7 +71,8 @@ In this checkout, the repo commit gates (`precommit_gate.py` and
 `roundtable_gate.py`) run on Copilot from `.github/hooks/karta-repo.json`. That
 manifest sets `KARTA_HOOK_SOURCE=copilot`, so the copies in `.claude/settings.json`
 do nothing under Copilot and each gate runs once. On Copilot, a gate that times
-out lets the command through.
+out lets the command through. On Windows the `.claude/settings.json` copies fail
+before they reach that check; see [Windows](#windows).
 
 The profiles retain read, search, and shell (`execute`) tools for inspecting the
 actual diff. They expose no editing tool, and their prompts forbid writes. Shell
@@ -82,6 +83,78 @@ instruction-level here, not an OS-enforced sandbox. This was not exercised again
 a live Copilot session. The existing acceptance assertions, safety checks, and retry
 limits remain in the canonical reviewer prompts; the retry counts themselves are kept
 by `karta-verify`'s attempt ledger.
+
+## Windows
+
+These notes come from a live run on Windows 11 with PowerShell 7.6.6, Copilot
+CLI 1.0.92-3, and an enterprise policy that disables bypass-permissions.
+
+### Legacy `.claude/settings.json` hooks block every tool call
+
+Copilot CLI also reads the hooks in `.claude/settings.json`. Its logs show them as
+source "repo settings", and they fail closed. On Windows, Copilot runs each hook
+`command` string through PowerShell, not bash, and it does not set
+`CLAUDE_PROJECT_DIR`. The karta entries there, such as
+`uv run --script "${CLAUDE_PROJECT_DIR}/scripts/hooks/precommit_gate.py"`, break
+in two ways:
+
+1. PowerShell cannot start `uv` installed with WinGet, which is a symlink at
+   `%LOCALAPPDATA%\Microsoft\WinGet\Links\uv.exe`. The error is
+   `Program 'uv.exe' failed to run ... No application is associated with the specified file for this operation.`
+   To get past it, put the real package directory
+   `%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe`
+   ahead of the `Links` directory on `PATH`. Also set `UV_PYTHON` and
+   `UV_NO_MANAGED_PYTHON=1`: uv-managed Pythons under `AppData\Roaming` hit the
+   same launch error.
+2. Even when `uv` starts, PowerShell expands `${CLAUDE_PROJECT_DIR}` as an empty
+   PowerShell variable. The path becomes `C:\scripts\hooks\precommit_gate.py`
+   and the hook fails with `can't open file 'C:\\scripts\\hooks\\precommit_gate.py'`.
+
+Copilot then denies every tool call, even `echo ok`, with
+`Denied by preToolUse hook from "repo settings" (hook errored)`.
+
+This is a Copilot CLI defect, tracked upstream as
+[github/copilot-cli#4001](https://github.com/github/copilot-cli/issues/4001)
+(hooks run through PowerShell and `$CLAUDE_PROJECT_DIR` is not set) and
+[github/copilot-cli#4399](https://github.com/github/copilot-cli/issues/4399)
+(shell operators in cross-tool hooks break on Windows PowerShell). Until it is
+fixed, a Windows Copilot user of this repo cannot get any tool call allowed while
+the `.claude/settings.json` hooks are present. Do not edit that file to work around
+it: Claude Code depends on it.
+
+The supported path on Windows is `.github/hooks/karta-repo.json`. Its entries
+declare separate `bash` and `powershell` commands, and the PowerShell command goes
+through `.codex-plugin/hooks/launch_hook.ps1`. Those entries pass.
+
+Setting `disableAllHooks` in `.github/copilot/settings.json` stops the failure,
+but it also disables the karta gates. It is a blunt escape hatch, not a fix.
+
+### Commit gates and timing
+
+Both gates pass under Copilot on Windows: `precommit_gate.py` and
+`roundtable_gate.py` (the latter needs the [hook environment](#hook-environment)
+allowance). A `git commit` took about 9 minutes end to end on the test laptop.
+Most of that is `validate_plugin.py`, which took 441–545 s with its default
+parallel pool and 992 s serially. The pool size is `min(8, max(2, cpu_count))`;
+set `KARTA_VALIDATE_JOBS=<int>` to change it, or `KARTA_VALIDATE_JOBS=1` for the
+serial path.
+
+| Budget | Seconds |
+|-|-|
+| Each other gate in `precommit_gate.py` | 100 |
+| `validate_plugin.py` | 720 |
+| Outer hook timeout, `precommit_gate.py` | 1200 |
+| Outer hook timeout, `roundtable_gate.py` | 600 |
+
+The cost is per process, not per file scanned. Windows Defender exclusions made no
+measurable difference. Measured startup costs:
+
+| Process | Cost per call |
+|-|-|
+| `python` | 38 ms |
+| `git` | about 80 ms |
+| guard hook | 105 ms |
+| `pwsh -Command` | about 360 ms |
 
 ## Contributors
 
